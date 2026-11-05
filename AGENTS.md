@@ -112,7 +112,7 @@ Errors are `Schema.TaggedError` classes in `src/errors.ts`, each with a row in t
 - If a fix hasn't worked after two attempts with no new diagnostic step in between, stop. Write down what you learned, list two or three other root-cause hypotheses, and ask which to pursue. Running a new diagnostic between attempts resets the count.
 - Read logs and error output before guessing.
 
-`bun run dev` appends JSON records to `logs/cli.jsonl` and copies stderr to `logs/cli.log` (rotated past 5 MB). Set `LOG_LEVEL=debug` for more; `FORMAN_LOG_FORMAT=json` switches stderr to JSON. Each run ends with one `command` record (command, exit code, error tag, duration) at the configured level.
+`bun run dev` appends JSON records to `logs/cli.jsonl` and copies stderr to `logs/cli.log` (rotated past 5 MB). Set `LOG_LEVEL=debug` for more; `FORMAN_LOG_FORMAT=json` switches stderr to JSON. Each run emits one `command` record (command, exit code, error tag, duration): debug on success, error on failure, filtered by the configured level.
 
 ## Git hooks
 

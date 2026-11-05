@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Schema } from "effect";
+import { DoctorResult } from "../src/schemas/doctor";
 import { PackageInfo } from "../src/schemas/package";
 
 const metadata = Schema.decodeUnknownSync(PackageInfo)(
@@ -28,6 +29,7 @@ test("compiled output, config precedence, log records, errors, and no dotenv aut
         cwd: home,
         env: {
           HOME: home,
+          CODEX_BIN: join(home, "missing-codex"),
           XDG_CONFIG_HOME: join(home, "config"),
           NO_COLOR: "1",
           [`${prefix}_LOG_FILE`]: log,
@@ -45,12 +47,16 @@ test("compiled output, config precedence, log records, errors, and no dotenv aut
     };
     const result = await run(["doctor", "--json"]);
     expect(result.status).toBe(0);
-    expect(JSON.parse(result.stdout)).toMatchObject({
+    expect(Schema.decodeUnknownSync(DoctorResult)(JSON.parse(result.stdout))).toMatchObject({
       name: metadata.name,
       version: metadata.version ?? "dev",
       compiled: true,
       greeting: "file",
       configError: null,
+      codexVersion: null,
+      protocolMatches: null,
+      loggedIn: null,
+      daemon: { state: "not running" },
     });
     const records = result.stderr
       .trim()
@@ -84,6 +90,22 @@ test("compiled output, config precedence, log records, errors, and no dotenv aut
       expect(output.stdout).toContain(
         args[0] === "--version" ? (metadata.version ?? "dev") : metadata.name,
       );
+      if (args[0] === "--help") {
+        for (const command of [
+          "start",
+          "status",
+          "events",
+          "steer",
+          "followup",
+          "interrupt",
+          "answer",
+          "result",
+          "wait",
+          "doctor",
+        ])
+          expect(output.stdout).toMatch(new RegExp(`\\b${command}\\b`));
+        expect(output.stdout).not.toMatch(/^\s+daemon\b/m);
+      }
     }
   } finally {
     await rm(home, { recursive: true, force: true });
