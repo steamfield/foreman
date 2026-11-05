@@ -116,6 +116,43 @@ function machine(stdout: string) {
 }
 
 describe("command requests through the real parser and daemon", () => {
+  it.each([false, true])("stops the daemon through the parser, json=%s", async (json) => {
+    const f = await fixture();
+    const result = await f.run(["daemon", "stop", ...(json ? ["--json"] : [])]);
+    expect(result).toEqual({
+      status: 0,
+      stdout: json ? '{"_tag":"Ok"}\n' : "Daemon stopped.\n",
+      stderr: "",
+    });
+    expect(f.requests).toEqual([{ _tag: "Shutdown" }]);
+  });
+
+  it("reports a shutdown refusal with its active run names", async () => {
+    const f = await fixture(new RunConflict({ detail: "Active runs: unit-a, unit-b" }));
+    const result = await f.run(["daemon", "stop", "--json"], { LOG_LEVEL: "none" });
+    expect(result.status).toBe(8);
+    expect(result.stdout).toBe("");
+    expect(JSON.parse(result.stderr)).toMatchObject({
+      error: { tag: "RunConflict", detail: "Active runs: unit-a, unit-b" },
+    });
+  });
+
+  it.each([false, true])("reports no daemon without starting one, json=%s", async (json) => {
+    const dataDir = await mkdtemp("/tmp/fm-stop-");
+    onTestFinished(() => rm(dataDir, { recursive: true, force: true }));
+    const result = await runCli(["daemon", "stop", ...(json ? ["--json"] : [])], {
+      home: dataDir,
+      env: { TEST_CLI_DATA_DIR: dataDir },
+    });
+    expect(result).toEqual({
+      status: 0,
+      stdout: json ? '{"_tag":"Ok"}\n' : "Daemon: not running.\n",
+      stderr: "",
+    });
+    await expect(readFile(join(dataDir, "forman.sock"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(readFile(join(dataDir, "daemon.lock"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("sends start overrides, real worktree paths and contract text", async () => {
     const f = await fixture();
     await writeFile(join(f.dataDir, "contract.md"), "Implement this.\n");

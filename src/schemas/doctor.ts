@@ -15,7 +15,7 @@ export const DoctorResult = Schema.Struct({
   compiled: Schema.Boolean,
   configFile: Schema.String,
   dataDir: Schema.String,
-  greeting: Schema.NullOr(Schema.String),
+  codexBin: Schema.String,
   configError: Schema.NullOr(Schema.String),
   codexVersion: Schema.NullOr(Schema.String),
   protocolMatches: Schema.NullOr(Schema.Boolean),

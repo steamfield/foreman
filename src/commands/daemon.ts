@@ -1,6 +1,7 @@
 import { Effect, Logger, Path, Queue, References, Stream } from "effect";
 import { Command } from "effect/cli";
 import { AppConfig } from "../config";
+import { shutdown } from "../daemon/client";
 import { daemon } from "../daemon/server";
 import { entry } from "../logging";
 import { Host } from "../services/host";
@@ -8,6 +9,20 @@ import { Invocation } from "../services/invocation";
 import { Output } from "../services/output";
 import { makeSupervisor } from "../supervisor";
 import { makeLogAppender } from "../supervisor/app-server";
+
+const stopCommand = Command.make(
+  "stop",
+  {},
+  Effect.fn(function* () {
+    yield* Effect.flatMap(Invocation, (invocation) => invocation.named("daemon stop"));
+    const config = yield* AppConfig;
+    const stopped = yield* shutdown(config.dataDir);
+    yield* (yield* Output).result(
+      { _tag: "Ok" },
+      stopped ? "Daemon stopped." : "Daemon: not running.",
+    );
+  }),
+).pipe(Command.withDescription("Stop an inactive daemon without starting one."));
 
 export const daemonCommand = Command.make(
   "daemon",
@@ -61,4 +76,7 @@ export const daemonCommand = Command.make(
       );
     }).pipe(Effect.provide(Logger.layer([logger])));
   }),
-).pipe(Command.withDescription("Run the background supervisor."));
+).pipe(
+  Command.withDescription("Run the background supervisor."),
+  Command.withSubcommands([stopCommand]),
+);

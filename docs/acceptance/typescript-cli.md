@@ -15,14 +15,14 @@ assert only the decoded setting: assert records actually emitted and suppressed.
 | Failed command at default level | Command record is emitted at error, with the existing error envelope |
 | Invalid file level | Doctor still reports the config problem and uses the safe fallback |
 | Two invocations with different files/levels | No level, config or buffered-log state leaks |
-| CODEX_BIN / CODEX_HOME set, absent or blank | Explicit env values win over defaults; blank is absent; defaults are `codex` and `$HOME/.codex`, independent of XDG paths |
+| CODEX_BIN / file codexBin set, absent or blank env | Environment wins over file, file over default `codex`; doctor reports the resolved executable |
+| CODEX_HOME set, absent or blank | Explicit env wins over `$HOME/.codex`; blank is absent, independent of XDG paths |
 
-Exercise file/env/default precedence for another non-secret setting through the
-command result too. If a command exposes an explicit setting flag, assert its
+Exercise file/env/default precedence for `codexBin` through `doctor --json` too. If a command exposes an explicit setting flag, assert its
 precedence over env and file; do not add a logging flag just for these tests.
 
 Assert status and both streams for human and JSON doctor, including invalid
 configuration. Decode JSONL log records and check levels, UTC time, command,
 duration and outcome; assert no secret values. The compiled binary suite repeats
-file-only logging and the env override using a clean environment. A test that
+file-only logging and `codexBin` file/env/default precedence using a clean environment. A test that
 only sees logLevel in a decoded object does not satisfy this contract.

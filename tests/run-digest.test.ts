@@ -231,12 +231,59 @@ describe("human digest", () => {
         "question:  q2 (blocked) pending 1m10s: lint rejects the CLI-help test's runtime imports under src/",
         "commands:  84 (3 failed, 1 blocked by repo hooks)",
         "  last:    bun run test:unit tests/cli.test.ts  exit=1",
-        "files written:  src/cli.ts, src/commands/run.ts, tests/cli.test.ts",
+        "files written:",
+        "  src/cli.ts",
+        "  src/commands/run.ts",
+        "  tests/cli.test.ts",
         "outside May change:  (none)",
-        "new in git status since start:  ?? src/commands/run.ts",
+        "new in git status since start:",
+        "  ?? src/commands/run.ts",
         "tokens:    4.1M in (96% cached), 31K out",
       ].join("\n"),
     );
+  });
+
+  it.each([
+    { command: "python <<'PY'\nprint('hello')\nPY", rendered: "python <<'PY'" },
+    { command: "x".repeat(300), rendered: `${"x".repeat(159)}…` },
+    { command: "x".repeat(160), rendered: "x".repeat(160) },
+    { command: "bun run lint", rendered: "bun run lint" },
+  ])(
+    "keeps the last command to one line and 160 characters: $rendered",
+    ({ command, rendered }) => {
+      const digest = fullDigest();
+      const text = renderDigest({
+        ...digest,
+        commands: { ...digest.commands, last: { command, exitCode: 0 } },
+      });
+      expect(text.split("\n").filter((line) => line.includes("last:"))).toEqual([
+        `  last:    ${rendered}  exit=0`,
+      ]);
+      expect(text).not.toContain("print('hello')");
+    },
+  );
+
+  it("indents and caps each file list at 50 entries, preserving git status codes", () => {
+    const entries = Array.from({ length: 53 }, (_, i) => `src/file-${i}.ts`);
+    const text = renderDigest({
+      ...fullDigest(),
+      filesWritten: entries,
+      outsideMayChange: entries,
+      newInGitStatus: entries.map((path) => ` M ${path}`),
+    });
+    for (const label of ["files written", "outside May change", "new in git status since start"]) {
+      const expected = entries
+        .slice(0, 50)
+        .map((path) => `  ${label.startsWith("new") ? "M  " : ""}${path}`);
+      expect(text).toContain([`${label}:`, ...expected, "  … 3 more"].join("\n"));
+    }
+    expect(text).not.toContain("file-50.ts");
+    expect(
+      renderDigest({
+        ...fullDigest(),
+        newInGitStatus: ["M  staged.ts", "MM both.ts", "?? new.ts"],
+      }),
+    ).toContain("new in git status since start:\n  M  staged.ts\n  MM both.ts\n  ?? new.ts");
   });
 
   it("renders a minimal digest and all none cases", () => {

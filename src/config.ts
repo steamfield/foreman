@@ -12,12 +12,12 @@ export const levels = {
   none: "None",
 } as const;
 const Level = Schema.Literals(["trace", "debug", "info", "warn", "error", "fatal", "none"]);
-const Greeting = Schema.String.check(Schema.isPattern(/\S/));
+const CodexBin = Schema.String.check(Schema.isPattern(/\S/));
 const ConfigFile = Schema.Struct({
-  greeting: Schema.optionalKey(Greeting),
+  codexBin: Schema.optionalKey(CodexBin),
   logLevel: Schema.optionalKey(Level),
 });
-export type Settings = { greeting: string };
+export type Settings = { codexBin: string };
 export type LogSettings = {
   level: (typeof levels)[keyof typeof levels];
   format: "json" | "pretty";
@@ -58,7 +58,7 @@ export class AppConfig extends Context.Service<
         const configFile = path.join(base, host.name, "config.json");
         const dataHome = yield* text("XDG_DATA_HOME", path.join(home, ".local/share"));
         const dataDir = yield* text(`${prefix}_DATA_DIR`, path.join(dataHome, host.name));
-        const codexBin = yield* text("CODEX_BIN", "codex");
+        const environmentCodexBin = yield* text("CODEX_BIN");
         const codexHome = yield* text("CODEX_HOME", path.join(home, ".codex"));
         const file = yield* Effect.cached(
           fs.readFileString(configFile).pipe(
@@ -85,13 +85,17 @@ export class AppConfig extends Context.Service<
                 error instanceof PermissionDenied ? error : new InvalidConfig(),
               ),
             );
-            const greeting = yield* text(`${prefix}_GREETING`, config.greeting ?? "Hello, world!");
-            return {
-              greeting: yield* Schema.decodeUnknownEffect(Greeting)(greeting).pipe(
-                Effect.mapError(() => new InvalidConfig()),
-              ),
-            };
+            return { codexBin: environmentCodexBin || config.codexBin || "codex" };
           }),
+        );
+        const codexBin = yield* file.pipe(
+          Effect.flatMap((value) =>
+            Schema.decodeUnknownEffect(Schema.Struct({ codexBin: Schema.optionalKey(CodexBin) }))(
+              value,
+            ),
+          ),
+          Effect.map((settings) => environmentCodexBin || settings.codexBin || "codex"),
+          Effect.orElseSucceed(() => environmentCodexBin || "codex"),
         );
         const logging = Effect.gen(function* () {
           const config = yield* file.pipe(

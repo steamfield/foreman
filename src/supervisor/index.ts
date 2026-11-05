@@ -2,9 +2,9 @@ import { Cause, Deferred, Effect, Fiber, type FileSystem, type Path, Schema, Sco
 import type { ChildProcessSpawner } from "effect/process";
 import { AppConfig } from "../config";
 import * as Store from "../core/runs/store";
-import { failure } from "../errors";
+import { failure, RunConflict } from "../errors";
 import * as Codex from "../schemas/codex";
-import type { DaemonRequestBody, DaemonResult } from "../schemas/daemon";
+import { activeStates, type DaemonRequestBody, type DaemonResult } from "../schemas/daemon";
 import { Host } from "../services/host";
 import { type AppServer, makeAppServer } from "./app-server";
 import { handleNotification } from "./notifications";
@@ -64,6 +64,11 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
   const servers = yield* makeAppServer(config, host.version, registry, notification, request);
   const questions = yield* makeQuestions(registry);
   const turns = yield* makeTurns(registry, servers, config);
+  let stopping = false;
+  const acceptingStarts = Effect.gen(function* () {
+    if (stopping)
+      return yield* new RunConflict({ detail: "Daemon is stopping; retry after it exits." });
+  });
   const dispatch = Effect.fnUntraced(function* (
     body: DaemonRequestBody,
   ): Effect.fn.Return<
@@ -74,11 +79,26 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
     switch (body._tag) {
       case "Ping":
         return { _tag: "Pong", version: host.version, pid: host.pid };
+      case "Shutdown":
+        return yield* registry.starts.withPermits(1)(
+          Effect.gen(function* () {
+            const active = [...registry.runs.values()]
+              .filter((run) => activeStates.has(run.record.state))
+              .map((run) => run.record.name);
+            if (active.length > 0)
+              return yield* new RunConflict({ detail: `Active runs: ${active.join(", ")}` });
+            stopping = true;
+            return { _tag: "Ok" as const };
+          }),
+        );
       case "Start":
-        return yield* registry.starts.withPermits(1)(turns.start(body));
+        return yield* registry.starts.withPermits(1)(
+          acceptingStarts.pipe(Effect.andThen(turns.start(body))),
+        );
       case "Followup": {
         return yield* registry.starts.withPermits(1)(
           Effect.gen(function* () {
+            yield* acceptingStarts;
             const run = yield* registry.lookup(body.name);
             yield* run.lock.withPermits(1)(turns.followup(run, body));
             return { _tag: "Ok" as const };
@@ -111,12 +131,16 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
             switch (body._tag) {
               case "Events":
                 return yield* Store.readEvents(run.dir, body.after, body.limit);
-              case "Result":
+              case "Result": {
+                const handoff = yield* Store.readHandoff(run.dir, run.record.turns);
                 return {
                   _tag: "Result",
                   digest: yield* registry.digest(run, true),
-                  ...(yield* Store.readHandoff(run.dir, run.record.turns)),
+                  ...handoff,
+                  latestTurnWithoutHandoff:
+                    !activeStates.has(run.record.state) && handoff.latestTurnWithoutHandoff,
                 };
+              }
               case "Steer":
                 yield* turns.steer(run, body.message);
                 break;

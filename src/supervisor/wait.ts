@@ -1,4 +1,4 @@
-import { DateTime, Effect, Schema } from "effect";
+import { Clock, DateTime, Effect, Schema } from "effect";
 import { ChildProcess } from "effect/process";
 import { commandResult } from "../core/preflight/command";
 import { readEvents } from "../core/runs/store";
@@ -57,7 +57,8 @@ const attention = Effect.fnUntraced(function* (registry: Registry, run: Run, aft
       (event._tag === "StateChanged" && event.to === "lost"),
   );
   const outcomes: (typeof WaitOutcome.Type)[] = [];
-  const digest = yield* registry.digest(run);
+  if (relevant.length === 0) return { outcomes, next: page.next };
+  const digest = yield* registry.digest(run, true);
   for (const { event } of relevant) {
     if (event._tag === "QuestionAsked") {
       if (digest.questions.some((question) => question.id === event.id))
@@ -101,6 +102,13 @@ export const wait = Effect.fn("supervisor.wait")(function* (
   if (!body.all && body.names.length === 0) return yield* new Usage();
   const positions = yield* decodeCursor(body.after);
   const group = body.all ? yield* groupFor(body.cwd) : "";
+  const deadline = (yield* Clock.currentTimeMillis) + body.timeoutMs;
+  const timeout: Extract<DaemonResult, { _tag: "Waited" }> = {
+    _tag: "Waited",
+    outcome: "timeout",
+    runs: [],
+    cursor: body.after ?? encode(positions),
+  };
   const consider = Effect.gen(function* () {
     while (true) {
       const change = yield* registry.change;
@@ -138,19 +146,15 @@ export const wait = Effect.fn("supervisor.wait")(function* (
           runs: [],
           cursor: encode(next),
         };
-      yield* change;
+      // Ready attention includes a worktree refresh; only waiting for a change can time out.
+      const remaining = deadline - (yield* Clock.currentTimeMillis);
+      if (remaining <= 0) return timeout;
+      const changed = yield* change.pipe(
+        Effect.as(true),
+        Effect.timeoutOrElse({ duration: remaining, orElse: () => Effect.succeed(false) }),
+      );
+      if (!changed) return timeout;
     }
   });
-  return yield* consider.pipe(
-    Effect.timeoutOrElse({
-      duration: body.timeoutMs,
-      orElse: () =>
-        Effect.succeed({
-          _tag: "Waited" as const,
-          outcome: "timeout" as const,
-          runs: [],
-          cursor: body.after ?? encode(positions),
-        }),
-    }),
-  );
+  return yield* consider;
 });

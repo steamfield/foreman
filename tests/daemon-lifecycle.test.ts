@@ -2,22 +2,26 @@ import { fileURLToPath } from "node:url";
 import { NodeServices, NodeSocket, NodeSocketServer } from "@effect/platform-node";
 import { assert, describe, it } from "@effect/vitest";
 import {
+  DateTime,
   Deferred,
   Effect,
+  Exit,
   Fiber,
   FileSystem,
   Layer,
   Logger,
+  Option,
   Queue,
   Ref,
   References,
   Schema,
+  Scope,
   Stream,
 } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import { Socket } from "effect/socket";
 import { TestClock } from "effect/testing";
-import { call } from "../src/daemon/client";
+import { call, shutdown } from "../src/daemon/client";
 import { releaseLock } from "../src/daemon/lock";
 import { lines, responseJson } from "../src/daemon/protocol";
 import { type DaemonOptions, daemon } from "../src/daemon/server";
@@ -108,6 +112,177 @@ describe("daemon lifecycle and protocol", () => {
         _tag: "Digests",
         digests: [],
       });
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("acknowledges Shutdown before closing and removes its socket and lock", () =>
+    Effect.gen(function* () {
+      const dataDir = yield* temp();
+      const running = yield* start(options(dataDir));
+      assert.deepStrictEqual(yield* call({ _tag: "Shutdown" }, { dataDir, connectOnly: true }), {
+        _tag: "Ok",
+      });
+      yield* Fiber.join(running).pipe(Effect.timeout("2 seconds"));
+      const fs = yield* FileSystem.FileSystem;
+      assert.isFalse(yield* fs.exists(`${dataDir}/forman.sock`));
+      assert.isFalse(yield* fs.exists(`${dataDir}/daemon.lock`));
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("shutdown exits even with another client connection still open", () =>
+    Effect.gen(function* () {
+      const dataDir = yield* temp();
+      const running = yield* start(options(dataDir));
+      const connection = yield* peer(dataDir);
+      yield* connection.writer.write('{"id":2,"body":{"_tag":"Ping"}}\n');
+      yield* Queue.take(connection.responses);
+      assert.isTrue(yield* shutdown(dataDir));
+      yield* Fiber.join(running).pipe(Effect.timeout("1 second"));
+      const fs = yield* FileSystem.FileSystem;
+      assert.isFalse(yield* fs.exists(`${dataDir}/forman.sock`));
+      assert.isFalse(yield* fs.exists(`${dataDir}/daemon.lock`));
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("review: shutdown waits for old ownership cleanup before a replacement starts", () =>
+    Effect.gen(function* () {
+      const dataDir = yield* temp();
+      const fs = yield* FileSystem.FileSystem;
+      const running = yield* start(options(dataDir));
+      const guard = `${dataDir}/daemon.reclaim`;
+      yield* fs.makeDirectory(guard);
+      yield* fs.writeFileString(`${guard}/held`, "");
+      yield* Effect.addFinalizer(() =>
+        fs.remove(guard, { recursive: true, force: true }).pipe(Effect.orDie),
+      );
+      const returned = yield* Deferred.make<void>();
+      const stopping = yield* Effect.forkScoped(
+        shutdown(dataDir).pipe(Effect.tap(() => Deferred.succeed(returned, undefined))),
+      );
+      while ((yield* ping(dataDir).pipe(Effect.result))._tag === "Success") yield* Effect.yieldNow;
+      assert.isTrue(Option.isNone(yield* Deferred.await(returned).pipe(Effect.timeoutOption(250))));
+      yield* fs.remove(guard, { recursive: true });
+      assert.isTrue(yield* Fiber.join(stopping).pipe(Effect.timeout("2 seconds")));
+      yield* Fiber.join(running);
+      const replacement = yield* start(options(dataDir, { version: "replacement" }));
+      assert.deepStrictEqual(yield* ping(dataDir), {
+        _tag: "Pong",
+        version: "replacement",
+        pid: process.pid,
+      });
+      yield* call({ _tag: "Shutdown" }, { dataDir, connectOnly: true });
+      yield* Fiber.join(replacement);
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("review: accepted shutdown survives the requesting client disconnecting", () =>
+    Effect.gen(function* () {
+      const dataDir = yield* temp();
+      const writing = yield* Deferred.make<void>();
+      const held = yield* Deferred.make<void>();
+      const observed = DaemonSockets.layer({
+        connect: (path) => NodeSocket.makeNet({ path }),
+        listen: (path) =>
+          NodeSocketServer.make({ path }).pipe(
+            Effect.map((server) => ({
+              ...server,
+              run: (handler) =>
+                server.run((socket) =>
+                  handler(
+                    Socket.make({
+                      reader: socket.reader,
+                      writer: socket.writer.pipe(
+                        Effect.map((writer) => ({
+                          ...writer,
+                          write: (chunk) =>
+                            typeof chunk === "string" && chunk.includes('"id":2')
+                              ? Deferred.succeed(writing, undefined).pipe(
+                                  Effect.andThen(Deferred.await(held)),
+                                  Effect.andThen(writer.write(chunk)),
+                                )
+                              : writer.write(chunk),
+                        })),
+                      ),
+                    }),
+                  ),
+                ),
+            })),
+          ),
+      });
+      const running = yield* Effect.forkScoped(
+        daemon(options(dataDir)).pipe(Effect.provide(observed)),
+      );
+      yield* ready(dataDir);
+      const scope = yield* Scope.make();
+      yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
+      const connection = yield* peer(dataDir).pipe(Scope.provide(scope));
+      yield* connection.writer.write('{"id":2,"body":{"_tag":"Shutdown"}}\n');
+      yield* Deferred.await(writing);
+      yield* Scope.close(scope, Exit.void);
+      yield* Fiber.join(running).pipe(Effect.timeout("1 second"));
+      const fs = yield* FileSystem.FileSystem;
+      assert.isFalse(yield* fs.exists(`${dataDir}/daemon.lock`));
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("review: shutdown cleans up a backpressured non-reading client", () =>
+    Effect.gen(function* () {
+      const dataDir = yield* temp();
+      const responding = yield* Deferred.make<void>();
+      const running = yield* start(
+        options(dataDir, {
+          handler: (body) =>
+            body._tag === "Status"
+              ? Deferred.succeed(responding, undefined).pipe(
+                  Effect.as<DaemonResult>({
+                    _tag: "Events",
+                    gap: false,
+                    next: 1,
+                    events: [
+                      {
+                        seq: 1,
+                        at: DateTime.makeUnsafe(0),
+                        event: {
+                          _tag: "AgentMessage",
+                          phase: null,
+                          text: "x".repeat(16 * 1024 * 1024),
+                        },
+                      },
+                    ],
+                  }),
+                )
+              : Effect.succeed({ _tag: "Ok" }),
+        }),
+      );
+      const socket = yield* NodeSocket.makeNet({ path: `${dataDir}/forman.sock` });
+      yield* socket.reader;
+      const writer = yield* socket.writer;
+      yield* writer.write('{"id":2,"body":{"_tag":"Status","cwd":"/tmp"}}\n');
+      yield* Deferred.await(responding);
+      yield* call({ _tag: "Shutdown" }, { dataDir, connectOnly: true });
+      yield* Fiber.join(running).pipe(Effect.timeout("1 second"));
+      const fs = yield* FileSystem.FileSystem;
+      assert.isFalse(yield* fs.exists(`${dataDir}/forman.sock`));
+      assert.isFalse(yield* fs.exists(`${dataDir}/daemon.lock`));
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("shutdown with no daemon succeeds without spawning a launcher", () =>
+    Effect.gen(function* () {
+      const dataDir = yield* temp();
+      const fs = yield* FileSystem.FileSystem;
+      const launcher = `${dataDir}/launcher.mjs`;
+      const marker = `${dataDir}/spawned`;
+      yield* fs.writeFileString(
+        launcher,
+        `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(marker)}, "spawned");`,
+      );
+      assert.isFalse(
+        yield* shutdown(dataDir).pipe(Effect.provide(host([process.execPath, launcher]))),
+      );
+      assert.isFalse(yield* fs.exists(marker));
+      assert.isFalse(yield* fs.exists(`${dataDir}/forman.sock`));
+      assert.isFalse(yield* fs.exists(`${dataDir}/daemon.lock`));
     }).pipe(Effect.provide(platform)),
   );
 
@@ -233,52 +408,61 @@ describe("daemon lifecycle and protocol", () => {
     }).pipe(Effect.provide(platform)),
   );
 
-  it.effect("closes the listener before interrupting dispatch during idle shutdown", () =>
-    Effect.gen(function* () {
-      const observation = yield* observeClosures();
-      yield* Effect.gen(function* () {
-        const dataDir = yield* temp();
-        const stopping = yield* Deferred.make<void>();
-        const release = yield* Deferred.make<void>();
-        const observedSockets = DaemonSockets.layer({
-          connect: (path) => NodeSocket.makeNet({ path }),
-          listen: (path) =>
-            NodeSocketServer.make({ path }).pipe(
-              Effect.map((server) => ({
-                ...server,
-                run: (handler) =>
-                  server
-                    .run(handler)
-                    .pipe(
-                      Effect.onInterrupt(() =>
-                        Deferred.succeed(stopping, undefined).pipe(
-                          Effect.andThen(Deferred.await(release)),
+  it.effect.each(["idle", "requested"] as const)(
+    "closes the listener before interrupting dispatch during %s shutdown",
+    (kind) =>
+      Effect.gen(function* () {
+        const observation = yield* observeClosures();
+        yield* Effect.gen(function* () {
+          const dataDir = yield* temp();
+          const stopping = yield* Deferred.make<void>();
+          const release = yield* Deferred.make<void>();
+          const observedSockets = DaemonSockets.layer({
+            connect: (path) => NodeSocket.makeNet({ path }),
+            listen: (path) =>
+              NodeSocketServer.make({ path }).pipe(
+                Effect.map((server) => ({
+                  ...server,
+                  run: (handler) =>
+                    server
+                      .run(handler)
+                      .pipe(
+                        Effect.onInterrupt(() =>
+                          Deferred.succeed(stopping, undefined).pipe(
+                            Effect.andThen(Deferred.await(release)),
+                          ),
                         ),
                       ),
-                    ),
-              })),
-            ),
-        });
-        const running = yield* Effect.forkScoped(
-          daemon(options(dataDir, { idleLimitMs: 1000 })).pipe(Effect.provide(observedSockets)),
+                })),
+              ),
+          });
+          const running = yield* Effect.forkScoped(
+            daemon(options(dataDir, { idleLimitMs: 1000 })).pipe(Effect.provide(observedSockets)),
+          );
+          yield* ready(dataDir);
+          yield* observation.closed;
+          if (kind === "idle") yield* TestClock.adjust(2000);
+          else
+            assert.deepStrictEqual(
+              yield* call({ _tag: "Shutdown" }, { dataDir, connectOnly: true }),
+              { _tag: "Ok" },
+            );
+          yield* TestClock.adjust(100);
+          yield* Deferred.await(stopping);
+          const connection = yield* Effect.scoped(
+            Effect.gen(function* () {
+              return yield* (yield* NodeSocket.makeNet({ path: `${dataDir}/forman.sock` })).reader;
+            }),
+          ).pipe(Effect.result);
+          yield* Deferred.succeed(release, undefined);
+          yield* TestClock.adjust(100);
+          yield* Fiber.join(running);
+          assert.strictEqual(connection._tag, "Failure");
+        }).pipe(
+          Effect.provide(observation.layer),
+          Effect.provideService(References.MinimumLogLevel, "Debug"),
         );
-        yield* ready(dataDir);
-        yield* observation.closed;
-        yield* TestClock.adjust(2000);
-        yield* Deferred.await(stopping);
-        const connection = yield* Effect.scoped(
-          Effect.gen(function* () {
-            return yield* (yield* NodeSocket.makeNet({ path: `${dataDir}/forman.sock` })).reader;
-          }),
-        ).pipe(Effect.result);
-        yield* Deferred.succeed(release, undefined);
-        yield* Fiber.join(running);
-        assert.strictEqual(connection._tag, "Failure");
-      }).pipe(
-        Effect.provide(observation.layer),
-        Effect.provideService(References.MinimumLogLevel, "Debug"),
-      );
-    }).pipe(Effect.provide(platform)),
+      }).pipe(Effect.provide(platform)),
   );
 
   it.live("takes over an old lock and removes a leftover socket file", () =>
