@@ -90,6 +90,8 @@ export const answer = Effect.fn("commands.answer")(function* (
 
 export const result = (name: RunName) => request({ _tag: "Result", name });
 
+export const archive = (name: RunName) => request({ _tag: "Archive", name });
+
 export const wait = Effect.fn("commands.wait")(function* (
   input: Omit<Extract<DaemonRequestBody, { _tag: "Wait" }>, "_tag" | "cwd">,
 ) {

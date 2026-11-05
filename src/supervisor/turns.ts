@@ -5,7 +5,7 @@ import { checkHookTrust, hasRepoHooks } from "../core/preflight/hooks";
 import { defaultModel } from "../core/preflight/model";
 import { validateWorktree } from "../core/preflight/worktree";
 import * as Store from "../core/runs/store";
-import { CodexUnavailable, RunConflict, WorktreeInvalid } from "../errors";
+import { CodexUnavailable, RunConflict } from "../errors";
 import * as Codex from "../schemas/codex";
 import {
   activeStates,
@@ -261,7 +261,7 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
         });
     }
     if (!(yield* fs.exists(run.record.worktree)))
-      return yield* new WorktreeInvalid({
+      return yield* new RunConflict({
         detail: "Worktree no longer exists; prepare a worktree and start a new run.",
       });
     if (!run.record.threadId)

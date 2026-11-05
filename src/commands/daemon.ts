@@ -1,4 +1,4 @@
-import { Effect, Logger, Path, Queue, References, Stream } from "effect";
+import { type Cause, Effect, Fiber, Logger, Path, Queue, References, Stream } from "effect";
 import { Command } from "effect/cli";
 import { AppConfig } from "../config";
 import { shutdown } from "../daemon/client";
@@ -24,57 +24,82 @@ const stopCommand = Command.make(
   }),
 ).pipe(Command.withDescription("Stop an inactive daemon without starting one."));
 
+export const withDaemonLogging = Effect.fn("daemon.logging")(function* <A, E, R>(
+  program: Effect.Effect<A, E, R>,
+) {
+  const config = yield* AppConfig;
+  const path = yield* Path.Path;
+  const settings = yield* config.logging;
+  const append = yield* makeLogAppender(
+    settings.file || path.join(config.dataDir, "logs/daemon.jsonl"),
+  );
+  const records = yield* Queue.unbounded<string, Cause.Done>();
+  const output = yield* Output;
+  let sinkUnavailable = false;
+  const write = (line: string) =>
+    sinkUnavailable
+      ? Effect.void
+      : append(line).pipe(
+          Effect.catch(() =>
+            Effect.gen(function* () {
+              sinkUnavailable = true;
+              yield* output
+                .note("Daemon log file unavailable; continuing without file logging.")
+                .pipe(Effect.ignoreCause);
+            }),
+          ),
+        );
+  const logger = Logger.make((input) => {
+    Queue.offerUnsafe(
+      records,
+      `${JSON.stringify(
+        entry({
+          date: input.date,
+          level: input.logLevel,
+          message: input.message,
+          annotations: input.fiber.getRef(References.CurrentLogAnnotations),
+        }),
+      )}\n`,
+    );
+  });
+  return yield* Effect.scoped(
+    Effect.gen(function* () {
+      const writer = yield* Stream.fromQueue(records).pipe(
+        Stream.runForEach(write),
+        Effect.forkScoped,
+      );
+      return yield* program.pipe(
+        Effect.ensuring(Queue.end(records).pipe(Effect.andThen(Fiber.join(writer)))),
+      );
+    }),
+  ).pipe(
+    Effect.provide(Logger.layer([logger])),
+    // Daemon lifecycle records must survive the CLI's default Warn threshold.
+    Effect.provideService(
+      References.MinimumLogLevel,
+      settings.level === "Warn" ? "Info" : settings.level,
+    ),
+  );
+});
+
 export const daemonCommand = Command.make(
   "daemon",
   {},
   Effect.fn(function* () {
     yield* Effect.flatMap(Invocation, (invocation) => invocation.named("daemon"));
-    const config = yield* AppConfig;
-    const host = yield* Host;
-    const path = yield* Path.Path;
-    const settings = yield* config.logging;
-    const append = yield* makeLogAppender(
-      settings.file || path.join(config.dataDir, "logs/daemon.jsonl"),
-    );
-    const records = yield* Queue.unbounded<string>();
-    const output = yield* Output;
-    let sinkUnavailable = false;
-    const write = (line: string) =>
-      sinkUnavailable
-        ? Effect.void
-        : append(line).pipe(
-            Effect.catch(() =>
-              Effect.gen(function* () {
-                sinkUnavailable = true;
-                yield* output
-                  .note("Daemon log file unavailable; continuing without file logging.")
-                  .pipe(Effect.ignoreCause);
-              }),
-            ),
+    yield* withDaemonLogging(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const config = yield* AppConfig;
+          const host = yield* Host;
+          const supervisor = yield* makeSupervisor();
+          yield* Effect.raceFirst(
+            supervisor.failed,
+            daemon({ dataDir: config.dataDir, version: host.version, ...supervisor }),
           );
-    const logger = Logger.make((input) => {
-      Queue.offerUnsafe(
-        records,
-        `${JSON.stringify(
-          entry({
-            date: input.date,
-            level: input.logLevel,
-            message: input.message,
-            annotations: input.fiber.getRef(References.CurrentLogAnnotations),
-          }),
-        )}\n`,
-      );
-    });
-    yield* Effect.gen(function* () {
-      const supervisor = yield* makeSupervisor();
-      yield* Effect.raceFirst(
-        supervisor.failed,
-        Effect.raceFirst(
-          daemon({ dataDir: config.dataDir, version: host.version, ...supervisor }),
-          Stream.fromQueue(records).pipe(Stream.runForEach(write)),
-        ),
-      );
-    }).pipe(Effect.provide(Logger.layer([logger])));
+        }),
+      ),
+    );
   }),
 ).pipe(
   Command.withDescription("Run the background supervisor."),

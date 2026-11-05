@@ -106,6 +106,7 @@ test("compiled output, config precedence, log records, errors, and no dotenv aut
           "interrupt",
           "answer",
           "result",
+          "archive",
           "wait",
           "doctor",
           "daemon",

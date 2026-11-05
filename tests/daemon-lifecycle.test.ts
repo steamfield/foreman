@@ -402,7 +402,10 @@ describe("daemon lifecycle and protocol", () => {
           Defect,
         );
       }).pipe(Effect.provide(Logger.layer([logger])));
-      assert.strictEqual(records.length, 1);
+      assert.strictEqual(
+        records.filter((record) => record.includes("daemon.handler.defect")).length,
+        1,
+      );
       assert.notInclude(records.join("\n"), "private handler text");
       assert.include(records.join("\n"), "defect");
     }).pipe(Effect.provide(platform)),

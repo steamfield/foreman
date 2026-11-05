@@ -1,8 +1,19 @@
-import { Cause, Deferred, Effect, Fiber, type FileSystem, type Path, Schema, Scope } from "effect";
+import {
+  Cause,
+  Deferred,
+  Effect,
+  Fiber,
+  type FileSystem,
+  type Path,
+  PlatformError,
+  Schema,
+  Scope,
+} from "effect";
 import type { ChildProcessSpawner } from "effect/process";
+import { CodexRpcError } from "../codex/client";
 import { AppConfig } from "../config";
 import * as Store from "../core/runs/store";
-import { failure, RunConflict } from "../errors";
+import { CodexUnavailable, DaemonUnavailable, failure, RunConflict } from "../errors";
 import * as Codex from "../schemas/codex";
 import { activeStates, type DaemonRequestBody, type DaemonResult } from "../schemas/daemon";
 import { Host } from "../services/host";
@@ -12,6 +23,23 @@ import { makeQuestions } from "./questions";
 import { makeRegistry } from "./registry";
 import { makeTurns } from "./turns";
 import { groupFor, wait } from "./wait";
+
+const requestFailure = (error: unknown) => {
+  if (error instanceof CodexRpcError)
+    return new CodexUnavailable({
+      detail: "Codex refused the request; read status and run forman doctor before retrying.",
+    });
+  if (PlatformError.isPlatformError(error))
+    return new DaemonUnavailable({
+      detail: `Cannot access run data or a required process (${error.reason._tag}); check the data directory, file permissions and installed commands.`,
+    });
+  if (Schema.isSchemaError(error))
+    return new DaemonUnavailable({
+      detail:
+        "Cannot decode run data; inspect the run directory for damaged records before retrying.",
+    });
+  return failure(Cause.fail(error));
+};
 
 const buildSupervisor = Effect.fn("supervisor.build")(function* () {
   const config = yield* AppConfig;
@@ -39,7 +67,13 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
     const run = yield* route(identity.success.threadId);
     if (!run)
       return yield* Effect.logDebug("supervisor.thread.unknown", { method: message.method });
-    yield* run.lock.withPermits(1)(handleNotification(registry, turns, run, server, message));
+    yield* run.lock.withPermits(1)(
+      Effect.suspend(() =>
+        registry.isCurrent(run)
+          ? handleNotification(registry, turns, run, server, message)
+          : Effect.void,
+      ),
+    );
   });
   const request = Effect.fnUntraced(function* (
     server: AppServer,
@@ -56,6 +90,8 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
     if (!run) return yield* server.connection.respondError(message.id, -32601, "unknown thread");
     yield* run.lock.withPermits(1)(
       Effect.gen(function* () {
+        if (!registry.isCurrent(run))
+          return yield* server.connection.respondError(message.id, -32601, "unknown thread");
         yield* Store.appendCodexMessage(run.dir, message);
         yield* questions.receive(run, server, message, params.success);
       }),
@@ -107,6 +143,8 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
       }
       case "Wait":
         return yield* wait(registry, body);
+      case "Archive":
+        return yield* registry.starts.withPermits(1)(registry.archive(body.name));
       case "Status": {
         const group = body.name === undefined ? yield* groupFor(body.cwd) : "";
         const runs =
@@ -115,9 +153,14 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
             : [yield* registry.lookup(body.name)];
         return {
           _tag: "Digests",
-          digests: yield* Effect.forEach(runs, (run) =>
-            run.lock.withPermits(1)(registry.digest(run, true)),
-          ),
+          digests: (yield* Effect.forEach(runs, (run) =>
+            run.lock.withPermits(1)(
+              Effect.gen(function* () {
+                if (body.name === undefined && !registry.isCurrent(run)) return [];
+                return [yield* registry.digest(run, true)];
+              }),
+            ),
+          )).flat(),
         };
       }
       default: {
@@ -128,6 +171,7 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
             unknown,
             FileSystem.FileSystem | Path.Path | ChildProcessSpawner.ChildProcessSpawner
           > {
+            yield* registry.requireCurrent(run);
             switch (body._tag) {
               case "Events":
                 return yield* Store.readEvents(run.dir, body.after, body.limit);
@@ -172,7 +216,7 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
             yield* Fiber.join(yield* registry.fork(Effect.result(work))),
           );
         return yield* work;
-      }).pipe(Effect.mapError((error) => failure(Cause.fail(error)))),
+      }).pipe(Effect.mapError(requestFailure)),
     busy: registry.busy,
     failed: registry.failed.pipe(Effect.mapError((error) => failure(Cause.fail(error)))),
   };
@@ -197,7 +241,7 @@ export const makeSupervisor = Effect.fn("supervisor.make")(function* () {
     handler: (body: DaemonRequestBody) =>
       initialize.pipe(
         Effect.flatMap((value) => value.handler(body)),
-        Effect.mapError((error) => failure(Cause.fail(error))),
+        Effect.mapError(requestFailure),
       ),
     busy: initialize.pipe(
       Effect.flatMap((value) => value.busy),

@@ -77,6 +77,8 @@ export const daemon = Effect.fn("daemon")(
           Scope.close(scope, Exit.void),
         );
         const server = yield* sockets.listen(socketPath).pipe(Scope.provide(listener));
+        yield* Effect.logInfo("daemon.started");
+        yield* Effect.addFinalizer(() => Effect.logInfo("daemon.stopped"));
         const shutdown = yield* Deferred.make<void>();
         let drainUntil: number | null = null;
         const serve = server.run((socket) =>

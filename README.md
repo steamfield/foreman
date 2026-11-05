@@ -86,6 +86,15 @@ forman result fix-doctor
 
 After handling a wait result, wait again with `forman wait --all --after <cursor>`, replacing `<cursor>` with the cursor from that result. Keep the cursor as a single argument. It prevents repeated attention for events you already handled. Repeat after answering or starting a follow-up. Review the hand-off and diff before committing; forman does not commit or merge for you.
 
+After merging a run's work, remove its worktree, then archive the inactive run to remove it from status:
+
+```sh
+git worktree remove .worktrees/fix-doctor
+forman archive fix-doctor
+```
+
+Archive prints the destination under `runs/.archive/<name>-<timestamp>/`, preserves the run's records and frees its name for reuse. Status, wait and result still work after worktree removal, with a warning and the last computed file fields (or uncomputed fields after a daemon restart).
+
 ## Commands
 
 All commands accept `--json` for one schema-encoded result. Messages for `steer`, `followup` and `answer` come from exactly one positional argument or `--file <path>`.
@@ -100,6 +109,7 @@ All commands accept `--json` for one schema-encoded result. Messages for `steer`
 | `forman interrupt <name>` | Interrupt the active turn |
 | `forman answer <name> <question-id> [<text>] [--file <path>]` | Answer a pending question |
 | `forman result <name>` | Print the digest and available hand-off, naming its turn |
+| `forman archive <name>` | Move an inactive run to the archive, remove it from status and print the archive path |
 | `forman wait [<name>...] [--all] [--after <cursor>] [--timeout <dur>]` | Wait for attention, print summaries and digests, then a cursor for the next wait |
 | `forman doctor` | Inspect local configuration, Codex, repo hook trust and daemon availability |
 | `forman daemon` | Run the daemon in the foreground; normally started automatically |
