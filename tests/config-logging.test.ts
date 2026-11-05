@@ -33,7 +33,7 @@ describe("real config and emitted logging", () => {
     const temporaryHome = await tempDir();
     const result = await runCli(["--json"], {
       home: temporaryHome,
-      env,
+      env: { CODEX_BIN: undefined, ...env },
       program: Effect.gen(function* () {
         const config = yield* AppConfig;
         yield* (yield* Output).result(
@@ -47,40 +47,45 @@ describe("real config and emitted logging", () => {
       codexBin: bin,
       codexHome: home ?? join(temporaryHome, ".codex"),
     });
-    expect(ndjson(result.stderr)).toEqual([
-      expect.objectContaining({ msg: "command", outcome: "success" }),
-    ]);
+    expect(result.stderr).toBe("");
   });
-  it("emits the default command record without a config file or env settings", async () => {
+  it("suppresses successful command records at the default level", async () => {
     const result = await runCli(["doctor", "--json"]);
     expect(result.status).toBe(0);
     expect(Schema.decodeUnknownSync(DoctorResult)(JSON.parse(result.stdout))).toMatchObject({
       greeting: "Hello, world!",
       configError: null,
     });
-    expect(ndjson(result.stderr)).toEqual([
-      expect.objectContaining({ msg: "command", level: "warn", outcome: "success" }),
-    ]);
+    expect(result.stderr).toBe("");
   });
   it.each([
     { args: ["doctor", "--json"], command: "doctor" },
     { args: ["--help", "--json"], command: "framework" },
     { args: ["absent", "--json"], command: null },
   ])("names the command that ran as $command in its record", async ({ args, command }) => {
-    const result = await runCli(args);
+    const result = await runCli(args, { env: { LOG_LEVEL: "debug" } });
     expect(ndjson(result.stderr)).toContainEqual(
       expect.objectContaining({ msg: "command", command }),
     );
   });
+  it("emits failed command records at error at the default level", async () => {
+    const result = await runCli(["absent", "--json"]);
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe("");
+    expect(ndjson(result.stderr)).toEqual([
+      expect.objectContaining({ msg: "command", level: "error", outcome: "failure", exitCode: 2 }),
+      expect.objectContaining({ error: expect.objectContaining({ tag: "Usage" }) }),
+    ]);
+  });
   it.each([
-    { file: "{}", env: {}, levels: ["warn"], greeting: "Hello, world!" },
+    { file: "{}", env: {}, levels: [], greeting: "Hello, world!" },
     {
       file: '{"logLevel":"debug","greeting":"file"}',
       env: {},
       levels: ["debug", "debug"],
       greeting: "file",
     },
-    { file: '{"logLevel":"info"}', env: {}, levels: ["info"], greeting: "Hello, world!" },
+    { file: '{"logLevel":"info"}', env: {}, levels: [], greeting: "Hello, world!" },
     {
       file: '{"logLevel":"debug","greeting":"file"}',
       env: { LOG_LEVEL: "none", TEST_CLI_GREETING: "env" },
@@ -90,13 +95,13 @@ describe("real config and emitted logging", () => {
     {
       file: '{"logLevel":"info","greeting":"file"}',
       env: { LOG_LEVEL: "", TEST_CLI_GREETING: " " },
-      levels: ["info"],
+      levels: [],
       greeting: "file",
     },
     {
       file: '{"logLevel":"debug"}',
       env: { LOG_LEVEL: "INFO" },
-      levels: ["info"],
+      levels: [],
       greeting: "Hello, world!",
     },
   ])("resolves file and env while emitting $levels", async ({ file, env, levels, greeting }) => {

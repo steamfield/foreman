@@ -118,8 +118,8 @@ export const main = Effect.fn("main")(function* (
             trace: Exit.isFailure(exit) ? defectTrace(Cause.squash(exit.cause)) : "unknown",
           }),
         );
-      const level = error ? "Error" : settings.level;
-      yield* Effect.logWithLevel(level === "None" ? "Info" : level)("command").pipe(
+      const level = error ? "Error" : "Debug";
+      yield* Effect.logWithLevel(level)("command").pipe(
         Effect.annotateLogs({
           // The handler that ran names itself; help and version are framework, parse failures null.
           command: invocation.state.command ?? (!error && framework.length ? "framework" : null),

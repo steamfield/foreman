@@ -7,11 +7,12 @@ assert only the decoded setting: assert records actually emitted and suppressed.
 
 | Input | Required observation |
 | --- | --- |
-| No file or environment setting | Default level; doctor succeeds with a command record at that level |
-| config.json logLevel debug | A debug diagnostic from the invoked program reaches the captured sink |
-| config.json logLevel info | The same debug diagnostic is absent; info remains |
-| File debug, LOG_LEVEL none | Environment wins; both diagnostics are absent |
+| No file or environment setting | Default warn level; doctor succeeds with no command record on stderr |
+| config.json logLevel debug | A debug diagnostic and the successful command record reach the captured sink |
+| config.json logLevel info | The debug diagnostic and successful command record are absent |
+| File debug, LOG_LEVEL none | Environment wins; all logs are absent |
 | File info, blank LOG_LEVEL | Blank is absent; the file's setting applies |
+| Failed command at default level | Command record is emitted at error, with the existing error envelope |
 | Invalid file level | Doctor still reports the config problem and uses the safe fallback |
 | Two invocations with different files/levels | No level, config or buffered-log state leaks |
 | CODEX_BIN / CODEX_HOME set, absent or blank | Explicit env values win over defaults; blank is absent; defaults are `codex` and `$HOME/.codex`, independent of XDG paths |

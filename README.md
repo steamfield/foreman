@@ -2,7 +2,7 @@
 
 forman lets Claude Code hand coding tasks to OpenAI's Codex and supervise them while they run. Claude starts a Codex agent in a git worktree, checks on it, steers or interrupts it, and answers questions Codex asks mid-turn. forman drives `codex app-server` and uses your existing Codex login (a ChatGPT plan); it never needs an OpenAI API key.
 
-This is early. The repository currently holds the CLI skeleton (one `doctor` command); the bridge commands are being designed.
+The CLI commands and socket transport are implemented. The daemon command and real request handler are still pending.
 
 ## Getting started
 
@@ -14,9 +14,28 @@ bun run build
 ./dist/forman doctor
 ```
 
-`doctor` prints the version, platform, config file and data directory, and whether the config file is valid. It works even when the config is broken, and `--json` prints the same as one JSON object.
+`doctor` prints the version, platform, config paths and validity, Codex version, protocol hash match, login state, and daemon state. Unavailable Codex checks show null in JSON. It succeeds even when checks are unavailable or configuration is broken, and never starts the daemon. Each diagnostic probe has a 5-second execution timeout.
 
 ## Commands
+
+All commands accept `--json` for one schema-encoded result. Messages for `steer`, `followup` and `answer` come from exactly one positional argument or `--file <path>`.
+
+| Command | What it does |
+| --- | --- |
+| `forman start <name> --worktree <path> --contract <file>` | Send the contract text and real worktree path; accepts `--write`, `--model`, `--effort`, `--tier`, `--budget`, `--question-timeout`, `--skip-deps-check` |
+| `forman status [<name>]` | Print one run's digest or the current group's digests |
+| `forman events <name> [--after <n>] [--limit <n>]` | Print normalized events and the next sequence number |
+| `forman steer <name> [<message>] [--file <path>]` | Send a change to the active turn |
+| `forman followup <name> [<message>] [--file <path>] [--budget <dur>] [--effort <e>]` | Start another turn |
+| `forman interrupt <name>` | Interrupt the active turn |
+| `forman answer <name> <question-id> [<text>] [--file <path>]` | Answer a pending question |
+| `forman result <name>` | Print the digest and available hand-off, naming its turn |
+| `forman wait [<name>...] [--all] [--after <cursor>] [--timeout <dur>]` | Wait for attention, print summaries and digests, then a cursor for the next wait |
+| `forman doctor` | Inspect local configuration, Codex and daemon availability |
+
+Durations use nonnegative whole numbers with `ms`, `s`, `m` or `h`, such as `90s`, `45m` and `1h`. Wait defaults to 9 minutes and exits 0 for every outcome, including timeout and no active runs. Command failures retain the error table's exit codes.
+
+Successful `command` log records use debug level; failed commands use error level. The configured minimum level still filters both.
 
 | Script | What it does |
 | --- | --- |
