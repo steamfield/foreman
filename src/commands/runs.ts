@@ -109,6 +109,10 @@ export const resultCommand = Command.make("result", { name }, ({ name }) =>
   print("result", programs.result(name)),
 ).pipe(Command.withDescription("Read the digest and latest available hand-off."));
 
+export const archiveCommand = Command.make("archive", { name }, ({ name }) =>
+  print("archive", programs.archive(name)),
+).pipe(Command.withDescription("Archive an inactive run and print its archive path."));
+
 export const waitCommand = Command.make(
   "wait",
   {

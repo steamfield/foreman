@@ -121,6 +121,8 @@ export const wait = Effect.fn("supervisor.wait")(function* (
       for (const run of runs)
         yield* run.lock.withPermits(1)(
           Effect.gen(function* () {
+            if (body.all && !registry.isCurrent(run)) return;
+            yield* registry.requireCurrent(run);
             const identity = `${DateTime.formatIso(run.record.createdAt)}:${run.record.threadId ?? ""}`;
             const previous = Object.hasOwn(positions, run.record.name)
               ? positions[run.record.name]

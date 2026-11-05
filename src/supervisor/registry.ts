@@ -1,8 +1,8 @@
-import { Clock, DateTime, Deferred, Effect, FiberSet, Semaphore } from "effect";
+import { Clock, DateTime, Deferred, Effect, FiberSet, FileSystem, Semaphore } from "effect";
 import { buildDigest } from "../core/runs/digest";
 import * as Store from "../core/runs/store";
 import { computeWorktreeFields, type WorktreeFields } from "../core/runs/worktree";
-import { RunNotFound } from "../errors";
+import { RunConflict, RunNotFound } from "../errors";
 import type { RpcId, ThreadItem } from "../schemas/codex";
 import {
   activeStates,
@@ -98,10 +98,35 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
     if (!run) return yield* new RunNotFound({ detail: `No run named ${name}; start it first.` });
     return run;
   });
+  const isCurrent = (run: Run) => runs.get(run.record.name) === run;
+  const requireCurrent = Effect.fnUntraced(function* (run: Run) {
+    if (!isCurrent(run))
+      return yield* new RunNotFound({
+        detail: `${run.record.name} was archived or replaced; read status for current runs.`,
+      });
+  });
   const digest = Effect.fnUntraced(function* (run: Run, refresh = false) {
-    if (refresh) run.worktree = yield* computeWorktreeFields(run.record.worktree, run.dir);
+    yield* requireCurrent(run);
+    const fs = yield* FileSystem.FileSystem;
+    let removed = !(yield* fs.exists(run.record.worktree));
+    if (refresh && !removed)
+      run.worktree = yield* computeWorktreeFields(run.record.worktree, run.dir).pipe(
+        Effect.catch((error) =>
+          Effect.gen(function* () {
+            // Removal can race the existence check while git or find is running.
+            removed = !(yield* fs.exists(run.record.worktree));
+            if (!removed) return yield* Effect.fail(error);
+            return run.worktree;
+          }),
+        ),
+      );
     return buildDigest(
-      run.record,
+      removed
+        ? {
+            ...run.record,
+            warnings: [...run.record.warnings, `worktree removed: ${run.record.worktree}`],
+          }
+        : run.record,
       (yield* Store.readEvents(run.dir, 0, Number.MAX_SAFE_INTEGER)).events,
       yield* Store.readQuestions(run.dir),
       run.dir,
@@ -116,6 +141,21 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
     const run = yield* add(record);
     yield* run.lock.withPermits(1)(lost(run));
   }
+  const archive = Effect.fnUntraced(function* (name: RunName) {
+    const run = yield* lookup(name);
+    return yield* run.lock.withPermits(1)(
+      Effect.gen(function* () {
+        if (activeStates.has(run.record.state))
+          return yield* new RunConflict({
+            detail: `${name} is ${run.record.state}; active runs cannot be archived.`,
+          });
+        const archivePath = yield* Store.archiveRun(dataDir, name);
+        runs.delete(name);
+        yield* wake;
+        return { _tag: "Archived" as const, name, archivePath };
+      }).pipe(Effect.uninterruptible),
+    );
+  });
   return {
     fork: <A, E, R>(work: Effect.Effect<A, E, R>) => FiberSet.run(workers, work),
     failed: FiberSet.join(workers),
@@ -128,7 +168,10 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
     lost,
     cancelQuestions,
     lookup,
+    isCurrent,
+    requireCurrent,
     digest,
+    archive,
     busy: Effect.sync(() => [...runs.values()].some((run) => activeStates.has(run.record.state))),
     change: Effect.suspend(() => Effect.succeed(Deferred.await(changed))),
   };

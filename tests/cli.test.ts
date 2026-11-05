@@ -20,6 +20,7 @@ describe("stdout and error contracts", () => {
       "interrupt",
       "answer",
       "result",
+      "archive",
       "wait",
       "doctor",
       "daemon",

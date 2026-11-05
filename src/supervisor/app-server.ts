@@ -99,7 +99,7 @@ export const makeAppServer = Effect.fn("supervisor.appServer")(function* (
     Effect.gen(function* () {
       if (current) return current;
       const scope = yield* Scope.fork(owner);
-      const connection = yield* openConnection({
+      const opened = yield* openConnection({
         codexBin: config.codexBin,
         env: yield* env,
         version,
@@ -111,6 +111,18 @@ export const makeAppServer = Effect.fn("supervisor.appServer")(function* (
         Scope.provide(scope),
         Effect.onExit((exit) => (Exit.isFailure(exit) ? Scope.close(scope, exit) : Effect.void)),
       );
+      const rpcRequest: Connection["request"] = (method, params, schema, options) =>
+        opened.request(method, params, schema, options).pipe(
+          Effect.catchTag("SchemaError", () =>
+            Effect.fail(
+              new CodexUnavailable({
+                detail:
+                  "Codex reply did not match the supported protocol; run forman doctor and check the Codex version.",
+              }),
+            ),
+          ),
+        );
+      const connection = { ...opened, request: rpcRequest };
       const server: AppServer = { connection, generation: Symbol(), scope, loaded: new Set() };
       current = server;
       yield* connection.notifications.pipe(

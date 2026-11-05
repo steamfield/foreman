@@ -4,6 +4,7 @@ import { daemonCommand } from "./commands/daemon";
 import { doctorCommand } from "./commands/doctor";
 import {
   answerCommand,
+  archiveCommand,
   eventsCommand,
   followupCommand,
   interruptCommand,
@@ -30,6 +31,7 @@ export const cli = (name: string) =>
       interruptCommand,
       answerCommand,
       resultCommand,
+      archiveCommand,
       waitCommand,
       doctorCommand,
       daemonCommand,

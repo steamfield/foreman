@@ -246,6 +246,7 @@ describe("command requests through the real parser and daemon", () => {
       body: { _tag: "Answer", name, question: "q2", text: "use v4" },
     },
     { args: ["result", "unit-a"], body: { _tag: "Result", name } },
+    { args: ["archive", "unit-a"], body: { _tag: "Archive", name } },
     { args: ["wait"], body: { _tag: "Wait", names: [], all: false, timeoutMs: 540000 } },
     {
       args: ["wait", "unit-a", "unit-b", "--after", "opaque:42", "--timeout", "90s"],
@@ -300,6 +301,8 @@ describe("command requests through the real parser and daemon", () => {
     ["events"],
     ["interrupt", "../escape"],
     ["result"],
+    ["archive"],
+    ["archive", "../escape"],
     ["start", "unit-a", "--worktree", ".", "--contract", "absent", "--budget", "tomorrow"],
     ["followup", "unit-a", "go", "--budget", "999999999999999999h"],
     ["wait", "Bad"],
@@ -361,6 +364,12 @@ describe("command requests through the real parser and daemon", () => {
 });
 
 const outputCases: { label: string; args: string[]; response: DaemonResult; text: string[] }[] = [
+  {
+    label: "archived",
+    args: ["archive", "unit-a"],
+    response: { _tag: "Archived", name, archivePath: "/tmp/runs/.archive/unit-a-123" },
+    text: ["/tmp/runs/.archive/unit-a-123\n"],
+  },
   {
     label: "pong",
     args: ["status"],

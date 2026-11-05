@@ -9,6 +9,7 @@ import { TestClock } from "effect/testing";
 import { AppConfig } from "../src/config";
 import { commandResult } from "../src/core/preflight/command";
 import * as Store from "../src/core/runs/store";
+import { computeWorktreeFields } from "../src/core/runs/worktree";
 import { call } from "../src/daemon/client";
 import { daemon } from "../src/daemon/server";
 import { DaemonSockets } from "../src/daemon/sockets";
@@ -258,6 +259,285 @@ const fixture = Effect.fnUntraced(function* (script: Scenario) {
 });
 
 describe("supervisor over the real daemon socket", () => {
+  it.live.each(["notification", "request"])(
+    "review: archive invalidates a queued Codex %s and public reads without stopping other runs",
+    (kind) =>
+      Effect.gen(function* () {
+        const otherName = Schema.decodeUnknownSync(D.RunName)("other");
+        const late: Step =
+          kind === "notification"
+            ? notify("late", { threadId: "unit-thread" })
+            : {
+                ...question("late"),
+                params: {
+                  threadId: "unit-thread",
+                  turnId: "old-turn",
+                  callId: "late",
+                  namespace: null,
+                  tool: "ask_orchestrator",
+                  arguments: { question: "Too late?" },
+                },
+              };
+        const barrier: Step[] =
+          kind === "notification"
+            ? [
+                { request: "barrier", label: "barrier", params: {} },
+                { awaitResponse: "barrier" },
+                { stderr: "barrier" },
+              ]
+            : [notify("barrier", { threadId: "other-thread" })];
+        const f = yield* fixture({
+          rules: [
+            {
+              method: Codex.Method.threadStart,
+              respond: { result: { ...opened, thread: { id: "unit-thread" } } },
+            },
+            {
+              method: Codex.Method.threadStart,
+              respond: { result: { ...opened, thread: { id: "other-thread" } } },
+            },
+            turnRule([complete()]),
+            turnRule(),
+            {
+              method: Codex.Method.turnSteer,
+              respond: { result: { turnId: "{{turn}}" } },
+              steps: [
+                late,
+                ...barrier,
+                ...(kind === "request" ? [{ awaitResponse: "late" }] : []),
+                notify("after-late", { threadId: "other-thread" }),
+              ],
+            },
+          ],
+        });
+        const other = `${f.repo}/work/other`;
+        yield* f.git(f.repo, ["worktree", "add", "-qb", "other", other]);
+        const { supervisor, fiber } = yield* f.launch();
+        yield* f.start();
+        yield* f.untilState("idle");
+        yield* f.start({ name: otherName, worktree: other });
+        const file = `${f.runDir}/run.json`;
+        const original = yield* f.fs.readFileString(file);
+        yield* f.fs.remove(file);
+        expect((yield* commandResult(ChildProcess.make("mkfifo", [file]))).code).toBe(0);
+        const held = yield* Deferred.make<void>();
+        const release = yield* Deferred.make<void>();
+        const writer = yield* Effect.scoped(
+          Effect.gen(function* () {
+            const handle = yield* Effect.acquireRelease(
+              Effect.promise(() => openFile(file, "w")),
+              (handle) => Effect.promise(() => handle.close()),
+            );
+            yield* Deferred.succeed(held, undefined);
+            yield* Deferred.await(release);
+            yield* Effect.promise(() => handle.writeFile(original));
+          }),
+        ).pipe(Effect.forkScoped);
+        yield* Effect.addFinalizer(() => Deferred.succeed(release, undefined));
+        const archiving = yield* f.request({ _tag: "Archive", name }).pipe(Effect.forkChild);
+        yield* Deferred.await(held);
+        const reads: D.DaemonRequestBody[] = [
+          { _tag: "Status", name, cwd: f.repo },
+          { _tag: "Result", name },
+          { _tag: "Events", name },
+          { _tag: "Wait", names: [name], all: false, cwd: f.repo, timeoutMs: 100 },
+        ];
+        const queued = yield* Effect.forEach(reads, (body) =>
+          supervisor.handler(body).pipe(Effect.flip, Effect.forkChild({ startImmediately: true })),
+        );
+        const groupStatus = yield* supervisor
+          .handler({ _tag: "Status", cwd: f.repo })
+          .pipe(Effect.forkChild({ startImmediately: true }));
+        const groupWait = yield* supervisor
+          .handler({ _tag: "Wait", names: [], all: true, cwd: f.repo, timeoutMs: 100 })
+          .pipe(Effect.forkChild({ startImmediately: true }));
+        yield* f.request({ _tag: "Steer", name: otherName, message: "send late callback" });
+        const marker =
+          kind === "notification"
+            ? `${f.dataDir}/logs/app-server.log`
+            : `${f.dataDir}/runs/other/codex.jsonl`;
+        while (!(yield* f.fs.exists(marker))) yield* Effect.yieldNow;
+        while (!(yield* f.fs.readFileString(marker)).includes("barrier")) yield* Effect.yieldNow;
+        yield* Deferred.succeed(release, undefined);
+        yield* Fiber.join(writer);
+        expect(yield* Fiber.join(archiving)).toMatchObject({ _tag: "Archived" });
+        yield* Effect.raceFirst(
+          Fiber.join(fiber),
+          Effect.gen(function* () {
+            while (
+              !(yield* f.fs.readFileString(`${f.dataDir}/runs/other/codex.jsonl`)).includes(
+                "after-late",
+              )
+            )
+              yield* Effect.yieldNow;
+          }),
+        );
+        for (const read of queued)
+          expect(yield* Fiber.join(read)).toMatchObject({ _tag: "RunNotFound" });
+        expect(yield* Fiber.join(groupStatus)).toMatchObject({
+          digests: [{ name: otherName, state: "running" }],
+        });
+        expect(yield* Fiber.join(groupWait)).toMatchObject({
+          _tag: "Waited",
+          outcome: "timeout",
+          runs: [],
+        });
+        expect((yield* f.status(otherName)).state).toBe("running");
+        expect(yield* f.request({ _tag: "Ping" })).toMatchObject({ _tag: "Pong" });
+        expect(yield* f.request({ _tag: "Status", cwd: f.repo })).toMatchObject({
+          digests: [{ name: otherName, state: "running" }],
+        });
+      }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("archives only inactive runs, removes group membership and permits name reuse", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(
+        scenario(turnRule(), turnRule([complete()]), {
+          method: Codex.Method.turnInterrupt,
+          respond: { result: {} },
+          steps: [complete("interrupted")],
+        }),
+      );
+      yield* f.launch();
+      expect(yield* f.request({ _tag: "Archive", name }).pipe(Effect.flip)).toMatchObject({
+        _tag: "RunNotFound",
+      });
+      yield* f.start();
+      expect(yield* f.request({ _tag: "Archive", name }).pipe(Effect.flip)).toMatchObject({
+        _tag: "RunConflict",
+      });
+      expect(yield* f.fs.exists(f.runDir)).toBe(true);
+      yield* f.request({ _tag: "Interrupt", name });
+      yield* f.untilState("interrupted");
+      const original = yield* f.fs.readFileString(`${f.runDir}/run.json`);
+      const archived = yield* f.request({ _tag: "Archive", name });
+      if (archived._tag !== "Archived") assert.fail("expected Archived");
+      expect(archived.archivePath).toMatch(/\/runs\/\.archive\/unit-[0-9]+$/);
+      expect(yield* f.fs.readFileString(`${archived.archivePath}/run.json`)).toBe(original);
+      expect(yield* f.fs.exists(f.runDir)).toBe(false);
+      expect(yield* f.request({ _tag: "Status", cwd: f.repo })).toEqual({
+        _tag: "Digests",
+        digests: [],
+      });
+      expect(
+        yield* f.request({ _tag: "Status", name, cwd: f.repo }).pipe(Effect.flip),
+      ).toMatchObject({ _tag: "RunNotFound" });
+      expect(yield* f.wait({ cwd: f.repo, all: true, names: [] })).toMatchObject({
+        outcome: "none",
+        runs: [],
+      });
+      yield* f.start();
+      expect((yield* f.untilState("idle")).name).toBe(name);
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("keeps completed digests after git removes the worktree and refuses followup", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario(turnRule([complete()])));
+      yield* f.launch();
+      yield* f.start();
+      yield* f.untilState("idle");
+      yield* f.fs.writeFileString(`${f.worktree}/result.txt`, "done");
+      const before = yield* f.status();
+      yield* f.git(f.repo, ["worktree", "remove", "--force", f.worktree]);
+      // Confirm the original failure starts in the platform's process spawn, before mapping.
+      expect(yield* computeWorktreeFields(f.worktree, f.runDir).pipe(Effect.flip)).toMatchObject({
+        _tag: "PlatformError",
+        reason: { _tag: "NotFound" },
+      });
+      const expected = {
+        filesWritten: before.filesWritten,
+        newInGitStatus: before.newInGitStatus,
+        outsideMayChange: before.outsideMayChange,
+        warnings: [...before.warnings, `worktree removed: ${f.worktree}`],
+      };
+      expect(yield* f.status()).toMatchObject(expected);
+      expect(yield* f.request({ _tag: "Status", cwd: f.repo })).toMatchObject({
+        digests: [expected],
+      });
+      expect(yield* f.wait({ cwd: f.repo, all: true, names: [] })).toMatchObject({
+        runs: [{ kind: "done", digest: expected }],
+      });
+      expect(yield* f.request({ _tag: "Result", name })).toMatchObject({ digest: expected });
+      expect(
+        yield* f.request({ _tag: "Followup", name, message: "continue" }).pipe(Effect.flip),
+      ).toMatchObject({ _tag: "RunConflict", detail: expect.stringContaining("no longer exists") });
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("reports missing worktrees with null fields after daemon recovery", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario(turnRule([complete()])));
+      const first = yield* f.launch();
+      yield* f.start();
+      yield* f.untilState("idle");
+      yield* first.stop;
+      yield* f.git(f.repo, ["worktree", "remove", f.worktree]);
+      yield* f.launch();
+      expect(yield* f.status()).toMatchObject({
+        filesWritten: null,
+        newInGitStatus: null,
+        outsideMayChange: null,
+        warnings: expect.arrayContaining([`worktree removed: ${f.worktree}`]),
+      });
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live.each(["platform", "schema"])("explains %s failures reading run data", (kind) =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario(turnRule([complete()])));
+      yield* f.launch();
+      yield* f.start();
+      yield* f.untilState("idle");
+      if (kind === "platform") yield* f.fs.remove(`${f.runDir}/baseline.txt`);
+      else
+        yield* f.fs.writeFileString(`${f.runDir}/questions.jsonl`, "secret=private invalid JSON\n");
+      const error = yield* f.status().pipe(Effect.flip);
+      expect(error).toMatchObject({
+        _tag: "DaemonUnavailable",
+        detail: expect.stringContaining("run data"),
+      });
+      expect(JSON.stringify(error)).not.toContain("private");
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("explains a Codex request refusal without exposing its message", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(
+        scenario({
+          method: Codex.Method.threadStart,
+          respond: { error: { code: -1, message: "secret=private" } },
+        }),
+      );
+      yield* f.launch();
+      const error = yield* f.start().pipe(Effect.flip);
+      expect(error).toMatchObject({
+        _tag: "CodexUnavailable",
+        detail: expect.stringContaining("Codex refused"),
+      });
+      expect(JSON.stringify(error)).not.toContain("private");
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("identifies an invalid Codex reply as CodexUnavailable", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(
+        scenario({
+          method: Codex.Method.turnStart,
+          respond: { result: { turn: { status: 123, error: null, items: [] } } },
+        }),
+      );
+      yield* f.launch();
+      const error = yield* f.start().pipe(Effect.flip);
+      expect(error).toMatchObject({
+        _tag: "CodexUnavailable",
+        detail: expect.stringContaining("reply"),
+      });
+      expect(JSON.stringify(error)).not.toContain("private");
+    }).pipe(Effect.provide(platform)),
+  );
+
   it.effect("review: initialization failure closes the failed app-server scope", () =>
     Effect.gen(function* () {
       const f = yield* fixture(scenario());
@@ -762,7 +1042,7 @@ if (process.argv.includes("generate-json-schema")) {
       yield* f.git(f.repo, ["worktree", "remove", f.worktree]);
       expect(
         yield* f.request({ _tag: "Followup", name, message: "continue" }).pipe(Effect.flip),
-      ).toMatchObject({ _tag: "WorktreeInvalid" });
+      ).toMatchObject({ _tag: "RunConflict" });
     }).pipe(Effect.provide(platform)),
   );
   it.live("fails closed even when a commandExecution item's detailed shape has changed", () =>

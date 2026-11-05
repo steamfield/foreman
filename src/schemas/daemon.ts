@@ -229,6 +229,7 @@ export const DaemonRequestBody = Schema.TaggedUnion({
   Interrupt: { name: RunName },
   Answer: { name: RunName, question: QuestionId, text: Schema.String },
   Result: { name: RunName },
+  Archive: { name: RunName },
   Wait: {
     names: Schema.Array(RunName),
     all: Schema.Boolean,
@@ -253,6 +254,7 @@ export const WaitOutcome = Schema.Struct({
 export const DaemonResult = Schema.TaggedUnion({
   Pong: { version: Schema.String, pid: Schema.Int },
   Started: { name: RunName, runDir: Schema.String },
+  Archived: { name: RunName, archivePath: Schema.String },
   Digests: { digests: Schema.Array(Digest) },
   Events: { events: Schema.Array(RunEvent), gap: Schema.Boolean, next: Schema.Int },
   Ok: {},

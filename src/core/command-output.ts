@@ -45,6 +45,8 @@ export function renderResult(result: DaemonResult): string {
       return `running ${result.version} (pid ${result.pid})`;
     case "Started":
       return `${result.name}\n${result.runDir}`;
+    case "Archived":
+      return result.archivePath;
     case "Digests":
       return result.digests.length === 0
         ? "no runs"
