@@ -228,6 +228,7 @@ class Lexer {
   private token(c: string): boolean {
     return (
       this.newline(c) ||
+      this.tilde(c) ||
       this.escape(c) ||
       this.ansiQuoted() ||
       this.singleQuoted(c) ||
@@ -244,6 +245,19 @@ class Lexer {
       this.separator(c) ||
       this.redirect(c)
     );
+  }
+
+  /**
+   * An unquoted ~ that starts a word and is followed by / or the word's end is $HOME, which bash
+   * substitutes before running the command. Other tildes (~user, a~b, HOME unset) stay expansion.
+   */
+  private tilde(c: string): boolean {
+    const home = process.env.HOME;
+    if (c !== "~" || this.inWord || !home) return false;
+    if (!/^(?:[/\s;&|()<>]|)$/.test(this.src.charAt(this.i + 1))) return false;
+    this.add(home);
+    this.i++;
+    return true;
   }
 
   private get current(): number {

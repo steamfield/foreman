@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { bash, denyReason, makeFixture, runHook } from "../helpers/hooks";
 
 // Every case spawns the hook (and some spawn git) as real processes, which under a loaded
@@ -22,6 +22,35 @@ describe("shared package manager guard", SPAWNS, () => {
       ).toBeUndefined();
     },
   );
+});
+
+describe("a leading ~ resolves to HOME, as bash expands it", SPAWNS, () => {
+  const home = makeFixture();
+  const guard = async (command: string, env: Record<string, string | undefined> = {}) =>
+    denyReason(
+      await runHook("PreToolUse", "block-destructive", bash(command), {
+        env: { HOME: home.dir, ...env },
+      }),
+    );
+  it.each(["~/.claude/skills/x/scripts/run.sh a.md --write", "~ --version", "ls ~/notes"])(
+    "allows %s",
+    async (command) => {
+      expect(await guard(command)).toBeUndefined();
+    },
+  );
+  it("still denies a destructive command once ~ is resolved", async () => {
+    expect(await guard("rm -rf ~/")).toBeDefined();
+  });
+  afterAll(() => home.cleanup());
+  it.each(["~other/bin/tool", "a~/bin/tool"])(
+    "keeps %s opaque, since bash doesn't expand it to HOME",
+    async (command) => {
+      expect(await guard(command)).toContain("too complex");
+    },
+  );
+  it("keeps ~ opaque when HOME is unset", async () => {
+    expect(await guard("~/bin/tool", { HOME: undefined })).toContain("too complex");
+  });
 });
 
 describe("package manager guard follows the project's lockfile", SPAWNS, () => {
