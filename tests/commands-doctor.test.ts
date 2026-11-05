@@ -41,6 +41,38 @@ const entered = Effect.fnUntraced(function* (marker: string) {
 });
 
 describe("bounded doctor diagnostics", () => {
+  it.live("finds a bare Codex executable through the inherited PATH", () =>
+    Effect.gen(function* () {
+      const home = yield* temp();
+      const fs = yield* FileSystem.FileSystem;
+      yield* fs.writeFileString(
+        `${home}/fixture-codex`,
+        `#!${process.execPath}
+const fs = require("node:fs");
+if (process.argv[2] === "--version") console.log("codex-cli 0.166.0");
+if (process.argv[2] === "app-server") fs.writeFileSync(process.argv.at(-1) + "/schema.json", "{}");
+if (process.env.CODEX_HOME !== ${JSON.stringify(`${home}/configured`)}) process.exit(1);
+`,
+        { mode: 0o755 },
+      );
+      const result = yield* doctor().pipe(
+        Effect.provide(
+          AppConfig.layer({
+            HOME: home,
+            FORMAN_DATA_DIR: home,
+            CODEX_BIN: "fixture-codex",
+            CODEX_HOME: `${home}/configured`,
+            PATH: home,
+          }),
+        ),
+      );
+      expect(result).toMatchObject({
+        codexVersion: "0.166.0",
+        protocolMatches: false,
+        loggedIn: true,
+      });
+    }).pipe(Effect.provide(platform)),
+  );
   it.effect.each(["version", "protocol", "login"] as const)(
     "reports an unavailable %s check when Codex stalls",
     (stalled) =>

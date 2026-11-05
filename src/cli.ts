@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import { CliError, Command, Flag } from "effect/cli";
+import { daemonCommand } from "./commands/daemon";
 import { doctorCommand } from "./commands/doctor";
 import {
   answerCommand,
@@ -31,6 +32,7 @@ export const cli = (name: string) =>
       resultCommand,
       waitCommand,
       doctorCommand,
+      daemonCommand,
     ]),
     Command.provideEffectDiscard(({ json }) =>
       Effect.flatMap(Output, (output) => output.setJson(json)),

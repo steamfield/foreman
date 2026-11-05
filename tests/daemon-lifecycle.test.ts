@@ -556,9 +556,20 @@ describe("daemon lifecycle and protocol", () => {
       );
       assert.strictEqual(result._tag, "Pong");
       if (result._tag !== "Pong") return;
+      // Wait for the daemon to exit, so its shutdown cleanup finishes before the data directory
+      // is removed; otherwise the removal races its socket and lock deletion.
       yield* Effect.addFinalizer(() =>
-        Effect.sync(() => {
+        Effect.promise(async () => {
           process.kill(result.pid, "SIGTERM");
+          const deadline = Date.now() + 5000;
+          while (Date.now() < deadline) {
+            try {
+              process.kill(result.pid, 0);
+            } catch {
+              return;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 20));
+          }
         }),
       );
       assert.deepStrictEqual(yield* ping(dataDir), result);
