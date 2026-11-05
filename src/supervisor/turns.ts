@@ -1,4 +1,4 @@
-import { Clock, DateTime, Effect, FileSystem, Path, Schema } from "effect";
+import { Clock, DateTime, Effect, FileSystem, Path, type PlatformError, Schema } from "effect";
 import { CodexRpcError } from "../codex/client";
 import type { AppConfig } from "../config";
 import { checkHookTrust } from "../core/preflight/hooks";
@@ -27,7 +27,6 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
   servers: AppServers,
   config: AppConfig["Service"],
 ) {
-  const scope = yield* Effect.scope;
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const settings = (run: Run) => ({
@@ -37,23 +36,25 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
     approvalPolicy: "never",
     sandbox: run.record.sandbox,
   });
-  const uncertain = Effect.fnUntraced(function* (run: Run, error: unknown) {
-    if (error instanceof CodexUnavailable && error.detail?.includes("timed out")) {
-      yield* registry.state(run, "unknown");
-      const updated = run.record.updatedAt;
-      yield* Effect.sleep("5 minutes").pipe(
-        Effect.andThen(
-          run.lock.withPermits(1)(
-            Effect.gen(function* () {
-              if (run.record.state === "unknown" && run.record.updatedAt === updated)
-                yield* registry.lost(run);
-            }),
-          ),
+  const markUnknown = Effect.fnUntraced(function* (run: Run) {
+    yield* registry.state(run, "unknown");
+    const version = ++run.recoveryVersion;
+    yield* Effect.sleep("5 minutes").pipe(
+      Effect.andThen(
+        run.lock.withPermits(1)(
+          Effect.gen(function* () {
+            if (run.record.state === "unknown" && run.recoveryVersion === version)
+              yield* registry.lost(run);
+          }),
         ),
-        Effect.catch(() => Effect.logError("supervisor.unknown.timer.failed")),
-        Effect.forkIn(scope),
-      );
-    } else {
+      ),
+      registry.fork,
+    );
+  });
+  const uncertain = Effect.fnUntraced(function* (run: Run, error: unknown) {
+    if (error instanceof CodexUnavailable && error.detail?.includes("timed out"))
+      yield* markUnknown(run);
+    else {
       yield* registry.save(run, {
         failure: { message: "Codex request failed", codexErrorInfo: null },
         activeTurnId: null,
@@ -82,10 +83,15 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
     message: string,
     kind: TurnKind,
     budgetMs: number,
-  ): Effect.fn.Return<void, unknown, FileSystem.FileSystem | Path.Path> {
+  ): Effect.fn.Return<
+    void,
+    CodexUnavailable | CodexRpcError | Schema.SchemaError | PlatformError.PlatformError,
+    FileSystem.FileSystem | Path.Path
+  > {
     run.items = [];
     run.projectHook = false;
     run.budgetExpired = false;
+    run.budgetTurnId = null;
     const now = DateTime.makeUnsafe(yield* Clock.currentTimeMillis);
     yield* registry.save(run, {
       turns: run.record.turns + 1,
@@ -111,14 +117,38 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
       .pipe(Effect.tapError((error) => uncertain(run, error)));
     yield* registry.save(run, { activeTurnId: response.turn.id });
     yield* registry.state(run, "running");
-    const turnId = response.turn.id;
-    yield* Effect.sleep(budgetMs).pipe(
+    yield* armBudget(run, server);
+  });
+  const armBudget = Effect.fnUntraced(function* (run: Run, server: AppServer) {
+    const turnId = run.record.activeTurnId;
+    if (!turnId || run.budgetTurnId === turnId) return;
+    run.budgetTurnId = turnId;
+    const kind = run.record.turnKind;
+    const startedAt = run.record.turnStartedAt;
+    const elapsed = startedAt
+      ? (yield* Clock.currentTimeMillis) - DateTime.toEpochMillis(startedAt)
+      : 0;
+    const remaining = Math.max(0, (run.record.turnBudgetMs ?? 3_600_000) - elapsed);
+    yield* Effect.sleep(remaining).pipe(
       Effect.andThen(
         run.lock.withPermits(1)(
           Effect.gen(function* () {
             if (run.record.activeTurnId !== turnId || !activeStates.has(run.record.state)) return;
             run.budgetExpired = kind !== "handoff";
-            yield* interrupt(run, server, "budget");
+            const interrupted = yield* interrupt(run, server, "budget").pipe(Effect.result);
+            if (interrupted._tag === "Failure") {
+              if (
+                interrupted.failure instanceof CodexRpcError ||
+                interrupted.failure instanceof CodexUnavailable
+              ) {
+                yield* Effect.logWarning("supervisor.budget.interrupt.unconfirmed", {
+                  name: run.record.name,
+                });
+                yield* markUnknown(run);
+                return;
+              }
+              return yield* Effect.fail(interrupted.failure);
+            }
             // The completed notification starts the hand-off, after Codex has ended the old turn.
             if (kind === "handoff") {
               yield* registry.save(run, { activeTurnId: null });
@@ -127,8 +157,7 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
           }),
         ),
       ),
-      Effect.catch(() => Effect.logError("supervisor.budget.failed", { name: run.record.name })),
-      Effect.forkIn(scope),
+      registry.fork,
     );
   });
   const handoff = (run: Run, server: AppServer) => begin(run, server, timeUp, "handoff", 600_000);
@@ -142,11 +171,15 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
           detail: `${run.record.name} is ${run.record.state}; wait or interrupt it before starting another run here.`,
         });
     }
-    const previous = registry.runs.get(body.name);
-    if (previous) yield* previous.lock.withPermits(1)(Store.archiveRun(config.dataDir, body.name));
     const validated = yield* validateWorktree(body.worktree, body.skipDepsCheck);
     yield* checkHookTrust(validated.mainCheckout, config.codexHome);
+    const model = body.model ?? (yield* defaultModel(config.codexHome));
     const warning = yield* servers.protocolWarning;
+    const previous = registry.runs.get(body.name);
+    if (previous) {
+      yield* previous.lock.withPermits(1)(Store.archiveRun(config.dataDir, body.name));
+      registry.runs.delete(body.name);
+    }
     const now = DateTime.makeUnsafe(yield* Clock.currentTimeMillis);
     const record: RunRecord = {
       name: body.name,
@@ -154,7 +187,7 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
       group: validated.mainCheckout,
       worktree: validated.worktree,
       baseCommit: validated.baseCommit,
-      model: body.model ?? (yield* defaultModel(config.codexHome)),
+      model,
       effort: body.effort ?? "high",
       tier: body.tier ?? "priority",
       sandbox: body.write ? "danger-full-access" : "read-only",
@@ -178,6 +211,7 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
       Effect.gen(function* () {
         run.hooksRequired = yield* fs.exists(path.join(record.group, ".codex/hooks.json"));
         const server = yield* servers.get.pipe(Effect.tapError((error) => uncertain(run, error)));
+        run.serverGeneration = server.generation;
         const opened = yield* server.connection
           .request(
             Codex.Method.threadStart,
@@ -211,6 +245,16 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
       return yield* new RunConflict({
         detail: `${run.record.name} is ${run.record.state}; answer, steer or interrupt the active turn first.`,
       });
+    for (const other of registry.runs.values()) {
+      if (
+        other !== run &&
+        other.record.worktree === run.record.worktree &&
+        activeStates.has(other.record.state)
+      )
+        return yield* new RunConflict({
+          detail: `${other.record.name} is active in this worktree; wait or interrupt it first.`,
+        });
+    }
     if (!(yield* fs.exists(run.record.worktree)))
       return yield* new WorktreeInvalid({
         detail: "Worktree no longer exists; prepare a worktree and start a new run.",
@@ -218,6 +262,7 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
     if (!run.record.threadId)
       return yield* new RunConflict({ detail: "No thread was created; start a new run instead." });
     const server = yield* servers.get;
+    run.serverGeneration = server.generation;
     if (!server.loaded.has(run.record.threadId)) {
       yield* server.connection.request(
         Codex.Method.threadResume,
@@ -266,6 +311,6 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
       );
     yield* registry.event(run, { _tag: "Steered", message });
   });
-  return { start, followup, begin, handoff, interrupt, steer };
+  return { start, followup, begin, armBudget, handoff, interrupt, steer };
 });
 export type Turns = Effect.Success<ReturnType<typeof makeTurns>>;

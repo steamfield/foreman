@@ -1,4 +1,4 @@
-import { Clock, DateTime, Deferred, Effect, Semaphore } from "effect";
+import { Clock, DateTime, Deferred, Effect, FiberSet, Semaphore } from "effect";
 import { buildDigest } from "../core/runs/digest";
 import * as Store from "../core/runs/store";
 import { computeWorktreeFields, type WorktreeFields } from "../core/runs/worktree";
@@ -23,9 +23,13 @@ export interface Run {
   hooksRequired: boolean;
   worktree: WorktreeFields | null;
   budgetExpired: boolean;
+  budgetTurnId: string | null;
+  serverGeneration: symbol | null;
+  recoveryVersion: number;
 }
 
 export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir: string) {
+  const workers = yield* FiberSet.make<unknown, unknown>();
   const runs = new Map<RunName, Run>();
   const starts = yield* Semaphore.make(1);
   let changed = yield* Deferred.make<void>();
@@ -45,6 +49,9 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
       hooksRequired: false,
       worktree: null,
       budgetExpired: false,
+      budgetTurnId: null,
+      serverGeneration: null,
+      recoveryVersion: 0,
     };
     runs.set(record.name, run);
     return run;
@@ -110,6 +117,8 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
     yield* run.lock.withPermits(1)(lost(run));
   }
   return {
+    fork: <A, E, R>(work: Effect.Effect<A, E, R>) => FiberSet.run(workers, work),
+    failed: FiberSet.join(workers),
     runs,
     starts,
     add,

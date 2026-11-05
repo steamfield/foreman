@@ -1,14 +1,17 @@
-import { Effect, FileSystem, Path, Scope, Semaphore, Stream } from "effect";
+import { Effect, Exit, FileSystem, Path, Scope, Semaphore, Stream } from "effect";
 import { checkProtocol } from "../codex/check";
 import { openConnection } from "../codex/client";
 import { appServerEnvironment } from "../codex/environment";
 import type { AppConfig } from "../config";
 import { probeSsh } from "../core/preflight/ssh";
+import { CodexUnavailable } from "../errors";
 import type * as Codex from "../schemas/codex";
 import type { Registry } from "./registry";
 
 export type Connection = Effect.Success<ReturnType<typeof openConnection>>;
 export interface AppServer {
+  readonly generation: symbol;
+  readonly scope: Scope.Closeable;
   readonly connection: Connection;
   readonly loaded: Set<string>;
 }
@@ -18,10 +21,10 @@ export const makeLogAppender = Effect.fnUntraced(function* (file: string) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const lock = yield* Semaphore.make(1);
-  yield* fs.makeDirectory(path.dirname(file), { recursive: true });
   return (text: string) =>
     lock.withPermits(1)(
       Effect.gen(function* () {
+        yield* fs.makeDirectory(path.dirname(file), { recursive: true });
         const info = yield* fs
           .stat(file)
           .pipe(Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(null)));
@@ -63,6 +66,7 @@ export const makeAppServer = Effect.fn("supervisor.appServer")(function* (
     Effect.gen(function* () {
       const result = yield* checkProtocol(config.codexBin, yield* env).pipe(
         Effect.scoped,
+        Effect.timeout("5 seconds"),
         Effect.result,
       );
       if (result._tag === "Failure")
@@ -76,7 +80,20 @@ export const makeAppServer = Effect.fn("supervisor.appServer")(function* (
   const disconnected = Effect.fnUntraced(function* (server: AppServer) {
     if (current !== server) return;
     current = undefined;
-    for (const run of registry.runs.values()) yield* run.lock.withPermits(1)(registry.lost(run));
+    const affected = [...registry.runs.values()].filter(
+      (run) => run.serverGeneration === server.generation,
+    );
+    yield* Scope.close(server.scope, Exit.void);
+    for (const run of affected)
+      yield* run.lock.withPermits(1)(
+        Effect.gen(function* () {
+          if (
+            run.serverGeneration === server.generation &&
+            registry.runs.get(run.record.name) === run
+          )
+            yield* registry.lost(run);
+        }),
+      );
   });
   const get = lock.withPermits(1)(
     Effect.gen(function* () {
@@ -90,21 +107,32 @@ export const makeAppServer = Effect.fn("supervisor.appServer")(function* (
           append(`${line}\n`).pipe(
             Effect.catch(() => Effect.logWarning("supervisor.appServer.stderr.unavailable")),
           ),
-      }).pipe(Scope.provide(scope));
-      const server: AppServer = { connection, loaded: new Set() };
+      }).pipe(
+        Scope.provide(scope),
+        Effect.onExit((exit) => (Exit.isFailure(exit) ? Scope.close(scope, exit) : Effect.void)),
+      );
+      const server: AppServer = { connection, generation: Symbol(), scope, loaded: new Set() };
       current = server;
       yield* connection.notifications.pipe(
-        Stream.runForEach((message) => notify(server, message)),
-        Effect.catch(() => Effect.logError("supervisor.notifications.failed")),
+        Stream.runForEach((message) =>
+          notify(server, message).pipe(
+            Effect.catch((error) =>
+              error instanceof CodexUnavailable ? Effect.void : Effect.fail(error),
+            ),
+          ),
+        ),
         Effect.andThen(disconnected(server)),
-        Effect.forkIn(scope),
+        registry.fork,
       );
       yield* connection.serverRequests.pipe(
-        Stream.runForEach((message) => request(server, message)),
-        Effect.catch(() =>
-          Effect.logError("supervisor.requests.failed").pipe(Effect.andThen(disconnected(server))),
+        Stream.runForEach((message) =>
+          request(server, message).pipe(
+            Effect.catch((error) =>
+              error instanceof CodexUnavailable ? Effect.void : Effect.fail(error),
+            ),
+          ),
         ),
-        Effect.forkIn(scope),
+        registry.fork,
       );
       return server;
     }),

@@ -8,7 +8,6 @@ import { noAnswer } from "./prompts";
 import type { Registry, Run } from "./registry";
 
 export const makeQuestions = Effect.fn("supervisor.questions")(function* (registry: Registry) {
-  const scope = yield* Effect.scope;
   const resolve = Effect.fnUntraced(function* (
     run: Run,
     server: AppServer,
@@ -94,13 +93,7 @@ export const makeQuestions = Effect.fn("supervisor.questions")(function* (regist
           }),
         ),
       ),
-      Effect.catch(() =>
-        Effect.logError("supervisor.question.timeout.failed", {
-          name: run.record.name,
-          question: id,
-        }),
-      ),
-      Effect.forkIn(scope),
+      registry.fork,
     );
   });
   return { resolve, receive };

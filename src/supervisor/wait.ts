@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { DateTime, Effect, Schema } from "effect";
 import { ChildProcess } from "effect/process";
 import { commandResult } from "../core/preflight/command";
 import { readEvents } from "../core/runs/store";
@@ -14,7 +14,13 @@ import {
 import type { Registry, Run } from "./registry";
 
 // This internal schema belongs to the supervisor; Cursor stays opaque to the public protocol.
-const Positions = Schema.Record(RunName, Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)));
+const Positions = Schema.Record(
+  RunName,
+  Schema.Struct({
+    identity: Schema.String,
+    seq: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  }),
+);
 const CursorJson = Schema.fromJsonString(Positions);
 const encode = (positions: typeof Positions.Type) =>
   Schema.decodeUnknownSync(Cursor)(
@@ -65,8 +71,9 @@ const attention = Effect.fnUntraced(function* (registry: Registry, run: Run, aft
       // The interrupted working turn belongs to the budget transition, not a hand-off yet.
       if (run.record.turnKind === "handoff" && activeStates.has(run.record.state)) continue;
       let kind: "done" | "failed" | "interrupted" = "done";
-      if (event.status === "failed" || digest.state === "failed") kind = "failed";
-      else if (event.status === "interrupted" || digest.state === "interrupted")
+      const current = event.turn === run.record.turns;
+      if (event.status === "failed" || (current && digest.state === "failed")) kind = "failed";
+      else if (event.status === "interrupted" || (current && digest.state === "interrupted"))
         kind = "interrupted";
       outcomes.push({ name: run.record.name, kind, summary: `turn ${event.turn}`, digest });
     } else if (event._tag === "StateChanged")
@@ -77,7 +84,8 @@ const attention = Effect.fnUntraced(function* (registry: Registry, run: Run, aft
         digest,
       });
   }
-  return { outcomes, next: page.next };
+  const latest = outcomes.at(-1);
+  return { outcomes: latest ? [latest] : [], next: page.next };
 });
 
 export const wait = Effect.fn("supervisor.wait")(function* (
@@ -105,8 +113,13 @@ export const wait = Effect.fn("supervisor.wait")(function* (
       for (const run of runs)
         yield* run.lock.withPermits(1)(
           Effect.gen(function* () {
-            const result = yield* attention(registry, run, positions[run.record.name] ?? 0);
-            next[run.record.name] = result.next;
+            const identity = `${DateTime.formatIso(run.record.createdAt)}:${run.record.threadId ?? ""}`;
+            const previous = Object.hasOwn(positions, run.record.name)
+              ? positions[run.record.name]
+              : undefined;
+            const after = previous?.identity === identity ? previous.seq : 0;
+            const result = yield* attention(registry, run, after);
+            next[run.record.name] = { identity, seq: result.next };
             outcomes.push(...result.outcomes);
             active ||= activeStates.has(run.record.state);
           }),

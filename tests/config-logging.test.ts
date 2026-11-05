@@ -16,6 +16,26 @@ async function configFile(content: string) {
 }
 
 describe("real config and emitted logging", () => {
+  it("exposes the environment supplied to each config layer without trimming or dropping values", async () => {
+    const home = await tempDir();
+    for (const value of [" first ", "second"]) {
+      const result = await runCli(["--json"], {
+        home,
+        env: { PATH: "/fixture/bin", EXTRA_VALUE: value, EMPTY: "" },
+        program: Effect.gen(function* () {
+          const config = yield* AppConfig;
+          yield* (yield* Output).result(config.inheritedEnvironment, "environment");
+        }),
+      });
+      expect(result.status).toBe(0);
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        HOME: home,
+        PATH: "/fixture/bin",
+        EXTRA_VALUE: value,
+        EMPTY: "",
+      });
+    }
+  });
   it.each([
     { env: {}, bin: "codex", home: undefined },
     {

@@ -99,9 +99,13 @@ export const handleNotification = Effect.fn("supervisor.notification")(function*
     return;
   }
   if (run.record.state === "unknown") {
-    yield* registry.state(run, "running");
-    if ("turnId" in notification.params && notification.params.turnId)
-      yield* registry.save(run, { activeTurnId: notification.params.turnId });
+    let turnId: string | null = null;
+    if ("turn" in notification.params) turnId = notification.params.turn.id;
+    else if ("turnId" in notification.params) turnId = notification.params.turnId;
+    if (turnId) {
+      yield* registry.save(run, { activeTurnId: turnId });
+      yield* registry.state(run, "running");
+    }
   }
   if (
     "turnId" in notification.params &&
@@ -109,6 +113,8 @@ export const handleNotification = Effect.fn("supervisor.notification")(function*
     notification.params.turnId !== run.record.activeTurnId
   )
     return;
+  if (run.record.activeTurnId && activeStates.has(run.record.state))
+    yield* turns.armBudget(run, server);
   if (
     (notification.method === Codex.Method.turnStarted ||
       notification.method === Codex.Method.turnCompleted) &&
@@ -129,6 +135,7 @@ export const handleNotification = Effect.fn("supervisor.notification")(function*
     case Codex.Method.turnStarted:
       if (activeStates.has(run.record.state)) {
         yield* registry.save(run, { activeTurnId: notification.params.turn.id });
+        yield* turns.armBudget(run, server);
         yield* registry.state(run, run.calls.size ? "waiting" : "running");
       }
       break;
@@ -142,7 +149,16 @@ export const handleNotification = Effect.fn("supervisor.notification")(function*
         failure: run.record.failure ?? notification.params.turn.error,
       });
       if (run.budgetExpired && run.record.failure === null) {
-        yield* turns.handoff(run, server);
+        yield* turns.handoff(run, server).pipe(
+          Effect.catchTags({
+            CodexRpcError: () =>
+              Effect.logWarning("supervisor.handoff.refused", { name: run.record.name }),
+            CodexUnavailable: () =>
+              Effect.logWarning("supervisor.handoff.unavailable", { name: run.record.name }),
+            SchemaError: () =>
+              Effect.logWarning("supervisor.handoff.invalid", { name: run.record.name }),
+          }),
+        );
         return;
       }
       let state: "idle" | "interrupted" | "failed" = "idle";
@@ -158,7 +174,7 @@ export const handleNotification = Effect.fn("supervisor.notification")(function*
     }
     case Codex.Method.itemStarted:
       if (
-        Schema.is(Codex.CommandExecutionItem)(notification.params.item) &&
+        notification.params.item.type === "commandExecution" &&
         run.hooksRequired &&
         !run.projectHook &&
         activeStates.has(run.record.state)
@@ -167,7 +183,7 @@ export const handleNotification = Effect.fn("supervisor.notification")(function*
         yield* registry.save(run, {
           failure: { message: "repo hooks did not run", codexErrorInfo: null },
         });
-        yield* registry.state(run, "failed");
+        if (run.record.state === "waiting") yield* registry.state(run, "running");
       }
       break;
     case Codex.Method.itemCompleted:

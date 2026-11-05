@@ -31,7 +31,11 @@ export const doctor = Effect.fn("doctor")(function* () {
   );
   yield* Effect.logDebug("configuration checked");
   if (settings.configError) yield* Effect.logWarning("configuration unavailable");
-  const env = { CODEX_HOME: config.codexHome };
+  const env = Object.fromEntries(
+    Object.entries({ ...config.inheritedEnvironment, CODEX_HOME: config.codexHome }).filter(
+      (entry): entry is [string, string] => entry[1] !== undefined,
+    ),
+  );
   const version = yield* Effect.scoped(codexVersion(config.codexBin, env)).pipe(
     Effect.timeout(probeTimeout),
     Effect.orElseSucceed(() => null),

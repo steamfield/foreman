@@ -1,10 +1,11 @@
-import { Effect, Logger, Path, Queue, Stream } from "effect";
+import { Effect, Logger, Path, Queue, References, Stream } from "effect";
 import { Command } from "effect/cli";
 import { AppConfig } from "../config";
 import { daemon } from "../daemon/server";
 import { entry } from "../logging";
 import { Host } from "../services/host";
 import { Invocation } from "../services/invocation";
+import { Output } from "../services/output";
 import { makeSupervisor } from "../supervisor";
 import { makeLogAppender } from "../supervisor/app-server";
 
@@ -21,17 +22,42 @@ export const daemonCommand = Command.make(
       settings.file || path.join(config.dataDir, "logs/daemon.jsonl"),
     );
     const records = yield* Queue.unbounded<string>();
+    const output = yield* Output;
+    let sinkUnavailable = false;
+    const write = (line: string) =>
+      sinkUnavailable
+        ? Effect.void
+        : append(line).pipe(
+            Effect.catch(() =>
+              Effect.gen(function* () {
+                sinkUnavailable = true;
+                yield* output
+                  .note("Daemon log file unavailable; continuing without file logging.")
+                  .pipe(Effect.ignoreCause);
+              }),
+            ),
+          );
     const logger = Logger.make((input) => {
       Queue.offerUnsafe(
         records,
-        `${JSON.stringify(entry({ date: input.date, level: input.logLevel, message: input.message }))}\n`,
+        `${JSON.stringify(
+          entry({
+            date: input.date,
+            level: input.logLevel,
+            message: input.message,
+            annotations: input.fiber.getRef(References.CurrentLogAnnotations),
+          }),
+        )}\n`,
       );
     });
     yield* Effect.gen(function* () {
       const supervisor = yield* makeSupervisor();
       yield* Effect.raceFirst(
-        daemon({ dataDir: config.dataDir, version: host.version, ...supervisor }),
-        Stream.fromQueue(records).pipe(Stream.runForEach(append)),
+        supervisor.failed,
+        Effect.raceFirst(
+          daemon({ dataDir: config.dataDir, version: host.version, ...supervisor }),
+          Stream.fromQueue(records).pipe(Stream.runForEach(write)),
+        ),
       );
     }).pipe(Effect.provide(Logger.layer([logger])));
   }),

@@ -1,4 +1,4 @@
-import { Cause, Effect, type FileSystem, type Path, Schema } from "effect";
+import { Cause, Deferred, Effect, Fiber, type FileSystem, type Path, Schema, Scope } from "effect";
 import type { ChildProcessSpawner } from "effect/process";
 import { AppConfig } from "../config";
 import * as Store from "../core/runs/store";
@@ -13,20 +13,16 @@ import { makeRegistry } from "./registry";
 import { makeTurns } from "./turns";
 import { groupFor, wait } from "./wait";
 
-export const makeSupervisor = Effect.fn("supervisor.make")(function* () {
+const buildSupervisor = Effect.fn("supervisor.build")(function* () {
   const config = yield* AppConfig;
   const host = yield* Host;
   const context = yield* Effect.context<
     FileSystem.FileSystem | Path.Path | ChildProcessSpawner.ChildProcessSpawner
   >();
   const registry = yield* makeRegistry(config.dataDir);
-  // Serialize lookup with Start registration: Codex can notify before the Start caller returns.
+  // threadId is saved before turn/start; the run lock orders its reply and early notifications.
   const route = (threadId: string) =>
-    registry.starts.withPermits(1)(
-      Effect.sync(() =>
-        [...registry.runs.values()].find((run) => run.record.threadId === threadId),
-      ),
-    );
+    Effect.sync(() => [...registry.runs.values()].find((run) => run.record.threadId === threadId));
   const notification = Effect.fnUntraced(function* (
     server: AppServer,
     message: typeof Codex.RpcNotification.Type,
@@ -80,6 +76,15 @@ export const makeSupervisor = Effect.fn("supervisor.make")(function* () {
         return { _tag: "Pong", version: host.version, pid: host.pid };
       case "Start":
         return yield* registry.starts.withPermits(1)(turns.start(body));
+      case "Followup": {
+        return yield* registry.starts.withPermits(1)(
+          Effect.gen(function* () {
+            const run = yield* registry.lookup(body.name);
+            yield* run.lock.withPermits(1)(turns.followup(run, body));
+            return { _tag: "Ok" as const };
+          }),
+        );
+      }
       case "Wait":
         return yield* wait(registry, body);
       case "Status": {
@@ -112,9 +117,6 @@ export const makeSupervisor = Effect.fn("supervisor.make")(function* () {
                   digest: yield* registry.digest(run, true),
                   ...(yield* Store.readHandoff(run.dir, run.record.turns)),
                 };
-              case "Followup":
-                yield* turns.followup(run, body);
-                break;
               case "Steer":
                 yield* turns.steer(run, body.message);
                 break;
@@ -139,10 +141,47 @@ export const makeSupervisor = Effect.fn("supervisor.make")(function* () {
   });
   return {
     handler: (body: DaemonRequestBody) =>
-      dispatch(body).pipe(
-        Effect.provide(context),
+      Effect.gen(function* () {
+        const work = dispatch(body).pipe(Effect.provide(context));
+        if (body._tag === "Start" || body._tag === "Followup")
+          return yield* Effect.fromResult(
+            yield* Fiber.join(yield* registry.fork(Effect.result(work))),
+          );
+        return yield* work;
+      }).pipe(Effect.mapError((error) => failure(Cause.fail(error)))),
+    busy: registry.busy,
+    failed: registry.failed.pipe(Effect.mapError((error) => failure(Cause.fail(error)))),
+  };
+});
+
+// daemon() calls busy only after it owns the socket lock. A losing launcher must not rebuild runs.
+export const makeSupervisor = Effect.fn("supervisor.make")(function* () {
+  const scope = yield* Effect.scope;
+  const context = yield* Effect.context<
+    AppConfig | Host | FileSystem.FileSystem | Path.Path | ChildProcessSpawner.ChildProcessSpawner
+  >();
+  const ready = yield* Deferred.make<Effect.Success<ReturnType<typeof buildSupervisor>>, unknown>();
+  const initialize = yield* Effect.cached(
+    buildSupervisor().pipe(
+      Effect.provide(context),
+      Scope.provide(scope),
+      Effect.tap((value) => Deferred.succeed(ready, value)),
+      Effect.tapCause((cause) => Deferred.failCause(ready, cause)),
+    ),
+  );
+  return {
+    handler: (body: DaemonRequestBody) =>
+      initialize.pipe(
+        Effect.flatMap((value) => value.handler(body)),
         Effect.mapError((error) => failure(Cause.fail(error))),
       ),
-    busy: registry.busy,
+    busy: initialize.pipe(
+      Effect.flatMap((value) => value.busy),
+      Effect.orDie,
+    ),
+    failed: Deferred.await(ready).pipe(
+      Effect.flatMap((value) => value.failed),
+      Effect.mapError((error) => failure(Cause.fail(error))),
+    ),
   };
 });

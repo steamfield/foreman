@@ -102,9 +102,9 @@ test("compiled output, config precedence, log records, errors, and no dotenv aut
           "result",
           "wait",
           "doctor",
+          "daemon",
         ])
           expect(output.stdout).toMatch(new RegExp(`\\b${command}\\b`));
-        expect(output.stdout).not.toMatch(/^\s+daemon\b/m);
       }
     }
   } finally {
