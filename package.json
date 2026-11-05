@@ -1,0 +1,38 @@
+{
+  "name": "forman",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun scripts/dev.ts",
+    "build": "bun scripts/build.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "test": "bun run test:unit",
+    "test:unit": "node node_modules/vitest/vitest.mjs run",
+    "test:watch": "node node_modules/vitest/vitest.mjs",
+    "coverage": "node node_modules/vitest/vitest.mjs run --coverage",
+    "e2e": "bun run build && bun test ./e2e",
+    "check": "bun run lint && bun run typecheck && bun run test && bun run e2e",
+    "clean": "rm -rf dist coverage logs .dev",
+    "prepare": "bun scripts/prepare.ts"
+  },
+  "dependencies": {
+    "@effect/platform-bun": "^4.1.2",
+    "effect": "^4.1.2"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.6.5",
+    "@effect/platform-node": "^4.1.2",
+    "@effect/vitest": "^4.1.2",
+    "@types/bun": "^1.4.4",
+    "@types/node": "^26.6.6",
+    "@vitest/coverage-v8": "^5.1.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  },
+  "engines": {
+    "node": ">=26"
+  },
+  "packageManager": "bun@1.4.2"
+}

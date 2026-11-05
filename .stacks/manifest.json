@@ -1,0 +1,296 @@
+{
+  "schemaVersion": 1,
+  "projectId": "7f124855-7521-4d96-b724-29e515417019",
+  "createdAt": "2026-11-05T17:13:41.583Z",
+  "cli": "0.7.0",
+  "mode": "new",
+  "name": "forman",
+  "preset": "default",
+  "agents": [
+    "claude",
+    "codex"
+  ],
+  "stack": {
+    "id": "typescript-cli",
+    "origin": "bundled",
+    "trusted": true
+  },
+  "fragments": [
+    {
+      "id": "agent-ops",
+      "origin": "bundled",
+      "trusted": true
+    },
+    {
+      "id": "ci-github",
+      "origin": "bundled",
+      "trusted": true
+    },
+    {
+      "id": "claude-harness",
+      "origin": "bundled",
+      "trusted": true
+    },
+    {
+      "id": "effect-schema",
+      "origin": "bundled",
+      "trusted": true
+    },
+    {
+      "id": "effect",
+      "origin": "bundled",
+      "trusted": true
+    },
+    {
+      "id": "git-hooks",
+      "origin": "bundled",
+      "trusted": true
+    }
+  ],
+  "env": {},
+  "commands": {
+    "dev": "Run the CLI from source with checkout-local logs and data",
+    "build": "Compile the host binary",
+    "typecheck": "Run tsc without emitting",
+    "lint": "Run Biome checks",
+    "format": "Apply Biome formatting and safe fixes",
+    "test": "Run the unit suite",
+    "test:unit": "Run Vitest on Node",
+    "test:watch": "Watch unit tests",
+    "coverage": "Run unit tests with coverage",
+    "e2e": "Build and exercise the compiled binary using Bun",
+    "check": "Run lint, typecheck, tests, and compiled-binary checks",
+    "clean": "Remove generated build, test, and log output",
+    "prepare": "Install project hooks outside CI"
+  },
+  "verify": [
+    {
+      "name": "install",
+      "run": "bun install",
+      "phase": "setup",
+      "tags": [],
+      "layer": "install",
+      "timeout": "10m",
+      "owner": "typescript-cli",
+      "skipByDefault": false
+    },
+    {
+      "name": "lint",
+      "run": "bun run lint",
+      "phase": "check",
+      "tags": [],
+      "layer": "lint",
+      "timeout": "10m",
+      "owner": "typescript-cli",
+      "skipByDefault": false
+    },
+    {
+      "name": "typecheck",
+      "run": "bun run typecheck",
+      "phase": "check",
+      "tags": [],
+      "layer": "typecheck",
+      "timeout": "10m",
+      "owner": "typescript-cli",
+      "skipByDefault": false
+    },
+    {
+      "name": "test",
+      "run": "bun run test",
+      "phase": "check",
+      "tags": [],
+      "layer": "test",
+      "timeout": "10m",
+      "owner": "typescript-cli",
+      "skipByDefault": false
+    },
+    {
+      "name": "config-logging",
+      "run": "bun run test:unit tests/config-logging.test.ts",
+      "phase": "check",
+      "tags": [],
+      "layer": "test",
+      "timeout": "10m",
+      "owner": "typescript-cli",
+      "skipByDefault": false
+    },
+    {
+      "name": "binary",
+      "run": "bun run e2e",
+      "phase": "check",
+      "tags": [],
+      "layer": "test",
+      "timeout": "10m",
+      "owner": "typescript-cli",
+      "skipByDefault": false
+    },
+    {
+      "name": "readme-filled",
+      "run": "test -s README.md && ! grep -n 'stacks:fill' README.md",
+      "phase": "check",
+      "tags": [],
+      "layer": "check",
+      "timeout": "10m",
+      "owner": "typescript-cli",
+      "skipByDefault": false
+    },
+    {
+      "name": "agents-md-filled",
+      "run": "test -s AGENTS.md && grep -q '^## Commands' AGENTS.md && ! grep -n 'stacks:fill' AGENTS.md",
+      "phase": "check",
+      "tags": [],
+      "layer": "check",
+      "timeout": "10m",
+      "owner": "agent-ops",
+      "skipByDefault": false
+    },
+    {
+      "name": "claude-md-imports-agents",
+      "run": "test ! -f CLAUDE.md || grep -qx '@AGENTS.md' CLAUDE.md",
+      "phase": "check",
+      "tags": [],
+      "layer": "check",
+      "timeout": "10m",
+      "owner": "agent-ops",
+      "skipByDefault": false
+    },
+    {
+      "name": "claude-readme-filled",
+      "run": "test ! -f .claude/README.md || ! grep -n 'stacks:fill' .claude/README.md",
+      "phase": "check",
+      "tags": [],
+      "layer": "check",
+      "timeout": "10m",
+      "owner": "agent-ops",
+      "skipByDefault": false
+    },
+    {
+      "name": "hooks-smoke",
+      "run": "bash .claude/hooks/smoke.sh",
+      "phase": "check",
+      "tags": [],
+      "layer": "check",
+      "timeout": "10m",
+      "owner": "agent-ops",
+      "skipByDefault": false
+    },
+    {
+      "name": "ci-workflow",
+      "run": "f=.github/workflows/ci.yml; test -f $f && grep -q '^jobs:' $f && grep -Eq '^[[:space:]]+ci-ok:' $f && ! grep -n 'stacks:fill' $f || { echo \"$f needs jobs:, a ci-ok job and no stacks:fill\" >&2; exit 1; }",
+      "phase": "check",
+      "tags": [],
+      "layer": "check",
+      "timeout": "10m",
+      "owner": "ci-github",
+      "skipByDefault": false
+    },
+    {
+      "name": "harness-hooks",
+      "run": "test ! -d tests/hooks || node node_modules/vitest/vitest.mjs run tests/hooks",
+      "phase": "check",
+      "tags": [],
+      "layer": "check",
+      "timeout": "10m",
+      "owner": "claude-harness",
+      "skipByDefault": false
+    },
+    {
+      "name": "harness-doc-filled",
+      "run": "test ! -f docs/harness.md || ! grep -n 'stacks:fill' docs/harness.md",
+      "phase": "check",
+      "tags": [],
+      "layer": "check",
+      "timeout": "10m",
+      "owner": "claude-harness",
+      "skipByDefault": false
+    },
+    {
+      "name": "schema-conventions",
+      "run": "bun run test schema-conventions",
+      "phase": "check",
+      "tags": [],
+      "layer": "test",
+      "timeout": "10m",
+      "owner": "effect-schema",
+      "skipByDefault": false
+    },
+    {
+      "name": "no-standalone-schema",
+      "run": "! grep -qs '\"@effect/schema\"' package.json apps/*/package.json packages/*/package.json",
+      "phase": "check",
+      "tags": [],
+      "layer": "check",
+      "timeout": "10m",
+      "owner": "effect-schema",
+      "skipByDefault": false
+    },
+    {
+      "name": "effect-testkit",
+      "run": "bun run test effect-testkit",
+      "phase": "check",
+      "tags": [],
+      "layer": "test",
+      "timeout": "10m",
+      "owner": "effect",
+      "skipByDefault": false
+    },
+    {
+      "name": "effect-api-reference",
+      "run": "v=$(node -p \"require(require.resolve('effect/package.json', { paths: ['.', 'apps/api'] })).version\") && head -n 1 docs/guidance/effect/api.md | grep -qxF \"Verified against effect $v\"",
+      "phase": "check",
+      "tags": [],
+      "layer": "docs",
+      "timeout": "10m",
+      "owner": "effect",
+      "skipByDefault": false
+    },
+    {
+      "name": "git-hooks-install",
+      "run": "lefthook install",
+      "phase": "setup",
+      "tags": [],
+      "layer": "install",
+      "timeout": "10m",
+      "owner": "git-hooks",
+      "skipByDefault": false
+    },
+    {
+      "name": "git-hooks-validate",
+      "run": "if grep -n 'stacks:fill' lefthook.yml; then echo 'lefthook.yml: fill stacks:fill' >&2; exit 1; fi; lefthook validate",
+      "phase": "check",
+      "tags": [],
+      "layer": "check",
+      "timeout": "10m",
+      "owner": "git-hooks",
+      "skipByDefault": false
+    },
+    {
+      "name": "git-hooks-jobs",
+      "run": "lefthook dump | awk '/^pre-commit:/{h=1;next} /^pre-push:/{h=2;next} /^[^ ]/{h=0} h&&/^ +(- )?(run|script):/{ok[h]=1} END{exit !(ok[1]&&ok[2])}'",
+      "phase": "check",
+      "tags": [],
+      "layer": "check",
+      "timeout": "10m",
+      "owner": "git-hooks",
+      "skipByDefault": false
+    },
+    {
+      "name": "git-hooks-commit-msg",
+      "run": "test -f .lefthook/commit-msg/conventional-commits.sh && { m=$(mktemp) && printf 'wip\\n' > \"$m\" && ! lefthook run commit-msg --no-auto-install \"$m\" && printf 'feat: check commit messages\\n' > \"$m\" && lefthook run commit-msg --no-auto-install \"$m\"; r=$?; rm -f \"$m\"; exit $r; }",
+      "phase": "check",
+      "tags": [],
+      "layer": "test",
+      "timeout": "10m",
+      "owner": "git-hooks",
+      "skipByDefault": false
+    }
+  ],
+  "verifyDigest": "sha256:58e4aba4d3f9f0bb221bfebb49493d6441452837b555578063ff6aafcb8a3ce6",
+  "briefWords": 4028,
+  "handoff": {
+    "kind": "inside-agent",
+    "agent": "claude",
+    "at": "2026-11-05T17:13:41.583Z"
+  },
+  "fingerprint": "sha256:fdbae9d1771390b1adfc75bf5000868a5b733e3fa96078dede1523bd697165a8"
+}

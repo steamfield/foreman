@@ -1,0 +1,22 @@
+# yaml-language-server: $schema=https://lefthook.dev/schema.json
+pre-commit:
+  jobs:
+    - name: biome
+      glob: "*.{js,mjs,cjs,ts,mts,cts,json,jsonc}"
+      exclude: [".stacks/**"]
+      run: node_modules/.bin/biome check --write --no-errors-on-unmatched --files-ignore-unknown=true {staged_files}
+      stage_fixed: true
+
+pre-push:
+  parallel: true
+  jobs:
+    - name: typecheck
+      run: bun run typecheck
+    - name: test
+      run: bun run test
+
+commit-msg:
+  jobs:
+    - name: conventional-commits
+      script: conventional-commits.sh
+      runner: sh

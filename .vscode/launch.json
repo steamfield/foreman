@@ -1,0 +1,28 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug the CLI (from source)",
+      "type": "bun",
+      "request": "launch",
+      "program": "src/bin.ts",
+      "args": ["doctor"],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Debug current vitest file",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "bun run test:unit ${relativeFile}",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Debug current bun test file",
+      "type": "bun",
+      "request": "launch",
+      "program": "${file}",
+      "runtimeArgs": ["test"],
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}

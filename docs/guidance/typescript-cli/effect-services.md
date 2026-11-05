@@ -1,0 +1,29 @@
+# Services, config, errors (Effect)
+
+Everything outside bin.ts and explicit platform paths runs unchanged on Node and Bun. Until `docs/guidance/effect/api.md` exists, use installed declarations first, source for behavior next, then that release's docs. Once the project typechecks, write that reference from the APIs you verified, as `docs/guidance/effect/effect.md` describes; read it before Effect changes and rewrite it on upgrades.
+
+## Services and layers
+
+The shipped Host, Output, Logging and AppConfig are namespaced Context.Service classes with static layers. AppLayer in runtime.ts builds no platform services. BunServices and Host enter through bin.ts; tests provide NodeServices and captured process writers.
+
+Capture dependencies in layer constructors. Methods close over them, with no hidden provides or nested runtime. Building a layer does not decode application config: AppConfig.load is lazy and cached. Each invocation builds fresh layers, so config, buffered output and logs never leak across runs. Own resources with Effect scopes and observe child failures at their owner.
+
+## Config
+
+Only config.ts reads environment settings (bin.ts passes its process env). Empty and whitespace-only strings count as absent. Project-owned settings use the FORMAN_ prefix. ConfigProvider.fromEnvRecord supplies Effect Config reads.
+
+The optional config file is schema-decoded with excess properties rejected. Env greeting wins over file greeting, then the default. A malformed file is reported by doctor, never treated as a valid empty file; only NotFound means absent. Paths and logging resolve independently of a failed application load. File logLevel applies beneath LOG_LEVEL; invalid levels use the safe warn fallback. New settings need a schema, precedence tests, .env.example and README entries.
+
+## Failures and runtimes
+
+Expected failures are Schema.TaggedError classes. The error table is exhaustive over the class union and holds fixed public messages, exit codes and retryability. Main owns the single error envelope. Defects get a generic error and one defect log; never serialize raw causes or third-party error objects.
+
+Use Effect.try/tryPromise to map expected thrown failures. Effect.catch handles typed failures; only a boundary with a policy for defects and interruption uses catchCause. Log sinks are best effort and warn once; application failures remain failures. The String Config reads with defaults use orDie only because a flat string env record cannot fail that decoding.
+
+runInvocation is the sole promise runner. Interrupted runtime exits map to 130. Scopes close on every outcome. Do not introduce another runtime in a callback; capture runtime context at a genuine foreign callback boundary when a later feature needs it.
+
+## Logging
+
+Use Effect logging with fixed message names and scalar annotations. logging.ts creates UTC records with lowercase level, msg and detail, protects reserved fields and redacts secret-looking keys and object values. It appends JSONL to FORMAN_LOG_FILE when set, with every log on stderr too; --json forces JSON stderr. A sink failure cannot fail the command.
+
+New network integrations own their timeout and retry policy: at most two retries with jittered backoff, retryable failures only, never after streaming output. Time-based programs use Effect Clock so TestClock can drive them.

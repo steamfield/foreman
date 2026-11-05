@@ -1,0 +1,46 @@
+// Base platform, schema, environment, and stdout boundaries.
+language js
+
+or {
+  or {
+    JsModuleSource() as $src,
+    `import($src)`
+  } where {
+    $filename <: r".*/src/.*",
+    or {
+      and {
+        $src <: r"[\"'](?:bun|bun:[^\"']*|@effect/platform-bun[^\"']*)[\"']",
+        $filename <: not r".*/src/(?:bin\.ts|platform/.*)",
+        register_diagnostic(span=$src, message="Platform code belongs in bin.ts or an explicit platform adapter; use Effect services elsewhere.")
+      },
+      and {
+        $src <: r"[\"'](?:zod|zod/[^\"']*|@effect/schema[^\"']*)[\"']",
+        register_diagnostic(span=$src, message="Use Schema from effect at project-owned boundaries.")
+      }
+    }
+  },
+  `console.$m($args)` as $c where {
+    $filename <: r".*/src/.*",
+    register_diagnostic(span=$c, message="Results use Output; diagnostics use the logger, never console.")
+  },
+  `process.env` as $e where {
+    $filename <: r".*/src/.*",
+    $filename <: not r".*/src/(?:config|bin)\.ts",
+    register_diagnostic(span=$e, message="Read environment in config.ts.")
+  },
+  `process.stdout` as $o where {
+    $filename <: r".*/src/.*",
+    $filename <: not r".*/src/bin\.ts",
+    register_diagnostic(span=$o, message="Only bin.ts supplies the stdout writer; use Output.")
+  },
+  `process.stderr` as $o where {
+    $filename <: r".*/src/.*",
+    $filename <: not r".*/src/(?:bin|logging|config)\.ts",
+    register_diagnostic(span=$o, message="Use Output.note or the logger for diagnostics.")
+  },
+  `Bun.$x` as $b where {
+    $filename <: r".*/src/.*",
+    $filename <: not r".*/src/(?:bin\.ts|platform/.*)",
+    register_diagnostic(span=$b, message="The Bun global belongs to the explicit platform boundary.")
+  }
+}

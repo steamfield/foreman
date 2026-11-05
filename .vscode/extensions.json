@@ -1,0 +1,15 @@
+{
+  "recommendations": [
+    "biomejs.biome",
+    "typescriptteam.native-preview",
+    "vitest.explorer",
+    "effectful-tech.effect-vscode",
+    "oven.bun-vscode",
+    "editorconfig.editorconfig",
+    "yoavbls.pretty-ts-errors",
+    "usernamehw.errorlens",
+    "github.vscode-github-actions",
+    "mikestead.dotenv"
+  ],
+  "unwantedRecommendations": ["esbenp.prettier-vscode", "dbaeumer.vscode-eslint"]
+}
