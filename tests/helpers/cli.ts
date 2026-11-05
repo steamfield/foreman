@@ -56,7 +56,14 @@ export async function runCli(
   );
   const platform = Layer.mergeAll(
     NodeServices.layer,
-    Host.layer({ name: "test-cli", version: "dev", platform: "test", compiled: false }),
+    Host.layer({
+      name: "test-cli",
+      version: "dev",
+      platform: "test",
+      compiled: false,
+      executable: [process.execPath],
+      pid: process.pid,
+    }),
   );
   const status = await runInvocation(
     main(args, options.program).pipe(Effect.provide(app), Effect.provide(platform), Effect.scoped),
