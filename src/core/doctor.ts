@@ -19,5 +19,13 @@ export const doctor = Effect.fn("doctor")(function* (): Effect.fn.Return<
   );
   yield* Effect.logDebug("configuration checked");
   if (settings.configError) yield* Effect.logWarning("configuration unavailable");
-  return { ...host, configFile: config.configFile, dataDir: config.dataDir, ...settings };
+  return {
+    name: host.name,
+    version: host.version,
+    platform: host.platform,
+    compiled: host.compiled,
+    configFile: config.configFile,
+    dataDir: config.dataDir,
+    ...settings,
+  };
 });

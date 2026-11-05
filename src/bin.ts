@@ -1,6 +1,7 @@
-import { BunServices } from "@effect/platform-bun";
+import { BunServices, BunSocket, BunSocketServer } from "@effect/platform-bun";
 import { Effect, Layer, Schema } from "effect";
 import rawMetadata from "../package.json";
+import { DaemonSockets } from "./daemon/sockets";
 import { jsonRequested, main } from "./main";
 import { AppLayer, runInvocation } from "./runtime";
 import { PackageInfo } from "./schemas/package";
@@ -19,13 +20,20 @@ process.stderr.on("error", () => {});
 const args = process.argv.slice(2);
 const metadata = Schema.decodeUnknownSync(PackageInfo)(rawMetadata);
 declare const COMPILED: boolean;
+const compiled = typeof COMPILED !== "undefined" && COMPILED;
 const platform = Layer.mergeAll(
   BunServices.layer,
+  DaemonSockets.layer({
+    connect: (path) => BunSocket.makeNet({ path }),
+    listen: (path) => BunSocketServer.make({ path }),
+  }),
   Host.layer({
     name: metadata.name,
     version: metadata.version ?? "dev",
     platform: process.platform,
-    compiled: typeof COMPILED !== "undefined" && COMPILED,
+    compiled,
+    executable: compiled ? [process.execPath] : [process.execPath, import.meta.filename],
+    pid: process.pid,
   }),
 );
 const app = AppLayer(
