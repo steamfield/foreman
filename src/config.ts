@@ -31,6 +31,8 @@ export class AppConfig extends Context.Service<
     logging: Effect.Effect<LogSettings>;
     configFile: string;
     dataDir: string;
+    codexBin: string;
+    codexHome: string;
   }
 >()("app/AppConfig") {
   static layer = (env: Readonly<Record<string, string | undefined>>) =>
@@ -55,6 +57,8 @@ export class AppConfig extends Context.Service<
         const configFile = path.join(base, host.name, "config.json");
         const dataHome = yield* text("XDG_DATA_HOME", path.join(home, ".local/share"));
         const dataDir = yield* text(`${prefix}_DATA_DIR`, path.join(dataHome, host.name));
+        const codexBin = yield* text("CODEX_BIN", "codex");
+        const codexHome = yield* text("CODEX_HOME", path.join(home, ".codex"));
         const file = yield* Effect.cached(
           fs.readFileString(configFile).pipe(
             Effect.catch((error) =>
@@ -108,7 +112,7 @@ export class AppConfig extends Context.Service<
             file: yield* text(`${prefix}_LOG_FILE`),
           };
         });
-        return { load, logging, configFile, dataDir };
+        return { load, logging, configFile, dataDir, codexBin, codexHome };
       }),
     );
 }

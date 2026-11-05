@@ -40,6 +40,9 @@ export const Rule = Schema.Struct({
   method: Schema.String,
   when: Schema.optionalKey(Schema.Record(Schema.String, Json)),
   repeat: Schema.optionalKey(Schema.Boolean),
+  // Wait this long before sending the response, without blocking other requests, so a later
+  // request's response can arrive first. The rule's steps start after the response is sent.
+  delayMs: Schema.optionalKey(Schema.Int),
   // `none` sends no response, for request-timeout tests.
   respond: Schema.Union([
     Schema.Struct({ result: Json }),

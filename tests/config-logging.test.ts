@@ -1,8 +1,10 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
+import { AppConfig } from "../src/config";
 import { DoctorResult } from "../src/schemas/doctor";
+import { Output } from "../src/services/output";
 import { ndjson, runCli, tempDir } from "./helpers/cli";
 
 async function configFile(content: string) {
@@ -14,6 +16,41 @@ async function configFile(content: string) {
 }
 
 describe("real config and emitted logging", () => {
+  it.each([
+    { env: {}, bin: "codex", home: undefined },
+    {
+      env: {
+        CODEX_BIN: "/tools/codex",
+        CODEX_HOME: "/codex-state",
+        FORMAN_CODEX_BIN: "ignored",
+        FORMAN_CODEX_HOME: "ignored",
+      },
+      bin: "/tools/codex",
+      home: "/codex-state",
+    },
+    { env: { CODEX_BIN: " ", CODEX_HOME: "" }, bin: "codex", home: undefined },
+  ])("resolves Codex executable and home from $env", async ({ env, bin, home }) => {
+    const temporaryHome = await tempDir();
+    const result = await runCli(["--json"], {
+      home: temporaryHome,
+      env,
+      program: Effect.gen(function* () {
+        const config = yield* AppConfig;
+        yield* (yield* Output).result(
+          { codexBin: config.codexBin, codexHome: config.codexHome },
+          "Codex settings",
+        );
+      }),
+    });
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      codexBin: bin,
+      codexHome: home ?? join(temporaryHome, ".codex"),
+    });
+    expect(ndjson(result.stderr)).toEqual([
+      expect.objectContaining({ msg: "command", outcome: "success" }),
+    ]);
+  });
   it("emits the default command record without a config file or env settings", async () => {
     const result = await runCli(["doctor", "--json"]);
     expect(result.status).toBe(0);

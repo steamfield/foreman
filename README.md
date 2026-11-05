@@ -41,6 +41,8 @@ Settings come from environment variables, then the optional file `$XDG_CONFIG_HO
 | `FORMAN_LOG_FORMAT` | | pretty | `json` writes stderr logs as JSON lines |
 | `FORMAN_LOG_FILE` | | none | Also append JSON log records to this file |
 | `FORMAN_DATA_DIR` | | `$XDG_DATA_HOME/forman` (`~/.local/share/forman`) | Where forman keeps its state |
+| `CODEX_BIN` | | `codex` | Codex executable; resolved through `PATH` |
+| `CODEX_HOME` | | `$HOME/.codex` | Codex configuration and state directory |
 | `FORMAN_GREETING` | `greeting` | `Hello, world!` | Scaffold setting that `doctor` prints; goes away with the first real setting |
 
 The config file is closed: an unknown key makes it invalid, which `doctor` reports.

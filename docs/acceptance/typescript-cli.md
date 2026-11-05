@@ -14,6 +14,7 @@ assert only the decoded setting: assert records actually emitted and suppressed.
 | File info, blank LOG_LEVEL | Blank is absent; the file's setting applies |
 | Invalid file level | Doctor still reports the config problem and uses the safe fallback |
 | Two invocations with different files/levels | No level, config or buffered-log state leaks |
+| CODEX_BIN / CODEX_HOME set, absent or blank | Explicit env values win over defaults; blank is absent; defaults are `codex` and `$HOME/.codex`, independent of XDG paths |
 
 Exercise file/env/default precedence for another non-secret setting through the
 command result too. If a command exposes an explicit setting flag, assert its
