@@ -84,9 +84,27 @@ function tokenCount(count: number): string {
   return String(count);
 }
 
-function files(value: readonly string[] | null, absent = "(not computed)"): string {
-  if (value === null) return absent;
-  return value.length === 0 ? "(none)" : value.join(", ");
+function files(
+  label: string,
+  value: readonly string[] | null,
+  absent = "(not computed)",
+  gitStatus = false,
+): string[] {
+  if (value === null) return [`${label}:  ${absent}`];
+  if (value.length === 0) return [`${label}:  (none)`];
+  return [
+    `${label}:`,
+    ...value.slice(0, 50).map((entry) => {
+      const text = gitStatus ? `${entry.slice(0, 2).trim().padEnd(2)} ${entry.slice(3)}` : entry;
+      return `  ${text}`;
+    }),
+    ...(value.length > 50 ? [`  … ${value.length - 50} more`] : []),
+  ];
+}
+
+function commandPreview(command: string): string {
+  const first = command.split(/\r?\n/, 1)[0] ?? "";
+  return first.length > 160 ? `${first.slice(0, 159)}…` : first;
 }
 
 export function renderDigest(digest: Digest): string {
@@ -112,12 +130,12 @@ export function renderDigest(digest: Digest): string {
   lines.push(
     digest.commands.last === null
       ? "  last:    (none)"
-      : `  last:    ${digest.commands.last.command}  exit=${digest.commands.last.exitCode ?? "(none)"}`,
+      : `  last:    ${commandPreview(digest.commands.last.command)}  exit=${digest.commands.last.exitCode ?? "(none)"}`,
   );
   lines.push(
-    `files written:  ${files(digest.filesWritten)}`,
-    `outside May change:  ${files(digest.outsideMayChange, scopeAbsent)}`,
-    `new in git status since start:  ${files(digest.newInGitStatus)}`,
+    ...files("files written", digest.filesWritten),
+    ...files("outside May change", digest.outsideMayChange, scopeAbsent),
+    ...files("new in git status since start", digest.newInGitStatus, "(not computed)", true),
   );
   if (digest.tokens === null) lines.push("tokens:    (none)");
   else {

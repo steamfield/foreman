@@ -27,9 +27,9 @@ cp dist/forman "$HOME/.local/bin/forman"
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-Keep that `PATH` setting in your shell's startup file. Rebuild and copy the binary after updating this checkout. npm publishing is pending. For development, `bun run dev <args>` runs from source, with separate state under `.dev/data` and logs under `logs/`. Optional lefthook git hooks install during `bun install` if lefthook is available (`brew install lefthook` on macOS).
+Keep that `PATH` setting in your shell's startup file. Rebuild and copy the binary after updating this checkout, then run `forman daemon stop` to stop the old build. Stop refuses while any run is active and names those runs; finish or interrupt them first. With no daemon running it succeeds without starting one. The next run command starts the rebuilt daemon. npm publishing is pending. For development, `bun run dev <args>` runs from source, with separate state under `.dev/data` and logs under `logs/`. Optional lefthook git hooks install during `bun install` if lefthook is available (`brew install lefthook` on macOS).
 
-`doctor` succeeds even when configuration or a Codex probe is unavailable, so read its output. It reports config paths, Codex version, protocol match, login, daemon state and repo hook trust. Each probe has a 5-second execution timeout. Unavailable Codex checks are null in JSON; repo hook probe failures have state `unknown`. It never starts the daemon or a Codex turn.
+`doctor` succeeds even when configuration or a Codex probe is unavailable, so read its output. It reports config paths, the resolved Codex executable, Codex version, protocol match, login, daemon state and repo hook trust. Each probe has a 5-second execution timeout. Unavailable Codex checks are null in JSON; repo hook probe failures have state `unknown`. It never starts the daemon or a Codex turn.
 
 If your Codex executable is a version-manager shim that fails in a subprocess, set `CODEX_BIN` to the actual executable path and rerun `doctor`.
 
@@ -103,6 +103,7 @@ All commands accept `--json` for one schema-encoded result. Messages for `steer`
 | `forman wait [<name>...] [--all] [--after <cursor>] [--timeout <dur>]` | Wait for attention, print summaries and digests, then a cursor for the next wait |
 | `forman doctor` | Inspect local configuration, Codex, repo hook trust and daemon availability |
 | `forman daemon` | Run the daemon in the foreground; normally started automatically |
+| `forman daemon stop` | Stop the daemon when no runs are active; succeeds if none is running |
 
 ## Wait outcomes and exit codes
 
@@ -143,9 +144,8 @@ Settings come from environment variables, then the optional file `$XDG_CONFIG_HO
 | `FORMAN_LOG_FORMAT` | | pretty | `json` writes stderr logs as JSON lines |
 | `FORMAN_LOG_FILE` | | none | Also append JSON log records to this file |
 | `FORMAN_DATA_DIR` | | `$XDG_DATA_HOME/forman` (`~/.local/share/forman`) | Where forman keeps its state |
-| `CODEX_BIN` | | `codex` | Codex executable; resolved through `PATH` |
+| `CODEX_BIN` | `codexBin` | `codex` | Codex executable; resolved through `PATH` |
 | `CODEX_HOME` | | `$HOME/.codex` | Codex configuration and state directory |
-| `FORMAN_GREETING` | `greeting` | `Hello, world!` | Scaffold setting that `doctor` prints; retained for compatibility |
 
 The config file is closed: an unknown key makes it invalid, which `doctor` reports.
 

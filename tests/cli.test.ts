@@ -40,9 +40,9 @@ describe("stdout and error contracts", () => {
         expect(result.stderr).toBe("");
         if (json)
           expect(Schema.decodeUnknownSync(DoctorResult)(JSON.parse(result.stdout))).toMatchObject({
-            greeting: "Hello, world!",
+            codexBin: expect.stringContaining("missing-codex"),
           });
-        else expect(result.stdout).toContain("Greeting: Hello, world!");
+        else expect(result.stdout).toContain("Codex executable:");
       } else {
         expect(result.stdout).toBe("");
         if (json) expect(JSON.parse(result.stderr)).toMatchObject({ error: { tag: "Usage" } });
@@ -94,12 +94,12 @@ describe("stdout and error contracts", () => {
     const human = await runCli(["doctor"], { env: { LOG_LEVEL: "none" } });
     expect(human.status).toBe(0);
     expect(human.stderr).toBe("");
-    expect(human.stdout).toContain("Greeting: Hello, world!");
+    expect(human.stdout).toContain("Codex executable:");
     const json = await runCli(["doctor", "--json"], { env: { LOG_LEVEL: "none" } });
     expect(json.status).toBe(0);
     expect(json.stderr).toBe("");
     expect(Schema.decodeUnknownSync(DoctorResult)(JSON.parse(json.stdout))).toMatchObject({
-      greeting: "Hello, world!",
+      codexBin: expect.stringContaining("missing-codex"),
       configError: null,
     });
   });

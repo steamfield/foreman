@@ -199,6 +199,7 @@ export const Handoff = Schema.Struct({ turn: Schema.Int, text: Schema.String });
 
 export const DaemonRequestBody = Schema.TaggedUnion({
   Ping: {},
+  Shutdown: {},
   Start: {
     name: RunName,
     worktree: Schema.String,

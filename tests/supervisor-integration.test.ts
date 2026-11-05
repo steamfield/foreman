@@ -593,6 +593,23 @@ else { require("node:child_process").spawn(process.execPath, [${JSON.stringify(f
     }).pipe(Effect.provide(platform)),
   );
 
+  it.live.each(["done", "question"] as const)(
+    "returns ready %s attention with fresh worktree fields even at zero wait timeout",
+    (kind) =>
+      Effect.gen(function* () {
+        const f = yield* fixture(scenario(turnRule([kind === "done" ? complete() : question()])));
+        yield* f.launch();
+        yield* f.start();
+        yield* f.untilState(kind === "done" ? "idle" : "waiting");
+        yield* f.fs.writeFileString(`${f.worktree}/result.txt`, "written after cached status");
+        const waited = yield* f.wait({ timeoutMs: 0 });
+        expect(waited.outcome).toBe("events");
+        expect(waited.runs).toMatchObject([
+          { kind, digest: { filesWritten: ["result.txt"], newInGitStatus: ["?? result.txt"] } },
+        ]);
+      }).pipe(Effect.provide(platform)),
+  );
+
   it.live("review: constructor is a valid run name in wait cursors", () =>
     Effect.gen(function* () {
       const f = yield* fixture(scenario(turnRule([complete()])));
@@ -1209,6 +1226,103 @@ if (process.argv.includes("generate-json-schema")) {
       }).pipe(Effect.provide(platform)),
   );
 
+  it.live("refreshes worktree fields when wait wakes on a question after status", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(
+        scenario(turnRule([{ awaitRequest: Codex.Method.turnSteer }, question()]), {
+          method: Codex.Method.turnSteer,
+          respond: { result: { turnId: "{{turn}}" } },
+        }),
+      );
+      yield* f.launch();
+      yield* f.start();
+      expect(yield* f.status()).toMatchObject({ filesWritten: [], newInGitStatus: [] });
+      const waiting = yield* Effect.forkScoped(f.wait());
+      yield* f.fs.writeFileString(`${f.worktree}/result.txt`, "changed after status");
+      yield* f.fs.writeFileString(`${f.worktree}/outside.txt`, "outside the contract");
+      yield* f.request({ _tag: "Steer", name, message: "ask now" });
+      expect((yield* Fiber.join(waiting)).runs).toMatchObject([
+        {
+          kind: "question",
+          digest: {
+            filesWritten: ["outside.txt", "result.txt"],
+            outsideMayChange: ["outside.txt"],
+            newInGitStatus: ["?? outside.txt", "?? result.txt"],
+          },
+        },
+      ]);
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("only reports a missing handoff as ended after the active turn finishes", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(
+        scenario(turnRule([question()]), {
+          method: Codex.Method.turnInterrupt,
+          respond: { result: {} },
+          steps: [complete("interrupted")],
+        }),
+      );
+      yield* f.launch();
+      yield* f.start();
+      const asked = yield* f.wait();
+      expect(yield* f.request({ _tag: "Result", name })).toMatchObject({
+        digest: { state: "waiting" },
+        handoff: null,
+        latestTurnWithoutHandoff: false,
+      });
+      yield* f.request({ _tag: "Interrupt", name });
+      yield* f.wait({ after: asked.cursor });
+      expect(yield* f.request({ _tag: "Result", name })).toMatchObject({
+        digest: { state: "interrupted" },
+        handoff: null,
+        latestTurnWithoutHandoff: true,
+      });
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("refuses starts and followups after shutdown is accepted", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario(turnRule([complete()])));
+      const { supervisor } = yield* f.launch();
+      yield* f.start();
+      yield* f.untilState("idle");
+      // Keep the listener alive to exercise requests queued behind the shutdown decision.
+      expect(yield* supervisor.handler({ _tag: "Shutdown" })).toEqual({ _tag: "Ok" });
+      for (const request of [f.start(), f.request({ _tag: "Followup", name, message: "too late" })])
+        expect(yield* request.pipe(Effect.flip)).toMatchObject({
+          _tag: "RunConflict",
+          detail: expect.stringContaining("stopping"),
+        });
+      expect((yield* f.status()).state).toBe("idle");
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("refuses Shutdown with active run names, then shuts down once inactive", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(
+        scenario(turnRule(), {
+          method: Codex.Method.turnInterrupt,
+          respond: { result: {} },
+          steps: [complete("interrupted")],
+        }),
+      );
+      const { fiber } = yield* f.launch();
+      yield* f.start();
+      expect(yield* f.request({ _tag: "Shutdown" }).pipe(Effect.flip)).toMatchObject({
+        _tag: "RunConflict",
+        detail: expect.stringContaining("unit"),
+      });
+      expect((yield* f.status()).state).toBe("running");
+      yield* f.request({ _tag: "Interrupt", name });
+      yield* f.untilState("interrupted");
+      expect(yield* f.request({ _tag: "Shutdown" })).toEqual({ _tag: "Ok" });
+      yield* Fiber.join(fiber).pipe(Effect.timeout("2 seconds"));
+      expect(yield* f.fs.exists(`${f.dataDir}/forman.sock`)).toBe(false);
+      expect(yield* f.fs.exists(`${f.dataDir}/daemon.lock`)).toBe(false);
+    }).pipe(Effect.provide(platform)),
+  );
+
   it.live("computes shell-written files and git status at completion", () =>
     Effect.gen(function* () {
       const f = yield* fixture(
@@ -1475,6 +1589,10 @@ if (process.argv.includes("generate-json-schema")) {
           turnKind: "followup",
           effort: "medium",
           state: "running",
+        });
+        expect(yield* f.request({ _tag: "Result", name })).toMatchObject({
+          handoff: { turn: 1, text: "first handoff" },
+          latestTurnWithoutHandoff: false,
         });
         yield* f.request({ _tag: "Interrupt", name });
         yield* f.untilState("interrupted");

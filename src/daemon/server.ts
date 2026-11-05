@@ -1,7 +1,9 @@
 import {
   Clock,
+  Deferred,
   Effect,
   Exit,
+  Fiber,
   FiberSet,
   FileSystem,
   Path,
@@ -10,7 +12,7 @@ import {
   Scope,
   Stream,
 } from "effect";
-import type { Socket } from "effect/socket";
+import { Socket } from "effect/socket";
 import { type AppError, DaemonUnavailable } from "../errors";
 import type { DaemonRequestBody, DaemonResult } from "../schemas/daemon";
 import { Host } from "../services/host";
@@ -75,6 +77,8 @@ export const daemon = Effect.fn("daemon")(
           Scope.close(scope, Exit.void),
         );
         const server = yield* sockets.listen(socketPath).pipe(Scope.provide(listener));
+        const shutdown = yield* Deferred.make<void>();
+        let drainUntil: number | null = null;
         const serve = server.run((socket) =>
           Effect.scoped(
             Effect.gen(function* () {
@@ -99,6 +103,19 @@ export const daemon = Effect.fn("daemon")(
               );
               const reader = yield* socket.reader;
               const writer = yield* socket.writer;
+              yield* Effect.addFinalizer(() =>
+                Effect.gen(function* () {
+                  if (drainUntil === null) return;
+                  yield* Effect.sleep(Math.max(0, drainUntil - (yield* Clock.currentTimeMillis)));
+                  yield* writer
+                    .write(new Socket.CloseEvent())
+                    .pipe(
+                      Effect.catchTag("SocketError", () =>
+                        Effect.logDebug("daemon.connection.close.failed"),
+                      ),
+                    );
+                }),
+              );
               const requests = yield* FiberSet.make<
                 void,
                 Schema.SchemaError | Socket.SocketError
@@ -107,14 +124,37 @@ export const daemon = Effect.fn("daemon")(
                 Stream.runForEach((line) =>
                   FiberSet.run(
                     requests,
-                    respond(line, (request) =>
-                      request.body._tag === "Ping"
-                        ? Effect.succeed({ _tag: "Pong", version: options.version, pid: host.pid })
-                        : options.handler(request.body),
-                    ).pipe(
-                      Effect.flatMap((response) => Schema.encodeEffect(responseJson)(response)),
-                      Effect.flatMap((json) => writer.write(`${json}\n`)),
-                    ),
+                    Effect.suspend(() => {
+                      let stopping = false;
+                      return Effect.gen(function* () {
+                        const response = yield* respond(line, (request) => {
+                          if (request.body._tag === "Ping")
+                            return Effect.succeed({
+                              _tag: "Pong",
+                              version: options.version,
+                              pid: host.pid,
+                            });
+                          const handled = options.handler(request.body).pipe(
+                            Effect.tap((result) =>
+                              Effect.sync(() => {
+                                stopping = request.body._tag === "Shutdown" && result._tag === "Ok";
+                              }),
+                            ),
+                          );
+                          return request.body._tag === "Shutdown"
+                            ? Effect.uninterruptible(handled)
+                            : handled;
+                        });
+                        const json = yield* Schema.encodeEffect(responseJson)(response);
+                        yield* writer.write(`${json}\n`);
+                      }).pipe(
+                        Effect.ensuring(
+                          Effect.suspend(() =>
+                            stopping ? Deferred.succeed(shutdown, undefined) : Effect.void,
+                          ),
+                        ),
+                      );
+                    }),
                   ),
                 ),
               );
@@ -128,12 +168,25 @@ export const daemon = Effect.fn("daemon")(
             }),
           ),
         );
+        const serving = yield* Effect.forkScoped(serve);
         yield* Effect.raceFirst(
-          serve,
-          awaitIdle(options.busy, activity, options.idleLimitMs ?? 1_800_000).pipe(
-            Effect.andThen(Scope.close(listener, Exit.void)),
+          Fiber.join(serving),
+          Effect.raceFirst(
+            awaitIdle(options.busy, activity, options.idleLimitMs ?? 1_800_000),
+            Deferred.await(shutdown),
           ),
         );
+        yield* Effect.gen(function* () {
+          // Closing starts synchronously, refusing new clients before dispatch is interrupted.
+          // The close callback waits for existing clients, so join it after cancelling dispatch.
+          // One deadline bounds output draining across all accepted connections.
+          drainUntil = (yield* Clock.currentTimeMillis) + 100;
+          const closing = yield* Effect.forkChild(Scope.close(listener, Exit.void), {
+            startImmediately: true,
+          });
+          yield* Fiber.interrupt(serving);
+          yield* Fiber.join(closing);
+        }).pipe(Effect.uninterruptible);
       }),
     );
   },

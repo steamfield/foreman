@@ -116,10 +116,8 @@ export const doctor = Effect.fn("doctor")(function* (cwd = ".") {
   const config = yield* AppConfig;
   const host = yield* Host;
   const settings = yield* config.load.pipe(
-    Effect.map((value) => ({ greeting: value.greeting, configError: null })),
-    Effect.catch((error) =>
-      Effect.succeed({ greeting: null, configError: errorTable[error._tag].message }),
-    ),
+    Effect.as({ configError: null }),
+    Effect.catch((error) => Effect.succeed({ configError: errorTable[error._tag].message })),
   );
   yield* Effect.logDebug("configuration checked");
   if (settings.configError) yield* Effect.logWarning("configuration unavailable");
@@ -160,6 +158,7 @@ export const doctor = Effect.fn("doctor")(function* (cwd = ".") {
     compiled: host.compiled,
     configFile: config.configFile,
     dataDir: config.dataDir,
+    codexBin: config.codexBin,
     codexVersion: version,
     protocolMatches,
     loggedIn,

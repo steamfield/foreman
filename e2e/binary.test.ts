@@ -20,16 +20,15 @@ test("compiled output, config precedence, log records, errors, and no dotenv aut
     await mkdir(config, { recursive: true });
     await writeFile(
       join(config, "config.json"),
-      JSON.stringify({ logLevel: "debug", greeting: "file" }),
+      JSON.stringify({ logLevel: "debug", codexBin: join(home, "file-codex") }),
     );
-    await writeFile(join(home, ".env"), `LOG_LEVEL=none\n${prefix}_GREETING=dotenv\n`);
+    await writeFile(join(home, ".env"), `LOG_LEVEL=none\nCODEX_BIN=dotenv\n`);
     await writeFile(join(home, "bunfig.toml"), "deliberately invalid [");
     const run = async (args: string[], extra: Record<string, string> = {}) => {
       const child = Bun.spawn([binary, ...args], {
         cwd: home,
         env: {
           HOME: home,
-          CODEX_BIN: join(home, "missing-codex"),
           XDG_CONFIG_HOME: join(home, "config"),
           NO_COLOR: "1",
           [`${prefix}_LOG_FILE`]: log,
@@ -51,7 +50,7 @@ test("compiled output, config precedence, log records, errors, and no dotenv aut
       name: metadata.name,
       version: metadata.version ?? "dev",
       compiled: true,
-      greeting: "file",
+      codexBin: join(home, "file-codex"),
       configError: null,
       codexVersion: null,
       protocolMatches: null,
@@ -73,11 +72,18 @@ test("compiled output, config precedence, log records, errors, and no dotenv aut
     ).toEqual(records);
     const overridden = await run(["doctor", "--json"], {
       LOG_LEVEL: "none",
-      [`${prefix}_GREETING`]: "env",
+      CODEX_BIN: join(home, "env-codex"),
     });
     expect(overridden.status).toBe(0);
     expect(overridden.stderr).toBe("");
-    expect(JSON.parse(overridden.stdout)).toMatchObject({ greeting: "env" });
+    expect(JSON.parse(overridden.stdout)).toMatchObject({ codexBin: join(home, "env-codex") });
+    await writeFile(join(config, "config.json"), "{}");
+    const defaultEnvironments: Record<string, string>[] = [{}, { CODEX_BIN: " " }];
+    for (const extra of defaultEnvironments) {
+      const defaults = await run(["doctor", "--json"], { LOG_LEVEL: "none", ...extra });
+      expect(defaults).toMatchObject({ status: 0, stderr: "" });
+      expect(JSON.parse(defaults.stdout)).toMatchObject({ codexBin: "codex", configError: null });
+    }
     const bad = await run(["doctor", "--unknown", "--json"], { LOG_LEVEL: "none" });
     expect(bad.status).toBe(2);
     expect(bad.stdout).toBe("");

@@ -4,11 +4,7 @@ import { join } from "node:path";
 
 // Both runners load this before application modules, including when Bun loaded .env.
 for (const key of Object.keys(process.env)) {
-  if (
-    /TOKEN|SECRET|PASSWORD|CREDENTIAL|API_KEY|ACCESS_KEY|AUTH|_URL$|LOG_|_DATA_DIR$|_GREETING$/.test(
-      key,
-    )
-  )
+  if (/TOKEN|SECRET|PASSWORD|CREDENTIAL|API_KEY|ACCESS_KEY|AUTH|_URL$|LOG_|_DATA_DIR$/.test(key))
     delete process.env[key];
 }
 const home = mkdtempSync(join(tmpdir(), "cli-isolation-"));

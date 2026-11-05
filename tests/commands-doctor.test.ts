@@ -224,7 +224,13 @@ it.each(["trusted", "untrusted", "none", "unknown"] as const)(
         } else {
           expect(result.stdout).toContain(expected.text);
           if (trust === "trusted" || trust === "untrusted")
-            expect(result.stdout).toContain(`pre_tool_use:0:0: ${trust}`);
+            expect(result.stdout).toContain(
+              `Repo hooks:\n  pre_tool_use:0:0  ${trust}\n  ${expected.text}`,
+            );
+          if (trust === "unknown")
+            expect(result.stdout).toContain(
+              "Repo hooks: unknown (Could not query Codex hook trust.)\n  forman start: unknown",
+            );
         }
       }
     } finally {
