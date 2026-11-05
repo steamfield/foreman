@@ -1,7 +1,7 @@
 import { Clock, DateTime, Effect, FileSystem, Path, type PlatformError, Schema } from "effect";
 import { CodexRpcError } from "../codex/client";
 import type { AppConfig } from "../config";
-import { checkHookTrust } from "../core/preflight/hooks";
+import { checkHookTrust, hasRepoHooks } from "../core/preflight/hooks";
 import { defaultModel } from "../core/preflight/model";
 import { validateWorktree } from "../core/preflight/worktree";
 import * as Store from "../core/runs/store";
@@ -172,7 +172,12 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
         });
     }
     const validated = yield* validateWorktree(body.worktree, body.skipDepsCheck);
-    yield* checkHookTrust(validated.mainCheckout, config.codexHome);
+    if (yield* hasRepoHooks(validated.mainCheckout))
+      yield* checkHookTrust(
+        (yield* servers.get).connection,
+        validated.mainCheckout,
+        validated.worktree,
+      );
     const model = body.model ?? (yield* defaultModel(config.codexHome));
     const warning = yield* servers.protocolWarning;
     const previous = registry.runs.get(body.name);

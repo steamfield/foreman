@@ -151,3 +151,71 @@ export function blockedCommand(): Scenario {
 export const crash = (code = 17): Scenario => ({
   rules: [{ method: Method.turnStart, respond: "none", steps: [{ exit: code }] }],
 });
+
+export function repoHooks(cwd: string, hooksFile: string, trustStatus = "trusted"): Scenario {
+  return {
+    rules: [
+      {
+        method: Method.hooksList,
+        repeat: true,
+        when: { cwds: [cwd] },
+        respond: {
+          result: {
+            data: [
+              {
+                cwd,
+                hooks: [
+                  {
+                    key: "/home/dev/.codex/hooks.json:stop:0:0",
+                    source: "user",
+                    currentHash: "sha256:user",
+                    trustStatus: "untrusted",
+                  },
+                  {
+                    key: `${hooksFile}:pre_tool_use:0:0`,
+                    source: "project",
+                    currentHash: "sha256:fixture",
+                    trustStatus,
+                  },
+                ],
+                warnings: [],
+                errors: [],
+              },
+            ],
+          },
+        },
+      },
+    ],
+  };
+}
+
+export const trustedHooks = (cwd: string, file: string) => repoHooks(cwd, file);
+export const untrustedHooks = (cwd: string, file: string) => repoHooks(cwd, file, "untrusted");
+export const modifiedHooks = (cwd: string, file: string) => repoHooks(cwd, file, "modified");
+export const missingProjectHooks = (cwd: string): Scenario => ({
+  rules: [
+    {
+      method: Method.hooksList,
+      repeat: true,
+      respond: {
+        result: {
+          data: [
+            {
+              cwd,
+              hooks: [
+                {
+                  key: "/home/dev/.codex/hooks.json:stop:0:0",
+                  source: "user",
+                  currentHash: "sha256:user",
+                  trustStatus: "trusted",
+                },
+              ],
+              warnings: [],
+              errors: [],
+            },
+          ],
+        },
+      },
+    },
+  ],
+});

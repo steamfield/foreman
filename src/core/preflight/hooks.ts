@@ -1,69 +1,72 @@
 import { Effect, FileSystem, Path, Schema } from "effect";
+import type { openConnection } from "../../codex/client";
 import { RepoHooksUntrusted } from "../../errors";
-import { readTrustConfig } from "./trust-config";
+import * as Codex from "../../schemas/codex";
 
-const HooksFile = Schema.Struct({
-  hooks: Schema.Record(
-    Schema.String,
-    Schema.Array(
-      Schema.Struct({
-        hooks: Schema.Array(Schema.Struct({ type: Schema.String, command: Schema.String })),
-      }),
-    ),
-  ).check(
-    Schema.makeFilter((events) =>
-      Object.keys(events).every((event) => /^[A-Z][a-zA-Z]+$/.test(event)),
-    ),
-  ),
-});
+type Connection = Effect.Success<ReturnType<typeof openConnection>>;
 
-const untrusted = (detail: string) => new RepoHooksUntrusted({ detail });
-
-export const checkHookTrust = Effect.fn("preflight.checkHookTrust")(function* (
-  mainCheckout: string,
-  codexHome: string,
-) {
+export const hasRepoHooks = Effect.fn("preflight.hasRepoHooks")(function* (mainCheckout: string) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const hooksPath = path.join(mainCheckout, ".codex", "hooks.json");
-  // lstat distinguishes absence from a dangling symlink, which must fail closed.
-  const info = yield* fs.lstat(hooksPath).pipe(
-    Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(undefined)),
-    Effect.mapError(() => untrusted(`Could not read hooks file: ${hooksPath}`)),
+  // lstat includes dangling symlinks, which must fail closed too.
+  return (
+    (yield* fs.lstat(path.join(mainCheckout, ".codex/hooks.json")).pipe(
+      Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(undefined)),
+      Effect.mapError(
+        () =>
+          new RepoHooksUntrusted({
+            detail: `Could not inspect repo hooks.\n${hookTrustFix(mainCheckout)}`,
+          }),
+      ),
+    )) !== undefined
   );
-  if (info === undefined) return;
-  const main = yield* fs
-    .realPath(mainCheckout)
-    .pipe(Effect.mapError(() => untrusted(`Could not resolve main checkout: ${mainCheckout}`)));
-  const realHooks = yield* fs
-    .realPath(hooksPath)
-    .pipe(Effect.mapError(() => untrusted(`Could not resolve hooks file: ${hooksPath}`)));
-  const hooks = yield* fs.readFileString(realHooks).pipe(
-    Effect.flatMap(Schema.decodeUnknownEffect(Schema.fromJsonString(HooksFile))),
-    Effect.mapError(() => untrusted(`Could not read or decode hooks file: ${realHooks}`)),
+});
+
+export const hookTrustFix = (mainCheckout: string) =>
+  `Open Codex in ${mainCheckout}, run /hooks and approve these hooks (and trust the project if Codex asks). Then run forman doctor to check.`;
+
+export const inspectHookTrust = Effect.fn("preflight.inspectHookTrust")(function* (
+  connection: Connection,
+  mainCheckout: string,
+  worktree: string,
+) {
+  const params = yield* Schema.encodeEffect(Codex.HooksListParams)({ cwds: [worktree] });
+  const response = yield* connection.request(
+    Codex.Method.hooksList,
+    params,
+    Codex.HooksListResponse,
   );
-  const configPath = path.join(codexHome, "config.toml");
-  const config = yield* fs.readFileString(configPath).pipe(
-    Effect.mapError(() => untrusted(`Could not read config.toml: ${configPath}`)),
-    Effect.flatMap((text) =>
-      Effect.try({
-        try: () => readTrustConfig(text),
-        catch: () => untrusted(`Could not read trust entries in config.toml: ${configPath}`),
-      }),
+  const entries = response.data.filter((entry) => entry.cwd === worktree);
+  const hooks = entries.flatMap((entry) => entry.hooks).filter((hook) => hook.source === "project");
+  const failures = hooks
+    .filter((hook) => hook.trustStatus !== "trusted" && hook.trustStatus !== "managed")
+    .map((hook) => `${hook.key}: ${hook.trustStatus}`);
+  if (hooks.length === 0)
+    failures.push(`Codex loaded no project hooks from ${mainCheckout}/.codex/hooks.json.`);
+  for (const entry of entries)
+    for (const error of entry.errors) failures.push(`${error.path}: hooks/list error`);
+  return {
+    hooks: hooks.map((hook) => ({ key: hook.key, status: hook.trustStatus })),
+    acceptsStart: failures.length === 0,
+    detail: failures.length === 0 ? null : `${failures.join("\n")}\n${hookTrustFix(mainCheckout)}`,
+  };
+});
+
+export const checkHookTrust = Effect.fn("preflight.checkHookTrust")(function* (
+  connection: Connection,
+  mainCheckout: string,
+  worktree: string,
+) {
+  const present = yield* hasRepoHooks(mainCheckout);
+  if (!present) return;
+  const result = yield* inspectHookTrust(connection, mainCheckout, worktree).pipe(
+    Effect.mapError(
+      () =>
+        new RepoHooksUntrusted({
+          detail: `Could not query Codex hook trust.\n${hookTrustFix(mainCheckout)}`,
+        }),
     ),
   );
-  if (config.get(`projects:${main}`)?.get("trust_level") !== "trusted")
-    return yield* untrusted(`Project not trusted: ${main}`);
-  const missing: string[] = [];
-  for (const [event, groups] of Object.entries(hooks.hooks)) {
-    const snake = event.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
-    for (const [i, group] of groups.entries()) {
-      for (const j of group.hooks.keys()) {
-        const key = `${realHooks}:${snake}:${i}:${j}`;
-        if (!config.get(`hooks.state:${key}`)?.get("trusted_hash")) missing.push(key);
-      }
-    }
-  }
-  if (missing.length > 0)
-    return yield* untrusted(`Hook keys lack a trusted_hash: ${missing.join(", ")}`);
+  if (!result.acceptsStart)
+    return yield* new RepoHooksUntrusted({ detail: result.detail ?? undefined });
 });

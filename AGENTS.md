@@ -4,9 +4,9 @@ Instructions for coding agents working in this repository. Keep this file under 
 
 ## Overview
 
-forman lets Claude Code delegate coding tasks to OpenAI's Codex and supervise them while they run: start a Codex agent in a git worktree, watch what it does, steer or interrupt it, and answer questions Codex asks mid-turn. It drives `codex app-server` over JSON-RPC and uses the Codex CLI's own ChatGPT login, never an API key. It is a TypeScript CLI on Effect 4, compiled to one binary with Bun; an MCP server wrapping the CLI comes later. Published as `@steamfield/forman`, command `forman`.
+forman lets Claude Code delegate coding tasks to OpenAI's Codex and supervise them while they run: start a Codex agent in a git worktree, watch what it does, steer or interrupt it, and answer questions Codex asks mid-turn. It drives `codex app-server` over JSON-RPC and uses the Codex CLI's own ChatGPT login, never an API key. It is a TypeScript CLI on Effect 4, compiled to one binary with Bun; an MCP server wrapping the CLI comes later. The command is `forman`; npm publication as `@steamfield/forman` is pending.
 
-Today the tree is the stacks `typescript-cli` scaffold with one `doctor` command; the bridge itself is not built yet.
+The CLI and bridge are implemented: the daemon supervises Codex turns, questions, budgets and repo hooks. See [README repo setup](README.md#one-time-repo-setup) before delegating into another repo.
 
 ## Commands
 
@@ -36,7 +36,12 @@ src/
   main.ts        the invocation boundary: runs the CLI, maps errors to exit codes, renders output once
   cli.ts         the Effect CLI command tree
   commands/      thin command handlers that call core/
-  core/          platform-free programs
+  codex/         app-server JSON-RPC client, protocol and environment checks
+  core/          platform-free command programs and doctor
+    preflight/   worktree validation, hook trust, model selection and SSH probe
+    runs/        persistence, normalization, worktree changes and digests
+  daemon/        socket client/server, automatic startup and ownership lock
+  supervisor/    app-server lifetime, turns, questions, budgets and wait cursors
   schemas/       Schema definitions for every boundary shape (args, config, machine output)
   services/      Context.Service classes: Host, Invocation, Output
   config.ts      file + environment config (only place that reads env)
@@ -128,13 +133,13 @@ None yet.
 
 ## Deferred
 
-The bridge itself (daemon, Codex app-server client, run commands, MCP server), npm publishing and a release workflow.
+The MCP server wrapper, npm publishing and a release workflow.
 
 ## Pending user actions
 
 - Create the GitHub repository and push. Confirm with `git remote -v`.
 - Require the `ci-ok` check in the branch ruleset once the repository exists.
-- Trust the project in Codex and approve each hook in `/hooks`, so `.codex/hooks.json` runs. Confirm with `/hooks` in a Codex session here.
+Repo trust and hook approval are done for this repo. For other repos, follow [README repo setup](README.md#one-time-repo-setup).
 
 ## Deeper context
 

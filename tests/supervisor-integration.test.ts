@@ -20,7 +20,7 @@ import { Host } from "../src/services/host";
 import { makeSupervisor } from "../src/supervisor";
 import { noAnswer, preamble, timeUp } from "../src/supervisor/prompts";
 import { type Rule, Scenario, type Step } from "./fixtures/fake-app-server/scenario";
-import { successfulTurn } from "./fixtures/fake-app-server/scenarios";
+import { repoHooks, successfulTurn } from "./fixtures/fake-app-server/scenarios";
 
 const fake = fileURLToPath(new URL("./fixtures/fake-app-server/main.mjs", import.meta.url));
 const name = Schema.decodeUnknownSync(D.RunName)("unit");
@@ -219,17 +219,18 @@ const fixture = Effect.fnUntraced(function* (script: Scenario) {
   });
   const hooks = Effect.gen(function* () {
     yield* fs.makeDirectory(`${repo}/.codex`, { recursive: true });
-    yield* fs.makeDirectory(env.CODEX_HOME, { recursive: true });
     const file = `${repo}/.codex/hooks.json`;
+    yield* fs.writeFileString(
+      scenarioFile,
+      Schema.encodeSync(Schema.fromJsonString(Scenario))({
+        rules: [...repoHooks(worktree, file).rules, ...script.rules],
+      }),
+    );
     yield* fs.writeFileString(
       file,
       JSON.stringify({
         hooks: { PreToolUse: [{ hooks: [{ type: "command", command: "true" }] }] },
       }),
-    );
-    yield* fs.writeFileString(
-      `${env.CODEX_HOME}/config.toml`,
-      `[projects.${JSON.stringify(repo)}]\ntrust_level = "trusted"\n[hooks.state.${JSON.stringify(`${file}:pre_tool_use:0:0`)}]\ntrusted_hash = "fixture"\n`,
     );
   });
   return {
@@ -1291,11 +1292,48 @@ if (process.argv.includes("generate-json-schema")) {
         detail: expect.stringContaining("Rule 4"),
       });
       yield* f.hooks;
-      yield* f.fs.remove(`${f.env.CODEX_HOME}/config.toml`);
+      yield* f.fs.writeFileString(
+        f.scenarioFile,
+        Schema.encodeSync(Schema.fromJsonString(Scenario))({
+          rules: [...repoHooks(f.worktree, `${f.repo}/.codex/hooks.json`, "untrusted").rules],
+        }),
+      );
       expect(yield* f.start({ skipDepsCheck: true }).pipe(Effect.flip)).toMatchObject({
         _tag: "RepoHooksUntrusted",
       });
       expect(yield* f.fs.exists(f.runDir)).toBe(false);
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live.each(["trusted", "untrusted"])("checks %s hook trust before creating a run", (status) =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario(turnRule([complete()])));
+      yield* f.hooks;
+      yield* f.fs.writeFileString(
+        f.scenarioFile,
+        Schema.encodeSync(Schema.fromJsonString(Scenario))({
+          rules: [
+            ...repoHooks(f.worktree, `${f.repo}/.codex/hooks.json`, status).rules,
+            ...scenario(turnRule([complete()])).rules,
+          ],
+        }),
+      );
+      yield* f.launch();
+      if (status === "trusted") {
+        expect(yield* f.start()).toMatchObject({ _tag: "Started" });
+        yield* f.untilState("idle");
+      } else {
+        expect(yield* f.start().pipe(Effect.flip)).toMatchObject({
+          _tag: "RepoHooksUntrusted",
+          detail: expect.stringContaining(
+            `${f.repo}/.codex/hooks.json:pre_tool_use:0:0: untrusted`,
+          ),
+        });
+        expect(yield* f.fs.exists(f.runDir)).toBe(false);
+        expect((yield* f.readLog).some((entry) => entry.method === Codex.Method.threadStart)).toBe(
+          false,
+        );
+      }
     }).pipe(Effect.provide(platform)),
   );
 

@@ -17,6 +17,7 @@ export type CodexTurnId = typeof CodexTurnId.Type;
 export const Method = {
   initialize: "initialize",
   initialized: "initialized",
+  hooksList: "hooks/list",
   threadStart: "thread/start",
   threadResume: "thread/resume",
   turnStart: "turn/start",
@@ -292,3 +293,22 @@ export const askOrchestratorTool: typeof DynamicToolSpec.Type = {
     required: ["question"],
   },
 };
+
+// Repo hook trust, resolved by Codex for each requested working directory.
+export const HooksListParams = Schema.Struct({ cwds: Schema.Array(Schema.String) });
+export const HookMetadata = Schema.Struct({
+  key: Schema.String,
+  source: Schema.String,
+  currentHash: Schema.String,
+  trustStatus: Schema.String,
+});
+export const HooksListResponse = Schema.Struct({
+  data: Schema.Array(
+    Schema.Struct({
+      cwd: Schema.String,
+      hooks: Schema.Array(HookMetadata),
+      warnings: Schema.Array(Schema.String),
+      errors: Schema.Array(Schema.Struct({ path: Schema.String, message: Schema.String })),
+    }),
+  ),
+});
