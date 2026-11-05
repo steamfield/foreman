@@ -13,7 +13,19 @@ export const doctorCommand = Command.make(
     const result = yield* doctor();
     yield* output.result(
       result,
-      `${result.name} ${result.version} (${result.platform}, compiled: ${result.compiled})\nGreeting: ${result.greeting ?? "unavailable"}\nConfig: ${result.configError ?? "ok"}\nConfig file: ${result.configFile}\nData: ${result.dataDir}`,
+      [
+        `${result.name} ${result.version} (${result.platform}, compiled: ${result.compiled})`,
+        `Greeting: ${result.greeting ?? "unavailable"}`,
+        `Config: ${result.configError ?? "ok"}`,
+        `Config file: ${result.configFile}`,
+        `Data: ${result.dataDir}`,
+        `Codex: ${result.codexVersion ?? "unavailable"}`,
+        `Protocol matches: ${result.protocolMatches ?? "unavailable"}`,
+        `Logged in: ${result.loggedIn ?? "unavailable"}`,
+        result.daemon.state === "running"
+          ? `Daemon: running ${result.daemon.version} (pid ${result.daemon.pid})`
+          : "Daemon: not running",
+      ].join("\n"),
     );
   }),
 ).pipe(

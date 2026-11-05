@@ -7,6 +7,25 @@ import { DoctorResult } from "../src/schemas/doctor";
 import { ndjson, runCli, tempDir } from "./helpers/cli";
 
 describe("stdout and error contracts", () => {
+  it("lists the run commands without a daemon command", async () => {
+    const result = await runCli(["--help"]);
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe("");
+    for (const command of [
+      "start",
+      "status",
+      "events",
+      "steer",
+      "followup",
+      "interrupt",
+      "answer",
+      "result",
+      "wait",
+      "doctor",
+    ])
+      expect(result.stdout).toMatch(new RegExp(`\\b${command}\\b`));
+    expect(result.stdout).not.toMatch(/^\s+daemon\b/m);
+  });
   it.each([
     { flags: ["--json=true"], json: true },
     { flags: ["--json", "false"], json: false },
