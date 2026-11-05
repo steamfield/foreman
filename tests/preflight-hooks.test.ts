@@ -1,188 +1,193 @@
+import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, FileSystem, Path } from "effect";
+import { Effect, FileSystem, Schema } from "effect";
+import { ChildProcess } from "effect/process";
+import { openConnection } from "../src/codex/client";
+import { commandResult } from "../src/core/preflight/command";
 import { checkHookTrust } from "../src/core/preflight/hooks";
+import { Scenario } from "./fixtures/fake-app-server/scenario";
+import {
+  missingProjectHooks,
+  modifiedHooks,
+  repoHooks,
+  untrustedHooks,
+} from "./fixtures/fake-app-server/scenarios";
 
+const fake = fileURLToPath(new URL("./fixtures/fake-app-server/main.mjs", import.meta.url));
 const setup = Effect.fnUntraced(function* () {
   const fs = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
-  const root = yield* fs.realPath(yield* fs.makeTempDirectoryScoped());
-  const main = path.join(root, 'repo.with"quote');
-  const home = path.join(root, "codex");
-  yield* fs.makeDirectory(path.join(main, ".codex"), { recursive: true });
-  yield* fs.makeDirectory(home);
-  const hooksFile = path.join(main, ".codex", "hooks.json");
-  const configFile = path.join(home, "config.toml");
-  const project = `[projects.${JSON.stringify(main)}]\ntrust_level = "trusted"\n`;
-  const keys = ["pre_tool_use:0:0", "pre_tool_use:0:1", "pre_tool_use:1:0", "session_start:0:0"];
-  const trust = (file = hooksFile, entries = keys) =>
-    entries
-      .map(
-        (key) =>
-          `[hooks.state.${JSON.stringify(`${file}:${key}`)}]\ntrusted_hash = "sha256:fixture"\n`,
-      )
-      .join("\n");
-  const hook = { type: "command", command: "echo fixture" };
-  const hooks = {
-    hooks: {
-      PreToolUse: [{ matcher: "Bash", hooks: [hook, hook] }, { hooks: [hook] }],
-      SessionStart: [{ hooks: [hook] }],
-    },
-  };
-  yield* fs.writeFileString(hooksFile, JSON.stringify(hooks));
-  return { fs, path, root, main, home, hooksFile, configFile, project, trust, keys };
+  const main = yield* fs.realPath(yield* fs.makeTempDirectoryScoped());
+  const git = yield* commandResult(ChildProcess.make("git", ["init", "-q", main]));
+  expect(git.code).toBe(0);
+  yield* fs.makeDirectory(`${main}/.codex`);
+  const file = `${main}/.codex/hooks.json`;
+  yield* fs.writeFileString(
+    file,
+    JSON.stringify({ hooks: { PreToolUse: [{ hooks: [{ type: "command", command: "true" }] }] } }),
+  );
+  const connect = Effect.fnUntraced(function* (scenario: Scenario) {
+    const log = `${main}/requests.jsonl`;
+    yield* fs.writeFileString(log, "");
+    yield* fs.writeFileString(
+      `${main}/scenario.json`,
+      Schema.encodeSync(Schema.fromJsonString(Scenario))(scenario),
+    );
+    const connection = yield* openConnection({
+      codexBin: fake,
+      version: "test",
+      stderr: () => Effect.void,
+      env: {
+        PATH: `${dirname(process.execPath)}:/usr/bin:/bin`,
+        FAKE_APP_SERVER_SCENARIO: `${main}/scenario.json`,
+        FAKE_APP_SERVER_LOG: log,
+      },
+    });
+    return { connection, log };
+  });
+  return { fs, main, file, connect };
 });
 
-it.effect("passes without a hooks file even if no Codex config exists", () =>
+it.live("skips hooks/list when no repo hooks file exists", () =>
   Effect.gen(function* () {
-    const { fs, main, home, hooksFile } = yield* setup();
-    yield* fs.remove(hooksFile);
-    expect(yield* checkHookTrust(main, home)).toBeUndefined();
+    const f = yield* setup();
+    yield* f.fs.remove(f.file);
+    const { connection, log } = yield* f.connect({ rules: [] });
+    yield* checkHookTrust(connection, f.main, f.main);
+    expect(yield* f.fs.readFileString(log)).not.toContain('"hooks/list"');
   }).pipe(Effect.provide(NodeServices.layer)),
 );
 
-it.effect("matches every event, matcher and hook index in a trusted project", () =>
-  Effect.gen(function* () {
-    const { fs, main, home, configFile, project, trust } = yield* setup();
-    yield* fs.writeFileString(
-      configFile,
-      `model = "other" # comment\nnotify = ["echo", "fixture",]\n[plugins."fixture@local"]\nenabled = true\n[features]\nenabled = true\n${project}\n${trust()}`,
-    );
-    expect(yield* checkHookTrust(main, home)).toBeUndefined();
-  }).pipe(Effect.provide(NodeServices.layer)),
-);
-
-it.effect("accepts empty parent tables written by Codex before individual trust entries", () =>
-  Effect.gen(function* () {
-    const { fs, main, home, configFile, project, trust } = yield* setup();
-    yield* fs.writeFileString(
-      configFile,
-      `[projects]\n${project}\n[hooks]\n[hooks.state]\n${trust()}`,
-    );
-    expect(yield* checkHookTrust(main, home)).toBeUndefined();
-  }).pipe(Effect.provide(NodeServices.layer)),
-);
-
-it.effect("refuses missing or explicitly untrusted projects", () =>
-  Effect.gen(function* () {
-    const { fs, main, home, configFile, project, trust } = yield* setup();
-    for (const entry of ["", project.replace('"trusted"', '"untrusted"')]) {
-      yield* fs.writeFileString(configFile, entry + trust());
-      const error = yield* Effect.flip(checkHookTrust(main, home));
-      expect(error).toMatchObject({ _tag: "RepoHooksUntrusted" });
-      expect(error.detail).toBe(`Project not trusted: ${main}`);
-    }
-  }).pipe(Effect.provide(NodeServices.layer)),
-);
-
-it.effect("names missing hook hashes, including the second hook in a group", () =>
-  Effect.gen(function* () {
-    const { fs, main, home, hooksFile, configFile, project, trust, keys } = yield* setup();
-    yield* fs.writeFileString(
-      configFile,
-      project +
-        trust(
-          hooksFile,
-          keys.filter((key) => key !== "pre_tool_use:0:1"),
-        ),
-    );
-    expect((yield* Effect.flip(checkHookTrust(main, home))).detail).toBe(
-      `Hook keys lack a trusted_hash: ${hooksFile}:pre_tool_use:0:1`,
-    );
-    yield* fs.writeFileString(configFile, (project + trust()).replaceAll('"sha256:fixture"', '""'));
-    expect((yield* Effect.flip(checkHookTrust(main, home))).detail).toContain(
-      "lack a trusted_hash",
-    );
-  }).pipe(Effect.provide(NodeServices.layer)),
-);
-
-it.effect("resolves both the project and hooks file symlinks before looking up trust", () =>
-  Effect.gen(function* () {
-    const { fs, path, root, main, home, hooksFile, configFile, project, trust } = yield* setup();
-    const target = path.join(root, "shared-hooks.json");
-    yield* fs.rename(hooksFile, target);
-    yield* fs.symlink(target, hooksFile);
-    const alias = path.join(root, "alias");
-    yield* fs.symlink(main, alias);
-    yield* fs.writeFileString(configFile, project + trust(target));
-    expect(yield* checkHookTrust(alias, home)).toBeUndefined();
-    yield* fs.writeFileString(configFile, project + trust());
-    expect((yield* Effect.flip(checkHookTrust(main, home))).detail).toContain(
-      `${target}:pre_tool_use:0:0`,
-    );
-  }).pipe(Effect.provide(NodeServices.layer)),
-);
-
-it.effect("fails closed on missing, unreadable, malformed or ambiguous config", () =>
-  Effect.gen(function* () {
-    const { fs, main, home, configFile, project, trust } = yield* setup();
-    expect((yield* Effect.flip(checkHookTrust(main, home))).detail).toContain(
-      "Could not read config.toml",
-    );
-    const valid = project + trust();
-    for (const text of [
-      "not toml",
-      `${valid}\n[broken`,
-      project.replace('"trusted"', '"trusted'),
-      `${valid}\n${project}`,
-      `${valid}\ntrusted_hash = "duplicate"`,
-      `${valid}\nvalue = """\n${project}\n"""`,
-      valid.replace('trust_level = "trusted"', "trust_level = true"),
-    ]) {
-      yield* fs.writeFileString(configFile, text);
-      expect((yield* Effect.flip(checkHookTrust(main, home))).detail).toContain(
-        "Could not read trust entries",
-      );
-    }
-    yield* fs.remove(configFile);
-    yield* fs.makeDirectory(configFile);
-    expect((yield* Effect.flip(checkHookTrust(main, home))).detail).toContain(
-      "Could not read config.toml",
-    );
-  }).pipe(Effect.provide(NodeServices.layer)),
-);
-
-it.effect("fails closed on malformed hooks or a dangling hooks symlink", () =>
-  Effect.gen(function* () {
-    const { fs, path, root, main, home, hooksFile } = yield* setup();
-    for (const text of ["{", "{}", '{"hooks":{"PreToolUse":[{}]}}']) {
-      yield* fs.writeFileString(hooksFile, text);
-      expect((yield* Effect.flip(checkHookTrust(main, home))).detail).toContain(
-        "Could not read or decode hooks file",
-      );
-    }
-    yield* fs.remove(hooksFile);
-    yield* fs.symlink(path.join(root, "absent"), hooksFile);
-    expect((yield* Effect.flip(checkHookTrust(main, home))).detail).toContain(
-      "Could not resolve hooks file",
-    );
-  }).pipe(Effect.provide(NodeServices.layer)),
-);
-
-it.effect("rejects malformed event names rather than dropping their untrusted hooks", () =>
-  Effect.gen(function* () {
-    const { fs, main, home, hooksFile, configFile, project } = yield* setup();
-    yield* fs.writeFileString(configFile, project);
-    yield* fs.writeFileString(
-      hooksFile,
-      JSON.stringify({
-        hooks: { pre_tool_use: [{ hooks: [{ type: "command", command: "echo guarded" }] }] },
-      }),
-    );
-    expect((yield* Effect.flip(checkHookTrust(main, home))).detail).toContain(
-      "Could not read or decode hooks file",
-    );
-  }).pipe(Effect.provide(NodeServices.layer)),
-);
-
-it.effect.each([String.raw`model = "\q"`, "value = [garbage]"])(
-  "rejects malformed unrelated settings even when all trust entries are present: %s",
-  (setting) =>
+it.live.each(["trusted", "managed"])(
+  "accepts %s project hooks and ignores user-hook trust",
+  (status) =>
     Effect.gen(function* () {
-      const { fs, main, home, configFile, project, trust } = yield* setup();
-      yield* fs.writeFileString(configFile, `${setting}\n${project}\n${trust()}`);
-      expect((yield* Effect.flip(checkHookTrust(main, home))).detail).toContain(
-        "Could not read trust entries",
+      const f = yield* setup();
+      const { connection } = yield* f.connect(repoHooks(f.main, f.file, status));
+      expect(yield* checkHookTrust(connection, f.main, f.main)).toBeUndefined();
+    }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.live.each([untrustedHooks, modifiedHooks])(
+  "refuses a failing project hook with its key, status and exact fix",
+  (build) =>
+    Effect.gen(function* () {
+      const f = yield* setup();
+      const script = build(f.main, f.file);
+      const { connection } = yield* f.connect(script);
+      const error = yield* Effect.flip(checkHookTrust(connection, f.main, f.main));
+      expect(error._tag).toBe("RepoHooksUntrusted");
+      expect(error.detail).toContain(
+        `${f.file}:pre_tool_use:0:0: ${build === untrustedHooks ? "untrusted" : "modified"}`,
       );
+      expect(
+        error.detail?.endsWith(
+          `Open Codex in ${f.main}, run /hooks and approve these hooks (and trust the project if Codex asks). Then run forman doctor to check.`,
+        ),
+      ).toBe(true);
+    }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.live("refuses missing project hooks, as returned for an untrusted project", () =>
+  Effect.gen(function* () {
+    const f = yield* setup();
+    const { connection } = yield* f.connect(missingProjectHooks(f.main));
+    const error = yield* Effect.flip(checkHookTrust(connection, f.main, f.main));
+    expect(error.detail).toContain(`Codex loaded no project hooks from ${f.file}.`);
+    expect(error.detail).toContain(`Open Codex in ${f.main}, run /hooks`);
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.live("refuses hooks/list errors even with trusted project hooks", () =>
+  Effect.gen(function* () {
+    const f = yield* setup();
+    const { connection } = yield* f.connect({
+      rules: [
+        {
+          method: "hooks/list",
+          respond: {
+            result: {
+              data: [
+                {
+                  cwd: f.main,
+                  hooks: [
+                    {
+                      key: `${f.file}:pre_tool_use:0:0`,
+                      source: "project",
+                      currentHash: "sha256:fixture",
+                      trustStatus: "trusted",
+                    },
+                  ],
+                  warnings: [],
+                  errors: [{ path: f.file, message: "bad file" }],
+                },
+              ],
+            },
+          },
+        },
+      ],
+    });
+    const error = yield* Effect.flip(checkHookTrust(connection, f.main, f.main));
+    expect(error.detail).toContain(`${f.file}: hooks/list error`);
+    expect(error.detail).toContain(`Open Codex in ${f.main}, run /hooks`);
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.live("fails closed on a dangling hooks symlink and on an unavailable hooks/list", () =>
+  Effect.gen(function* () {
+    const f = yield* setup();
+    yield* f.fs.remove(f.file);
+    yield* f.fs.symlink(`${f.main}/missing`, f.file);
+    const { connection } = yield* f.connect({ rules: [] });
+    expect(yield* Effect.flip(checkHookTrust(connection, f.main, f.main))).toMatchObject({
+      _tag: "RepoHooksUntrusted",
+      detail: expect.stringContaining("Could not query Codex hook trust"),
+    });
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.live(
+  "checks every project hook and requests the worktree, accepting keys from the main checkout",
+  () =>
+    Effect.gen(function* () {
+      const f = yield* setup();
+      const cwd = `${f.main}/work/unit`;
+      const { connection } = yield* f.connect({
+        rules: [
+          {
+            method: "hooks/list",
+            when: { cwds: [cwd] },
+            respond: {
+              result: {
+                data: [
+                  {
+                    cwd,
+                    hooks: [
+                      {
+                        key: `${f.file}:pre_tool_use:0:0`,
+                        source: "project",
+                        currentHash: "sha256:fixture",
+                        trustStatus: "untrusted",
+                      },
+                      {
+                        key: `${f.file}:pre_tool_use:1:0`,
+                        source: "project",
+                        currentHash: "sha256:fixture",
+                        trustStatus: "modified",
+                      },
+                    ],
+                    warnings: [],
+                    errors: [],
+                  },
+                ],
+              },
+            },
+          },
+        ],
+      });
+      const error = yield* Effect.flip(checkHookTrust(connection, f.main, cwd));
+      expect(error.detail).toContain(`${f.file}:pre_tool_use:0:0: untrusted`);
+      expect(error.detail).toContain(`${f.file}:pre_tool_use:1:0: modified`);
     }).pipe(Effect.provide(NodeServices.layer)),
 );

@@ -22,6 +22,18 @@ export const doctorCommand = Command.make(
         `Codex: ${result.codexVersion ?? "unavailable"}`,
         `Protocol matches: ${result.protocolMatches ?? "unavailable"}`,
         `Logged in: ${result.loggedIn ?? "unavailable"}`,
+        ...(result.repoHooks.state === "not applicable"
+          ? ["Repo hooks: no repo hooks apply."]
+          : [
+              `Repo hooks: ${result.repoHooks.state}`,
+              ...result.repoHooks.hooks.map(
+                (hook) => `${hook.key.split(":").slice(-3).join(":")}: ${hook.status}`,
+              ),
+              result.repoHooks.acceptsStart === null
+                ? "forman start: unknown (hook trust could not be checked)."
+                : `forman start will ${result.repoHooks.acceptsStart ? "accept" : "refuse"} runs here (hook trust).`,
+              ...(result.repoHooks.detail ? [result.repoHooks.detail] : []),
+            ]),
         result.daemon.state === "running"
           ? `Daemon: running ${result.daemon.version} (pid ${result.daemon.pid})`
           : "Daemon: not running",

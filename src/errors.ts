@@ -86,7 +86,7 @@ export const errorTable = {
   RepoHooksUntrusted: {
     code: 10,
     message:
-      "The repo's Codex hooks are not trusted, so a delegate would run unguarded. Open Codex in the main checkout and approve its hooks in /hooks.",
+      "Codex has not confirmed the repo's hooks are trusted. Open Codex in the main checkout, trust the project if asked, approve its hooks in /hooks, then run forman doctor.",
     retryable: false,
   },
 } as const satisfies Record<

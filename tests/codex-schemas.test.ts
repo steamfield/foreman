@@ -36,7 +36,12 @@ describe("Codex schemas", () => {
 
   it("decode the thread, turn and steer responses", () => {
     const results = lines.filter((line) => line.method === undefined).map((line) => line.result);
-    const schemas = [Codex.ThreadOpened, Codex.TurnStartResponse, Codex.TurnSteerResponse];
+    const schemas = [
+      Codex.ThreadOpened,
+      Codex.TurnStartResponse,
+      Codex.TurnSteerResponse,
+      Codex.HooksListResponse,
+    ];
     for (const schema of schemas)
       expect(results.some((result) => decodes(schema, result))).toBe(true);
   });

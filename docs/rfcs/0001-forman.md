@@ -157,14 +157,14 @@ The main checkout, `HEAD` as the base commit, and the baseline are recorded.
 
 ### Repo hooks and trust
 
-A delegate in a repo with `.codex/hooks.json` must not run commands without those guards. Codex runs project hooks only when the project is trusted (`[projects."<path>"] trust_level = "trusted"`) and each hook is trusted by hash (`[hooks.state."<file>:<event>:<i>:<j>"] trusted_hash`). stacks today has the first and not the second, so its hooks don't run, which `delegate.sh` worked around with `--dangerously-bypass-hook-trust`. forman never passes that flag and never changes trust settings, so a guarded repo has to be trusted in Codex.
+A delegate in a repo with `.codex/hooks.json` must not run commands without those guards. Codex loads project hooks only for trusted projects, and approves each hook by its current hash. forman never bypasses hook trust or changes trust settings.
 
 forman checks this twice when the main checkout has a `.codex/hooks.json`:
 
-- Before starting, `start` reads `config.toml` and refuses unless the main checkout's real path is trusted and every hook in the file has a `hooks.state` entry. It can't recompute Codex's hashes, so an edited hook still passes this check.
+- Before starting, `start` asks its app-server connection for `hooks/list` with `{ cwds: [worktree] }`. Codex resolves linked worktrees inside the main checkout to that checkout's hooks. Every `source: "project"` hook must have `trustStatus: "trusted"` or `"managed"`. An untrusted or modified hook, an entry with errors, or no project hooks despite the file's existence refuses the run before its files are created. An untrusted project returns only user hooks, with no warnings or errors, so the missing-project-hooks check is necessary. forman uses Codex's trust decision instead of parsing `config.toml` or recomputing hashes.
 - While running, the daemon fails closed: if a `commandExecution` item starts in a turn with no `hook/started` from `source: "project"` before it, the daemon interrupts the turn and marks the run `failed` with "repo hooks did not run". That command has already started, which is the cost of not reimplementing Codex's trust logic.
 
-The refusal tells the user to open Codex in the main checkout and approve its hooks in `/hooks`.
+The refusal names failing hook keys and their statuses. It tells the user to open Codex in the main checkout, run `/hooks` and approve the hooks (and trust the project if asked), then run `forman doctor`. Doctor uses a short app-server connection to report each project hook's trust status and whether the trust check will accept runs. Probe failures show as unknown. Repos without a hooks file skip the probe.
 
 Because the hooks file comes from the main checkout, a branch that changes `.codex/hooks.json` doesn't take effect in its own delegate until merged.
 
@@ -317,3 +317,7 @@ The MCP server, Channels push, launchd install, a command to delete archived run
 
 1. MCP servers in delegate threads. Every thread starts the user's global Codex MCP servers, which slows `thread/start` and adds noise when they fail. Thread `config` overrides could turn them off, but some contracts may want them. This RFC leaves them on.
 2. License: Apache-2.0 like stacks, or MIT like rr.
+
+## Deviations found while building
+
+A `thread/start` reply arriving after its timeout is discarded by the client because its request has no waiter left. The run stays `unknown` and becomes `lost` after 5 minutes. No turn was started on that thread, so it does no work.
