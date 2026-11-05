@@ -33,6 +33,7 @@ export class AppConfig extends Context.Service<
     dataDir: string;
     codexBin: string;
     codexHome: string;
+    inheritedEnvironment: Readonly<Record<string, string | undefined>>;
   }
 >()("app/AppConfig") {
   static layer = (env: Readonly<Record<string, string | undefined>>) =>
@@ -112,7 +113,15 @@ export class AppConfig extends Context.Service<
             file: yield* text(`${prefix}_LOG_FILE`),
           };
         });
-        return { load, logging, configFile, dataDir, codexBin, codexHome };
+        return {
+          load,
+          logging,
+          configFile,
+          dataDir,
+          codexBin,
+          codexHome,
+          inheritedEnvironment: { ...env },
+        };
       }),
     );
 }

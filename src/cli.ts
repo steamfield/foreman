@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import { CliError, Command, Flag } from "effect/cli";
+import { daemonCommand } from "./commands/daemon";
 import { doctorCommand } from "./commands/doctor";
 import { Output } from "./services/output";
 
@@ -9,7 +10,7 @@ export const cli = (name: string) =>
     Command.withHandler(() =>
       Effect.fail(new CliError.ShowHelp({ commandPath: [name], errors: [] })),
     ),
-    Command.withSubcommands([doctorCommand]),
+    Command.withSubcommands([doctorCommand, daemonCommand]),
     Command.provideEffectDiscard(({ json }) =>
       Effect.flatMap(Output, (output) => output.setJson(json)),
     ),
