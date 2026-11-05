@@ -289,7 +289,7 @@ New tags in `errorTable`. The error envelope gains an optional `detail` field ho
 
 ## Protocol types and versioning
 
-Types generated with `codex app-server generate-ts --experimental` from Codex 0.166.0 are committed under `src/codex/generated/`, with the version and a hash of `generate-json-schema --experimental` output in a header file. The client decodes only the messages forman uses, through Schemas in `src/schemas/codex.ts`, accepting the open `string | object` arms of `CodexErrorInfo`. Codex is still `0.x`, so a version comparison says nothing about compatibility; instead the daemon regenerates the schema at startup and compares its hash. A mismatch is shown by `doctor` and in the output of every `start` until resolved.
+The generated protocol is 467 JSON Schema files (5.8 MB), too large to commit for a reference, so `src/codex/protocol.ts` records the Codex version and a SHA-256 of the `generate-json-schema --experimental` output instead (generation is deterministic; two runs were identical). `tests/fixtures/codex-0.166.0.jsonl` holds one real recorded message of each shape forman reads. The client decodes only the messages forman uses, through Schemas in `src/schemas/codex.ts`, accepting the open `string | object` arms of `CodexErrorInfo`. Codex is still `0.x`, so a version comparison says nothing about compatibility; instead the daemon regenerates the schema at startup and compares its hash. A mismatch is shown by `doctor` and in the output of every `start` until resolved.
 
 ## Testing
 
