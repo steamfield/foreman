@@ -5,7 +5,7 @@
 //     command records.
 //   - JSON log lines go to logs/cli.jsonl (FORMAN_LOG_FILE), appended across runs.
 //   - stderr is copied to logs/cli.log. Both files move to *.prev.* past 5 MB.
-//   - Development data is saved in .dev/data (FORMAN_DATA_DIR), not your real ~/.local/share/forman.
+//   - Development config and data are saved in .dev/home (FORMAN_HOME).
 // Everything else (stdin, stdout, the exit code, Ctrl+C) passes straight through.
 import { appendFileSync, existsSync, mkdirSync, renameSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -24,14 +24,14 @@ const args = process.argv.slice(2);
 // Preserve terminal capabilities for interactive invocations; structured logs remain on disk.
 const interactive = process.stdin.isTTY && process.stdout.isTTY;
 const logFileKey = "FORMAN_LOG_FILE";
-const dataDirKey = "FORMAN_DATA_DIR";
+const homeKey = "FORMAN_HOME";
 
 const child = Bun.spawn([process.execPath, join(root, "src/bin.ts"), ...args], {
   env: {
     ...process.env,
     LOG_LEVEL: process.env.LOG_LEVEL || "info",
     [logFileKey]: process.env[logFileKey] ?? join(logs, "cli.jsonl"),
-    [dataDirKey]: process.env[dataDirKey] || join(root, ".dev", "data"),
+    [homeKey]: process.env[homeKey]?.trim() ? process.env[homeKey] : join(root, ".dev", "home"),
     // Colors survive the pipe when the real stderr is a terminal.
     ...(process.stderr.isTTY && !process.env.NO_COLOR ? { FORCE_COLOR: "1" } : {}),
   },

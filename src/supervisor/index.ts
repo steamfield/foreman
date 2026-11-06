@@ -79,7 +79,7 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
   const context = yield* Effect.context<
     FileSystem.FileSystem | Path.Path | ChildProcessSpawner.ChildProcessSpawner
   >();
-  const registry = yield* makeRegistry(config.dataDir);
+  const registry = yield* makeRegistry(config.home);
   // threadId is saved before turn/start; the run lock orders its reply and early notifications.
   const route = (threadId: string) =>
     Effect.sync(() => [...registry.runs.values()].find((run) => run.record.threadId === threadId));

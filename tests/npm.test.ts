@@ -52,9 +52,7 @@ beforeAll(async () => {
   env = {
     HOME: root,
     PATH: process.env.PATH,
-    XDG_CONFIG_HOME: join(root, "config"),
-    XDG_DATA_HOME: join(root, "data"),
-    FORMAN_DATA_DIR: join(root, "state"),
+    FORMAN_HOME: join(root, ".forman"),
     CODEX_HOME: join(root, "codex"),
     CODEX_BIN: join(root, "missing-codex"),
     LOG_LEVEL: "none",

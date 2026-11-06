@@ -35,7 +35,7 @@ const platform = Layer.mergeAll(
 );
 
 const settings = (home: string, codexBin: string) =>
-  AppConfig.layer({ HOME: home, FORMAN_DATA_DIR: home, CODEX_BIN: codexBin }).pipe(
+  AppConfig.layer({ HOME: home, FORMAN_HOME: home, CODEX_BIN: codexBin }).pipe(
     Layer.provideMerge(platform),
   );
 
@@ -81,7 +81,7 @@ describe("bounded doctor diagnostics", () => {
           const result = yield* Effect.promise(() =>
             runCli(["doctor", ...(json ? ["--json"] : [])], {
               home,
-              env: { TEST_CLI_DATA_DIR: home, LOG_LEVEL: "none" },
+              env: { FORMAN_HOME: home, LOG_LEVEL: "none" },
             }),
           );
           expect(result).toMatchObject({ status: 0, stderr: "" });
@@ -133,7 +133,7 @@ if (process.argv[2] === "app-server") fs.writeFileSync(process.argv.at(-1) + "/s
         Effect.provide(
           AppConfig.layer({
             HOME: home,
-            FORMAN_DATA_DIR: home,
+            FORMAN_HOME: home,
             CODEX_BIN: bin,
             OPENAI_API_KEY: "must-not-pass",
             OPENAI_API_BASE: "must-not-pass",
@@ -186,7 +186,7 @@ if (process.env.CODEX_HOME !== ${JSON.stringify(`${home}/configured`)}) process.
         Effect.provide(
           AppConfig.layer({
             HOME: home,
-            FORMAN_DATA_DIR: home,
+            FORMAN_HOME: home,
             CODEX_BIN: "fixture-codex",
             CODEX_HOME: `${home}/configured`,
             PATH: home,
@@ -377,7 +377,7 @@ it.effect("bounds a stalled hooks/list probe and reports unknown", () =>
           AppConfig.layer({
             HOME: home,
             CODEX_BIN: fake,
-            FORMAN_DATA_DIR: home,
+            FORMAN_HOME: home,
             PATH: `${dirname(process.execPath)}:/usr/bin:/bin`,
             FAKE_APP_SERVER_SCENARIO: `${home}/scenario.json`,
             FAKE_APP_SERVER_LOG: log,

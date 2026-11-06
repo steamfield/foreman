@@ -37,8 +37,6 @@ export async function runCli(
   const home = options.home ?? (await tempDir());
   const env = {
     HOME: home,
-    XDG_CONFIG_HOME: join(home, "config"),
-    XDG_DATA_HOME: join(home, "data"),
     CODEX_BIN: join(home, "missing-codex"),
     ...options.env,
   };

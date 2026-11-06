@@ -2,7 +2,7 @@
 
 The shipped `tests/config-logging.test.ts` implements this matrix; the manifest runs it independently of
 hook tests. Use the real parser, AppLayer, configuration reader and logger through
-`runCli`, with files under temporary HOME/XDG directories. Do not mock config or
+`runCli`, with files under temporary HOME/FORMAN_HOME directories. Do not mock config or
 assert only the decoded setting: assert records actually emitted and suppressed.
 
 | Input | Required observation |
@@ -16,7 +16,8 @@ assert only the decoded setting: assert records actually emitted and suppressed.
 | Invalid file level | Doctor still reports the config problem and uses the safe fallback |
 | Two invocations with different files/levels | No level, config or buffered-log state leaks |
 | CODEX_BIN / file codexBin set, absent or blank env | Environment wins over file, file over default `codex`; doctor reports the resolved executable |
-| CODEX_HOME set, absent or blank | Explicit env wins over `$HOME/.codex`; blank is absent, independent of XDG paths |
+| FORMAN_HOME set, relative, absent or blank | Explicit env selects the home; relative paths resolve at the caller's cwd; absent or blank uses `$HOME/.forman`; config.json and all state use that home; legacy XDG and FORMAN_DATA_DIR settings are ignored |
+| CODEX_HOME set, absent or blank | Explicit env wins over `$HOME/.codex`; blank is absent, independent of FORMAN_HOME |
 
 Exercise file/env/default precedence for `codexBin` through `doctor --json` too. If a command exposes an explicit setting flag, assert its
 precedence over env and file; do not add a logging flag just for these tests.

@@ -166,11 +166,11 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
             detail: "Run changed during preflight; read status before retrying.",
           });
         if (previous) {
-          yield* Store.archiveRun(config.dataDir, body.name);
+          yield* Store.archiveRun(config.home, body.name);
           registry.runs.delete(body.name);
           yield* Queue.end(previous.messages);
         } else
-          yield* fs.remove(yield* Store.runDirectory(config.dataDir, body.name), {
+          yield* fs.remove(yield* Store.runDirectory(config.home, body.name), {
             recursive: true,
             force: true,
           });
@@ -199,7 +199,7 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
           createdAt: now,
           updatedAt: now,
         };
-        yield* Store.createRun(config.dataDir, record, body.contract);
+        yield* Store.createRun(config.home, record, body.contract);
         return yield* registry.add(record);
       }).pipe(Effect.uninterruptible),
     );

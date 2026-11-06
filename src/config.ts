@@ -30,7 +30,7 @@ export class AppConfig extends Context.Service<
     load: Effect.Effect<Settings, InvalidConfig | PermissionDenied>;
     logging: Effect.Effect<LogSettings>;
     configFile: string;
-    dataDir: string;
+    home: string;
     codexBin: string;
     codexHome: string;
     inheritedEnvironment: Readonly<Record<string, string | undefined>>;
@@ -57,13 +57,11 @@ export class AppConfig extends Context.Service<
           config.pipe(Effect.provide(ConfigProvider.layer(provider)));
         const text = (key: string, fallback = "") =>
           read(Config.String(key).pipe(Config.withDefault(fallback))).pipe(Effect.orDie);
-        const home = yield* text("HOME", ".");
-        const base = yield* text("XDG_CONFIG_HOME", path.join(home, ".config"));
-        const configFile = path.join(base, host.name, "config.json");
-        const dataHome = yield* text("XDG_DATA_HOME", path.join(home, ".local/share"));
-        const dataDir = absolute(yield* text(`${prefix}_DATA_DIR`, path.join(dataHome, host.name)));
+        const userHome = yield* text("HOME", ".");
+        const home = absolute(yield* text("FORMAN_HOME", path.join(userHome, ".forman")));
+        const configFile = path.join(home, "config.json");
         const environmentCodexBin = yield* text("CODEX_BIN");
-        const codexHome = absolute(yield* text("CODEX_HOME", path.join(home, ".codex")));
+        const codexHome = absolute(yield* text("CODEX_HOME", path.join(userHome, ".codex")));
         const file = yield* Effect.cached(
           fs.readFileString(configFile).pipe(
             Effect.catch((error) =>
@@ -128,7 +126,7 @@ export class AppConfig extends Context.Service<
           load,
           logging,
           configFile,
-          dataDir,
+          home,
           codexBin,
           codexHome,
           inheritedEnvironment: { ...env },

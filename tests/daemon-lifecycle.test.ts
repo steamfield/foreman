@@ -523,7 +523,7 @@ describe("daemon lifecycle and protocol", () => {
       const result = yield* Effect.promise(() =>
         runCli(["daemon", "stop"], {
           home: dataDir,
-          env: { TEST_CLI_DATA_DIR: dataDir },
+          env: { FORMAN_HOME: dataDir },
         }),
       );
       assert.deepStrictEqual(result, { status: 0, stdout: "Daemon stopped.\n", stderr: "" });

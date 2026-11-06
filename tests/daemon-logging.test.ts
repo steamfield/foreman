@@ -60,7 +60,7 @@ describe("daemon file logging", () => {
         if (kind === "platform") yield* fs.makeDirectory(questions);
         else yield* fs.writeFileString(questions, "PRIVATE_SECRET=do-not-record\n");
         const app = AppLayer(
-          { HOME: root, FORMAN_DATA_DIR: root },
+          { HOME: root, FORMAN_HOME: root },
           false,
           async () => {},
           async () => {},
@@ -105,7 +105,7 @@ describe("daemon file logging", () => {
       yield* fs.makeDirectory(`${root}/runs/broken`, { recursive: true });
       yield* fs.writeFileString(`${root}/runs/broken/run.json`, "corrupt\n");
       const app = AppLayer(
-        { HOME: root, FORMAN_DATA_DIR: root },
+        { HOME: root, FORMAN_HOME: root },
         false,
         async () => {},
         async () => {},
@@ -150,7 +150,7 @@ describe("daemon file logging", () => {
         const fs = yield* FileSystem.FileSystem;
         const root = yield* fs.makeTempDirectoryScoped({ directory: "/tmp", prefix: "fm-log-" });
         const app = AppLayer(
-          { HOME: root, FORMAN_DATA_DIR: root },
+          { HOME: root, FORMAN_HOME: root },
           false,
           async () => {},
           async () => {},
@@ -205,7 +205,7 @@ describe("daemon file logging", () => {
       const fs = yield* FileSystem.FileSystem;
       const root = yield* fs.makeTempDirectoryScoped({ directory: "/tmp", prefix: "fm-log-" });
       const app = AppLayer(
-        { HOME: root, FORMAN_DATA_DIR: root },
+        { HOME: root, FORMAN_HOME: root },
         false,
         async () => {},
         async () => {},

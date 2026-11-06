@@ -48,7 +48,7 @@ const spawn = Effect.fn("daemon.spawn")(
           ChildProcess.make(executable, [...args, "daemon"], {
             cwd: dataDir,
             env: {
-              [`${prefix}_DATA_DIR`]: dataDir,
+              FORMAN_HOME: dataDir,
               ...(options.codexBin === undefined ? {} : { CODEX_BIN: options.codexBin }),
               ...(options.codexHome === undefined ? {} : { CODEX_HOME: options.codexHome }),
               ...(options.logFile === undefined ? {} : { [`${prefix}_LOG_FILE`]: options.logFile }),

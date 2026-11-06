@@ -121,7 +121,7 @@ async function fixture(
   const run = (args: readonly string[], env: Record<string, string> = {}) =>
     runCli(args, {
       home: dataDir,
-      env: { TEST_CLI_DATA_DIR: dataDir, PATH: dataDir, ...env },
+      env: { FORMAN_HOME: dataDir, PATH: dataDir, ...env },
     });
   return { dataDir, requests, run };
 }
@@ -316,7 +316,7 @@ describe("command requests through the real parser and daemon", () => {
     onTestFinished(() => rm(dataDir, { recursive: true, force: true }));
     const result = await runCli(["daemon", "stop", ...(json ? ["--json"] : [])], {
       home: dataDir,
-      env: { TEST_CLI_DATA_DIR: dataDir },
+      env: { FORMAN_HOME: dataDir },
     });
     expect(result).toEqual({
       status: 0,
@@ -803,7 +803,7 @@ describe("doctor diagnostics", () => {
     onTestFinished(() => rm(home, { recursive: true, force: true }));
     const result = await runCli(["doctor", "--json"], {
       home,
-      env: { TEST_CLI_DATA_DIR: home, CODEX_BIN: join(home, "missing") },
+      env: { FORMAN_HOME: home, CODEX_BIN: join(home, "missing") },
     });
     expect(result.status).toBe(0);
     expect(result.stderr).toBe("");
