@@ -9,6 +9,12 @@ export const RepoHookTrust = Schema.Struct({
 });
 
 export const DoctorResult = Schema.Struct({
+  orphans: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({ path: Schema.String, branch: Schema.String, holdsWork: Schema.Boolean }),
+    ),
+  ),
+  orphanError: Schema.optionalKey(Schema.String),
   name: Schema.String,
   version: Schema.String,
   platform: Schema.String,

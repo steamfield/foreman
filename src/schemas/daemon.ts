@@ -9,6 +9,8 @@ export const RunName = Schema.String.check(Schema.isPattern(/^[a-z0-9][a-z0-9._-
 );
 export type RunName = typeof RunName.Type;
 
+export const DaemonLockOwner = Schema.Struct({ pid: Schema.Int.check(Schema.isGreaterThan(0)) });
+
 export const QuestionId = Schema.String.check(Schema.isPattern(/^q[1-9][0-9]*$/)).pipe(
   Schema.brand("QuestionId"),
 );
@@ -59,6 +61,17 @@ export const RunFailure = Schema.Struct({
   codexErrorInfo: Schema.NullOr(Schema.Unknown),
 });
 
+export const ManagedWorktree = Schema.Struct({
+  branch: Schema.String,
+  baseCommit: Schema.String,
+  fromRef: Schema.String,
+});
+export const OrphanWorktree = Schema.Struct({
+  path: Schema.String,
+  branch: Schema.String,
+  holdsWork: Schema.Boolean,
+});
+
 // runs/<name>/run.json, written atomically.
 export const RunRecord = Schema.Struct({
   name: RunName,
@@ -67,6 +80,7 @@ export const RunRecord = Schema.Struct({
   group: Schema.String,
   worktree: Schema.String,
   baseCommit: Schema.String,
+  managedWorktree: Schema.optionalKey(ManagedWorktree),
   model: Schema.String,
   effort: Schema.String,
   tier: Schema.String,
@@ -167,6 +181,7 @@ export const Digest = Schema.Struct({
   sandbox: Sandbox,
   runDir: Schema.String,
   worktree: Schema.String,
+  managedWorktree: Schema.optionalKey(ManagedWorktree),
   turn: Schema.Int,
   turnKind: Schema.NullOr(TurnKind),
   questions: Schema.Array(PendingQuestion),
@@ -204,6 +219,9 @@ export const DaemonRequestBody = Schema.TaggedUnion({
   Start: {
     name: RunName,
     worktree: Schema.String,
+    newWorktree: Schema.optionalKey(Schema.Boolean),
+    from: Schema.optionalKey(Schema.String),
+    setup: Schema.optionalKey(Schema.String),
     contract: Schema.String,
     write: Schema.Boolean,
     model: Schema.optionalKey(Schema.String),
@@ -230,7 +248,7 @@ export const DaemonRequestBody = Schema.TaggedUnion({
   Interrupt: { name: RunName },
   Answer: { name: RunName, question: QuestionId, text: Schema.String },
   Result: { name: RunName },
-  Archive: { name: RunName },
+  Archive: { name: RunName, keepWorktree: Schema.optionalKey(Schema.Boolean) },
   Wait: {
     names: Schema.Array(RunName),
     all: Schema.Boolean,
@@ -261,13 +279,22 @@ export const DaemonResult = Schema.TaggedUnion({
     codexBin: Schema.optionalKey(Schema.String),
     codexHome: Schema.optionalKey(Schema.String),
   },
-  Started: { name: RunName, runDir: Schema.String },
+  Started: {
+    name: RunName,
+    runDir: Schema.String,
+    worktree: Schema.optionalKey(Schema.String),
+    branch: Schema.optionalKey(Schema.String),
+  },
   Archived: { name: RunName, archivePath: Schema.String },
-  Digests: { digests: Schema.Array(Digest) },
+  Digests: {
+    digests: Schema.Array(Digest),
+    orphans: Schema.optionalKey(Schema.Array(OrphanWorktree)),
+  },
   Events: { events: Schema.Array(RunEvent), gap: Schema.Boolean, next: Schema.Int },
   Ok: {},
   Accepted: {
     cursor: Cursor,
+    all: Schema.optionalKey(Schema.Boolean),
     // The CLI supplies the executable-aware continuation.
     next: Schema.optionalKey(Schema.String),
   },
@@ -279,7 +306,14 @@ export const DaemonResult = Schema.TaggedUnion({
   },
   Waited: {
     // start --wait keeps its start metadata in the same JSON value as the outcome.
-    started: Schema.optionalKey(Schema.Struct({ name: RunName, runDir: Schema.String })),
+    started: Schema.optionalKey(
+      Schema.Struct({
+        name: RunName,
+        runDir: Schema.String,
+        worktree: Schema.optionalKey(Schema.String),
+        branch: Schema.optionalKey(Schema.String),
+      }),
+    ),
     outcome: Schema.Literals(["events", "timeout", "none"]),
     runs: Schema.Array(WaitOutcome),
     cursor: Cursor,

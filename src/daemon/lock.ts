@@ -1,5 +1,9 @@
 import type { PlatformError } from "effect";
-import { Clock, Effect, FileSystem, Option, Path, Predicate } from "effect";
+import { Clock, Effect, FileSystem, Option, Path, Predicate, Schema } from "effect";
+import { ChildProcess } from "effect/process";
+import { commandResult } from "../core/process";
+import { DaemonLockOwner } from "../schemas/daemon";
+import { Host } from "../services/host";
 import { DaemonSockets } from "./sockets";
 
 const missing = <A>(effect: Effect.Effect<A, PlatformError.PlatformError>) =>
@@ -12,6 +16,21 @@ const old = (info: FileSystem.File.Info, now: number) =>
 const occupied = (error: PlatformError.PlatformError) =>
   error.reason._tag === "AlreadyExists" ||
   (Predicate.hasProperty(error.cause, "code") && error.cause.code === "ENOTEMPTY");
+
+const reclaimable = Effect.fnUntraced(function* (file: string, info: FileSystem.File.Info) {
+  const text = yield* (yield* FileSystem.FileSystem).readFileString(file);
+  const owner = Schema.decodeUnknownResult(Schema.fromJsonString(DaemonLockOwner))(text);
+  // Legacy or torn owner records retain the startup grace period.
+  if (owner._tag === "Failure") return old(info, yield* Clock.currentTimeMillis);
+  const probe = yield* commandResult(
+    ChildProcess.make("/bin/kill", ["-0", String(owner.success.pid)], {
+      env: { LC_ALL: "C" },
+      extendEnv: true,
+    }),
+  );
+  // EPERM is a live owner too. Only a definite ESRCH permits immediate takeover.
+  return probe.code !== 0 && probe.stderr.includes("No such process");
+});
 
 // A populated directory cannot replace another populated directory via POSIX rename.
 // Removing only an observed owner's unique marker cannot clear a newer owner's guard.
@@ -52,7 +71,10 @@ export const takeLock = Effect.fn("daemon.takeLock")(function* (
   const path = yield* Path.Path;
   const sockets = yield* DaemonSockets;
   const lock = path.join(dataDir, "daemon.lock");
-  const create = fs.writeFileString(lock, "", { flag: "wx", mode: 0o600 }).pipe(
+  const owner = Schema.encodeSync(Schema.fromJsonString(DaemonLockOwner))({
+    pid: (yield* Host).pid,
+  });
+  const create = fs.writeFileString(lock, owner, { flag: "wx", mode: 0o600 }).pipe(
     Effect.as(true),
     Effect.catchReason("PlatformError", "AlreadyExists", () => Effect.succeed(false)),
   );
@@ -73,7 +95,7 @@ export const takeLock = Effect.fn("daemon.takeLock")(function* (
       // Re-read under the guard; a previous reclaimer may have installed a fresh lock.
       const info = yield* missing(fs.stat(lock));
       if (Option.isSome(info)) {
-        if (!old(info.value, yield* Clock.currentTimeMillis)) return false;
+        if (!(yield* reclaimable(lock, info.value))) return false;
         yield* fs.remove(lock, { force: true });
       }
       return yield* create;

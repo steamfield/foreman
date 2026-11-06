@@ -5,7 +5,20 @@ description: Delegate coding work to Codex through forman, supervise its questio
 
 # Delegating through forman
 
-Claude prepares the worktree and contract. Codex implements, runs the checks and gets one
+Write a contract, then start an isolated delegate in one call:
+
+```sh
+forman start <name> --new-worktree --setup "<install>" --contract <file> --write --wait
+```
+
+forman creates `.claude/worktrees/<name>` on `forman/<name>` beneath the main checkout,
+starting from the current repository HEAD (or `--from <ref>`). It adds the exclude rule when
+needed and runs the repo's install command before validation or any Codex request. Start
+reports the path and branch. A refused start rolls back what that call created, retaining
+and reporting a worktree when turn execution is unconfirmed or has left work. Managed starts
+refuse an outdated busy daemon; finish its runs and restart it first.
+
+Codex implements, runs the checks and gets one
 independent review in a fresh Codex process. Claude reviews the hand-off and diff, refactors,
 runs the gate, commits and merges, then cleans up. Changes stay uncommitted until Claude's pass.
 
@@ -52,20 +65,16 @@ refusal. Codex's own runtime session and log writes there are fine.
 
 ## Prepare the work
 
-1. Create one linked worktree per delegate inside the main checkout, normally beneath
-   `.claude/worktrees/`. Use an unused branch and directory, and name the base explicitly.
-   Run the orchestration commands from the main checkout, addressing worktrees by path:
+1. Choose an unused run name, branch `forman/<name>` and directory `.claude/worktrees/<name>`.
+   Determine the repo's install command for `--setup`. For a `package.json` project, forman
+   checks for `node_modules/` or `.pnp.cjs`; use `--skip-deps-check` only when setup justifies
+   it. `--setup` runs with `/bin/sh -c` and the same environment as Codex. Failure reports
+   its exit code and output tail and removes the worktree and branch it just created.
 
-   ```sh
-   git check-ignore .claude/worktrees/probe
-   git worktree add -b delegate/<name> .claude/worktrees/<name> <base-branch>
-   ```
-
-   If that directory is not ignored, use the file-writing tool to add `.claude/worktrees/`
-   to the common git directory's `info/exclude` before creating it. Find that directory with
-   `git rev-parse --git-common-dir`. In the new worktree, run the repo's install command.
-   For a `package.json` project, forman checks for `node_modules/` or `.pnp.cjs`. Install the
-   actual dependencies; use `--skip-deps-check` only when the repo's setup justifies it.
+   For a worktree Claude already prepared inside the main checkout, use `--worktree <path>`
+   instead. Install its dependencies first. This flag is mutually exclusive with
+   `--new-worktree`; `--setup` and `--from` require `--new-worktree`. forman never removes a
+   passed worktree or its branch.
 
 2. Copy [contract.md](contract.md) to a scratch file outside the worktree and fill the task
    placeholders; the delegate fills `{REVIEW DIR}` after creating its review directory.
@@ -95,7 +104,7 @@ refusal. Codex's own runtime session and log writes there are fine.
 ## Start and supervise
 
 ```sh
-forman start <name> --worktree .claude/worktrees/<name> --contract <contract-path> --write --model <model> --wait
+forman start <name> --new-worktree --setup "<install>" --contract <contract-path> --write --model <model> --wait
 ```
 
 Run `start --wait` with Claude Code's Bash `run_in_background: true`, so Claude remains
@@ -121,7 +130,7 @@ When wait returns, read its outcome and each digest. All wait outcomes exit 0:
 
 After handling attention, run the final `next:` command as another background task. It carries
 the cursor (`--after`) that prevents repeated attention and preserves any explicit `--timeout`.
-Don't rebuild it from memory. `start`, `answer`, `followup` and `steer` accept `--wait` with
+Don't rebuild it from memory. `start`, `answer`, `followup`, `steer` and `interrupt` accept `--wait` with
 the same 60-minute default as standalone wait. For a foreground call, use `--timeout 9m`
 to stay below Claude Code's foreground limit.
 
@@ -143,10 +152,13 @@ decisions; progress, findings and corrections belong in the hand-off.
 
 Run these `--wait` calls in the background too. One question takes exactly two calls:
 `start --wait`, then `answer --wait`. Without `--wait`, answer, steer and followup print `ok`
-and a `next:` wait command with the run's cursor at acceptance. Use that command to hear
-the next outcome without replaying earlier attention. With `--json`, the acknowledgement is
+and a `next:` wait command with the run's cursor at acceptance. Interrupt does the same.
+When another run in the group is active, the command uses `wait --all` and captures every
+run in that group. The cursor carries the target group, even when invoked from another repo.
+Use it to hear either run's next outcome without replaying earlier
+attention. With `--json`, the acknowledgement is
 `Accepted` with `cursor` and `next`; `--wait` returns `Waited`. Start's combined JSON result
-also carries `started: {name, runDir}` in the same value.
+also carries `started: {name, runDir, worktree, branch}` for a new worktree in the same value.
 
 ## Review and land the work
 
@@ -167,20 +179,24 @@ out-of-scope edits; preserve other people's work. Run the full repo gate in the 
 the refactor, commit there using the repo's convention, then merge as the task requires.
 Forman does not commit or merge. Honour any user instruction to leave work uncommitted.
 
-Once merged, remove the worktree and confirm its branch is an ancestor of the landing branch
-before deleting it. Run these as separate commands, and delete only if the ancestor check
-succeeds:
+Once merged, archive the inactive run:
 
 ```sh
-git worktree remove .claude/worktrees/<name>
-git merge-base --is-ancestor delegate/<name> <landing-branch>
-git branch -D delegate/<name>
 forman archive <name>
 ```
 
-Archive requires an inactive run, preserves its records and prints the archive path. It frees
-the name for reuse. For abandoned work, inspect and preserve anything useful before removing
-it. Remove only worktrees you created. Cleanup belongs to Claude, never the delegate.
+Archive removes a forman-created worktree and branch only if it has no uncommitted or
+untracked files and no new commits, or its tip is merged into its source branch. A refusal
+names the path, branch and remaining work. Keep that work with:
+
+```sh
+forman archive <name> --keep-worktree
+```
+
+Both forms preserve the run's records, print the archive path and free the name. Status
+(named or unnamed) and doctor list orphan `forman/*` worktrees with their path, branch and
+whether they hold work. Inspect those lines after a crash or `--keep-worktree`. For a passed
+`--worktree`, Claude owns removal and branch cleanup. Cleanup belongs to Claude, never the delegate.
 
 ## Recover a failed or lost run
 
@@ -213,13 +229,7 @@ build. Stop refuses while runs are active and names them; finish them or use `fo
 
 ## Example: clarify doctor help
 
-In this repo's main checkout, after setup, use an unused branch and directory:
-
-```sh
-git worktree add -b delegate/doctor-help .claude/worktrees/doctor-help <base-branch>
-```
-
-Run `bun install` in that worktree. Copy `contract.md` to a scratch file, with the goal
+In this repo, after setup, choose an unused name. Copy `contract.md` to a scratch file, with the goal
 "Clarify that doctor reports repo hook trust", this scope, checks `bun run lint` and
 `bun run typecheck`, and the filled review instructions:
 
@@ -231,9 +241,9 @@ For example, if the selected visible model is `gpt-6.1-sol`, set
 `{REVIEW MODEL}` to that literal name and start:
 
 ```sh
-forman start doctor-help --worktree .claude/worktrees/doctor-help --contract <filled-contract-path> --write --model gpt-6.1-sol --wait
+forman start doctor-help --new-worktree --setup "bun install" --contract <filled-contract-path> --write --model gpt-6.1-sol --wait
 ```
 
 Run it in the background, confirm the model in its digest header and follow each `next:`
-command. Read the hand-off and diff, refactor, run `bun run check`, commit and merge. Remove
-the worktree, verify and delete the merged branch, then `forman archive doctor-help`.
+command. Read the hand-off and diff, refactor, run `bun run check`, commit and merge, then
+`forman archive doctor-help`. If retaining unmerged work, use `--keep-worktree`.

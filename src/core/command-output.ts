@@ -1,6 +1,6 @@
 import { DateTime, Effect, FileSystem, Path } from "effect";
 import { AppConfig } from "../config";
-import type { DaemonResult, Handoff, RunEventBody } from "../schemas/daemon";
+import type { DaemonResult, Handoff, OrphanWorktree, RunEventBody } from "../schemas/daemon";
 import { Host } from "../services/host";
 import { renderDigest, renderStatus } from "./runs/digest";
 
@@ -83,18 +83,32 @@ function renderHandoff(handoff: typeof Handoff.Type | null): string {
     : `Hand-off (turn ${handoff.turn}):\n${handoff.text}`;
 }
 
+export const renderOrphan = (orphan: typeof OrphanWorktree.Type) =>
+  `orphan: ${orphan.path}  ${orphan.branch}  ${orphan.holdsWork ? "holds work" : "clean"}`;
+
+const worktreeLines = (started: { worktree?: string; branch?: string }) =>
+  started.worktree ? [`worktree: ${started.worktree}`, `branch: ${started.branch}`] : [];
+
 export function renderResult(result: DaemonResult, compact = false, executable = "forman"): string {
   switch (result._tag) {
     case "Pong":
       return `running ${result.version} (pid ${result.pid})`;
     case "Started":
-      return `${result.name}\n${result.runDir}\nnext: ${executable} wait ${result.name}`;
+      return [
+        result.name,
+        result.runDir,
+        ...worktreeLines(result),
+        `next: ${executable} wait ${result.name}`,
+      ].join("\n");
     case "Archived":
       return result.archivePath;
     case "Digests":
-      return result.digests.length === 0
-        ? "no runs"
-        : result.digests.map(compact ? renderStatus : renderDigest).join(compact ? "\n" : "\n\n");
+      return [
+        ...(result.digests.length === 0
+          ? ["no runs"]
+          : result.digests.map(compact ? renderStatus : renderDigest)),
+        ...(result.orphans ?? []).map(renderOrphan),
+      ].join(compact ? "\n" : "\n\n");
     case "Events":
       return [
         ...(result.gap ? ["gap: true"] : []),
@@ -118,7 +132,9 @@ export function renderResult(result: DaemonResult, compact = false, executable =
       ].join("\n\n");
     case "Waited":
       return [
-        ...(result.started ? [result.started.name, result.started.runDir] : []),
+        ...(result.started
+          ? [result.started.name, result.started.runDir, ...worktreeLines(result.started)]
+          : []),
         ...(result.outcome === "events"
           ? result.runs.map(
               ({ kind, name, summary }) => `${kind.padEnd(12)}${name} ${oneLine(summary)}`,

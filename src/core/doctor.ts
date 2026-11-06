@@ -10,7 +10,9 @@ import type { DoctorResult, RepoHookTrust } from "../schemas/doctor";
 import { Host } from "../services/host";
 import { formanExecutable } from "./command-output";
 import { mainCheckout as discoverMainCheckout } from "./main-checkout";
+import { orphanWorktrees } from "./managed-worktree";
 import { hasRepoHooks, inspectHookTrust } from "./preflight/hooks";
+import { readAllRuns } from "./runs/store";
 
 const probeTimeout = "5 seconds";
 
@@ -126,7 +128,18 @@ export const doctor = Effect.fn("doctor")(function* (cwd = ".") {
       Effect.map((code) => code === 0),
       Effect.orElseSucceed(() => null),
     );
+  const worktrees = yield* Effect.gen(function* () {
+    const records = yield* readAllRuns(config.home);
+    return yield* orphanWorktrees(cwd, records.runs);
+  }).pipe(Effect.timeout(probeTimeout), Effect.result);
+  let orphanFields: Pick<typeof DoctorResult.Type, "orphans" | "orphanError"> = {};
+  if (worktrees._tag === "Failure")
+    orphanFields = {
+      orphanError: "Could not inspect orphan worktrees; check Git and run data permissions.",
+    };
+  else if (worktrees.success.length > 0) orphanFields = { orphans: worktrees.success };
   return {
+    ...orphanFields,
     name: host.name,
     version: host.version,
     platform: host.platform,
