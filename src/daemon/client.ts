@@ -1,7 +1,7 @@
 import { Effect, FileSystem, Option, Path, Predicate, Schema, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import type { Socket } from "effect/socket";
-import { DaemonUnavailable, Defect } from "../errors";
+import { type AppError, DaemonUnavailable, Defect } from "../errors";
 import type { DaemonRequestBody } from "../schemas/daemon";
 import { Host } from "../services/host";
 import { errorFromResponse, lines, requestJson, responseJson } from "./protocol";
@@ -11,6 +11,7 @@ export interface CallOptions {
   readonly dataDir: string;
   readonly connectOnly?: boolean;
   readonly startupTimeoutMs?: number;
+  readonly onOutdated?: Effect.Effect<void, AppError>;
 }
 
 const absent = (error: Socket.SocketError) => {
@@ -92,23 +93,32 @@ const connect = Effect.fn("daemon.connect")(
     ),
 );
 
+const connectionClosed = "Daemon connection closed during the request.";
+
 const exchange = Effect.fn("daemon.exchange")(
   function* (body: DaemonRequestBody, socket: Socket.Socket, reader: Socket.Reader) {
     const writer = yield* socket.writer;
     const json = yield* Schema.encodeEffect(requestJson)({ id: 1, body });
-    yield* writer.write(`${json}\n`);
-    const response = yield* lines(reader).pipe(
+    const receive = lines(reader).pipe(
       Stream.mapEffect((line) => Schema.decodeUnknownEffect(responseJson)(line)),
       Stream.filter((response) => response.id === 1),
       Stream.runHead,
+      Effect.flatMap((response) => {
+        if (Option.isNone(response))
+          return Effect.fail(new DaemonUnavailable({ detail: connectionClosed }));
+        return "error" in response.value
+          ? Effect.fail(errorFromResponse(response.value.error))
+          : Effect.succeed(response.value.result);
+      }),
     );
-    if (Option.isNone(response)) return yield* new Defect();
-    return "error" in response.value
-      ? yield* errorFromResponse(response.value.error)
-      : response.value.result;
+    // Observe EOF even when a write to a closed socket is waiting for drain.
+    const [, response] = yield* Effect.all([writer.write(`${json}\n`), receive], {
+      concurrency: "unbounded",
+    });
+    return response;
   },
   Effect.catchTag("SocketError", () =>
-    Effect.fail(new DaemonUnavailable({ detail: "Daemon connection closed during the request." })),
+    Effect.fail(new DaemonUnavailable({ detail: connectionClosed })),
   ),
   Effect.catchTag("SchemaError", () => Effect.fail(new Defect())),
 );
@@ -118,37 +128,59 @@ export const call = Effect.fn("daemon.call")(function* (
   options: CallOptions,
 ) {
   const path = yield* Path.Path;
-  const { socket, reader } = yield* connect(path.join(options.dataDir, "forman.sock"), options);
-  return yield* exchange(body, socket, reader);
+  const host = yield* Host;
+  const socketPath = path.join(options.dataDir, "forman.sock");
+  let connection = yield* connect(socketPath, options);
+  if (body._tag === "Shutdown") return yield* exchange(body, connection.socket, connection.reader);
+  let replacing = false;
+  const check = Effect.gen(function* () {
+    const pong = yield* exchange({ _tag: "Ping" }, connection.socket, connection.reader);
+    if (pong._tag !== "Pong") return yield* new Defect();
+    if (pong.build !== host.build) {
+      replacing = true;
+      const stopped = yield* stopConnected(
+        options.dataDir,
+        connection.socket,
+        connection.reader,
+      ).pipe(
+        Effect.catchTag("RunConflict", () =>
+          Effect.gen(function* () {
+            if (options.onOutdated !== undefined) yield* options.onOutdated;
+            return false;
+          }),
+        ),
+      );
+      if (stopped) return null;
+    }
+    return pong;
+  });
+  const pong = yield* check.pipe(
+    Effect.catchTag("DaemonUnavailable", (error) =>
+      Effect.gen(function* () {
+        if (!replacing || error.detail !== connectionClosed) return yield* error;
+        // Another caller can replace the daemon between our Ping and Shutdown. Retry only
+        // the handshake, once: the actual command has not been sent and must never be replayed.
+        connection = yield* connect(socketPath, { ...options, connectOnly: false });
+        return yield* check;
+      }),
+    ),
+  );
+  if (pong === null) {
+    connection = yield* connect(socketPath, { ...options, connectOnly: false });
+    return yield* exchange(body, connection.socket, connection.reader);
+  }
+  return body._tag === "Ping" ? pong : yield* exchange(body, connection.socket, connection.reader);
 }, Effect.scoped);
 
-// Only a missing/refused socket means there is no daemon. Other failures remain visible.
-export const shutdown = Effect.fn("daemon.shutdown")(
-  function* (dataDir: string) {
+const stopConnected = Effect.fn("daemon.stopConnected")(
+  function* (dataDir: string, socket: Socket.Socket, reader: Socket.Reader) {
     const path = yield* Path.Path;
-    const sockets = yield* DaemonSockets;
-    const opened = yield* Effect.result(
-      Effect.gen(function* () {
-        const socket = yield* sockets.connect(path.join(dataDir, "forman.sock"));
-        return { socket, reader: yield* socket.reader };
-      }),
-    );
-    if (opened._tag === "Failure") {
-      if (absent(opened.failure)) return false;
-      return yield* new DaemonUnavailable({
-        detail: `Could not connect to daemon socket: ${path.join(dataDir, "forman.sock")}`,
-      });
-    }
     const fs = yield* FileSystem.FileSystem;
     const lock = path.join(dataDir, "daemon.lock");
     const original = yield* fs
       .stat(lock)
       .pipe(Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(null)));
-    const result = yield* exchange(
-      { _tag: "Shutdown" },
-      opened.success.socket,
-      opened.success.reader,
-    );
+    const result = yield* exchange({ _tag: "Shutdown" }, socket, reader);
     if (result._tag !== "Ok") return yield* new Defect();
     yield* Effect.gen(function* () {
       while (true) {
@@ -180,8 +212,26 @@ export const shutdown = Effect.fn("daemon.shutdown")(
     );
     return true;
   },
-  Effect.scoped,
   Effect.catchTag("PlatformError", () =>
     Effect.fail(new DaemonUnavailable({ detail: "Could not confirm daemon shutdown cleanup." })),
   ),
 );
+
+// Only a missing/refused socket means there is no daemon. Other failures remain visible.
+export const shutdown = Effect.fn("daemon.shutdown")(function* (dataDir: string) {
+  const path = yield* Path.Path;
+  const sockets = yield* DaemonSockets;
+  const opened = yield* Effect.result(
+    Effect.gen(function* () {
+      const socket = yield* sockets.connect(path.join(dataDir, "forman.sock"));
+      return { socket, reader: yield* socket.reader };
+    }),
+  );
+  if (opened._tag === "Failure") {
+    if (absent(opened.failure)) return false;
+    return yield* new DaemonUnavailable({
+      detail: `Could not connect to daemon socket: ${path.join(dataDir, "forman.sock")}`,
+    });
+  }
+  return yield* stopConnected(dataDir, opened.success.socket, opened.success.reader);
+}, Effect.scoped);

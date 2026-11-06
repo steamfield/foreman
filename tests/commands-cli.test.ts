@@ -67,6 +67,7 @@ async function fixture(response: DaemonResult | AppError = { _tag: "Ok" }) {
       Host.layer({
         name: "forman",
         version: "test",
+        build: "test",
         platform: "node",
         compiled: false,
         executable: [process.execPath],

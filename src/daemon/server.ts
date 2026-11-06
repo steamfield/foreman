@@ -13,7 +13,7 @@ import {
   Stream,
 } from "effect";
 import { Socket } from "effect/socket";
-import { type AppError, DaemonUnavailable } from "../errors";
+import { type AppError, DaemonUnavailable, RunConflict } from "../errors";
 import type { DaemonRequestBody, DaemonResult } from "../schemas/daemon";
 import { Host } from "../services/host";
 import { releaseLock, takeLock } from "./lock";
@@ -135,17 +135,18 @@ export const daemon = Effect.fn("daemon")(
                               _tag: "Pong",
                               version: options.version,
                               pid: host.pid,
+                              build: host.build,
                             });
-                          const handled = options.handler(request.body).pipe(
-                            Effect.tap((result) =>
-                              Effect.sync(() => {
-                                stopping = request.body._tag === "Shutdown" && result._tag === "Ok";
-                              }),
-                            ),
-                          );
-                          return request.body._tag === "Shutdown"
-                            ? Effect.uninterruptible(handled)
-                            : handled;
+                          if (request.body._tag === "Shutdown") {
+                            return Effect.gen(function* () {
+                              const result = yield* options.handler(request.body);
+                              if (result._tag === "Ok" && (yield* options.busy))
+                                return yield* new RunConflict();
+                              stopping = result._tag === "Ok";
+                              return result;
+                            }).pipe(Effect.uninterruptible);
+                          }
+                          return options.handler(request.body);
                         });
                         const json = yield* Schema.encodeEffect(responseJson)(response);
                         yield* writer.write(`${json}\n`);

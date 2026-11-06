@@ -5,6 +5,7 @@ export class Host extends Context.Service<
   {
     name: string;
     version: string;
+    build: string;
     platform: string;
     compiled: boolean;
     executable: ReadonlyArray<string>;

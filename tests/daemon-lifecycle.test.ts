@@ -23,7 +23,7 @@ import { Socket } from "effect/socket";
 import { TestClock } from "effect/testing";
 import { call, shutdown } from "../src/daemon/client";
 import { releaseLock } from "../src/daemon/lock";
-import { lines, responseJson } from "../src/daemon/protocol";
+import { lines, requestJson, responseJson } from "../src/daemon/protocol";
 import { type DaemonOptions, daemon } from "../src/daemon/server";
 import { DaemonSockets } from "../src/daemon/sockets";
 import { DaemonUnavailable, Defect, detailFor, errorClasses } from "../src/errors";
@@ -38,6 +38,7 @@ const host = (executable: ReadonlyArray<string> = [process.execPath]) =>
   Host.layer({
     name: "forman-test",
     version: "test",
+    build: "test",
     platform: "node",
     compiled: false,
     pid: process.pid,
@@ -97,6 +98,133 @@ const observeClosures = Effect.fnUntraced(function* () {
 });
 
 describe("daemon lifecycle and protocol", () => {
+  for (const mode of ["same", "outdated", "legacy", "busy", "racing"] as const) {
+    it.live(`handles a ${mode} daemon build before executing the call`, () =>
+      Effect.gen(function* () {
+        const dataDir = yield* temp();
+        const fs = yield* FileSystem.FileSystem;
+        const bun = (yield* (yield* ChildProcessSpawner.ChildProcessSpawner).string(
+          ChildProcess.make("which", ["bun"]),
+        )).trim();
+        const fixture = fileURLToPath(new URL("./fixtures/daemon/entry.ts", import.meta.url));
+        const executable = [bun, fixture, dataDir, "test"];
+        const child = yield* (yield* ChildProcessSpawner.ChildProcessSpawner).spawn(
+          ChildProcess.make(bun, [fixture, dataDir, mode === "same" ? "test" : "old", mode], {
+            stdout: "ignore",
+            stderr: "inherit",
+          }),
+        );
+        // Observe readiness without the upgrading client, including the legacy wire format.
+        while (!(yield* fs.exists(`${dataDir}/ready`))) yield* Effect.yieldNow;
+        let notices = 0;
+        const paused = yield* Deferred.make<void>();
+        const release = yield* Deferred.make<void>();
+        let holdShutdown = mode === "racing";
+        const requests: string[] = [];
+        let connections = 0;
+        const client = Layer.mergeAll(
+          host(executable),
+          DaemonSockets.layer({
+            connect: (path) =>
+              NodeSocket.makeNet({ path }).pipe(
+                Effect.map((socket) => {
+                  return Socket.make({
+                    reader: socket.reader.pipe(
+                      Effect.tap(() =>
+                        Effect.sync(() => {
+                          connections += 1;
+                        }),
+                      ),
+                    ),
+                    writer: socket.writer.pipe(
+                      Effect.map((writer) => ({
+                        ...writer,
+                        write: (chunk) =>
+                          Effect.gen(function* () {
+                            if (typeof chunk === "string") {
+                              const tag = Schema.decodeUnknownSync(requestJson)(chunk.trimEnd())
+                                .body._tag;
+                              requests.push(tag);
+                              if (tag === "Shutdown" && holdShutdown) {
+                                holdShutdown = false;
+                                yield* Deferred.succeed(paused, undefined);
+                                yield* Deferred.await(release);
+                              }
+                            }
+                          }).pipe(Effect.andThen(writer.write(chunk))),
+                      })),
+                    ),
+                  });
+                }),
+              ),
+            listen: (path) => NodeSocketServer.make({ path }),
+          }),
+        );
+        const callOptions = {
+          dataDir,
+          onOutdated: Effect.sync(() => {
+            notices += 1;
+          }),
+        };
+        yield* Effect.addFinalizer(() =>
+          fs
+            .writeFileString(`${dataDir}/idle`, "")
+            .pipe(
+              Effect.andThen(shutdown(dataDir)),
+              Effect.asVoid,
+              Effect.orDie,
+              Effect.provide(client),
+            ),
+        );
+        const first = yield* Effect.forkChild(
+          call({ _tag: "Status", cwd: "/tmp" }, callOptions).pipe(Effect.provide(client)),
+        );
+        if (mode === "racing") {
+          yield* Deferred.await(paused);
+          assert.deepStrictEqual(
+            yield* call({ _tag: "Status", cwd: "/tmp" }, callOptions).pipe(
+              Effect.provide(host(executable)),
+            ),
+            { _tag: "Ok" },
+          );
+          yield* Deferred.succeed(release, undefined);
+        }
+        assert.deepStrictEqual(yield* Fiber.join(first), { _tag: "Ok" });
+        let expectedRequests = ["Ping", "Shutdown", "Status"];
+        if (mode === "same") expectedRequests = ["Ping", "Status"];
+        if (mode === "racing") expectedRequests = ["Ping", "Shutdown", "Ping", "Status"];
+        assert.deepStrictEqual(requests, expectedRequests);
+        assert.strictEqual(
+          connections,
+          mode === "outdated" || mode === "legacy" || mode === "racing" ? 2 : 1,
+        );
+        assert.strictEqual(notices, mode === "busy" ? 1 : 0);
+        const result = yield* call({ _tag: "Ping" }, callOptions).pipe(Effect.provide(client));
+        assert.deepStrictEqual(
+          requests.slice(expectedRequests.length),
+          mode === "busy" ? ["Ping", "Shutdown"] : ["Ping"],
+        );
+        assert.strictEqual(result._tag, "Pong");
+        if (result._tag !== "Pong") return;
+        if (mode === "same" || mode === "busy") {
+          assert.strictEqual(result.pid, Number(child.pid));
+        } else {
+          assert.notStrictEqual(result.pid, Number(child.pid));
+          assert.strictEqual(result.build, "test");
+          assert.strictEqual(yield* child.exitCode, 0);
+        }
+        if (mode === "busy") {
+          // One warning per invocation. Ping above is a second invocation.
+          assert.strictEqual(notices, 2);
+          yield* fs.writeFileString(`${dataDir}/idle`, "");
+          const replaced = yield* ping(dataDir).pipe(Effect.provide(client));
+          assert.strictEqual(replaced._tag, "Pong");
+          if (replaced._tag === "Pong") assert.notStrictEqual(replaced.pid, result.pid);
+        } else assert.strictEqual(notices, 0);
+      }).pipe(Effect.timeout("10 seconds"), Effect.provide(platform)),
+    );
+  }
+
   it.live("serves Ping itself and decodes a handler result", () =>
     Effect.gen(function* () {
       const dataDir = yield* temp();
@@ -107,6 +235,7 @@ describe("daemon lifecycle and protocol", () => {
         _tag: "Pong",
         version: "test",
         pid: process.pid,
+        build: "test",
       });
       assert.deepStrictEqual(yield* call({ _tag: "Status", cwd: "/tmp" }, { dataDir }), {
         _tag: "Digests",
@@ -169,6 +298,7 @@ describe("daemon lifecycle and protocol", () => {
         _tag: "Pong",
         version: "replacement",
         pid: process.pid,
+        build: "test",
       });
       yield* call({ _tag: "Shutdown" }, { dataDir, connectOnly: true });
       yield* Fiber.join(replacement);
@@ -646,7 +776,7 @@ describe("daemon lifecycle and protocol", () => {
       );
       assert.deepStrictEqual(
         results.find((response) => response.id === 18),
-        { id: 18, result: { _tag: "Pong", version: "test", pid: process.pid } },
+        { id: 18, result: { _tag: "Pong", version: "test", pid: process.pid, build: "test" } },
       );
     }).pipe(Effect.provide(platform)),
   );
