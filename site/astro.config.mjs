@@ -19,7 +19,7 @@ const entries = Array.from(globSync("src/content/blog/**/*.{md,mdx}")).map(
 );
 const listedPaths = new Set([
   "/",
-  ...publishedPosts(entries).map((post) => `/${slugFor(post)}`),
+  ...publishedPosts(entries).map((post) => `/blog/${slugFor(post)}`),
 ]);
 
 export default defineConfig({
@@ -33,7 +33,7 @@ export default defineConfig({
     sitemap({ filter: (page) => listedPaths.has(new URL(page).pathname) }),
   ],
   markdown: {
-    shikiConfig: { themes: { light: "github-light", dark: "github-dark" } },
+    shikiConfig: { theme: "github-light" },
   },
   vite: { plugins: [tailwind()] },
 });

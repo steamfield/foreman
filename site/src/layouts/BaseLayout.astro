@@ -25,7 +25,7 @@ const ogImage = new URL(image, site.url);
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width" />
-    <title>{title} | {site.title}</title>
+    <title>{title === site.title ? title : `${title} | ${site.title}`}</title>
     <meta name="description" content={description} />
     <link rel="canonical" href={canonical} />
     <meta property="og:title" content={title} />
@@ -38,13 +38,29 @@ const ogImage = new URL(image, site.url);
       rel="alternate"
       type="application/rss+xml"
       title={site.title}
-      href="/rss.xml"
+      href="/blog/rss.xml"
     />
-    <script is:inline>
-      document.documentElement.classList.toggle(
-        "dark",
-        window.matchMedia("(prefers-color-scheme: dark)").matches,
-      );
+    <script>
+      import { initAnalytics } from "../lib/analytics";
+      import {
+        createConsentStore,
+        mountConsentBanner,
+      } from "@steamfield/ui/consent";
+
+      const key = import.meta.env.PUBLIC_POSTHOG_KEY;
+      if (key) {
+        const consent = createConsentStore({ domain: "steamfield.io" });
+        void initAnalytics({
+          key,
+          host: import.meta.env.PUBLIC_POSTHOG_HOST,
+          consent,
+        });
+        mountConsentBanner(consent, {
+          message:
+            "forman counts visits with PostHog. Accept allows cookies, session recordings and heatmaps.",
+          privacyHref: "https://steamfield.io/privacy",
+        });
+      }
     </script>
   </head>
   <body class="mx-auto max-w-3xl px-6 py-10">
@@ -56,5 +72,8 @@ const ogImage = new URL(image, site.url);
     <main>
       <slot />
     </main>
+    <footer class="mt-10">
+      <a href="https://steamfield.io/privacy">Privacy</a>
+    </footer>
   </body>
 </html>

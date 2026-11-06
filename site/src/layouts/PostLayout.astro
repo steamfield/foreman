@@ -14,14 +14,14 @@ const { post } = Astro.props;
 <BaseLayout
   title={post.data.title}
   description={post.data.description}
-  path={`/${slugFor(post)}`}
+  path={`/blog/${slugFor(post)}`}
   image={post.data.ogImage}
   noindex={post.data.status !== "published"}
 >
   <article>
     <PostHeader post={post} minutes={readingTime(post.body ?? "")} />
     {post.data.cover && <img src={post.data.cover} alt="" />}
-    <div class="prose dark:prose-invert mt-8">
+    <div class="prose mt-8">
       <slot />
     </div>
     <ReadToggle client:visible />

@@ -92,7 +92,7 @@ test("hashed assets are cached for a year as immutable", async () => {
 });
 
 test("pages carry the security headers and a revalidating cache", async () => {
-  const response = await get("/welcome");
+  const response = await get("/blog");
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("x-content-type-options"), "nosniff");
   const referrer = "strict-origin-when-cross-origin";
@@ -101,11 +101,21 @@ test("pages carry the security headers and a revalidating cache", async () => {
   assert.match(response.headers.get("cache-control") ?? "", /max-age=0/);
 });
 
-test("Pages gives each post one canonical URL without redirect rules", async () => {
-  for (const path of ["/welcome.html", "/welcome/"]) {
+test("Pages gives the blog one canonical URL without redirect rules", async () => {
+  for (const path of ["/blog.html", "/blog/"]) {
     const response = await get(path);
     assert.equal(response.status, 308, path);
-    assert.equal(response.headers.get("location"), "/welcome", path);
+    assert.equal(response.headers.get("location"), "/blog", path);
+  }
+});
+
+test("drafts are absent on Pages and feeds keep the revalidating cache", async () => {
+  assert.equal((await get("/blog/welcome")).status, 404);
+  for (const path of ["/blog/rss.xml", "/sitemap-0.xml"]) {
+    const response = await get(path);
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get("cache-control") ?? "", /max-age=0/);
+    assert.doesNotMatch(await response.text(), /\/blog\/welcome/);
   }
 });
 

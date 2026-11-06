@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -14,6 +15,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
 import { Window } from "happy-dom";
+import { loadEnv } from "vite";
 
 const read = (path) => readFileSync(`dist/${path}`, "utf8");
 const document = (path) => {
@@ -22,35 +24,53 @@ const document = (path) => {
   return window.document;
 };
 
-test("the built post renders MDX, metadata, canonical and an island", () => {
-  const page = document("welcome.html");
-  assert.equal(
-    page.querySelector("h1")?.textContent,
-    "Welcome to the field notes",
-  );
-  assert.ok(
-    page.querySelector("h2")?.textContent.includes("small observation"),
-  );
-  assert.ok(page.querySelector("time")?.getAttribute("datetime"));
+function assertAnalyticsBundle(root = ".") {
+  const scripts = readdirSync(join(root, "dist/_astro"))
+    .filter((file) => file.endsWith(".js"))
+    .map((file) => readFileSync(join(root, "dist/_astro", file), "utf8"))
+    .join("\n");
+  if (loadEnv("production", resolve(root), "PUBLIC_").PUBLIC_POSTHOG_KEY) {
+    assert.match(scripts, /posthog/i);
+    assert.match(scripts, /sf-consent/);
+    assert.match(scripts, /steamfield.io\/privacy/);
+  } else {
+    assert.doesNotMatch(scripts, /posthog|sf-consent|consent-accept/i);
+  }
+}
+
+test("the landing page owns the root and links the shared privacy page", () => {
+  const page = document("index.html");
+  assert.equal(page.querySelector("h1")?.textContent, "forman");
   assert.equal(
     page.querySelector('link[rel="canonical"]')?.getAttribute("href"),
-    "https://example.com/welcome",
+    "https://forman.steamfield.io/",
   );
   assert.equal(
     page.querySelector('meta[property="og:url"]')?.getAttribute("content"),
-    "https://example.com/welcome",
+    "https://forman.steamfield.io/",
   );
-  assert.ok(page.querySelector("astro-island"));
+  assert.ok(
+    page.querySelector('footer a[href="https://steamfield.io/privacy"]'),
+  );
+  assert.equal(page.querySelector('nav a[href^="/blog"]'), null);
   assert.ok(read("default-og.svg").includes("<svg"));
 });
-test("index, RSS and sitemap agree on the published route", () => {
-  assert.ok(document("index.html").querySelector('a[href="/welcome"]'));
-  assert.match(read("rss.xml"), /<link>https:\/\/example.com\/welcome<\/link>/);
-  assert.match(
-    read("sitemap-0.xml"),
-    /<loc>https:\/\/example.com\/welcome<\/loc>/,
+test("production has an empty blog and RSS, no draft page, and only the landing page in the sitemap", () => {
+  assert.equal(existsSync("dist/blog/welcome.html"), false);
+  assert.equal(existsSync("dist/welcome.html"), false);
+  assert.equal(existsSync("dist/rss.xml"), false);
+  assert.equal(document("blog.html").querySelector("h1")?.textContent, "Blog");
+  assert.equal(
+    document("blog.html").querySelector('a[href="/blog/welcome"]'),
+    null,
   );
-  assert.doesNotMatch(read("sitemap-0.xml"), /\/404|\/og\//);
+  assert.doesNotMatch(read("blog/rss.xml"), /<item>|welcome/);
+  assert.deepEqual(
+    [...read("sitemap-0.xml").matchAll(/<loc>(.*?)<\/loc>/g)].map(
+      (match) => match[1],
+    ),
+    ["https://forman.steamfield.io/"],
+  );
 });
 test("the error page tells readers how to recover and stays out of search", () => {
   const page = document("404.html");
@@ -62,25 +82,15 @@ test("the error page tells readers how to recover and stays out of search", () =
   );
 });
 
-test("syntax highlighting supplies light colors and applies dark colors through the theme", () => {
-  const page = document("welcome.html");
-  const token = page.querySelector(".astro-code span[style]");
-  assert.match(token?.getAttribute("style") ?? "", /color:/);
-  assert.match(token?.getAttribute("style") ?? "", /--shiki-dark:/);
-  const styles = [...page.querySelectorAll('link[rel="stylesheet"]')]
-    .map((link) => read(link.getAttribute("href").replace(/^\//, "")))
-    .join("\n");
-  assert.match(styles, /\.dark \.astro-code/);
-  assert.match(styles, /color:\s*var\(--shiki-dark\)\s*!important/);
-  assert.match(
-    styles,
-    /background-color:\s*var\(--shiki-dark-bg\)\s*!important/,
-  );
+test("only a keyed build ships analytics and consent JavaScript", () => {
+  assertAnalyticsBundle();
 });
 
 test("a production build hides drafts and renders unlisted posts without listing them", () => {
   const root = mkdtempSync(join(tmpdir(), "blog-build-"));
+  const originalKey = process.env.PUBLIC_POSTHOG_KEY;
   try {
+    delete process.env.PUBLIC_POSTHOG_KEY;
     for (const file of [
       "src",
       "public",
@@ -92,6 +102,18 @@ test("a production build hides drafts and renders unlisted posts without listing
       cpSync(file, join(root, file), { recursive: true });
     }
     symlinkSync(resolve("node_modules"), join(root, "node_modules"), "dir");
+    writeFileSync(
+      join(root, ".env.production"),
+      "PUBLIC_POSTHOG_KEY=phc_test\n",
+    );
+    const welcome = join(root, "src/content/blog/welcome.mdx");
+    writeFileSync(
+      welcome,
+      readFileSync(welcome, "utf8").replace(
+        "status: draft",
+        "status: published",
+      ),
+    );
     for (const status of ["draft", "unlisted"]) {
       writeFileSync(
         join(root, `src/content/blog/${status}.mdx`),
@@ -109,28 +131,67 @@ test("a production build hides drafts and renders unlisted posts without listing
       timeout: 60_000,
     });
     assert.equal(built.status, 0, `${built.stdout}\n${built.stderr}`);
-    assert.equal(existsSync(join(root, "dist/notes.html")), true);
-    for (const file of ["index.html", "rss.xml", "sitemap-0.xml"]) {
+    assertAnalyticsBundle(root);
+    const published = new Window().document;
+    published.write(readFileSync(join(root, "dist/blog/welcome.html"), "utf8"));
+    assert.equal(
+      published.querySelector("h1")?.textContent,
+      "Welcome to the field notes",
+    );
+    assert.ok(
+      published.querySelector("h2")?.textContent.includes("small observation"),
+    );
+    assert.ok(published.querySelector("time")?.getAttribute("datetime"));
+    assert.equal(
+      published.querySelector('link[rel="canonical"]')?.getAttribute("href"),
+      "https://forman.steamfield.io/blog/welcome",
+    );
+    assert.equal(
+      published
+        .querySelector('meta[property="og:url"]')
+        ?.getAttribute("content"),
+      "https://forman.steamfield.io/blog/welcome",
+    );
+    assert.ok(published.querySelector("astro-island"));
+    assert.match(
+      published
+        .querySelector(".astro-code span[style]")
+        ?.getAttribute("style") ?? "",
+      /color:/,
+    );
+    assert.doesNotMatch(
+      published.documentElement.outerHTML,
+      /--shiki-dark|class="dark"/,
+    );
+    assert.equal(existsSync(join(root, "dist/blog/notes.html")), true);
+    for (const file of ["blog.html", "blog/rss.xml", "sitemap-0.xml"]) {
       assert.match(
         readFileSync(join(root, "dist", file), "utf8"),
-        /\/notes[<"]/,
+        /\/blog\/notes[<"]/,
       );
     }
-    assert.equal(existsSync(join(root, "dist/draft.html")), false);
+    assert.equal(existsSync(join(root, "dist/blog/draft.html")), false);
     const hidden = new Window().document;
-    hidden.write(readFileSync(join(root, "dist/unlisted.html"), "utf8"));
+    hidden.write(readFileSync(join(root, "dist/blog/unlisted.html"), "utf8"));
     assert.equal(hidden.querySelector("h1")?.textContent, "unlisted");
     assert.equal(
       hidden.querySelector('meta[name="robots"]')?.getAttribute("content"),
       "noindex, nofollow",
     );
-    for (const file of ["index.html", "rss.xml", "sitemap-0.xml"]) {
+    for (const file of [
+      "index.html",
+      "blog.html",
+      "blog/rss.xml",
+      "sitemap-0.xml",
+    ]) {
       assert.doesNotMatch(
         readFileSync(join(root, "dist", file), "utf8"),
         /\/(draft|unlisted)(?:[<"/]|$)/,
       );
     }
   } finally {
+    if (originalKey === undefined) delete process.env.PUBLIC_POSTHOG_KEY;
+    else process.env.PUBLIC_POSTHOG_KEY = originalKey;
     rmSync(root, { recursive: true, force: true });
   }
 });

@@ -1,7 +1,7 @@
 import rss from "@astrojs/rss";
-import { site } from "../config";
-import { getPublishedPosts } from "../lib/collection";
-import { slugFor } from "../lib/posts";
+import { site } from "../../config";
+import { getPublishedPosts } from "../../lib/collection";
+import { slugFor } from "../../lib/posts";
 
 export async function GET() {
   return rss({
@@ -13,7 +13,7 @@ export async function GET() {
       title: post.data.title,
       description: post.data.description,
       pubDate: post.data.date,
-      link: `/${slugFor(post)}`,
+      link: `/blog/${slugFor(post)}`,
     })),
   });
 }

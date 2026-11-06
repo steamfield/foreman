@@ -8,7 +8,7 @@ PORT_WEB ?= 4321
 export PORT_WEB
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev lint check test coverage build preview new-article format clean
+.PHONY: help install dev lint check test coverage build preview new-article format clean deploy-check deploy-preview deploy
 
 help: ## List targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-14s %s\n", $$1, $$2}'
@@ -38,6 +38,17 @@ coverage: ## Tests with coverage
 build: ## Static production build into dist/
 	bunx astro build
 	node --test tests/build.test.mjs
+
+deploy-check: build ## Check the build through Cloudflare Pages locally
+	node --test tests/deploy.test.mjs
+
+deploy-preview: build ## Manual preview (BRANCH, CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID required)
+	@[ -n "$$CLOUDFLARE_API_TOKEN" ] && [ -n "$$CLOUDFLARE_ACCOUNT_ID" ] && [ -n "$$BRANCH" ] || { echo 'Set CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID and BRANCH.' >&2; exit 1; }
+	bunx wrangler pages deploy dist --branch "$$BRANCH"
+
+deploy: build ## Manual production deploy (CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID required)
+	@[ -n "$$CLOUDFLARE_API_TOKEN" ] && [ -n "$$CLOUDFLARE_ACCOUNT_ID" ] || { echo 'Set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID.' >&2; exit 1; }
+	bunx wrangler pages deploy dist --branch main
 
 preview: ## Serve the production build
 	bunx astro preview --port $(PORT_WEB) --ignore-lock

@@ -1,90 +1,168 @@
-# forman
-
-Instructions for coding agents working in this repository. Keep this file under about 200 lines: it is loaded at the start of every session. Put detail that matters only for one area in a doc and link it from Deeper context.
-
-<!-- Setup note (delete this comment when done): each comment below that starts with the fill marker says what to write from the real project. Replace it with real content, or delete the section if it truly doesn't apply. `stacks verify` fails while any remain. -->
+# forman site
 
 ## Overview
 
-<!-- stacks:fill Two or three sentences: what this project is, who uses it, and the main technologies. -->
+This separate Astro project serves forman's landing page at https://forman.steamfield.io.
+The landing page is a placeholder; the MDX blog pipeline lives under `/blog`.
+Use this directory's Makefile and Bun dependencies, independently of the CLI above it.
 
 ## Commands
 
-Run these from the repo root. They are the only supported way to build, test, and run the project; if a command here is wrong, fix it here in the same change.
+Run from `site/`. Bun 1.4.2 is recorded in `packageManager`, Node 26.13.0 in `.node-version`.
 
-| Command | What it does |
-| --- | --- |
-<!-- stacks:fill One row per real command (Makefile target or package script): install, dev, test, a single test, lint, format, typecheck, build, and any service start/stop. Copy them from the Makefile or scripts and run each once to confirm it works. Include how to run one test file. -->
+| Command                                         | What it does                                                               |
+| ----------------------------------------------- | -------------------------------------------------------------------------- |
+| `make help`                                     | List targets                                                               |
+| `make install`                                  | Install dependencies; freeze the lockfile in CI                            |
+| `make dev`                                      | Foreground dev server on `PORT_WEB` (default 4321)                         |
+| `make lint`                                     | Prettier checks                                                            |
+| `make format`                                   | Prettier writes                                                            |
+| `make check`                                    | Astro strict type and content checks                                       |
+| `make test`                                     | Vitest unit and component suite                                            |
+| `bunx vitest run src/lib/analytics.test.ts`     | Run one test file                                                          |
+| `make coverage`                                 | Vitest with V8 coverage                                                    |
+| `make build`                                    | Static build plus Node build assertions                                    |
+| `make preview`                                  | Foreground production preview on `PORT_WEB`                                |
+| `make new-article SLUG=my-post TITLE="My post"` | Create a draft, refusing overwrites                                        |
+| `make clean`                                    | Remove `dist/` and `.astro/`                                               |
+| `make deploy-check`                             | Build and test Cloudflare Pages locally, no account needed                 |
+| `make deploy-preview BRANCH=my-branch`          | Manual upload; requires `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` |
+| `make deploy`                                   | Manual upload to `main`; requires the same credentials                     |
+| `stacks verify`                                 | Run the recorded scaffold checks and dev-server probe                      |
+
+Stop owned dev/preview processes with Ctrl+C. `PORT_WEB=<free port>` overrides the port.
+The deploy commands are optional manual uploads; normal deployment uses git integration.
+Never deploy as part of verification.
 
 ## Architecture map
 
-<!-- stacks:fill A short tree of the top-level directories and what lives in each, plus one line on how requests or data flow between the parts. Only directories that exist. -->
+```text
+src/pages/       landing, blog routes, RSS and 404
+src/layouts/     shared metadata and post layout
+src/components/ React post list/header and reading-state island
+src/content/    MDX posts and shared frontmatter schema
+src/lib/        publication rules, collection loader, analytics and events
+src/styles/     Tailwind and shared UI token mapping
+scripts/        frontmatter reader and draft generator
+public/         static social image and Pages headers
+tests/          process, build and Pages runtime assertions
+docs/           development guidance
+.claude/        Claude Code hooks and adapter documentation
+.stacks/        recorded verification manifest (do not edit)
+```
+
+Routes and RSS load the collection through `src/lib/collection.ts` and publication
+rules in `posts.ts`. Sitemap config reads YAML through the same schema before
+Astro's content layer exists. Canonical paths omit trailing slashes; build output
+uses files. `/blog/` redirects to `/blog` on Pages.
 
 ## Agent harness
 
-<!-- stacks:fill Document the selected agents' actual harness: where hooks, rules and skills live and which config wires each agent's hooks. Include a table mapping each rule to the paths it covers. Link any harness docs. Keep this section for Codex-only and multiple-agent projects too. Before writing it, when both Claude Code and Codex are targets, make one skill tree: move each `.agents/skills/*` directory into `.claude/skills/` without overwriting an existing skill, then replace `.agents/skills` with a tracked symlink to `../.claude/skills`, and write new skills under `.claude/skills/`. With Codex alone, skills live in `.agents/skills/`; with Claude alone, in `.claude/skills/`. When the project has `.claude/rules/` and Codex is a target, add: "Codex does not load `.claude/rules/` automatically: it reads the rules covering the files it changes before editing them." -->
-
+`CLAUDE.md` imports this file. `.claude/settings.json` wires the session summary,
+destructive-command and secret guards, lint-on-write and session-file formatting.
+See [the hook reference](.claude/README.md). This site adds no path-scoped rules
+or skills. Formatter checks use Prettier, with no separate code linter.
+Parent repository trust and hook approval are already done.
 
 ## Conventions
 
-<!-- stacks:fill The patterns this codebase follows that an agent would not guess: module boundaries, where config is loaded, naming, how generated code is produced and that it is never hand-edited. -->
-
-- Prefer the project's existing patterns and dependencies over new ones. Add a dependency only when nothing in the project already covers the need.
-- Keep changes scoped to the task. Mention unrelated problems you notice instead of fixing them in the same change.
-
-## Guardrails
-
-- Destructive commands, credential-shaped writes and real `.env` writes are guarded by native hooks when this project targets Claude Code, Codex, OpenCode or Cursor. A block means ask the user; never rephrase a command or use another tool to bypass it.
-- Store credentials in environment variables or a secrets manager. Write variable names and placeholders in `.env.example`; ask the user to set real values.
-- Load the selected agent's applicable project skills or rules before changing their area.
-- Treat lint diagnostics as work to resolve. Run the project check command before finishing; instructions and hooks do not replace tests.
+- Keep metadata in `src/config.ts` and publication decisions in `src/lib/posts.ts`.
+- Drafts render at `/blog/<slug>` in dev only; unlisted posts render in production
+  but stay out of listings, RSS and sitemap. The shipped welcome post remains draft.
+- Reusable components are React; Astro owns layouts and routes. Hydrate only
+  interactive islands. Keep the post prose and single light syntax theme readable.
+- `@steamfield/ui` is restricted to `~0.4.0`; React peers are installed, Markdown
+  peers are not added directly. Tailwind layer order starts `theme, base, sf,
+components, utilities`. `sf-theme.css` contains placeholder site tokens.
+- Archivo and IBM Plex Mono are installed for later design work; do not wire them yet.
+- Keep changes inside the requested scope. Do not edit generated `.astro/` or `dist/`.
 
 ## Testing
 
-<!-- stacks:fill Test layers (unit, integration, end-to-end), which runner each uses, what is real and what is faked, the test harness files to build on, and anything tests need running first (a database, a .env). -->
-
-- Behavior-focused tests against real dependencies where practical. Fake only what crosses the network to third parties.
-- A bug fix starts with a test that reproduces the bug.
-- Weakening or skipping a test to get green is a failure, not a fix.
+Vitest runs pure publication rules, real YAML/schema checks, Testing Library
+components, the real draft-generator process and real PostHog offline. Happy DOM
+blocks external scripts; the PostHog boundary observes and drops outgoing events.
+`make build` checks production output and builds a temporary copy with published,
+draft and unlisted posts to keep the full publishing pipeline covered.
+`make deploy-check` launches and stops Wrangler's local Pages runtime and checks
+headers, cache behavior, canonical redirects, feeds and 404s. No service runs first.
+Run each changed test file three times alone, then `make test`.
 
 ## Error handling
 
-<!-- stacks:fill The project's error pattern: error types, where errors are caught, logged, and turned into responses or exit codes. -->
+Content/schema and tooling failures fail the command. Analytics is optional:
+SDK load or initialization failures warn once at the handling boundary, drop
+queued calls and leave tracking off. Never silently swallow unexpected errors.
 
-- Never swallow an error. Handle it, or add context and pass it on.
-- Log an error once, at the boundary that handles it.
+## Analytics
 
-## Debugging
+Only `src/lib/analytics.ts` imports `posthog-js`. The module script in
+`BaseLayout.astro` passes `PUBLIC_POSTHOG_KEY`, `PUBLIC_POSTHOG_HOST` and the
+shared consent store. Empty key means no analytics or banner JavaScript in the
+build; empty host uses US cloud (`https://us.i.posthog.com`).
 
-- If a fix hasn't worked after two attempts with no new diagnostic step in between, stop. Write down what you learned, list two or three other root-cause hypotheses, and ask which to pursue. Running a new diagnostic between attempts resets the count.
-- Read logs and error output before guessing.
+`createConsentStore({ domain: "steamfield.io" })` and `mountConsentBanner` from
+`@steamfield/ui/consent` share one `sf-consent` cookie across the family of sites.
+The shared Steamfield PostHog project receives `site: "forman"` on every event
+through `before_send`, including opt-in and pageview events. Consent uses
+`cookieless_mode: "on_reject"`: pending or declined means no PostHog persistence;
+Accept enables cookies, session recording and heatmaps. Withdrawal removes
+PostHog persistence and stops those features. Autocapture is off; recordings
+mask all inputs and `[data-ph-mask]` text, and omit network headers and bodies.
+Back-forward-cache restores recheck the shared PostHog consent cookie, and
+restricted events use its current state. Remote console capture is disabled
+because PostHog Logs bypasses `before_send`.
+Banner and footer link https://steamfield.io/privacy.
 
-<!-- stacks:fill Where the running app writes logs, how to get verbose output, and any known failure signatures. Delete this comment if there is nothing project-specific yet. -->
+The catalog in `src/lib/events.ts` declares `install_copied {method}`,
+`section_viewed {id}`, `command_tab {name}` and `demo_replayed {id}`. Islands
+call the typed `track()` later. Keep flat scalar snake_case properties; never
+send typed free text, emails or tokens. Queued calls are capped at 50.
+
+## Deploy
+
+Cloudflare Pages project: `forman`, git integration mode, production branch `main`.
+Set root directory `site`, build command `make build`, output `dist`, and Bun as
+the package manager. Set `BUN_VERSION=1.4.2` and `NODE_VERSION=26.13.0` in Pages.
+Production follows `main`; enable branch previews in the Pages dashboard.
+There is no GitHub deployment workflow. Set `PUBLIC_POSTHOG_KEY` and optional
+`PUBLIC_POSTHOG_HOST` as Pages build environment variables for each environment.
+Static output has no runtime environment variables or Functions.
+
+`public/_headers` sets security headers and immutable caching for hashed assets;
+HTML, feeds and sitemap retain Pages' revalidating cache. Add `public/_redirects`
+only for moved content, never for trailing slashes or `.html` canonicalization.
 
 ## Build workarounds
 
-Things in the tree that exist to get a build through, not because they are right. Each one says when it can be removed. Re-check them when upgrading the tools involved.
-
-| Where | What and why | Remove when |
-| --- | --- | --- |
-<!-- stacks:fill Add a row for every workaround, patch, pin, or disabled check you had to introduce while setting the project up. If there are none, write "None yet." under the table header and remove the empty table. -->
+- TypeScript stays on 6.x while `@astrojs/check` and Volar exclude 7; remove the
+  restriction once their supported peer ranges include 7.
+- `@emnapi/runtime` is an explicit dev dependency at the current stable release
+  to match `@astrojs/astro2tsx`'s `@emnapi/core` 1.x. Its broad transitive peer
+  range otherwise resolved an incompatible 2.x beta locally. Remove when the
+  toolchain resolves matching runtime/core versions without it.
+- PostHog 1.447 leaves tab identity keys in sessionStorage on withdrawal;
+  `applyConsent` clears them. Remove when the real-SDK withdrawal test passes
+  without that cleanup.
+- PostHog's internal `__extensionClasses` override disables Logs because its
+  remote console-capture setting has no client opt-out. Replace it when the SDK
+  provides a public disable switch; keep the remote-config regression passing.
 
 ## Deferred
 
-Explicitly out of scope for now, so nobody mistakes them for forgotten work.
-
-<!-- stacks:fill List what was deliberately left out (e.g. CI deploys, a production database, a second platform), or write "Nothing yet." -->
+Landing page design, final tokens, font imports, event callers and replacing the
+static social image. Generated per-post Open Graph images are off.
 
 ## Pending user actions
 
-Steps only a human can do (accounts, API keys, DNS, signing identities). Check here before reporting one of these as a problem.
-
-<!-- stacks:fill List each with how to confirm it is done, or write "None." -->
+- Connect the GitHub repository to the `forman` Pages project with the settings
+  above and attach `forman.steamfield.io`; confirm a preview and production deploy.
+- Set the shared Steamfield PostHog project key in Pages build environments and
+  enable cookieless tracking in that project's settings.
+- For optional manual uploads, provide a Pages-edit API token scoped to the
+  account and its account ID in the command's environment.
 
 ## Deeper context
 
-Read these only when the task needs them.
-
-| Need | Read |
-| --- | --- |
-<!-- stacks:fill One row per doc that exists (README, architecture notes, runbooks). Remove the table if there are none yet. -->
+See [README](README.md), [development guidance](docs/DEVELOPMENT.md) and
+[the hook reference](.claude/README.md).

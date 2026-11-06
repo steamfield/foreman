@@ -1,28 +1,55 @@
 // The only module that imports posthog-js. Analytics is off, and the SDK never
 // loads, while the key is empty: the normal state in dev, tests, CI and sandboxes.
 // The caller reads env and passes it in, so this module never touches import.meta.env.
-import type { PostHog, PostHogConfig } from "posthog-js";
-import type { EventName, EventProps } from "./events";
+import type { ConsentState, ConsentStore } from "@steamfield/ui/consent";
+import type { PostHog, PostHogInterface } from "posthog-js";
+import type { EventName, EventProperties, EventProps } from "./events";
 
 export type AnalyticsConfig = {
   key: string | undefined;
-  // Empty means PostHog US cloud. Behind a reverse proxy, host is the proxy and
-  // uiHost is the PostHog app (https://us.posthog.com or https://eu.posthog.com).
+  // Empty means PostHog US cloud.
   host?: string | undefined;
-  uiHost?: string | undefined;
-  // The decisions live here as defaults; change them here, not at call sites.
-  cookieless?: PostHogConfig["cookieless_mode"];
-  autocapture?: boolean;
-  recordSessions?: boolean;
+  consent: ConsentStore;
 };
-type Loader = () => Promise<{ default: PostHog }>;
-type Client = Pick<PostHog, "capture" | "identify" | "reset">;
+type Loader = () => Promise<{ default: Pick<PostHog, "init"> }>;
+type Client = Pick<
+  PostHogInterface,
+  "capture" | "identify" | "reset" | "get_explicit_consent_status"
+>;
 type Call = (client: Client) => void;
 
 const QUEUE_LIMIT = 50;
 let client: Client | undefined;
 let queue: Call[] | undefined;
 let warned = false;
+let unsubscribe: (() => void) | undefined;
+
+function applyConsent(
+  posthog: PostHogInterface,
+  consent: ConsentState,
+  key: string,
+) {
+  if (consent === "granted") {
+    if (posthog.get_explicit_consent_status() !== "granted")
+      posthog.opt_in_capturing();
+    posthog.set_config({ capture_heatmaps: true });
+    posthog.startSessionRecording();
+  } else {
+    posthog.stopSessionRecording();
+    posthog.set_config({ capture_heatmaps: false });
+    // Pending plus opt_out_capturing_by_default means cookieless, with no
+    // PostHog consent record to shadow the shared store on the next page.
+    posthog.clear_opt_in_out_capturing();
+    // posthog-js 1.447 leaves its tab identity behind on withdrawal.
+    // Remove these until the SDK clears them itself (covered by the real-SDK test).
+    try {
+      sessionStorage.removeItem(`ph_${key}_window_id`);
+      sessionStorage.removeItem(`ph_${key}_primary_window_exists`);
+    } catch (error) {
+      console.warn("analytics: could not clear session storage", error);
+    }
+  }
+}
 
 function send(call: Call) {
   if (client) return call(client);
@@ -39,34 +66,97 @@ export async function initAnalytics(
   config: AnalyticsConfig,
   load: Loader = () => import("posthog-js"),
 ): Promise<void> {
-  if (!config.key || typeof window === "undefined" || queue || client) return;
+  const { key } = config;
+  if (!key || typeof window === "undefined" || queue || client) return;
   queue = [];
+  let posthog: Pick<PostHog, "init">;
   try {
-    const { default: posthog } = await load();
-    posthog.init(config.key, {
+    ({ default: posthog } = await load());
+  } catch (error) {
+    console.warn("analytics: SDK load failed; analytics disabled", error);
+    queue = undefined;
+    return;
+  }
+  try {
+    posthog.init(key, {
       api_host: config.host || "https://us.i.posthog.com",
-      ...(config.uiHost ? { ui_host: config.uiHost } : {}),
       // Explicit options below win over the defaults snapshot.
       defaults: "latest",
       person_profiles: "identified_only",
       capture_pageview: "history_change",
-      cookieless_mode: config.cookieless ?? "always",
-      autocapture: config.autocapture ?? false,
-      disable_session_recording: !(config.recordSessions ?? false),
+      cookieless_mode: "on_reject",
+      opt_out_capturing_by_default: true,
+      persistence: "localStorage+cookie",
+      cross_subdomain_cookie: true,
+      opt_out_capturing_persistence_type: "cookie",
+      autocapture: false,
+      capture_dead_clicks: false,
+      capture_exceptions: false,
+      disable_surveys: true,
+      disable_conversations: true,
+      disable_product_tours: true,
+      // Remote console capture bypasses before_send and its site/consent guards.
+      __extensionClasses: { logs: undefined },
+      disable_session_recording: true,
+      capture_heatmaps: false,
+      session_recording: {
+        maskAllInputs: true,
+        maskTextSelector: "[data-ph-mask]",
+        recordHeaders: false,
+        recordBody: false,
+      },
+      before_send: (event) => {
+        if (!event) return null;
+        if (
+          ["$$heatmap", "$dead_click", "$snapshot"].includes(event.event) &&
+          client?.get_explicit_consent_status() !== "granted"
+        )
+          return null;
+        return {
+          ...event,
+          properties: { ...event.properties, site: "forman" },
+        };
+      },
       loaded: (instance) => {
+        applyConsent(instance, config.consent.getState(), key);
+        const stopConsent = config.consent.subscribe((state) =>
+          applyConsent(instance, state, key),
+        );
+        // A restored page retains the store's cached state. A sibling site's
+        // withdrawal has already cleared PostHog's shared consent cookie.
+        const onRestore = (event: PageTransitionEvent) => {
+          if (
+            event.persisted &&
+            instance.get_explicit_consent_status() !== "granted"
+          )
+            applyConsent(instance, null, key);
+        };
+        window.addEventListener("pageshow", onRestore);
+        unsubscribe = () => {
+          stopConsent();
+          window.removeEventListener("pageshow", onRestore);
+        };
         client = instance;
         for (const call of queue ?? []) call(instance);
         queue = undefined;
       },
     });
-  } catch {
-    // An ad blocker or a network failure stopped the SDK: drop the queue and
-    // leave analytics off, so later calls are no-ops and nothing rejects.
+  } catch (error) {
+    console.warn(
+      "analytics: SDK initialization failed; analytics disabled",
+      error,
+    );
     queue = undefined;
+    client = undefined;
+    unsubscribe?.();
+    unsubscribe = undefined;
   }
 }
 
-export function track(event: EventName, props?: EventProps): void {
+export function track<E extends EventName>(
+  event: E,
+  props: EventProperties[E],
+): void {
   send((c) => c.capture(event, props));
 }
 
@@ -82,6 +172,8 @@ export function reset(): void {
 
 // Tests only: forget the client and the queue between cases.
 export function resetAnalyticsForTests(): void {
+  unsubscribe?.();
+  unsubscribe = undefined;
   client = undefined;
   queue = undefined;
   warned = false;
