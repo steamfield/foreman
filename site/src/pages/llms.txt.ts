@@ -9,22 +9,23 @@ import {
   why,
 } from "../data/landing";
 
-// Command spellings and descriptions follow the repository README's Commands table.
-const commandTable = `| Command | What it does |
+// Command spellings and descriptions follow the repository README's Command reference.
+const commandTable = `| Command | Purpose |
 | --- | --- |
-| foreman start <name> --new-worktree [--from <ref>] [--setup "<install>"] --contract <file> | Create an isolated worktree and start the contract; alternatively use --worktree <path>. Accepts --write, --model, --effort, --tier, --budget, --question-timeout, --skip-deps-check |
-| foreman status [<name>] | Print one run's digest or one line per run in the current group |
-| foreman events <name> [--after <n>] [--limit <n>] | Print normalized events and the next sequence number |
-| foreman steer <name> [<message>] [--file <path>] | Send a change to the active turn |
-| foreman followup <name> [<message>] [--file <path>] [--budget <dur>] [--effort <e>] | Start another turn |
-| foreman interrupt <name> | Interrupt the active turn |
-| foreman answer <name> <question-id> [<text>] [--file <path>] | Answer a pending question |
-| foreman result <name> | Print the digest and available hand-off, naming its turn |
-| foreman archive <name> [--keep-worktree] | Archive an inactive run and safely clean its foreman-created worktree, or explicitly retain it |
-| foreman wait [<name>...] [--all] [--after <cursor>] [--timeout <dur>] | Wait for attention, print summaries, digests and turn hand-offs, then the next wait command |
-| foreman doctor | Inspect local configuration, Codex, repo hook trust and daemon availability |
-| foreman daemon | Run the daemon in the foreground; normally started automatically |
-| foreman daemon stop | Stop the daemon when no runs are active; succeeds if none is running |`;
+| start <name> --new-worktree --contract <file> | Create a worktree and start; accepts --from, --setup, --write, --model, --effort, --tier, --budget, --question-timeout, --skip-deps-check |
+| start <name> --worktree <path> --contract <file> | Use a prepared linked worktree inside the main checkout; foreman never removes it or its branch |
+| status [<name>] | Full digest for one run, or a line per run in the group; both JSON forms return Digests |
+| events <name> [--after <n>] [--limit <n>] [--verbose] | Read up to 100 stored events by default. Text hides protocol chatter and token usage unless --verbose is set. JSON includes every event in the selected page. |
+| answer <name> <question-id> [<text>] [--file <path>] | Answer now, send a late answer or correct a previous answer |
+| defer <name> <question-id> [<note>] | Release a pending question early |
+| steer <name> [<message>] [--file <path>] | Change the running turn |
+| followup <name> [<message>] [--file <path>] | Start another turn; accepts --budget and persistent --effort |
+| interrupt <name> | Request interruption, including cancellation during start preflight |
+| result <name> | Digest and latest available hand-off, naming its turn |
+| archive <name> [--keep-worktree] | Archive an inactive run and clean up its managed worktree, or retain it explicitly |
+| wait <name>... or wait --all | Wait for attention; accepts --after <cursor> and --timeout <duration> |
+| doctor | Inspect config, Codex, hook trust, home permissions and daemon state |
+| daemon / daemon stop | Run in the foreground / stop when no runs or accepted answers need the daemon |`;
 
 function table(head: readonly string[], rows: readonly (readonly string[])[]) {
   return [head, head.map(() => "---"), ...rows]
@@ -50,6 +51,7 @@ export function GET() {
     `\`\`\`sh\n${install.setup.steps.join("\n")}\n\`\`\``,
     "## Commands",
     commands.lede,
+    "Commands below follow `foreman`.",
     commandTable,
     "## Exit codes",
     table(["Code", "Meaning"], exitCodes),

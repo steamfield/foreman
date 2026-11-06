@@ -95,7 +95,7 @@ export const guardrails = {
     ],
     [
       "Budgets and timeouts",
-      "A turn stops after its budget (one hour by default). An unanswered question times out after 15 minutes and Codex is told to proceed and say so.",
+      "A turn's budget defaults to 60 minutes. On expiry, foreman interrupts, then requests a read-only hand-off with a separate 10-minute budget. An unanswered question times out after 15 minutes and Codex is told to continue independent work, avoid irreversible steps on the decision and list it under Open.",
     ],
     [
       "Private state",
@@ -109,36 +109,36 @@ export const agentFacing = {
   lede: "Every result ends with a `next:` line naming the command to run next. Its cursor means Claude never sees the same event twice.",
 };
 
-/** README "Wait outcomes and exit codes". */
+/** README "Exit codes". */
 export const exitCodes = [
-  [
-    "0",
-    "Success, including all wait outcomes and doctor with unavailable probes",
-  ],
+  ["0", "Success, including wait outcomes and doctor with unavailable probes"],
   ["1", "Internal error"],
-  ["2", "Invalid command or arguments"],
+  ["2", "Invalid command, arguments or input file"],
   ["3", "Invalid configuration"],
   ["4", "Daemon unavailable"],
   ["5", "Codex unavailable"],
-  ["6", "Permission denied"],
+  [
+    "6",
+    "Permission denied, including input files, run data, repo hooks, or daemon sockets",
+  ],
   ["7", "Run or question not found"],
-  ["8", "Run state conflict"],
+  ["8", "Run conflict, including unreadable or unsupported run data"],
   ["9", "Invalid worktree or missing dependencies"],
   ["10", "Repo hook trust not confirmed"],
   ["130", "Interrupted CLI invocation"],
 ] as const;
 
-/** README "Wait outcomes and exit codes". */
+/** README "Wait outcomes". */
 export const waitOutcomes = [
   [
     "events",
-    "A run needs attention: question, done, failed, interrupted or lost; each includes a digest",
+    "Attention: question, done, failed, interrupted or lost, with a digest for each reported run",
   ],
   [
     "timeout",
-    "Nothing needed attention within the timeout; run the printed next command",
+    "No new attention before the deadline; continue with the printed command",
   ],
-  ["none", "`--all` has no active runs or unseen attention in this repo"],
+  ["none", "`--all` has no active runs or unseen attention in the group"],
 ] as const;
 
 export const install = {
