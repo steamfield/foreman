@@ -94,6 +94,9 @@ function renderHandoff(handoff: typeof Handoff.Type | null): string {
 export const renderOrphan = (orphan: typeof OrphanWorktree.Type) =>
   `orphan: ${orphan.path}  ${orphan.branch}  ${orphan.holdsWork ? "holds work" : "clean"}`;
 
+const renderSkipped = (entry: { path: string; reason: string; action: string }) =>
+  `skipped: ${oneLine(entry.path)}  ${oneLine(entry.reason)} ${oneLine(entry.action)}`;
+
 const worktreeLines = (started: { worktree?: string; branch?: string }) =>
   started.worktree ? [`worktree: ${started.worktree}`, `branch: ${started.branch}`] : [];
 
@@ -122,6 +125,7 @@ export function renderResult(
           ? ["no runs"]
           : result.digests.map(compact ? renderStatus : renderDigest)),
         ...(result.orphans ?? []).map(renderOrphan),
+        ...(result.skipped ?? []).map(renderSkipped),
       ].join(compact ? "\n" : "\n\n");
     case "Events":
       return [
@@ -161,6 +165,7 @@ export function renderResult(
           renderDigest(digest),
           ...(["done", "failed", "interrupted"].includes(kind) ? ["", renderHandoff(handoff)] : []),
         ]),
+        ...(result.skipped ?? []).map(renderSkipped),
         ...(result.runs.length === 0 ? [] : [""]),
         `cursor: ${result.cursor}`,
         `next: ${result.next}`,

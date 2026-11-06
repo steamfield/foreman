@@ -88,6 +88,11 @@ export const OrphanWorktree = Schema.Struct({
   branch: Schema.String,
   holdsWork: Schema.Boolean,
 });
+export const SkippedRun = Schema.Struct({
+  path: Schema.String,
+  reason: Schema.String,
+  action: Schema.String,
+});
 
 // runs/<name>/run.json, written atomically.
 export const RunRecord = Schema.Struct({
@@ -343,6 +348,7 @@ export const DaemonResult = Schema.TaggedUnion({
   Digests: {
     digests: Schema.Array(Digest),
     orphans: Schema.optionalKey(Schema.Array(OrphanWorktree)),
+    skipped: Schema.optionalKey(Schema.Array(SkippedRun)),
   },
   Events: { events: Schema.Array(RunEvent), gap: Schema.Boolean, next: Schema.Int },
   Ok: {},
@@ -371,6 +377,7 @@ export const DaemonResult = Schema.TaggedUnion({
     ),
     outcome: Schema.Literals(["events", "timeout", "none"]),
     runs: Schema.Array(WaitOutcome),
+    skipped: Schema.optionalKey(Schema.Array(SkippedRun)),
     cursor: Cursor,
     next: Schema.String,
     alternative: Schema.optionalKey(Schema.String),

@@ -1,6 +1,6 @@
 import { Effect, FileSystem, Path, Schema } from "effect";
 import type { openConnection } from "../../codex/client";
-import { RepoHooksUntrusted } from "../../errors";
+import { PermissionDenied, RepoHooksUntrusted } from "../../errors";
 import * as Codex from "../../schemas/codex";
 
 type Connection = Effect.Success<ReturnType<typeof openConnection>>;
@@ -8,15 +8,19 @@ type Connection = Effect.Success<ReturnType<typeof openConnection>>;
 export const hasRepoHooks = Effect.fn("preflight.hasRepoHooks")(function* (mainCheckout: string) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
+  const hookFile = path.join(mainCheckout, ".codex/hooks.json");
   // lstat includes dangling symlinks, which must fail closed too.
   return (
-    (yield* fs.lstat(path.join(mainCheckout, ".codex/hooks.json")).pipe(
+    (yield* fs.lstat(hookFile).pipe(
       Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(undefined)),
-      Effect.mapError(
-        () =>
-          new RepoHooksUntrusted({
-            detail: `Could not inspect repo hooks.\n${hookTrustFix(mainCheckout)}`,
-          }),
+      Effect.mapError((error) =>
+        error.reason._tag === "PermissionDenied"
+          ? new PermissionDenied({
+              detail: `Cannot inspect repo hooks at ${hookFile}. Check its directory permissions and retry.`,
+            })
+          : new RepoHooksUntrusted({
+              detail: `Could not inspect repo hooks.\n${hookTrustFix(mainCheckout)}`,
+            }),
       ),
     )) !== undefined
   );
@@ -59,14 +63,7 @@ export const checkHookTrust = Effect.fn("preflight.checkHookTrust")(function* (
 ) {
   const present = yield* hasRepoHooks(mainCheckout);
   if (!present) return;
-  const result = yield* inspectHookTrust(connection, mainCheckout, worktree).pipe(
-    Effect.mapError(
-      () =>
-        new RepoHooksUntrusted({
-          detail: `Could not query Codex hook trust.\n${hookTrustFix(mainCheckout)}`,
-        }),
-    ),
-  );
+  const result = yield* inspectHookTrust(connection, mainCheckout, worktree);
   if (!result.acceptsStart)
     return yield* new RepoHooksUntrusted({ detail: result.detail ?? undefined });
 });

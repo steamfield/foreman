@@ -1,7 +1,7 @@
-import { Effect, FileSystem, Option, Path, Predicate, Schema, Stream } from "effect";
+import { Effect, FileSystem, Option, Path, PlatformError, Predicate, Schema, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import type { Socket } from "effect/socket";
-import { type AppError, DaemonUnavailable, Defect } from "../errors";
+import { type AppError, DaemonUnavailable, PermissionDenied } from "../errors";
 import type { DaemonRequestBody, DaemonResult } from "../schemas/daemon";
 import { Host } from "../services/host";
 import { takeLock } from "./lock";
@@ -27,6 +27,17 @@ const absent = (error: Socket.SocketError) => {
   );
 };
 
+const socketFailure = (socketPath: string, error: Socket.SocketError) => {
+  const cause = error.reason.cause;
+  if (Predicate.hasProperty(cause, "code") && (cause.code === "EACCES" || cause.code === "EPERM"))
+    return new PermissionDenied({
+      detail: `Cannot connect to daemon socket ${socketPath}. Check the socket and directory permissions, then retry.`,
+    });
+  return new DaemonUnavailable({
+    detail: `Could not connect to daemon socket ${socketPath} (${Predicate.hasProperty(cause, "code") && typeof cause.code === "string" ? cause.code : error.reason._tag}). Check the socket, daemon process and FORMAN_HOME/logs/daemon.jsonl, then retry.`,
+  });
+};
+
 const spawn = Effect.fn("daemon.spawn")(
   function* (options: CallOptions) {
     const fs = yield* FileSystem.FileSystem;
@@ -39,35 +50,56 @@ const spawn = Effect.fn("daemon.spawn")(
     const [executable, ...args] = host.executable;
     if (executable === undefined) {
       return yield* new DaemonUnavailable({
-        detail: "No executable configured to start the daemon.",
+        detail: "No executable configured to start the daemon; reinstall forman and retry.",
       });
     }
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     yield* Effect.scoped(
       Effect.gen(function* () {
-        const child = yield* spawner.spawn(
-          ChildProcess.make(executable, [...args, "daemon"], {
-            cwd: dataDir,
-            env: {
-              FORMAN_HOME: dataDir,
-              ...(options.codexBin === undefined ? {} : { CODEX_BIN: options.codexBin }),
-              ...(options.codexHome === undefined ? {} : { CODEX_HOME: options.codexHome }),
-              ...(options.logFile === undefined ? {} : { [`${prefix}_LOG_FILE`]: options.logFile }),
-            },
-            extendEnv: true,
-            detached: true,
-            stdin: "ignore",
-            stdout: "ignore",
-            stderr: "ignore",
-          }),
-        );
+        const child = yield* spawner
+          .spawn(
+            ChildProcess.make(executable, [...args, "daemon"], {
+              cwd: dataDir,
+              env: {
+                FORMAN_HOME: dataDir,
+                ...(options.codexBin === undefined ? {} : { CODEX_BIN: options.codexBin }),
+                ...(options.codexHome === undefined ? {} : { CODEX_HOME: options.codexHome }),
+                ...(options.logFile === undefined
+                  ? {}
+                  : { [`${prefix}_LOG_FILE`]: options.logFile }),
+              },
+              extendEnv: true,
+              detached: true,
+              stdin: "ignore",
+              stdout: "ignore",
+              stderr: "ignore",
+            }),
+          )
+          .pipe(
+            Effect.mapError(
+              () =>
+                new DaemonUnavailable({
+                  detail: `Could not spawn daemon executable ${JSON.stringify(executable)}. Check that it is executable or reinstall forman, then retry.`,
+                }),
+            ),
+          );
         yield* child.unref;
       }),
     );
   },
-  Effect.mapError(
-    () => new DaemonUnavailable({ detail: "Could not spawn the daemon executable." }),
-  ),
+  (effect, options) =>
+    effect.pipe(
+      Effect.mapError((error) => {
+        if (error instanceof DaemonUnavailable || error instanceof PermissionDenied) return error;
+        if (PlatformError.isPlatformError(error) && error.reason._tag === "PermissionDenied")
+          return new PermissionDenied({
+            detail: `Cannot prepare daemon home ${options.dataDir}: ${error.reason.method}${"pathOrDescriptor" in error.reason ? ` at ${error.reason.pathOrDescriptor}` : ""}. Check directory permissions and retry.`,
+          });
+        return new DaemonUnavailable({
+          detail: `Could not prepare daemon home ${options.dataDir}${PlatformError.isPlatformError(error) ? `: ${error.reason.method} (${error.reason._tag})` : ""}. Check its path and permissions, then retry.`,
+        });
+      }),
+    ),
 );
 
 const open = Effect.fnUntraced(function* (socketPath: string) {
@@ -89,9 +121,7 @@ const connect = Effect.fn("daemon.connect")(
     const initial = yield* Effect.result(open(socketPath));
     if (initial._tag === "Success") return initial.success;
     if (options.connectOnly || !absent(initial.failure)) {
-      return yield* new DaemonUnavailable({
-        detail: `Could not connect to daemon socket: ${socketPath}`,
-      });
+      return yield* socketFailure(socketPath, initial.failure);
     }
     yield* spawn(options);
     while (true) {
@@ -99,9 +129,7 @@ const connect = Effect.fn("daemon.connect")(
       const attempt = yield* Effect.result(open(socketPath));
       if (attempt._tag === "Success") return attempt.success;
       if (!absent(attempt.failure)) {
-        return yield* new DaemonUnavailable({
-          detail: `Could not connect to daemon socket: ${socketPath}`,
-        });
+        return yield* socketFailure(socketPath, attempt.failure);
       }
     }
   },
@@ -112,7 +140,7 @@ const connect = Effect.fn("daemon.connect")(
         orElse: () =>
           Effect.fail(
             new DaemonUnavailable({
-              detail: `Daemon did not connect or start within ${options.startupTimeoutMs ?? 10_000} ms: ${socketPath}`,
+              detail: `Daemon did not connect or start within ${options.startupTimeoutMs ?? 10_000} ms: ${socketPath}. Inspect FORMAN_HOME/logs/daemon.jsonl and the daemon process; the command was not sent.`,
             }),
           ),
       }),
@@ -120,6 +148,10 @@ const connect = Effect.fn("daemon.connect")(
 );
 
 const connectionClosed = "Daemon connection closed during the request.";
+const closedRequest = (body: DaemonRequestBody) =>
+  new DaemonUnavailable({
+    detail: `${connectionClosed} ${body._tag}${"name" in body && body.name !== undefined ? ` for run ${body.name}` : ""}: ${body._tag === "Ping" ? "the command was not sent" : "the request may have been accepted; confirm its state before retrying"}. Run forman doctor and inspect the daemon log.`,
+  });
 
 // Diagnostics never launch or replace a daemon; only a missing/refused socket is absence.
 export const probe = Effect.fn("daemon.probe")(function* (dataDir: string) {
@@ -129,9 +161,7 @@ export const probe = Effect.fn("daemon.probe")(function* (dataDir: string) {
   const opened = yield* open(socketPath).pipe(Effect.result);
   if (opened._tag === "Failure") {
     if (absent(opened.failure)) return null;
-    return yield* new DaemonUnavailable({
-      detail: "Could not read daemon socket; check home and socket permissions.",
-    });
+    return yield* socketFailure(socketPath, opened.failure);
   }
   return yield* exchange({ _tag: "Ping" }, opened.success.socket, opened.success.reader);
 }, Effect.scoped);
@@ -145,11 +175,15 @@ const exchange = Effect.fn("daemon.exchange")(
       Stream.filter((response) => response.id === 1),
       Stream.runHead,
       Effect.flatMap((response) => {
-        if (Option.isNone(response))
-          return Effect.fail(new DaemonUnavailable({ detail: connectionClosed }));
-        return "error" in response.value
-          ? Effect.fail(errorFromResponse(response.value.error))
-          : Effect.succeed(response.value.result);
+        if (Option.isNone(response)) return Effect.fail(closedRequest(body));
+        if (!("error" in response.value)) return Effect.succeed(response.value.result);
+        const known = errorFromResponse(response.value.error);
+        return Effect.fail(
+          known ??
+            new DaemonUnavailable({
+              detail: `Daemon returned an unrecognized error to ${body._tag}${"name" in body && body.name !== undefined ? ` for run ${body.name}` : ""}. ${body._tag === "Ping" ? "The command was not sent." : "The request may have been accepted; confirm its state before retrying."} Run forman doctor and inspect the daemon log.`,
+            }),
+        );
       }),
     );
     // Observe EOF even when a write to a closed socket is waiting for drain.
@@ -158,16 +192,18 @@ const exchange = Effect.fn("daemon.exchange")(
     });
     return response;
   },
-  Effect.catchTag("SocketError", () =>
-    Effect.fail(new DaemonUnavailable({ detail: connectionClosed })),
-  ),
-  Effect.catchTag("SchemaError", () =>
-    Effect.fail(
-      new DaemonUnavailable({
-        detail: "Could not decode daemon reply; daemon build differs.",
-      }),
+  (effect, body) =>
+    effect.pipe(Effect.catchTag("SocketError", () => Effect.fail(closedRequest(body)))),
+  (effect, body) =>
+    effect.pipe(
+      Effect.catchTag("SchemaError", () =>
+        Effect.fail(
+          new DaemonUnavailable({
+            detail: `Could not decode daemon reply to ${body._tag}${"name" in body && body.name !== undefined ? ` for run ${body.name}` : ""}. ${body._tag === "Ping" ? "The command was not sent." : "The request may have been accepted; confirm its state before retrying."} Run forman doctor and inspect the daemon log.`,
+          }),
+        ),
+      ),
     ),
-  ),
   (effect, body) =>
     body._tag === "Ping" || body._tag === "Shutdown"
       ? effect.pipe(
@@ -192,8 +228,7 @@ const exchangeRunRequest = Effect.fn("daemon.exchangeRunRequest")(function* (
 ) {
   if (outdated && body._tag === "Defer")
     return yield* new DaemonUnavailable({
-      detail:
-        "Outdated daemon cannot defer questions; finish its active runs and restart the daemon.",
+      detail: `Outdated daemon cannot defer ${body.question} in run ${body.name}; the request was not sent. Finish or interrupt its active runs, then restart the daemon.`,
     });
   if (outdated && body._tag === "Answer") {
     const status = yield* exchange({ _tag: "Status", name: body.name, cwd: "" }, socket, reader);
@@ -204,14 +239,12 @@ const exchangeRunRequest = Effect.fn("daemon.exchangeRunRequest")(function* (
       )
     )
       return yield* new DaemonUnavailable({
-        detail:
-          "Outdated daemon cannot route late answers or corrections; finish its active runs and restart the daemon.",
+        detail: `Outdated daemon cannot route a late answer or correction for ${body.question} in run ${body.name}; the request was not sent. Finish or interrupt its active runs, then restart the daemon.`,
       });
   }
   if (outdated && body._tag === "Start" && body.newWorktree)
     return yield* new DaemonUnavailable({
-      detail:
-        "Outdated busy daemon cannot safely create managed worktrees; finish its active runs and restart the daemon before starting this run.",
+      detail: `Outdated busy daemon cannot safely create managed worktrees for run ${body.name}; the request was not sent. Finish or interrupt its active runs, then restart the daemon before starting this run.`,
     });
   if (
     !outdated ||
@@ -230,8 +263,7 @@ const exchangeRunRequest = Effect.fn("daemon.exchangeRunRequest")(function* (
   );
   if (before._tag !== "Waited")
     return yield* new DaemonUnavailable({
-      detail:
-        "Outdated daemon cannot provide a wait cursor; the request was not sent. Finish its active runs and restart the daemon.",
+      detail: `Outdated daemon cannot provide a wait cursor for run ${body.name}; the request was not sent. Finish or interrupt its active runs, then restart the daemon.`,
     });
   const result = yield* exchange(body, socket, reader);
   return result._tag === "Ok" ? { _tag: "Accepted" as const, cursor: before.cursor } : result;
@@ -261,7 +293,10 @@ export const call = Effect.fn("daemon.call")(function* (
   let connection = yield* connect(socketPath, options);
   const check = Effect.gen(function* () {
     const pong = yield* exchange({ _tag: "Ping" }, connection.socket, connection.reader);
-    if (pong._tag !== "Pong") return yield* new Defect();
+    if (pong._tag !== "Pong")
+      return yield* new DaemonUnavailable({
+        detail: `Daemon returned ${pong._tag} to Ping at ${socketPath}; the command was not sent. Run forman doctor and inspect the daemon log before retrying.`,
+      });
     // Diagnostics must inspect an old daemon without replacing or launching one.
     if (body._tag === "Ping" && options.connectOnly) return pong;
     if (outdated(pong, host.build, options)) {
@@ -284,7 +319,7 @@ export const call = Effect.fn("daemon.call")(function* (
   const pong = yield* check.pipe(
     Effect.catchTag("DaemonUnavailable", (error) =>
       Effect.gen(function* () {
-        if (error.detail !== connectionClosed) return yield* error;
+        if (!error.detail?.startsWith(connectionClosed)) return yield* error;
         // Idle exit or replacement can close a just-accepted connection. The command
         // has not been sent, so retry only this handshake, once.
         connection = yield* connect(socketPath, options);
@@ -315,7 +350,10 @@ const stopConnected = Effect.fn("daemon.stopConnected")(
       .stat(lock)
       .pipe(Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(null)));
     const result = yield* exchange({ _tag: "Shutdown" }, socket, reader);
-    if (result._tag !== "Ok") return yield* new Defect();
+    if (result._tag !== "Ok")
+      return yield* new DaemonUnavailable({
+        detail: `Daemon returned ${result._tag} to Shutdown at ${path.join(dataDir, "forman.sock")}; shutdown may have been accepted. Run forman doctor and inspect the daemon log before retrying.`,
+      });
     yield* Effect.gen(function* () {
       while (true) {
         const current = yield* fs
@@ -344,16 +382,23 @@ const stopConnected = Effect.fn("daemon.stopConnected")(
         orElse: () =>
           Effect.fail(
             new DaemonUnavailable({
-              detail: "Daemon accepted shutdown but did not finish cleanup within 10 seconds.",
+              detail: `Daemon accepted shutdown but did not finish cleanup within 10 seconds in ${dataDir}. Run forman doctor and inspect the daemon process and ${path.join(dataDir, "logs/daemon.jsonl")} before retrying.`,
             }),
           ),
       }),
     );
     return true;
   },
-  Effect.catchTag("PlatformError", () =>
-    Effect.fail(new DaemonUnavailable({ detail: "Could not confirm daemon shutdown cleanup." })),
-  ),
+  (effect, dataDir) =>
+    effect.pipe(
+      Effect.catchTag("PlatformError", (error) =>
+        Effect.fail(
+          new DaemonUnavailable({
+            detail: `Could not confirm daemon shutdown cleanup in ${dataDir}: ${error.reason.method} (${error.reason._tag})${"pathOrDescriptor" in error.reason ? `: ${error.reason.pathOrDescriptor}` : ""}. Run forman doctor and inspect the daemon process before retrying.`,
+          }),
+        ),
+      ),
+    ),
 );
 
 // Only a missing/refused socket means there is no daemon. Other failures remain visible.
@@ -373,9 +418,7 @@ export const shutdown = Effect.fn("daemon.shutdown")(function* (dataDir: string)
   );
   if (opened._tag === "Failure") {
     if (absent(opened.failure)) return false;
-    return yield* new DaemonUnavailable({
-      detail: `Could not connect to daemon socket: ${path.join(dataDir, "forman.sock")}`,
-    });
+    return yield* socketFailure(path.join(dataDir, "forman.sock"), opened.failure);
   }
   return yield* stopConnected(dataDir, opened.success.socket, opened.success.reader);
 }, Effect.scoped);

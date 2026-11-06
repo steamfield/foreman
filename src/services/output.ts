@@ -1,15 +1,25 @@
-import { Context, Effect, Layer } from "effect";
+import { Context, Effect, Layer, Predicate } from "effect";
 import { type AppError, BrokenPipe, errorEnvelope, errorText, PermissionDenied } from "../errors";
 
 export type Writer = (text: string) => Promise<void>;
-const write = (writer: Writer, text: string) =>
+const write = (writer: Writer, stream: "stdout" | "stderr", text: string) =>
   Effect.tryPromise({
     try: () => writer(`${text}\n`),
-    catch: (error) =>
-      typeof error === "object" && error !== null && "code" in error && error.code === "EPIPE"
-        ? new BrokenPipe()
-        : new PermissionDenied(),
-  });
+    catch: (error) => error,
+  }).pipe(
+    Effect.catch((error): Effect.Effect<never, BrokenPipe | PermissionDenied> => {
+      if (Predicate.hasProperty(error, "code")) {
+        if (error.code === "EPIPE") return Effect.fail(new BrokenPipe());
+        if (error.code === "EACCES" || error.code === "EPERM")
+          return Effect.fail(
+            new PermissionDenied({
+              detail: `Cannot write to ${stream}. Check the output destination and its permissions, then retry.`,
+            }),
+          );
+      }
+      return Effect.die(error);
+    }),
+  );
 
 export class Output extends Context.Service<
   Output,
@@ -39,11 +49,15 @@ export class Output extends Context.Service<
             pending.push(machine ? JSON.stringify(value) : text);
           }),
         flush: Effect.gen(function* () {
-          for (const text of pending.splice(0)) yield* write(stdout, text);
+          for (const text of pending.splice(0)) yield* write(stdout, "stdout", text);
         }),
-        note: (text) => write(stderr, text),
+        note: (text) => write(stderr, "stderr", text),
         error: (error) =>
-          write(stderr, machine ? JSON.stringify(errorEnvelope(error)) : errorText(error)),
+          write(
+            stderr,
+            "stderr",
+            machine ? JSON.stringify(errorEnvelope(error)) : errorText(error),
+          ),
       };
     });
 }

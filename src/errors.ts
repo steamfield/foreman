@@ -1,5 +1,6 @@
 import { Cause, Schema } from "effect";
 import { CliError } from "effect/cli";
+import { redactDiagnosticText } from "./diagnostic-redaction";
 
 // `detail` is text forman writes (which check failed, which run), never text from Codex.
 const detail = { detail: Schema.optional(Schema.String) };
@@ -66,7 +67,7 @@ export const errorTable = {
   Defect: { code: 1, message: "Internal error.", retryable: false },
   DaemonUnavailable: {
     code: 4,
-    message: "The forman daemon could not be reached or started.",
+    message: "The daemon request could not be completed.",
     retryable: true,
   },
   CodexUnavailable: {
@@ -77,12 +78,12 @@ export const errorTable = {
   RunNotFound: { code: 7, message: "No such run or question.", retryable: false },
   RunConflict: {
     code: 8,
-    message: "The run is not in a state that allows this.",
+    message: "The request could not be completed.",
     retryable: false,
   },
   WorktreeInvalid: {
     code: 9,
-    message: "The worktree can't be used for a run.",
+    message: "The Git checkout or worktree could not be used.",
     retryable: false,
   },
   RepoHooksUntrusted: {
@@ -135,10 +136,23 @@ export function failure(cause: Cause.Cause<unknown>): AppError {
     for (const ErrorClass of errorClasses)
       if (reason.error instanceof ErrorClass) return reason.error;
     if (CliError.isCliError(reason.error)) {
+      if (reason.error._tag === "DuplicateOption" || reason.error._tag === "UserError")
+        return new Defect();
       const errors = reason.error._tag === "ShowHelp" ? reason.error.errors : [reason.error];
-      const messages = errors.flatMap((error) =>
-        error._tag === "MissingOption" || error._tag === "ValidationError" ? [error.message] : [],
-      );
+      const messages = errors.flatMap((error) => {
+        switch (error._tag) {
+          case "MissingOption":
+          case "MissingArgument":
+          case "ValidationError":
+          case "UnknownSubcommand":
+          case "UnrecognizedOption":
+          case "UnexpectedArgument":
+          case "InvalidValue":
+            return [redactDiagnosticText(error.message)];
+          default:
+            return [];
+        }
+      });
       return new Usage({ detail: messages.length ? messages.join("\n") : undefined });
     }
   }

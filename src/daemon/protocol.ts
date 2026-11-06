@@ -1,13 +1,6 @@
 import { Cause, Effect, Option, PlatformError, Predicate, Schema, Stream } from "effect";
 import type { Socket } from "effect/socket";
-import {
-  type AppError,
-  DaemonUnavailable,
-  Defect,
-  detailFor,
-  errorClasses,
-  failure,
-} from "../errors";
+import { type AppError, DaemonUnavailable, detailFor, errorClasses, failure } from "../errors";
 import { defectTrace } from "../logging";
 import { DaemonRequest, DaemonResponse, type DaemonResult } from "../schemas/daemon";
 import { Host } from "../services/host";
@@ -25,11 +18,11 @@ export const lines = (reader: Socket.Reader) =>
 export const errorFromResponse = (body: {
   readonly tag: string;
   readonly detail?: string;
-}): AppError => {
+}): AppError | undefined => {
   for (const Class of errorClasses) {
     if (new Class()._tag === body.tag) return new Class({ detail: body.detail });
   }
-  return new Defect();
+  return undefined;
 };
 
 export const errorResponse = (id: number, error: AppError): DaemonResponse => {
@@ -82,7 +75,7 @@ export const respond = Effect.fn("daemon.respond")(function* (
     return errorResponse(
       Option.isSome(partial) ? partial.value.id : 0,
       new DaemonUnavailable({
-        detail: `Request not understood; daemon build ${host.build}.`,
+        detail: `Request not understood; daemon build ${host.build}. The command was not accepted. Run forman doctor, finish any active runs, then run forman daemon stop and retry with the same forman build for all clients.`,
       }),
     );
   }

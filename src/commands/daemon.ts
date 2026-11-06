@@ -1,5 +1,6 @@
 import {
   Cause,
+  Clock,
   Effect,
   Fiber,
   Logger,
@@ -41,9 +42,8 @@ export const withDaemonLogging = Effect.fn("daemon.logging")(function* <A, E, R>
   const config = yield* AppConfig;
   const path = yield* Path.Path;
   const settings = yield* config.logging;
-  const append = yield* makeLogAppender(
-    settings.file || path.join(config.home, "logs/daemon.jsonl"),
-  );
+  const file = settings.file || path.join(config.home, "logs/daemon.jsonl");
+  const append = yield* makeLogAppender(file);
   const records = yield* Queue.unbounded<string, Cause.Done>();
   const output = yield* Output;
   let sinkUnavailable = false;
@@ -51,11 +51,16 @@ export const withDaemonLogging = Effect.fn("daemon.logging")(function* <A, E, R>
     sinkUnavailable
       ? Effect.void
       : append(line).pipe(
-          Effect.catch(() =>
+          Effect.catch((error) =>
             Effect.gen(function* () {
               sinkUnavailable = true;
+              const warning = entry({
+                date: new Date(yield* Clock.currentTimeMillis),
+                level: "warn",
+                message: `Daemon log file unavailable: ${file} (${error.reason._tag}). Check the path and directory permissions; continuing without file logging.`,
+              });
               yield* output
-                .note("Daemon log file unavailable; continuing without file logging.")
+                .note(output.json ? JSON.stringify(warning) : warning.msg)
                 .pipe(Effect.ignoreCause);
             }),
           ),

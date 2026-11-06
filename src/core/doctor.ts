@@ -5,7 +5,13 @@ import { openConnection } from "../codex/client";
 import { appServerEnvironment } from "../codex/environment";
 import { AppConfig } from "../config";
 import { probe } from "../daemon/client";
-import { errorText, WorktreeInvalid } from "../errors";
+import {
+  CodexUnavailable,
+  errorText,
+  PermissionDenied,
+  RepoHooksUntrusted,
+  WorktreeInvalid,
+} from "../errors";
 import type { DoctorResult, RepoHookTrust } from "../schemas/doctor";
 import { Host } from "../services/host";
 import { formanExecutable } from "./command-output";
@@ -36,6 +42,8 @@ const daemonState = Effect.fnUntraced(
     let detail = "Could not query daemon; reply was unreadable.";
     if (error._tag === "TimeoutError") detail = "Daemon Ping timed out after 5 seconds.";
     if (error._tag === "DaemonUnavailable") detail = error.detail ?? "Could not query daemon.";
+    if (error._tag === "PermissionDenied")
+      detail = error.detail ?? "Could not access daemon socket.";
     return Effect.succeed({ state: "unavailable" as const, detail });
   }),
 );
@@ -91,7 +99,7 @@ const homePermissions = Effect.fnUntraced(
     if ((info.mode & 0o077) !== 0)
       return result(
         "unsafe",
-        `Home is accessible to other users. Run ${CommandLine.join(["chmod", "700", home])} to make it private.`,
+        `Home is accessible to other users. Run ${CommandLine.display(["chmod", "700", home])} to make it private.`,
       );
     return result("ok", null);
   },
@@ -157,9 +165,12 @@ const repoHookTrust = Effect.fnUntraced(function* (
         hooks: [],
         acceptsStart: null,
         detail:
-          error instanceof WorktreeInvalid
-            ? (error.detail ?? "Could not discover main checkout.")
-            : "Could not query Codex hook trust.",
+          error instanceof WorktreeInvalid ||
+          error instanceof PermissionDenied ||
+          error instanceof RepoHooksUntrusted ||
+          error instanceof CodexUnavailable
+            ? (error.detail ?? errorText(error))
+            : `Could not query Codex hook trust for ${mainCheckout ?? cwd} using ${JSON.stringify(config.codexBin)} (${error._tag}). Check Codex availability and version, then retry forman doctor.`,
       }),
     ),
   );

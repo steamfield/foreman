@@ -9,8 +9,12 @@ interface StartMode {
 }
 
 /** The daemon's managed-mode source directory is not a prepared worktree. */
-export const validateStartMode = (input: StartMode) =>
-  Boolean(input.newWorktree) === (input.worktree !== undefined) ||
-  (!input.newWorktree && (input.from !== undefined || input.setup !== undefined))
-    ? Effect.fail(new Usage())
-    : Effect.void;
+export const validateStartMode = (input: StartMode) => {
+  if (Boolean(input.newWorktree) === (input.worktree !== undefined))
+    return Effect.fail(new Usage({ detail: "Choose either --worktree or --new-worktree." }));
+  if (!input.newWorktree && input.from !== undefined)
+    return Effect.fail(new Usage({ detail: "--from requires --new-worktree." }));
+  if (!input.newWorktree && input.setup !== undefined)
+    return Effect.fail(new Usage({ detail: "--setup requires --new-worktree." }));
+  return Effect.void;
+};

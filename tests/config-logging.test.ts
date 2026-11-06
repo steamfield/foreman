@@ -371,6 +371,8 @@ describe("real config and emitted logging", () => {
         JSON.stringify(record).includes("Log file unavailable"),
       ),
     ).toHaveLength(1);
+    expect(result.stderr).toContain(join(occupied, "log"));
+    expect(result.stderr).toContain("Check the path and directory permissions");
   });
 
   it("keeps JSON-formatted diagnostics when human output's file sink fails", async () => {
@@ -386,7 +388,7 @@ describe("real config and emitted logging", () => {
     expect(ndjson(result.stderr)).toEqual([
       expect.objectContaining({ msg: "configuration checked", level: "debug" }),
       expect.objectContaining({
-        msg: "Log file unavailable; continuing with stderr.",
+        msg: expect.stringContaining(`Log file unavailable: ${join(occupied, "log")}`),
         level: "warn",
       }),
       expect.objectContaining({ msg: "command", level: "debug" }),

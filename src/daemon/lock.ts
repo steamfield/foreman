@@ -4,20 +4,20 @@ import { DaemonUnavailable } from "../errors";
 import { DaemonLockOwner } from "../schemas/daemon";
 import { Host } from "../services/host";
 
-const lockError = () =>
+const lockError = (database: string) =>
   new DaemonUnavailable({
-    detail:
-      "Could not acquire daemon ownership; check home permissions and daemon.guard.sqlite. Use a local filesystem with advisory locking.",
+    detail: `Could not acquire daemon ownership using ${database}; check its path and permissions, and use a local filesystem with advisory locking.`,
   });
 
 // SQLite supplies OS advisory locking in both Node and Bun without a native addon.
 // Never unlink this database: all contenders must lock the same inode. No data is stored.
 export const takeLock = Effect.fn("daemon.takeLock")(function* (dataDir: string) {
   const path = yield* Path.Path;
+  const databasePath = path.join(dataDir, "daemon.guard.sqlite");
   const database = yield* Effect.acquireRelease(
     Effect.try({
-      try: () => new DatabaseSync(path.join(dataDir, "daemon.guard.sqlite")),
-      catch: lockError,
+      try: () => new DatabaseSync(databasePath),
+      catch: () => lockError(databasePath),
     }),
     (database) => Effect.sync(() => database.close()),
   );
@@ -32,7 +32,7 @@ export const takeLock = Effect.fn("daemon.takeLock")(function* (dataDir: string)
         throw error;
       }
     },
-    catch: lockError,
+    catch: () => lockError(databasePath),
   });
 });
 

@@ -191,10 +191,16 @@ it.effect("fails visibly when git cannot inspect the worktree", () =>
     const { fs, path, root, runDir } = yield* setup("no scope\n");
     const absent = path.join(root, "not-a-repo");
     yield* fs.makeDirectory(absent);
-    expect(yield* Effect.flip(computeWorktreeFields(absent, runDir))).toMatchObject({
+    const error = yield* Effect.flip(computeWorktreeFields(absent, runDir));
+    expect(error).toMatchObject({
       _tag: "WorktreeInvalid",
-      detail: expect.stringContaining("git exited 128"),
+      detail: expect.stringContaining("exited 128"),
     });
+    expect(error).toMatchObject({
+      detail: expect.stringContaining("git --no-optional-locks status"),
+    });
+    expect(error).toMatchObject({ detail: expect.stringContaining(absent) });
+    expect(error).toMatchObject({ detail: expect.stringContaining("inspect the Git output") });
   }).pipe(Effect.provide(NodeServices.layer)),
 );
 

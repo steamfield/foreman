@@ -3,7 +3,6 @@ import { Argument, CliError, Command, Flag } from "effect/cli";
 import { durationMs } from "../core/command-input";
 import { formanExecutable, renderResult } from "../core/command-output";
 import * as programs from "../core/commands";
-import { Defect } from "../errors";
 import { redactDiagnosticText } from "../logging";
 import { EventLimit, EventSequence } from "../schemas/commands";
 import { Cursor, DaemonResult, QuestionId, RunName } from "../schemas/daemon";
@@ -53,7 +52,7 @@ const message = {
   file: optionalText("file", "Read the message from a file instead of an argument."),
 };
 
-const print = Effect.fnUntraced(function* <E, R>(
+export const print = Effect.fnUntraced(function* <E, R>(
   command: string,
   program: Effect.Effect<DaemonResult, E, R>,
   compact = false,
@@ -62,9 +61,7 @@ const print = Effect.fnUntraced(function* <E, R>(
 ) {
   yield* (yield* Invocation).named(command);
   const result = yield* program;
-  const encoded = yield* Schema.encodeEffect(DaemonResult)(result).pipe(
-    Effect.mapError(() => new Defect()),
-  );
+  const encoded = yield* Schema.encodeEffect(DaemonResult)(result).pipe(Effect.orDie);
   const executable =
     result._tag === "Started" || result._tag === "Events"
       ? (yield* formanExecutable()).command

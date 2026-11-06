@@ -1,12 +1,13 @@
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { NodeServices } from "@effect/platform-node";
-import { expect, it } from "@effect/vitest";
+import { assert, expect, it } from "@effect/vitest";
 import { Effect, FileSystem, Schema } from "effect";
 import { ChildProcess } from "effect/process";
 import { openConnection } from "../src/codex/client";
 import { checkHookTrust } from "../src/core/preflight/hooks";
 import { commandResult } from "../src/core/process";
+import { RepoHooksUntrusted } from "../src/errors";
 import { Scenario } from "./fixtures/fake-app-server/scenario";
 import {
   missingProjectHooks,
@@ -77,6 +78,7 @@ it.live.each([untrustedHooks, modifiedHooks])(
       const script = build(f.main, f.file);
       const { connection } = yield* f.connect(script);
       const error = yield* Effect.flip(checkHookTrust(connection, f.main, f.main));
+      assert.instanceOf(error, RepoHooksUntrusted);
       expect(error._tag).toBe("RepoHooksUntrusted");
       expect(error.detail).toContain(
         `${f.file}:pre_tool_use:0:0: ${build === untrustedHooks ? "untrusted" : "modified"}`,
@@ -94,6 +96,7 @@ it.live("refuses missing project hooks, as returned for an untrusted project", (
     const f = yield* setup();
     const { connection } = yield* f.connect(missingProjectHooks(f.main));
     const error = yield* Effect.flip(checkHookTrust(connection, f.main, f.main));
+    assert.instanceOf(error, RepoHooksUntrusted);
     expect(error.detail).toContain(`Codex loaded no project hooks from ${f.file}.`);
     expect(error.detail).toContain(`Open Codex in ${f.main}, run /hooks`);
   }).pipe(Effect.provide(NodeServices.layer)),
@@ -129,6 +132,7 @@ it.live("refuses hooks/list errors even with trusted project hooks", () =>
       ],
     });
     const error = yield* Effect.flip(checkHookTrust(connection, f.main, f.main));
+    assert.instanceOf(error, RepoHooksUntrusted);
     expect(error.detail).toContain(`${f.file}: hooks/list error`);
     expect(error.detail).toContain(`Open Codex in ${f.main}, run /hooks`);
   }).pipe(Effect.provide(NodeServices.layer)),
@@ -141,8 +145,8 @@ it.live("fails closed on a dangling hooks symlink and on an unavailable hooks/li
     yield* f.fs.symlink(`${f.main}/missing`, f.file);
     const { connection } = yield* f.connect({ rules: [] });
     expect(yield* Effect.flip(checkHookTrust(connection, f.main, f.main))).toMatchObject({
-      _tag: "RepoHooksUntrusted",
-      detail: expect.stringContaining("Could not query Codex hook trust"),
+      _tag: "CodexRpcError",
+      code: -32601,
     });
   }).pipe(Effect.provide(NodeServices.layer)),
 );
@@ -187,6 +191,7 @@ it.live(
         ],
       });
       const error = yield* Effect.flip(checkHookTrust(connection, f.main, cwd));
+      assert.instanceOf(error, RepoHooksUntrusted);
       expect(error.detail).toContain(`${f.file}:pre_tool_use:0:0: untrusted`);
       expect(error.detail).toContain(`${f.file}:pre_tool_use:1:0: modified`);
     }).pipe(Effect.provide(NodeServices.layer)),

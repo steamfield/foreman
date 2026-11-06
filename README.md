@@ -188,9 +188,9 @@ On `failed` or `lost`, read status, result, events and the worktree before conti
 | 3 | Invalid configuration |
 | 4 | Daemon unavailable |
 | 5 | Codex unavailable |
-| 6 | Permission denied, including unreadable input files |
+| 6 | Permission denied, including input files, run data, repo hooks, or daemon sockets |
 | 7 | Run or question not found |
-| 8 | Run state conflict |
+| 8 | Run conflict, including unreadable or unsupported run data |
 | 9 | Invalid worktree or missing dependencies |
 | 10 | Repo hook trust not confirmed |
 | 130 | Interrupted CLI invocation |

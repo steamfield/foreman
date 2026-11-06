@@ -12,6 +12,7 @@ import {
 import { checkProtocol } from "../codex/check";
 import { openConnection } from "../codex/client";
 import { appServerEnvironment } from "../codex/environment";
+import { supportedCodex } from "../codex/protocol";
 import type { AppConfig } from "../config";
 import { probeSsh } from "../core/preflight/ssh";
 import { CodexUnavailable } from "../errors";
@@ -51,6 +52,7 @@ export const makeAppServer = Effect.fn("supervisor.appServer")(function* (
   const lock = yield* Semaphore.make(1);
   const path = yield* Path.Path;
   const append = yield* makeLogAppender(path.join(config.home, "logs/app-server.log"));
+  let stderrWarning: string | undefined;
   const env = yield* Effect.cached(
     probeSsh(config.inheritedEnvironment).pipe(
       Effect.map((ssh) => appServerEnvironment(config.inheritedEnvironment, ssh)),
@@ -63,11 +65,12 @@ export const makeAppServer = Effect.fn("supervisor.appServer")(function* (
         Effect.timeout("5 seconds"),
         Effect.result,
       );
+      const action = `Install Codex ${supportedCodex.version} or correct CODEX_BIN, then run forman doctor to check compatibility.`;
       if (result._tag === "Failure")
-        return "Could not check the Codex protocol; compatibility is unverified.";
+        return `Could not check the Codex protocol for ${JSON.stringify(config.codexBin)}: ${result.failure instanceof CodexUnavailable ? result.failure.detail : "probe timed out after 5 seconds"}. ${action}`;
       return result.success.matches
         ? null
-        : "Codex protocol differs from the supported version; compatibility is unverified.";
+        : `Codex protocol differs from the supported version for ${JSON.stringify(config.codexBin)}; compatibility is unverified. ${action}`;
     }),
   );
   let current: AppServer | undefined;
@@ -116,6 +119,8 @@ export const makeAppServer = Effect.fn("supervisor.appServer")(function* (
   const get = lock.withPermits(1)(
     Effect.gen(function* () {
       if (current) return current;
+      stderrWarning = undefined;
+      const generation = Symbol();
       const scope = yield* Scope.fork(owner);
       const completed = yield* Deferred.make<void>();
       // Registered before the process resources, so this runs after their finalizers.
@@ -130,7 +135,32 @@ export const makeAppServer = Effect.fn("supervisor.appServer")(function* (
           const redacted = privateKeyBlock ? "[redacted private key]" : redactDiagnosticText(line);
           if (/-----END [^-]*PRIVATE KEY-----/.test(line)) privateKeyBlock = false;
           return append(`${redacted}\n`).pipe(
-            Effect.catch(() => Effect.logWarning("supervisor.appServer.stderr.unavailable")),
+            Effect.catch((error) =>
+              Effect.gen(function* () {
+                if (stderrWarning !== undefined) return;
+                const warning = `Codex stderr log ${path.join(config.home, "logs/app-server.log")} is unavailable (${error.reason.method}: ${error.reason._tag}). Check the path and directory permissions before relying on this log.`;
+                stderrWarning = warning;
+                yield* Effect.logWarning("supervisor.appServer.stderr.unavailable").pipe(
+                  Effect.annotateLogs({
+                    path: path.join(config.home, "logs/app-server.log"),
+                    reason: error.reason._tag,
+                    method: error.reason.method,
+                  }),
+                );
+                for (const run of registry.runs.values()) {
+                  if (run.serverGeneration === generation)
+                    yield* registry.enqueue(
+                      run,
+                      Effect.gen(function* () {
+                        if (registry.isCurrent(run) && !run.record.warnings.includes(warning))
+                          yield* registry.save(run, {
+                            warnings: [...run.record.warnings, warning],
+                          });
+                      }),
+                    );
+                }
+              }).pipe(Effect.provide(context)),
+            ),
           );
         },
       }).pipe(
@@ -142,14 +172,13 @@ export const makeAppServer = Effect.fn("supervisor.appServer")(function* (
           Effect.catchTag("SchemaError", () =>
             Effect.fail(
               new CodexUnavailable({
-                detail:
-                  "Codex reply did not match the supported protocol; run forman doctor and check the Codex version.",
+                detail: `Codex reply to ${method} did not match the supported protocol; run forman doctor and check the Codex version.`,
               }),
             ),
           ),
         );
       const connection = { ...opened, request: rpcRequest };
-      const server: AppServer = { connection, generation: Symbol(), scope, loaded: new Set() };
+      const server: AppServer = { connection, generation, scope, loaded: new Set() };
       cleanup.set(server, Deferred.await(completed));
       current = server;
       yield* connection.notifications.pipe(
@@ -176,6 +205,12 @@ export const makeAppServer = Effect.fn("supervisor.appServer")(function* (
         new CodexUnavailable({ detail: "app server retired after unconfirmed execution" }),
       ),
     ).pipe(Effect.andThen(close(server)), Effect.provide(context));
-  return { get, retire, protocolWarning, environment: env };
+  return {
+    get,
+    retire,
+    protocolWarning,
+    warnings: Effect.sync(() => (stderrWarning === undefined ? [] : [stderrWarning])),
+    environment: env,
+  };
 });
 export type AppServers = Effect.Success<ReturnType<typeof makeAppServer>>;

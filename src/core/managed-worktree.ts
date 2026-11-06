@@ -1,20 +1,31 @@
 import { Cause, Effect, Exit, FileSystem, Option, Path } from "effect";
-import { ChildProcess } from "effect/process";
+import { ChildProcess, CommandLine } from "effect/process";
 import { errorText, failure, RunConflict, WorktreeInvalid } from "../errors";
 import type { ManagedWorktree, OrphanWorktree, RunName, RunRecord } from "../schemas/daemon";
 import { mainCheckout } from "./main-checkout";
-import { commandResult } from "./process";
+import { commandResult, diagnosticTail } from "./process";
 import { readGitStatus } from "./runs/worktree";
 
 const gitResult = (cwd: string, args: string[]) =>
   commandResult(ChildProcess.make("git", args, { cwd, env: { LC_ALL: "C" }, extendEnv: true }));
 
+const notGitRepository = (cwd: string) =>
+  new WorktreeInvalid({
+    detail: `Not a Git repository: ${cwd}. Run the command from a Git checkout and retry.`,
+  });
+
+const gitError = (
+  cwd: string,
+  args: string[],
+  result: { code: number; stdout: string; stderr: string },
+) =>
+  new WorktreeInvalid({
+    detail: `${CommandLine.display(["git", ...args])} exited ${result.code} in ${cwd}:\n${diagnosticTail(result.stdout)}\n${diagnosticTail(result.stderr)}\nPlease inspect the Git output and resolve the reported issue before retrying.`,
+  });
+
 const git = Effect.fnUntraced(function* (cwd: string, args: string[]) {
   const result = yield* gitResult(cwd, args);
-  if (result.code !== 0)
-    return yield* new WorktreeInvalid({
-      detail: `git ${args.join(" ")} exited ${result.code} in ${cwd}: ${result.stderr.trim()}`,
-    });
+  if (result.code !== 0) return yield* gitError(cwd, args, result);
   return result.stdout.trimEnd();
 });
 
@@ -32,7 +43,7 @@ export interface CreatedWorktree {
 
 export const managedWorktreePath = Effect.fnUntraced(function* (cwd: string, name: RunName) {
   const main = yield* mainCheckout(cwd);
-  if (main === null) return yield* new WorktreeInvalid({ detail: `Not a git repository: ${cwd}` });
+  if (main === null) return yield* notGitRepository(cwd);
   return (yield* Path.Path).join(main, ".claude/worktrees", name);
 });
 
@@ -102,7 +113,7 @@ export const createWorktree = Effect.fn("worktrees.create")(function* (
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const main = yield* mainCheckout(cwd);
-  if (main === null) return yield* new WorktreeInvalid({ detail: `Not a git repository: ${cwd}` });
+  if (main === null) return yield* notGitRepository(cwd);
   const worktree = path.join(main, ".claude/worktrees", name);
   const branch = `forman/${name}`;
   if (yield* fs.exists(worktree))
@@ -118,9 +129,11 @@ export const createWorktree = Effect.fn("worktrees.create")(function* (
   // Check a child path because directory-only ignore patterns need the trailing slash.
   const ignored = yield* gitResult(main, ["check-ignore", "-q", ".claude/worktrees/.forman-probe"]);
   if (ignored.code !== 0 && ignored.code !== 1)
-    return yield* new WorktreeInvalid({
-      detail: `Could not inspect worktree ignore rules in ${main}`,
-    });
+    return yield* gitError(
+      main,
+      ["check-ignore", "-q", ".claude/worktrees/.forman-probe"],
+      ignored,
+    );
   if (ignored.code === 1) {
     const exclude = yield* git(main, ["rev-parse", "--git-path", "info/exclude"]);
     const file = path.resolve(main, exclude);
@@ -190,14 +203,14 @@ export const setupWorktree = Effect.fn("worktrees.setup")(function* (
       orElse: () =>
         Effect.fail(
           new WorktreeInvalid({
-            detail: `Setup timed out after ${timeoutMs} ms in ${worktree}: ${command}`,
+            detail: `Setup timed out after ${timeoutMs} ms in ${worktree}: ${command}. Check the command and increase --budget if needed; inspect any retained worktree or choose a new run name before retrying.`,
           }),
         ),
     }),
   );
   if (result.code !== 0)
     return yield* new WorktreeInvalid({
-      detail: `Setup exited ${result.code} in ${worktree}: ${command}\n${result.overflowNote ?? ""}\n${`${result.stdout}\n${result.stderr}`.trimEnd().split("\n").slice(-20).join("\n").slice(-4096)}`,
+      detail: `Setup exited ${result.code} in ${worktree}: ${command}\n${result.overflowNote ?? ""}\n${diagnosticTail(`${result.stdout}\n${result.stderr}`)}\nInspect the setup output and fix the command; inspect any retained worktree or choose a new run name before retrying.`,
     });
 });
 
@@ -206,15 +219,11 @@ const ancestor = Effect.fnUntraced(function* (cwd: string, tip: string, target: 
     const source = yield* gitResult(cwd, ["show-ref", "--verify", "--quiet", target]);
     if (source.code === 1) return false;
     if (source.code !== 0)
-      return yield* new WorktreeInvalid({
-        detail: `Could not inspect source branch ${target} in ${cwd}`,
-      });
+      return yield* gitError(cwd, ["show-ref", "--verify", "--quiet", target], source);
   }
   const result = yield* gitResult(cwd, ["merge-base", "--is-ancestor", tip, target]);
   if (result.code !== 0 && result.code !== 1)
-    return yield* new WorktreeInvalid({
-      detail: `Could not check whether ${tip} is merged into ${target} in ${cwd}`,
-    });
+    return yield* gitError(cwd, ["merge-base", "--is-ancestor", tip, target], result);
   return result.code === 0;
 });
 

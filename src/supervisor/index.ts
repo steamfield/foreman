@@ -16,7 +16,7 @@ import { CodexRequestTimeout, CodexRpcError } from "../codex/client";
 import { AppConfig } from "../config";
 import { orphanWorktrees } from "../core/managed-worktree";
 import * as Store from "../core/runs/store";
-import { CodexUnavailable, failure, RunConflict } from "../errors";
+import { CodexUnavailable, failure, PermissionDenied, RunConflict } from "../errors";
 import { defectTrace } from "../logging";
 import * as Codex from "../schemas/codex";
 import { activeStates, type DaemonRequestBody, type DaemonResult } from "../schemas/daemon";
@@ -29,24 +29,41 @@ import { makeRegistry, type Run } from "./registry";
 import { makeTurns } from "./turns";
 import { acceptedCursor, groupFor, wait } from "./wait";
 
-const requestFailure = (error: unknown) => {
+const requestFailure = (
+  error: unknown,
+  body: DaemonRequestBody,
+  home: string,
+  codexBin: string,
+) => {
+  const run =
+    "name" in body && body.name !== undefined
+      ? `run data for ${body.name} in ${home}/runs/${body.name}`
+      : `run data in ${home}/runs`;
+  if (error instanceof CodexUnavailable && "name" in body && body.name !== undefined) {
+    const detail = error.detail ?? "Codex is unavailable";
+    return new CodexUnavailable({
+      detail: `Run ${body.name}, Codex ${JSON.stringify(codexBin)}: ${detail}${detail.includes("forman doctor") ? "" : ". Run forman doctor and inspect the app-server log before retrying."}`,
+    });
+  }
   if (error instanceof CodexRequestTimeout)
     return new CodexUnavailable({
-      detail: `${error.method} timed out after ${error.timeoutMs} ms`,
+      detail: `${error.method} timed out after ${error.timeoutMs} ms${"name" in body && body.name !== undefined ? ` for run ${body.name}` : ""}. Run forman status and forman doctor before retrying.`,
     });
   if (error instanceof CodexRpcError)
     return new RunConflict({
-      detail:
-        "Codex refused the request; check the requested model and settings, then read status before retrying.",
+      detail: `Codex refused ${body._tag}${"name" in body && body.name !== undefined ? ` for run ${body.name}` : ""}; check the requested model and settings, then run forman status before retrying.`,
+    });
+  if (PlatformError.isPlatformError(error) && error.reason._tag === "PermissionDenied")
+    return new PermissionDenied({
+      detail: `Cannot access ${run}${"pathOrDescriptor" in error.reason && error.reason.pathOrDescriptor !== undefined ? `: ${error.reason.pathOrDescriptor}` : ""}. Check file and directory permissions, then retry.`,
     });
   if (PlatformError.isPlatformError(error))
     return new RunConflict({
-      detail: `Daemon answered, but cannot access run data or a required process (${error.reason._tag}); check the data directory, file permissions and installed commands.`,
+      detail: `Cannot access ${run}${"pathOrDescriptor" in error.reason && error.reason.pathOrDescriptor !== undefined ? `: ${error.reason.pathOrDescriptor}` : ""} (${error.reason._tag}); check the path, file permissions and required commands, then retry.`,
     });
   if (Schema.isSchemaError(error))
     return new RunConflict({
-      detail:
-        "Daemon answered, but cannot decode run data; inspect the run directory for damaged records before retrying.",
+      detail: `Cannot decode ${run}; the records may be damaged or from a newer version. Preserve and inspect the run directory, and use a compatible forman version before retrying.`,
     });
   return failure(Cause.fail(error));
 };
@@ -54,6 +71,8 @@ const requestFailure = (error: unknown) => {
 const rejectRequest = Effect.fnUntraced(function* (
   body: DaemonRequestBody,
   cause: Cause.Cause<unknown>,
+  home: string,
+  codexBin: string,
 ) {
   if (Cause.hasInterruptsOnly(cause)) return yield* Effect.interrupt;
   const error = cause.reasons.find(Cause.isFailReason)?.error;
@@ -72,7 +91,9 @@ const rejectRequest = Effect.fnUntraced(function* (
       ...(Cause.hasDies(cause) ? { trace: defectTrace(Cause.squash(cause)) } : {}),
     }),
   );
-  return yield* Effect.fail(Cause.hasDies(cause) ? failure(cause) : requestFailure(error));
+  return yield* Effect.fail(
+    Cause.hasDies(cause) ? failure(cause) : requestFailure(error, body, home, codexBin),
+  );
 });
 
 const buildSupervisor = Effect.fn("supervisor.build")(function* () {
@@ -210,7 +231,7 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
         const question = yield* questions.inspect(run, body.question);
         if (!question.open && question.pending[0])
           return yield* new RunConflict({
-            detail: `answer ${question.pending[0].id} first; the answer can carry this too`,
+            detail: `Cannot answer ${body.question} in run ${body.name} while ${question.pending[0].id} is pending. Use forman answer ${body.name} ${question.pending[0].id} "<answer>"; it can include this change.`,
           });
         if (question.open) {
           const accepted = yield* acceptedCursor(run);
@@ -282,7 +303,7 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
             const starting = [...registry.reservations.values()];
             if (active.length > 0 || starting.length > 0)
               return yield* new RunConflict({
-                detail: `Active runs: ${[...new Set([...active, ...starting])].join(", ")}`,
+                detail: `Active runs: ${[...new Set([...active, ...starting])].join(", ")}. Wait for them to finish or interrupt their active turns, then retry forman daemon stop.`,
               });
             stopping = true;
             return { _tag: "Ok" as const };
@@ -296,8 +317,7 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
           Effect.gen(function* () {
             if (run.queuedAnswers > 0)
               return yield* new RunConflict({
-                detail:
-                  "Answers are queued for this run; wait for their delivery before a followup.",
+                detail: `Answers are queued for run ${body.name}; wait for their delivery before a followup.`,
               });
             return yield* followupLocked(run, body);
           }),
@@ -311,12 +331,14 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
         return yield* registry.archive(body.name, body.keepWorktree);
       case "Status": {
         const group = body.name === undefined ? yield* groupFor(body.cwd) : "";
+        const skipped = body.name === undefined ? yield* registry.skipped(group) : [];
         const runs =
           body.name === undefined
             ? [...registry.runs.values()].filter((run) => run.record.group === group)
             : [yield* registry.lookup(body.name)];
         return {
           _tag: "Digests",
+          ...(skipped.length > 0 ? { skipped } : {}),
           ...((orphans) => (orphans.length > 0 ? { orphans } : {}))(
             yield* orphanWorktrees(
               runs[0]?.record.group || body.cwd,
@@ -370,7 +392,7 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
                 const question = yield* questions.inspect(run, body.question);
                 if (!question.open)
                   return yield* new RunConflict({
-                    detail: `${body.question} is ${question.state}; only a pending question can be deferred.`,
+                    detail: `${body.question} in run ${body.name} is ${question.state}; only a pending question can be deferred. Run forman status ${body.name} to see its questions.`,
                   });
                 yield* questions.resolve(
                   run,
@@ -394,7 +416,7 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
     handler: (body: DaemonRequestBody) =>
       Effect.gen(function* () {
         const work = dispatch(body).pipe(
-          Effect.catchCause((cause) => rejectRequest(body, cause)),
+          Effect.catchCause((cause) => rejectRequest(body, cause, config.home, config.codexBin)),
           Effect.provide(context),
         );
         if (
@@ -415,6 +437,7 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
 
 // daemon() calls busy only after it owns the socket lock. A losing launcher must not rebuild runs.
 export const makeSupervisor = Effect.fn("supervisor.make")(function* () {
+  const config = yield* AppConfig;
   const scope = yield* Effect.acquireRelease(Scope.make(), (scope) =>
     Scope.close(scope, Exit.void),
   );
@@ -434,7 +457,7 @@ export const makeSupervisor = Effect.fn("supervisor.make")(function* () {
     shutdown: Scope.close(scope, Exit.void),
     handler: (body: DaemonRequestBody) =>
       initialize.pipe(
-        Effect.catchCause((cause) => rejectRequest(body, cause)),
+        Effect.catchCause((cause) => rejectRequest(body, cause, config.home, config.codexBin)),
         Effect.flatMap((value) => value.handler(body)),
       ),
     busy: initialize.pipe(

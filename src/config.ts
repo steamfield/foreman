@@ -98,9 +98,13 @@ export class AppConfig extends Context.Service<
               error.reason._tag === "NotFound"
                 ? Effect.succeed("{}")
                 : Effect.fail(
-                    new PermissionDenied({
-                      detail: `Cannot read config file ${JSON.stringify(configFile)}. Check its permissions and retry.`,
-                    }),
+                    error.reason._tag === "PermissionDenied"
+                      ? new PermissionDenied({
+                          detail: `Cannot read config file ${JSON.stringify(configFile)}. Check its permissions and retry.`,
+                        })
+                      : new InvalidConfig({
+                          detail: `Cannot read config file ${JSON.stringify(configFile)} (${error.reason._tag}). Choose a readable JSON file for this path and retry.`,
+                        }),
                   ),
             ),
             Effect.flatMap((content) =>

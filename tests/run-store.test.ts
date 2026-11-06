@@ -544,3 +544,15 @@ it.effect(
       }).pipe(Effect.provideService(FileSystem.FileSystem, observed));
     }).pipe(Effect.provide(NodeServices.layer)),
 );
+it("redacts credentials while retaining known run paths", () => {
+  const path = "/private/tmp/a-long-repository-name/work/unit";
+  const failure = Store.redactFailure(
+    {
+      message: `Inspect ${path}; token=${path}PRIVATE_SUFFIX`,
+      codexErrorInfo: { token: "PRIVATE_INFO" },
+    },
+    [path],
+  );
+  expect(failure?.message).toBe(`Inspect ${path}; token=[redacted]`);
+  expect(JSON.stringify(failure)).not.toContain("PRIVATE_");
+});

@@ -413,7 +413,7 @@ describe("daemon lifecycle and protocol", () => {
     }).pipe(Effect.timeout("5 seconds"), Effect.provide(platform)),
   );
 
-  it.live("maps an undecodable daemon reply to a build disagreement", () =>
+  it.live("reports an undecodable daemon reply and recovery", () =>
     Effect.gen(function* () {
       const dataDir = yield* temp();
       const server = yield* NodeSocketServer.make({ path: `${dataDir}/forman.sock` });
@@ -433,7 +433,9 @@ describe("daemon lifecycle and protocol", () => {
       );
       const error = yield* Effect.flip(ping(dataDir));
       assert.instanceOf(error, DaemonUnavailable);
-      assert.include(detailFor(error), "daemon build differs");
+      assert.include(detailFor(error), "decode daemon reply to Ping");
+      assert.include(detailFor(error), "command was not sent");
+      assert.include(detailFor(error), "forman doctor");
     }).pipe(Effect.provide(platform)),
   );
 
@@ -963,7 +965,7 @@ describe("daemon lifecycle and protocol", () => {
     }).pipe(Effect.provide(platform)),
   );
 
-  it.live("maps an unknown response error tag to Defect without detail", () =>
+  it.live("reports an unknown response error tag without exposing its detail", () =>
     Effect.gen(function* () {
       const dataDir = yield* temp();
       const server = yield* NodeSocketServer.make({ path: `${dataDir}/forman.sock` });
@@ -984,8 +986,10 @@ describe("daemon lifecycle and protocol", () => {
         ),
       );
       const error = yield* Effect.flip(ping(dataDir));
-      assert.instanceOf(error, Defect);
-      assert.isUndefined(detailFor(error));
+      assert.instanceOf(error, DaemonUnavailable);
+      assert.include(detailFor(error), "unrecognized error to Ping");
+      assert.include(detailFor(error), "command was not sent");
+      assert.notInclude(detailFor(error), "private");
     }).pipe(Effect.provide(platform)),
   );
 
@@ -1002,14 +1006,22 @@ describe("daemon lifecycle and protocol", () => {
         results.find((response) => response.id === 0),
         {
           id: 0,
-          error: { tag: "DaemonUnavailable", detail: "Request not understood; daemon build test." },
+          error: {
+            tag: "DaemonUnavailable",
+            detail:
+              "Request not understood; daemon build test. The command was not accepted. Run forman doctor, finish any active runs, then run forman daemon stop and retry with the same forman build for all clients.",
+          },
         },
       );
       assert.deepStrictEqual(
         results.find((response) => response.id === 17),
         {
           id: 17,
-          error: { tag: "DaemonUnavailable", detail: "Request not understood; daemon build test." },
+          error: {
+            tag: "DaemonUnavailable",
+            detail:
+              "Request not understood; daemon build test. The command was not accepted. Run forman doctor, finish any active runs, then run forman daemon stop and retry with the same forman build for all clients.",
+          },
         },
       );
       assert.deepStrictEqual(

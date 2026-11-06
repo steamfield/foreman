@@ -32,6 +32,7 @@ export async function runCli(
     program?: Parameters<typeof main>[1];
     stdout?: Writer;
     stderr?: Writer;
+    executable?: readonly string[];
   } = {},
 ) {
   const home = options.home ?? (await tempDir());
@@ -66,7 +67,7 @@ export async function runCli(
       build: "test",
       platform: "test",
       compiled: false,
-      executable: [process.execPath],
+      executable: options.executable ?? [process.execPath],
       pid: process.pid,
     }),
   );

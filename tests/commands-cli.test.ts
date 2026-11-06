@@ -160,6 +160,9 @@ describe("command requests through the real parser and daemon", () => {
       expect(result.status).toBe(4);
       expect(result.stdout).toBe("");
       expect(result.stderr).toContain("Outdated daemon");
+      expect(result.stderr).toContain("unit-a");
+      expect(result.stderr).toContain("q2");
+      expect(result.stderr).toContain("not sent");
       expect(f.requests.some((body) => body._tag === "Defer" || body._tag === "Answer")).toBe(
         false,
       );
@@ -195,6 +198,8 @@ describe("command requests through the real parser and daemon", () => {
     expect(result.status).toBe(4);
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain("managed worktrees");
+    expect(result.stderr).toContain(name);
+    expect(result.stderr).toContain("not sent");
     expect(f.requests.every((request) => request._tag !== "Start")).toBe(true);
   });
   it("accepts a one-call managed start and keeps its path and branch with --wait", async () => {
@@ -387,9 +392,11 @@ describe("command requests through the real parser and daemon", () => {
       expect(JSON.parse(result.stderr.trimEnd().split("\n").at(-1) ?? "")).toMatchObject({
         error: {
           tag: "DaemonUnavailable",
+          message: "The daemon request could not be completed.",
           detail: expect.stringContaining("request was not sent"),
         },
       });
+      expect(result.stderr).toContain("unit-a");
       expect(f.requests.map((body) => body._tag)).toEqual(
         command === "answer" ? ["Shutdown", "Status", "Wait"] : ["Shutdown", "Wait"],
       );
@@ -677,11 +684,24 @@ describe("command requests through the real parser and daemon", () => {
     expect(result.status).toBe(2);
     expect(result.stdout).toBe("");
     const durationIndex = args.findIndex((arg) => arg === "--budget" || arg === "--timeout");
-    const detail =
-      durationIndex < 0
-        ? undefined
-        : `Invalid ${args[durationIndex]} value ${JSON.stringify(args[durationIndex + 1])}. Use a nonnegative whole number with ms, s, m or h, such as 5m, within the supported range.`;
-    expect(JSON.parse(result.stderr)).toEqual(errorEnvelope(new Usage({ detail })));
+    let detail: string | undefined;
+    if (durationIndex >= 0)
+      detail = `Invalid ${args[durationIndex]} value ${JSON.stringify(args[durationIndex + 1])}. Use a nonnegative whole number with ms, s, m or h, such as 5m, within the supported range.`;
+    else if (["steer", "followup", "answer"].includes(args[0] ?? "")) {
+      if (args.includes("--file"))
+        detail = "Provide either a message argument or --file, not both.";
+      else if (args.length === (args[0] === "answer" ? 3 : 2))
+        detail = "Provide a message argument or --file.";
+    }
+    const envelope = JSON.parse(result.stderr);
+    if (detail === undefined) {
+      let subject = args.at(-1);
+      if (args.length === 1) subject = "name";
+      else if (args[0] === "answer") subject = args[2];
+      expect(envelope.error.detail).toContain(subject);
+      detail = envelope.error.detail;
+    }
+    expect(envelope).toEqual(errorEnvelope(new Usage({ detail })));
     expect(f.requests).toEqual([]);
   });
 
@@ -722,9 +742,38 @@ describe("command requests through the real parser and daemon", () => {
         input === "worktree" ? "Input not found:" : "Input file not found:",
       );
       expect(human.stderr).not.toContain("Permission denied");
+      if (input === "worktree") expect(human.stderr).toContain("correct the path");
       expect(f.requests).toEqual([]);
     },
   );
+
+  it("names the inaccessible worktree path and the permission remedy", async () => {
+    const f = await fixture();
+    const parent = join(f.dataDir, "private-dir");
+    const worktree = join(parent, "worktree");
+    await mkdir(worktree, { recursive: true });
+    await chmod(parent, 0);
+    onTestFinished(() => chmod(parent, 0o700));
+    for (const json of [false, true]) {
+      const result = await f.run(
+        [
+          "start",
+          "unit-a",
+          "--worktree",
+          worktree,
+          "--contract",
+          "absent",
+          ...(json ? ["--json"] : []),
+        ],
+        { LOG_LEVEL: "none" },
+      );
+      expect(result.status).toBe(6);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain(worktree);
+      expect(result.stderr).toContain("permissions");
+    }
+    expect(f.requests).toEqual([]);
+  });
 
   it("maps an unreadable contract to PermissionDenied without a daemon request", async () => {
     const f = await fixture();
