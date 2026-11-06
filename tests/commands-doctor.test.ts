@@ -183,7 +183,11 @@ describe("bounded doctor diagnostics", () => {
                     buildMatches,
                   },
             );
-          } else if (mode === "absent") expect(result.stdout).toContain("Daemon: not running");
+          } else if (mode === "absent")
+            // Not running is normal before the first run command; say so, so it doesn't read as a fault.
+            expect(result.stdout).toContain(
+              "Daemon: not running (normal before first use: the first run command, such as `foreman status`, starts it)",
+            );
           else {
             expect(result.stdout).toContain(`(pid ${pid})`);
             expect(result.stdout).toContain(`Daemon build: ${build ?? "unknown"}`);
@@ -426,7 +430,15 @@ it.each(["private", "public", "unwritable", "file", "missing", "blocked-parent"]
             expect(result.stdout).toContain("chmod 700");
             expect(result.stdout).not.toContain("success(");
           }
-        } else expect(result.stdout).toContain(`Home permissions: ${state}`);
+          if (mode === "missing")
+            expect(decoded.homePermissions.detail).toBe(
+              `Normal before first use: the daemon creates it on the first run command, such as \`foreman status\`. Its parent ${root} is writable.`,
+            );
+        } else if (mode === "missing")
+          expect(result.stdout).toContain(
+            `Home permissions: not created yet (Normal before first use: the daemon creates it on the first run command, such as \`foreman status\`. Its parent ${root} is writable.)`,
+          );
+        else expect(result.stdout).toContain(`Home permissions: ${state}`);
       }
       if (mode === "private" || mode === "public" || mode === "unwritable")
         expect((await stat(home)).mode & 0o777).toBe(

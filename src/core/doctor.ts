@@ -82,7 +82,10 @@ const homePermissions = Effect.fnUntraced(
         `Home or parent needs read, write and search access: ${target}. Correct its permissions or choose another FOREMAN_HOME.`,
       );
     if (target !== home)
-      return result("missing", `Home does not exist; accessible parent: ${target}.`);
+      return result(
+        "missing",
+        `Normal before first use: the daemon creates it on the first run command, such as \`foreman status\`. Its parent ${target} is writable.`,
+      );
     const uid = yield* spawner
       .string(ChildProcess.make("/usr/bin/id", ["-u"]))
       .pipe(

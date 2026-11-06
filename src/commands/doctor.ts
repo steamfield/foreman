@@ -13,7 +13,7 @@ function daemonSummary(daemon: typeof DoctorResult.Type.daemon): string {
     case "unavailable":
       return `Daemon: unavailable (${daemon.detail})`;
     case "not running":
-      return "Daemon: not running";
+      return "Daemon: not running (normal before first use: the first run command, such as `foreman status`, starts it)";
   }
 }
 
@@ -33,7 +33,7 @@ export const doctorCommand = Command.make(
         `Config: ${result.configError ?? "ok"}`,
         `Config file: ${result.configFile}`,
         `Home: ${result.home}`,
-        `Home permissions: ${result.homePermissions.state}${result.homePermissions.detail === null ? "" : ` (${result.homePermissions.detail})`}`,
+        `Home permissions: ${result.homePermissions.state === "missing" ? "not created yet" : result.homePermissions.state}${result.homePermissions.detail === null ? "" : ` (${result.homePermissions.detail})`}`,
         `Codex: ${result.codexVersion ?? "unavailable"}`,
         `Protocol matches: ${result.protocolMatches ?? "unavailable"}`,
         `Logged in: ${result.loggedIn ?? "unavailable"}`,
