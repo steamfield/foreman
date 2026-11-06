@@ -69,15 +69,15 @@ Claude Code
 
 Any command that needs the daemon connects to `$FORMAN_HOME/forman.sock`. If the connection fails, it spawns `forman daemon` fully detached (new session, stdin, stdout and stderr on `/dev/null`) so the calling command never waits on the daemon's output, then polls the socket for up to 10 s. Several CLIs doing this at once is normal, since Claude starts units in parallel; the daemon's own startup sorts out which one wins:
 
-1. Take the lock by creating `$FORMAN_HOME/daemon.lock` with exclusive create and its owner PID. If it exists, try connecting to the socket: success means another daemon is running, so exit 0. On failure, a confirmed-dead recorded owner permits immediate takeover under the reclaim guard; a live owner is preserved. Legacy empty or torn owner records keep the 30-second age rule. This lets the command after SIGKILL restart within the CLI's 10-second startup limit.
+1. Hold an exclusive SQLite transaction on `$FORMAN_HOME/daemon.guard.sqlite`. SQLite supplies OS-managed advisory file locks through the built-in `node:sqlite` in both Bun and Node, without a native addon. A busy lock means another owner, so exit 0. The kernel releases ownership on process death, including SIGKILL; neither PID reuse nor a stale record delays takeover. Never remove this database, since contenders must lock the same inode. Use a local filesystem with advisory locking. `$FORMAN_HOME/daemon.lock` holds the PID for diagnostics only.
 2. Remove a leftover socket file (Effect's socket server doesn't), then listen.
-3. Remove the lock on exit.
+3. On every exit, close the listener, interrupt and join connection dispatch, then close the supervisor scope and join its workers, subprocesses, persistence and rollback finalizers. Remove the diagnostic PID record and any remaining socket path, then close the lock database. The socket server may unlink its pathname when the listener closes; ownership remains locked throughout supervisor cleanup.
 
 The CLI spawns the daemon with its own executable: `process.execPath daemon` for the compiled binary, and `bun src/bin.ts daemon` when running from source (`bun run dev`), chosen by whether `process.execPath` is the `bun` runtime.
 
-The daemon exits after 30 minutes with no run in `starting`, `running` or `waiting` and no open connection. It stops listening before it exits, and the CLI treats a connection reset during connect the same as no daemon. macOS limits socket paths to 104 bytes; the daemon refuses to start with a clear error if the path is longer.
+The daemon exits after 30 minutes with no run in `starting`, `running` or `waiting` and no open connection. It stops listening before it exits, and the CLI treats a connection reset during connect the same as no daemon. Ping and Shutdown replies each have a 10-second deadline. `daemon stop` also bounds connection acquisition to 10 seconds, then allows a separate 10 seconds for cleanup. Shutdown confirmation requires the socket and PID record to disappear and the advisory lock to become available. A Shutdown timeout is ambiguous: inspect daemon state before retrying. The client never replays a mutation after a timeout. macOS limits socket paths to 104 bytes; both caller and daemon validate the UTF-8 byte length before connecting or starting.
 
-The daemon logs to `$FORMAN_HOME/logs/daemon.jsonl` by default (it has no terminal), and the app server's stderr goes to `$FORMAN_HOME/logs/app-server.log`. Both are rotated like the CLI log.
+The daemon logs to `$FORMAN_HOME/logs/daemon.jsonl` by default (it has no terminal), and the app server's stderr goes to `$FORMAN_HOME/logs/app-server.log`. Both are rotated like the CLI log. Fatal daemon causes are recorded before the logger drains, with safe operation fields and message-free defect frames.
 
 ### The app server's environment
 

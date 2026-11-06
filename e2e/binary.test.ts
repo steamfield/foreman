@@ -167,7 +167,13 @@ test("keeps a complete run under ~/.forman with only HOME configured", async () 
       "5s",
     ]);
     expect(started).toContain("done        unit turn 1");
-    expect((await readdir(home)).sort()).toEqual(["daemon.lock", "forman.sock", "logs", "runs"]);
+    expect((await readdir(home)).sort()).toEqual([
+      "daemon.guard.sqlite",
+      "daemon.lock",
+      "forman.sock",
+      "logs",
+      "runs",
+    ]);
     const doctor = Schema.decodeUnknownSync(DoctorResult)(
       JSON.parse(await run(["doctor", "--json"])),
     );
@@ -176,8 +182,7 @@ test("keeps a complete run under ~/.forman with only HOME configured", async () 
     expect(await run(["status"])).toMatch(/^unit {2}idle/);
     expect((await run(["archive", "unit"])).trim()).toStartWith(join(home, "runs", ".archive"));
     await run(["daemon", "stop"]);
-    expect((await readdir(home)).sort()).toEqual(["daemon.reclaim", "logs", "runs"]);
-    expect(await readdir(join(home, "daemon.reclaim"))).toEqual([]);
+    expect((await readdir(home)).sort()).toEqual(["daemon.guard.sqlite", "logs", "runs"]);
   } finally {
     await run(["daemon", "stop"]);
     await rm(root, { recursive: true, force: true });

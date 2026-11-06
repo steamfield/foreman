@@ -1,9 +1,21 @@
-import { type Cause, Effect, Fiber, Logger, Path, Queue, References, Stream } from "effect";
+import {
+  Cause,
+  Effect,
+  Fiber,
+  Logger,
+  Path,
+  PlatformError,
+  Predicate,
+  Queue,
+  References,
+  Stream,
+} from "effect";
 import { Command } from "effect/cli";
 import { AppConfig } from "../config";
 import { shutdown } from "../daemon/client";
 import { daemon } from "../daemon/server";
-import { entry, makeLogAppender } from "../logging";
+import { DaemonUnavailable } from "../errors";
+import { defectTrace, entry, makeLogAppender } from "../logging";
 import { Host } from "../services/host";
 import { Invocation } from "../services/invocation";
 import { Output } from "../services/output";
@@ -68,6 +80,24 @@ export const withDaemonLogging = Effect.fn("daemon.logging")(function* <A, E, R>
         Effect.forkScoped,
       );
       return yield* program.pipe(
+        Effect.tapCause((cause) => {
+          if (Cause.hasInterruptsOnly(cause)) return Effect.void;
+          const error = cause.reasons.find(Cause.isFailReason)?.error;
+          const platform = PlatformError.isPlatformError(error) ? error.reason : undefined;
+          return Effect.logError("daemon.failed").pipe(
+            Effect.annotateLogs({
+              reason:
+                platform?._tag ??
+                (Predicate.hasProperty(error, "_tag") && typeof error._tag === "string"
+                  ? error._tag
+                  : "Defect"),
+              method: platform?.method ?? null,
+              path: platform && "pathOrDescriptor" in platform ? platform.pathOrDescriptor : null,
+              ...(error instanceof DaemonUnavailable ? { operationDetail: error.detail } : {}),
+              ...(Cause.hasDies(cause) ? { trace: defectTrace(Cause.squash(cause)) } : {}),
+            }),
+          );
+        }),
         Effect.ensuring(Queue.end(records).pipe(Effect.andThen(Fiber.join(writer)))),
       );
     }),

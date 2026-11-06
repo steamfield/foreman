@@ -6,6 +6,7 @@ import { withDaemonLogging } from "../src/commands/daemon";
 import { call } from "../src/daemon/client";
 import { daemon } from "../src/daemon/server";
 import { DaemonSockets } from "../src/daemon/sockets";
+import { DaemonUnavailable } from "../src/errors";
 import { main } from "../src/main";
 import { AppLayer } from "../src/runtime";
 import { RunName, RunRecord } from "../src/schemas/daemon";
@@ -35,6 +36,81 @@ const Record = Schema.Struct({
 });
 
 describe("daemon file logging", () => {
+  it.live("keeps the safe filesystem operation in a fatal daemon startup record", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.makeTempDirectoryScoped({ directory: "/tmp", prefix: "fm-fatal-" });
+      yield* fs.writeFileString(`${root}/home`, "file");
+      const log = `${root}/fatal.jsonl`;
+      const status = yield* main(["daemon"]).pipe(
+        Effect.provide(
+          AppLayer(
+            {
+              HOME: root,
+              FORMAN_HOME: `${root}/home`,
+              FORMAN_LOG_FILE: log,
+            },
+            false,
+            async () => {},
+            async () => {},
+          ),
+        ),
+      );
+      expect(status).toBe(4);
+      const records = (yield* fs.readFileString(log))
+        .trim()
+        .split("\n")
+        .map((line) =>
+          Schema.decodeUnknownSync(
+            Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)),
+          )(line),
+        );
+      const fatal = records.find((record) => record.msg === "daemon.failed");
+      expect(fatal).toMatchObject({ operationDetail: expect.stringContaining("makeDirectory") });
+      expect(fatal).toMatchObject({ operationDetail: expect.stringContaining(`${root}/home`) });
+    }).pipe(Effect.provide(platform)),
+  );
+  it.live.each(["platform", "defect", "socket"] as const)(
+    "drains a fatal %s cause safely before returning",
+    (kind) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const root = yield* fs.makeTempDirectoryScoped({ directory: "/tmp", prefix: "fm-fatal-" });
+        const app = AppLayer(
+          { HOME: root, FORMAN_HOME: root },
+          false,
+          async () => {},
+          async () => {},
+        );
+        let work: Effect.Effect<void, unknown> = Effect.fail(
+          new DaemonUnavailable({ detail: `Socket path exceeds 104 bytes: ${root}` }),
+        );
+        if (kind === "platform") work = fs.readFileString(`${root}/missing`).pipe(Effect.asVoid);
+        if (kind === "defect") work = Effect.die(new TypeError("PRIVATE_SECRET=do-not-record"));
+        yield* withDaemonLogging(work).pipe(Effect.exit, Effect.provide(app));
+        const text = yield* fs.readFileString(`${root}/logs/daemon.jsonl`);
+        const records = text
+          .trim()
+          .split("\n")
+          .map((line) =>
+            Schema.decodeUnknownSync(
+              Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)),
+            )(line),
+          );
+        expect(records).toHaveLength(1);
+        expect(records[0]).toMatchObject({
+          msg: "daemon.failed",
+          level: "error",
+          ...(kind === "platform"
+            ? { method: "readFile", path: `${root}/missing`, reason: "NotFound" }
+            : {}),
+          ...(kind === "defect" ? { trace: expect.stringContaining("TypeError\nat ") } : {}),
+          ...(kind === "socket" ? { operationDetail: expect.stringContaining("104 bytes") } : {}),
+        });
+        expect(text).not.toContain("PRIVATE_SECRET");
+        expect(text).not.toContain("do-not-record");
+      }).pipe(Effect.provide(platform)),
+  );
   it.live.each(["platform", "schema"])(
     "logs one %s request failure with request and run annotations",
     (kind) =>
