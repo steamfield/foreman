@@ -44,6 +44,11 @@ export type Sandbox = typeof Sandbox.Type;
 export const TurnKind = Schema.Literals(["start", "followup", "handoff"]);
 export type TurnKind = typeof TurnKind.Type;
 
+// Unversioned storage is version 1. Public socket shapes remain unchanged.
+export const StorageHeader = Schema.Struct({
+  formatVersion: Schema.optionalKey(Schema.Literal(1)),
+});
+
 export const QuestionKind = Schema.Literals(["question", "blocked"]);
 export type QuestionKind = typeof QuestionKind.Type;
 
@@ -101,6 +106,15 @@ export const RunRecord = Schema.Struct({
   warnings: Schema.Array(Schema.String),
   createdAt: Schema.DateTimeUtcFromString,
   updatedAt: Schema.DateTimeUtcFromString,
+  pendingStateEvent: Schema.optionalKey(
+    Schema.NullOr(
+      Schema.Struct({
+        id: Schema.String,
+        from: RunState,
+        to: RunState,
+      }),
+    ),
+  ),
 });
 export type RunRecord = typeof RunRecord.Type;
 
@@ -139,6 +153,7 @@ export const RunEventBody = Schema.TaggedUnion({
 export type RunEventBody = typeof RunEventBody.Type;
 
 export const RunEvent = Schema.Struct({
+  transitionId: Schema.optionalKey(Schema.String),
   seq: Schema.Int,
   at: Schema.DateTimeUtcFromString,
   event: RunEventBody,

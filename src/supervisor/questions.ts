@@ -21,25 +21,34 @@ export const makeQuestions = Effect.fn("supervisor.questions")(function* (regist
         detail: `No question ${id}; read status for pending questions.`,
       });
     const rpc = run.calls.get(id);
-    if (rpc === undefined || !Store.pendingQuestions(lines).some((q) => q.id === id))
+    if (
+      rpc === undefined ||
+      rpc.server.generation !== server.generation ||
+      !Store.pendingQuestions(lines).some((q) => q.id === id)
+    )
       return yield* new RunConflict({
         detail: `${id} is no longer pending; read status before answering.`,
       });
-    yield* server.connection.respond(rpc, {
-      success: true,
-      contentItems: [{ type: "inputText", text }],
-    });
-    yield* Store.appendQuestion(run.dir, {
-      _tag: "Resolved",
-      id,
-      resolution,
-      text,
-      at: DateTime.makeUnsafe(yield* Clock.currentTimeMillis),
-    });
-    run.calls.delete(id);
-    yield* registry.event(run, { _tag: "QuestionResolved", id, resolution });
-    if (run.calls.size === 0 && run.record.state === "waiting")
-      yield* registry.state(run, "running");
+    yield* Effect.gen(function* () {
+      yield* rpc.server.connection.respond(rpc.id, {
+        success: true,
+        contentItems: [{ type: "inputText", text }],
+      });
+      run.calls.delete(id);
+      yield* Store.appendQuestion(run.dir, {
+        _tag: "Resolved",
+        id,
+        resolution,
+        text,
+        at: DateTime.makeUnsafe(yield* Clock.currentTimeMillis),
+      });
+      yield* registry.event(run, { _tag: "QuestionResolved", id, resolution });
+      if (run.calls.size === 0 && run.record.state === "waiting")
+        yield* registry.state(run, "running");
+    }).pipe(
+      Effect.tapCause((cause) => registry.recover(run, cause)),
+      Effect.uninterruptible,
+    );
   });
   const receive = Effect.fnUntraced(function* (
     run: Run,
@@ -77,7 +86,7 @@ export const makeQuestions = Effect.fn("supervisor.questions")(function* (regist
       question: args.success.question,
       at: DateTime.makeUnsafe(yield* Clock.currentTimeMillis),
     });
-    run.calls.set(id, message.id);
+    run.calls.set(id, { id: message.id, server });
     yield* registry.event(run, {
       _tag: "QuestionAsked",
       id,

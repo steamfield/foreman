@@ -102,7 +102,7 @@ A run is one Codex thread working in one worktree. Claude names it (`[a-z0-9][a-
 | `failed` | The last turn failed, with the error recorded |
 | `interrupted` | The last turn was interrupted by Claude or by the time budget |
 | `lost` | The daemon or app server went away while a turn was in progress |
-| `unknown` | A `thread/start` or `turn/start` request timed out; the daemon reconciles from the next notification for that thread, or marks it `lost` after 5 minutes |
+| `unknown` | Execution is unconfirmed; reconcile from the next notification, or retire and join that app-server connection before marking it `lost` after 5 minutes |
 
 `starting`, `running`, `waiting` and `unknown` are active. The rest are inactive and accept a follow-up. Only active runs block anything: a new run may reuse the name or worktree of an inactive run, in which case the old run's directory is moved to `runs/.archive/<name>-<timestamp>/`. A follow-up on an inactive run whose worktree no longer exists is refused.
 
@@ -113,16 +113,28 @@ State lives in `$FORMAN_HOME/runs/<name>/`:
 | `run.json` | name, thread id, group, worktree, main checkout, base commit, optional `managedWorktree {branch, baseCommit, fromRef}` ownership, model, effort, sandbox, tier, budgets, state, timestamps, latest token totals |
 | `contract.md` | the contract as given at `start`, copied so the digest doesn't depend on Claude's scratchpad |
 | `events.jsonl` | normalized events, each with a sequence number and timestamp |
-| `codex.jsonl` | the raw app-server notifications and requests for this thread, for diagnosing a failed run |
+| `codex.jsonl` | bounded app-server notifications and requests, with secret-looking keys and values redacted |
 | `questions.jsonl` | one line per question asked, answered, auto-answered or cancelled |
 | `turns/<n>.md` | the final answer of turn `n`, when it produced one |
 | `last-message.md` | a copy of the newest `turns/<n>.md`, the name the codex-delegate skill already reads |
 | `start-mark` | an empty file touched at start, for finding files written during the run |
 | `baseline.txt` | `git status` at start, for the "new since start" comparison |
 
-`run.json` is written atomically (temp file and rename). The daemon rebuilds its registry from these files at startup.
+`run.json` is written atomically (temp file and rename). It and every JSONL record carry `formatVersion: 1`; unversioned records are read as version 1. An unsupported version fences the whole run against writes and appends, including startup recovery and archive cleanup. Opening a run validates existing history; the serialized writer tracks checked file identities and metadata and records its own appends, avoiding repeated scans of unchanged logs. Start refuses unreadable or unsupported names and preserves their directories. Automatic deletion applies only to unpublished staging directories that this operation created.
 
-Normalized events cover what the digest and `forman events` need: turn started and completed (status, error), command executions (command, exit code, status, the last 2 KB of output), file changes (paths), agent messages, hook runs that blocked something, questions, steers and follow-ups Claude sent, token totals, and MCP startup failures. Agent message deltas and reasoning items are dropped.
+State changes persist a pending transition identifier in `run.json` before appending the matching event. Startup streams the history to find that identifier, publishes missing transitions and clears completed ones without duplicating attention. Turn hand-offs and `last-message.md` also publish through temporary files and rename; readers ignore unfinished temporary files.
+
+New wait cursors use UTF-8 with an explicit `u1.` prefix. Unprefixed legacy cursors keep their Latin-1 decoding, including paths whose bytes could also be interpreted as UTF-8.
+
+Normalized events cover what the digest and `forman events` need: turn started and completed (status, error), command executions (command, exit code, status, redacted output tail), file changes (paths), agent messages, hook runs that blocked something, questions, steers and follow-ups Claude sent, token totals, and MCP startup failures. Command output tails retain their last 2 KB with best-effort redaction. Agent message deltas and reasoning items are dropped.
+
+Diagnostic persistence keeps useful stderr, raw wire bodies and command tails while redacting secret-looking keys using the logger’s secret/password/token/authorization/cookie/API-key/access-key rules. Text redaction also covers sk- and GitHub token shapes, Bearer values, secret KEY=value assignments, complete private-key blocks within a record and long base64/hex-like blobs. Stderr tracks private-key blocks across lines per connection and replaces every block line with a redaction marker. UUID-shaped identifiers remain readable. Normalized file-change paths remain exact because scope reporting uses them as identities. Redaction is best effort: unknown credential formats can escape it, and ordinary opaque strings can be redacted. Review captures before sharing. The daemon keeps all of this under its private 0700 home, and stderr and raw capture files are created with mode 0600. Existing captures are not rewritten. There is no unrestricted wire-capture mode.
+
+Contracts, agent messages, questions, answers and hand-offs remain private run data, even when their diagnostic text has been redacted. Preserve requested hand-offs before cleanup.
+
+`codex.jsonl`, daemon/app-server logs and the configured CLI file sink rotate at 5 MB, keeping one `.1` file; an oversized single diagnostic record becomes an omission marker. Event pages stream committed records and stop after the requested page. Normalized events and questions retain their complete history, so archives have no automatic age or aggregate-size deletion policy.
+
+To reclaim archives, inspect `runs/.archive/<name>-<timestamp>/`, copy any requested hand-offs (`turns/` and `last-message.md`) and needed contracts or diagnostics to the chosen retention location, then remove only the reviewed archive directory. Retain archives until their work is reviewed and those artifacts are saved; clean them manually after releases or when checking disk usage. Never include a worktree, branch, current run or unreadable run directory in archive cleanup. Unpublished `.tmp-*` directories may be inspected and removed while the daemon is stopped; they are never grounds to delete a published name.
 
 ## Commands
 
@@ -307,14 +319,16 @@ The hand-off of a turn is its `agentMessage` with `phase: "final_answer"`, or it
 | --- | --- |
 | Setup, preflight, hook trust or thread startup refuses a new worktree | Roll back only the worktree and branch created in that call. Setup errors carry its exit code and output tail in `WorktreeInvalid.detail`; passed worktrees remain untouched. Retain a worktree after an unconfirmed turn start even if still clean, or whenever a failed turn start leaves work; preserve the recovery state and report its path and branch in the refusal and digest warning |
 | Archive finds work | Refuse with `RunConflict`, naming path, branch and remaining files or commits; `--keep-worktree` archives while retaining them, then orphan diagnostics keep them visible |
-| App server exits | Active runs become `lost`, pending questions `cancelled`; the next request that needs it restarts the app server; a follow-up resumes the thread |
+| App server exits | Log its safe termination reason once with affected run identities, persist that reason on each active run as it becomes `lost`, and cancel pending questions; the next request that needs it restarts the app server; a follow-up resumes the thread |
 | Daemon exits | Same, found from `run.json` at the next daemon start |
-| One run's background work fails | Log once with the run name and reason. An unconfirmed active turn stays `unknown` with its turn ID and worktree reservation; other failures become `failed` and wake waiters. Each run consumes its own ordered message queue, so its lock and worktree scans cannot delay other runs. Acquire run locks before the global registration lock; release registration before thread and turn RPCs. Only infrastructure failures reach the daemon's fatal worker boundary |
+| One run's background work fails | Log once with run identity, error tag and safe platform operation/path/reason or message-free defect frames; include the same fields for a recovery failure. An unconfirmed active turn stays `unknown` with its turn ID and worktree reservation; other failures become `failed` and wake waiters. Each run consumes its own ordered message queue, so its lock and worktree scans cannot delay other runs. Acquire run locks before the global registration lock; release registration before thread and turn RPCs. Only infrastructure failures reach the daemon's fatal worker boundary |
 | Worktree removed during a turn | Completion keeps the last available worktree fields. Digests warn that the worktree was removed; the daemon and other runs continue |
 | Crash during a JSONL append | Ignore the final line without a newline and truncate it before the next append. Corruption in complete records still fails that run's recovery; log its name and skip it while recovering the others |
-| Crash during run creation | Build under `runs/.tmp-<name>-<random>` and publish by rename after writing `run.json`. Registry discovery ignores staging directories; Start removes an unregistered directory occupying the requested name |
+| Crash during run creation | Build under `runs/.tmp-<name>-<random>` and publish by rename after writing `run.json`. Registry discovery ignores staging directories; Start refuses an unreadable published name and preserves all its files |
 | Request times out | `thread/start` waits up to 180 s (MCP servers can take 120 s to start); other requests 30 s. A timed-out `thread/start` or `turn/start` puts the run in `unknown`, and a retry is refused while it is |
-| Recording `unknown` fails | Keep the reservation in memory and the five-minute recovery deadline armed. Once storage is writable, the deadline can still mark the run `lost` |
+| Recording `unknown` fails | Keep the reservation and any acknowledged turn ID in memory and the five-minute recovery deadline armed. Retire and join its app server before releasing ownership, even when storage is damaged; every retirement caller waits for the shared process-resource cleanup completion, including an already-closing scope. The same connection's other active runs become lost too |
+| CLI disconnects during Answer | An accepted Answer has a daemon-owned lifetime through delivery and resolution persistence. Pending calls carry their originating connection generation and cannot be answered on a replacement connection |
+| Crash between state and event publication | Replay the pending transition by its identifier at startup, including inactive `lost` and `failed` records, so a continuing wait receives the outcome |
 | A message fails to decode | Logged and recorded. `turn/started` and `turn/completed` fall back to a minimal decode of `threadId`, `turn.id` and `turn.status`, so a schema change can't leave a run `running` forever |
 | Unknown notification or item type | Recorded as a generic event |
 

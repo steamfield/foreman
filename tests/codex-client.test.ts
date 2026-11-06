@@ -128,6 +128,18 @@ describe("app-server environment", () => {
 });
 
 describe("real Node app-server client", () => {
+  it.live(
+    "preserves a connection exit reason after its streams drain without pending requests",
+    () =>
+      Effect.gen(function* () {
+        const client = yield* setup({ onStart: [{ exit: 17 }], rules: [] });
+        expect(yield* client.notifications.pipe(Stream.runCollect)).toEqual([]);
+        expect(Cause.squash(yield* client.termination)).toMatchObject({
+          _tag: "CodexUnavailable",
+          detail: "app server exited with code 17",
+        });
+      }).pipe(Effect.provide(NodeServices.layer)),
+  );
   it.live("fails pending requests on exit even when the stderr sink is blocked", () =>
     Effect.gen(function* () {
       const blocked = yield* Deferred.make<void>();
