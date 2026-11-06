@@ -102,7 +102,7 @@ beforeAll(async () => {
   env = {
     HOME: root,
     PATH: process.env.PATH,
-    FORMAN_HOME: join(root, ".forman"),
+    FORMAN_HOME: join(root, "state"),
     CODEX_HOME: join(root, "codex"),
     CODEX_BIN: join(root, "missing-codex"),
     LOG_LEVEL: "none",
@@ -133,6 +133,10 @@ beforeAll(async () => {
   await mkdir(runtimeBin);
   await symlink(process.execPath, join(runtimeBin, "node"));
   await symlink(npmCli.stdout.trim(), join(runtimeBin, "npm"));
+  // Group discovery needs Git; keep Bun absent to exercise the packed native install.
+  const git = await run("which", ["git"]);
+  expect(git.status, git.stderr).toBe(0);
+  await symlink(git.stdout.trim(), join(runtimeBin, "git"));
   env.PATH = runtimeBin;
   await expect(exec("bun", ["--version"], { env })).rejects.toMatchObject({ code: "ENOENT" });
   const installation = await run("npm", ["install", "-g", "--prefix", prefix, ...tarballs]);

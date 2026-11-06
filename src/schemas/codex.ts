@@ -220,6 +220,16 @@ export const ItemNotification = Schema.Struct({
   item: ThreadItem,
 });
 
+// Hook enforcement fails closed on the item type alone, whatever else Codex changes.
+export const ItemKind = Schema.Struct({ item: Schema.Struct({ type: Schema.String }) });
+
+// Recovering an unconfirmed turn start needs the turn's identity.
+export const ItemNotificationMinimal = Schema.Struct({
+  threadId: CodexThreadId,
+  turnId: CodexTurnId,
+  item: Schema.Struct({ type: Schema.String, id: Schema.String }),
+});
+
 export const TokenUsageBreakdown = Schema.Struct({
   totalTokens: Schema.Number,
   inputTokens: Schema.Number,

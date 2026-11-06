@@ -10,19 +10,25 @@ import { Invocation } from "../services/invocation";
 import { Output } from "../services/output";
 
 const name = Argument.String("name").pipe(Argument.withSchema(RunName));
-const optionalText = (flag: string) =>
-  Flag.String(flag).pipe(Flag.optional, Flag.map(Option.getOrUndefined));
-const duration = (flag: string) =>
+const optionalText = (flag: string, description: string) =>
   Flag.String(flag).pipe(
+    Flag.withDescription(description),
+    Flag.optional,
+    Flag.map(Option.getOrUndefined),
+  );
+const duration = (flag: string, description: string) =>
+  Flag.String(flag).pipe(
+    Flag.withDescription(description),
     Flag.mapEffect((value) =>
       durationMs(value).pipe(
         Effect.mapError(() => new CliError.ValidationError({ message: "Invalid duration." })),
       ),
     ),
   );
-const optionalDuration = (flag: string) =>
-  duration(flag).pipe(Flag.optional, Flag.map(Option.getOrUndefined));
+const optionalDuration = (flag: string, description: string) =>
+  duration(flag, description).pipe(Flag.optional, Flag.map(Option.getOrUndefined));
 const timeout = Flag.String("timeout").pipe(
+  Flag.withDescription("Maximum wait duration, such as 30s or 5m (default: 60m)."),
   Flag.mapEffect((value) =>
     durationMs(value).pipe(
       Effect.as(value),
@@ -33,12 +39,15 @@ const timeout = Flag.String("timeout").pipe(
   Flag.map(Option.getOrUndefined),
 );
 const waiting = {
-  wait: Flag.Boolean("wait").pipe(Flag.withDefault(false)),
+  wait: Flag.Boolean("wait").pipe(
+    Flag.withDefault(false),
+    Flag.withDescription("Wait for attention from this run after accepting the command."),
+  ),
   timeout,
 };
 const message = {
   message: Argument.String("message").pipe(Argument.optional, Argument.map(Option.getOrUndefined)),
-  file: optionalText("file"),
+  file: optionalText("file", "Read the message from a file instead of an argument."),
 };
 
 const print = Effect.fnUntraced(function* <E, R>(
@@ -46,6 +55,7 @@ const print = Effect.fnUntraced(function* <E, R>(
   program: Effect.Effect<DaemonResult, E, R>,
   compact = false,
   eventsName?: string,
+  verbose = false,
 ) {
   yield* (yield* Invocation).named(command);
   const result = yield* program;
@@ -56,29 +66,48 @@ const print = Effect.fnUntraced(function* <E, R>(
     result._tag === "Started" || result._tag === "Events"
       ? (yield* formanExecutable()).command
       : "forman";
-  yield* (yield* Output).result(encoded, renderResult(result, compact, executable, eventsName));
+  yield* (yield* Output).result(
+    encoded,
+    renderResult(result, compact, executable, eventsName, verbose),
+  );
 });
 
 export const startCommand = Command.make(
   "start",
   {
     name,
-    worktree: optionalText("worktree"),
-    newWorktree: Flag.Boolean("new-worktree").pipe(Flag.withDefault(false)),
-    from: optionalText("from"),
-    setup: optionalText("setup"),
-    contract: Flag.String("contract"),
-    write: Flag.Boolean("write").pipe(Flag.withDefault(false)),
-    model: optionalText("model"),
-    effort: optionalText("effort"),
-    tier: optionalText("tier"),
-    budgetMs: optionalDuration("budget").pipe(
-      Flag.withDescription(
-        "Turn budget; also bounds setup when supplied (setup defaults to 10 minutes).",
-      ),
+    worktree: optionalText("worktree", "Use an existing prepared worktree."),
+    newWorktree: Flag.Boolean("new-worktree").pipe(
+      Flag.withDefault(false),
+      Flag.withDescription("Create a managed worktree for this run."),
     ),
-    questionTimeoutMs: optionalDuration("question-timeout"),
-    skipDepsCheck: Flag.Boolean("skip-deps-check").pipe(Flag.withDefault(false)),
+    from: optionalText("from", "Base the new worktree on this Git ref (default: HEAD)."),
+    setup: optionalText(
+      "setup",
+      "Run this shell command in the new worktree before starting Codex.",
+    ),
+    contract: Flag.String("contract").pipe(
+      Flag.withDescription("Read the task contract from this file."),
+    ),
+    write: Flag.Boolean("write").pipe(
+      Flag.withDefault(false),
+      Flag.withDescription("Allow Codex to write files and run commands with full access."),
+    ),
+    model: optionalText("model", "Use this Codex model instead of the configured default."),
+    effort: optionalText("effort", "Set Codex reasoning effort (default: high)."),
+    tier: optionalText("tier", "Set the Codex service tier (default: priority)."),
+    budgetMs: optionalDuration(
+      "budget",
+      "Turn budget; also bounds setup when supplied (setup defaults to 10 minutes).",
+    ),
+    questionTimeoutMs: optionalDuration(
+      "question-timeout",
+      "Time allowed to answer each question (default: 15m).",
+    ),
+    skipDepsCheck: Flag.Boolean("skip-deps-check").pipe(
+      Flag.withDefault(false),
+      Flag.withDescription("Skip the prepared worktree dependency check."),
+    ),
     ...waiting,
   },
   (input) => print("start", programs.start(input)),
@@ -95,17 +124,25 @@ export const eventsCommand = Command.make(
   {
     name,
     after: Flag.Int("after").pipe(
+      Flag.withDescription("Read events after this sequence number."),
       Flag.withSchema(EventSequence),
       Flag.optional,
       Flag.map(Option.getOrUndefined),
     ),
     limit: Flag.Int("limit").pipe(
+      Flag.withDescription("Maximum number of stored events to read (default: 100)."),
       Flag.withSchema(EventLimit),
       Flag.optional,
       Flag.map(Option.getOrUndefined),
     ),
+    verbose: Flag.Boolean("verbose").pipe(
+      Flag.withDefault(false),
+      Flag.withDescription(
+        "Include protocol chatter and token usage in text output; JSON always includes everything.",
+      ),
+    ),
   },
-  (input) => print("events", programs.events(input), false, input.name),
+  (input) => print("events", programs.events(input), false, input.name, input.verbose),
 ).pipe(Command.withDescription("Read normalized run events after a sequence number."));
 
 export const steerCommand = Command.make("steer", { name, ...message, ...waiting }, (input) =>
@@ -118,8 +155,8 @@ export const followupCommand = Command.make(
     name,
     ...message,
     ...waiting,
-    budgetMs: optionalDuration("budget"),
-    effort: optionalText("effort"),
+    budgetMs: optionalDuration("budget", "Time budget for the follow-up turn (default: 60m)."),
+    effort: optionalText("effort", "Set reasoning effort for this and later turns."),
   },
   (input) => print("followup", programs.followup(input)),
 ).pipe(Command.withDescription("Start a follow-up turn with a message or file."));
@@ -146,7 +183,13 @@ export const resultCommand = Command.make("result", { name }, ({ name }) =>
 
 export const archiveCommand = Command.make(
   "archive",
-  { name, keepWorktree: Flag.Boolean("keep-worktree").pipe(Flag.withDefault(false)) },
+  {
+    name,
+    keepWorktree: Flag.Boolean("keep-worktree").pipe(
+      Flag.withDefault(false),
+      Flag.withDescription("Retain the managed worktree and branch when archiving the run."),
+    ),
+  },
   ({ name, keepWorktree }) => print("archive", programs.archive(name, keepWorktree)),
 ).pipe(Command.withDescription("Archive an inactive run and print its archive path."));
 
@@ -154,8 +197,12 @@ export const waitCommand = Command.make(
   "wait",
   {
     names: name.pipe(Argument.variadic()),
-    all: Flag.Boolean("all").pipe(Flag.withDefault(false)),
+    all: Flag.Boolean("all").pipe(
+      Flag.withDefault(false),
+      Flag.withDescription("Wait on all runs in the current repository group."),
+    ),
     after: Flag.String("after").pipe(
+      Flag.withDescription("Continue from an opaque cursor printed by a previous command."),
       Flag.withSchema(Cursor),
       Flag.optional,
       Flag.map(Option.getOrUndefined),

@@ -1,11 +1,10 @@
-import { Effect, FileSystem, Option, Path, Predicate, Schema } from "effect";
+import { Effect, FileSystem, Option, Path, Schema } from "effect";
 import { ChildProcess, ChildProcessSpawner, CommandLine } from "effect/process";
 import { checkProtocol, codexVersion } from "../codex/check";
 import { openConnection } from "../codex/client";
 import { appServerEnvironment } from "../codex/environment";
 import { AppConfig } from "../config";
-import { call } from "../daemon/client";
-import { DaemonSockets } from "../daemon/sockets";
+import { probe } from "../daemon/client";
 import { errorTable, WorktreeInvalid } from "../errors";
 import type { DoctorResult, RepoHookTrust } from "../schemas/doctor";
 import { Host } from "../services/host";
@@ -20,27 +19,8 @@ const probeTimeout = "5 seconds";
 const daemonState = Effect.fnUntraced(
   function* (dataDir: string) {
     const host = yield* Host;
-    const path = yield* Path.Path;
-    const opened = yield* Effect.scoped(
-      Effect.gen(function* () {
-        const socket = yield* (yield* DaemonSockets).connect(path.join(dataDir, "forman.sock"));
-        yield* socket.reader;
-      }),
-    ).pipe(Effect.result);
-    if (opened._tag === "Failure") {
-      const reason = opened.failure.reason;
-      if (
-        reason._tag === "SocketOpenError" &&
-        Predicate.hasProperty(reason.cause, "code") &&
-        (reason.cause.code === "ENOENT" || reason.cause.code === "ECONNREFUSED")
-      )
-        return { state: "not running" as const };
-      return {
-        state: "unavailable" as const,
-        detail: "Could not read daemon socket; check home and socket permissions.",
-      };
-    }
-    const result = yield* call({ _tag: "Ping" }, { dataDir, connectOnly: true });
+    const result = yield* probe(dataDir);
+    if (result === null) return { state: "not running" as const };
     return result._tag === "Pong"
       ? {
           state: "running" as const,

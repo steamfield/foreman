@@ -31,6 +31,7 @@ export class AppConfig extends Context.Service<
     logging: Effect.Effect<LogSettings>;
     configFile: string;
     home: string;
+    defaultHome: string;
     codexBin: string;
     codexHome: string;
     launcher: string | null;
@@ -59,7 +60,8 @@ export class AppConfig extends Context.Service<
         const text = (key: string, fallback = "") =>
           read(Config.String(key).pipe(Config.withDefault(fallback))).pipe(Effect.orDie);
         const userHome = yield* text("HOME", ".");
-        const home = absolute(yield* text("FORMAN_HOME", path.join(userHome, ".forman")));
+        const defaultHome = absolute(path.join(userHome, ".forman"));
+        const home = absolute(yield* text("FORMAN_HOME", defaultHome));
         const configFile = path.join(home, "config.json");
         const environmentCodexBin = yield* text("CODEX_BIN");
         const codexHome = absolute(yield* text("CODEX_HOME", path.join(userHome, ".codex")));
@@ -132,6 +134,7 @@ export class AppConfig extends Context.Service<
           logging,
           configFile,
           home,
+          defaultHome,
           codexBin,
           codexHome,
           launcher,

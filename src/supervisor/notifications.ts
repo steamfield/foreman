@@ -84,6 +84,32 @@ export const handleNotification = Effect.fn("supervisor.notification")(function*
   message: typeof Codex.RpcNotification.Type,
 ) {
   yield* Store.appendCodexMessage(run.dir, message);
+  if (message.method === Codex.Method.itemStarted) {
+    const envelope = yield* Schema.decodeUnknownEffect(Codex.ItemNotificationMinimal)(
+      message.params,
+    ).pipe(Effect.result);
+    if (envelope._tag === "Success" && run.record.state === "unknown" && !run.record.activeTurnId) {
+      yield* registry.save(run, { activeTurnId: envelope.success.turnId });
+      yield* registry.state(run, "running");
+      yield* turns.armBudget(run, server);
+    }
+    const kind = yield* Schema.decodeUnknownEffect(Codex.ItemKind)(message.params).pipe(
+      Effect.result,
+    );
+    if (
+      kind._tag === "Success" &&
+      kind.success.item.type === "commandExecution" &&
+      run.hooksRequired &&
+      !run.projectHook &&
+      activeStates.has(run.record.state)
+    ) {
+      yield* turns.interrupt(run, server, "repo-hooks");
+      yield* registry.save(run, {
+        failure: { message: "repo hooks did not run", codexErrorInfo: null },
+      });
+      if (run.record.state === "waiting") yield* registry.state(run, "running");
+    }
+  }
   const notification = yield* decode(message).pipe(
     Effect.catchTag("SchemaError", () =>
       Effect.logWarning("supervisor.notification.invalid").pipe(
@@ -167,18 +193,6 @@ export const handleNotification = Effect.fn("supervisor.notification")(function*
       break;
     }
     case Codex.Method.itemStarted:
-      if (
-        notification.params.item.type === "commandExecution" &&
-        run.hooksRequired &&
-        !run.projectHook &&
-        activeStates.has(run.record.state)
-      ) {
-        yield* turns.interrupt(run, server, "repo-hooks");
-        yield* registry.save(run, {
-          failure: { message: "repo hooks did not run", codexErrorInfo: null },
-        });
-        if (run.record.state === "waiting") yield* registry.state(run, "running");
-      }
       break;
     case Codex.Method.itemCompleted:
       run.items.push(notification.params.item);

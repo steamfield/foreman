@@ -7,6 +7,28 @@ import { DoctorResult } from "../src/schemas/doctor";
 import { ndjson, runCli, tempDir } from "./helpers/cli";
 
 describe("stdout and error contracts", () => {
+  it.each([
+    [],
+    ["start"],
+    ["status"],
+    ["events"],
+    ["steer"],
+    ["followup"],
+    ["interrupt"],
+    ["answer"],
+    ["result"],
+    ["archive"],
+    ["wait"],
+    ["doctor"],
+    ["daemon"],
+    ["daemon", "stop"],
+  ])("describes every flag in help for %j", async (...command) => {
+    const result = await runCli([...command, "--help"]);
+    expect(result).toMatchObject({ status: 0, stderr: "" });
+    const flags = result.stdout.split("\n").filter((line) => /^ {2}--/.test(line));
+    expect(flags.length).toBeGreaterThan(0);
+    for (const line of flags) expect(line.trim().split(/\s{2,}/).length, line).toBe(2);
+  });
   it("lists the run commands and the daemon command", async () => {
     const result = await runCli(["--help"]);
     expect(result.status).toBe(0);

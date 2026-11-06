@@ -121,6 +121,21 @@ const connect = Effect.fn("daemon.connect")(
 
 const connectionClosed = "Daemon connection closed during the request.";
 
+// Diagnostics never launch or replace a daemon; only a missing/refused socket is absence.
+export const probe = Effect.fn("daemon.probe")(function* (dataDir: string) {
+  const path = yield* Path.Path;
+  const socketPath = path.join(dataDir, "forman.sock");
+  yield* validateSocketPath(socketPath);
+  const opened = yield* open(socketPath).pipe(Effect.result);
+  if (opened._tag === "Failure") {
+    if (absent(opened.failure)) return null;
+    return yield* new DaemonUnavailable({
+      detail: "Could not read daemon socket; check home and socket permissions.",
+    });
+  }
+  return yield* exchange({ _tag: "Ping" }, opened.success.socket, opened.success.reader);
+}, Effect.scoped);
+
 const exchange = Effect.fn("daemon.exchange")(
   function* (body: DaemonRequestBody, socket: Socket.Socket, reader: Socket.Reader) {
     const writer = yield* socket.writer;

@@ -134,6 +134,19 @@ function machine(stdout: string) {
 }
 
 describe("command requests through the real parser and daemon", () => {
+  it.each([false, true])("omits the home prefix for the default home, json=%s", async (json) => {
+    const f = await fixture({ _tag: "Accepted", cursor });
+    await symlink(f.dataDir, join(f.dataDir, ".forman"));
+    const result = await f.run(["interrupt", name, ...(json ? ["--json"] : [])], {
+      FORMAN_HOME: join(f.dataDir, ".forman"),
+    });
+    expect(result).toMatchObject({ status: 0, stderr: "" });
+    if (json)
+      expect(machine(result.stdout)).toMatchObject({
+        next: "forman wait unit-a --after opaque:42",
+      });
+    else expect(result.stdout).toBe("ok\nnext: forman wait unit-a --after opaque:42\n");
+  });
   it("review: refuses a managed start before sending it to an outdated busy daemon", async () => {
     const f = await fixture({ _tag: "Started", name, runDir: "/unsafe" }, "old");
     const contract = join(f.dataDir, "contract.md");
@@ -216,7 +229,7 @@ describe("command requests through the real parser and daemon", () => {
     expect(f.requests).toEqual([]);
   });
   it.each(["answer", "steer", "followup", "interrupt"])(
-    "prints and waits on the combined continuation for %s",
+    "prints and waits on the named continuation for %s even with an older group acknowledgement",
     async (command) => {
       const f = await fixture((body) =>
         body._tag === "Wait"
@@ -225,7 +238,7 @@ describe("command requests through the real parser and daemon", () => {
               outcome: "timeout",
               runs: [],
               cursor,
-              next: "forman wait --all --after opaque:42",
+              next: "forman wait unit-a --after opaque:42",
             }
           : { _tag: "Accepted", all: true, cursor },
       );
@@ -239,18 +252,18 @@ describe("command requests through the real parser and daemon", () => {
       const human = await f.run(args);
       expect(human).toMatchObject({
         status: 0,
-        stdout: `ok\nnext: FORMAN_HOME=${f.dataDir} forman wait --all --after opaque:42\n`,
+        stdout: `ok\nnext: FORMAN_HOME=${f.dataDir} forman wait unit-a --after opaque:42\n`,
         stderr: "",
       });
       const json = await f.run([...args, "--json"]);
       expect(machine(json.stdout)).toMatchObject({
-        next: `FORMAN_HOME=${f.dataDir} forman wait --all --after opaque:42`,
+        next: `FORMAN_HOME=${f.dataDir} forman wait unit-a --after opaque:42`,
       });
       expect((await f.run([...args, "--wait", "--timeout", "0ms"])).status).toBe(0);
       expect(f.requests.at(-1)).toMatchObject({
         _tag: "Wait",
-        all: true,
-        names: [],
+        all: false,
+        names: [name],
         after: cursor,
       });
     },

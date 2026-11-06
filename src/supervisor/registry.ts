@@ -144,13 +144,14 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
   });
   const event = (run: Run, body: RunEventBody) =>
     Store.appendEvent(run.dir, body).pipe(Effect.tap(() => wake));
+  // Finish the journal before interruption can release the run lock or expose the state.
   const state = Effect.fnUntraced(function* (run: Run, to: RunState) {
     yield* publishState(run);
     const from = run.record.state;
     if (from === to) return;
     yield* save(run, { state: to, pendingStateEvent: { id: crypto.randomUUID(), from, to } });
     yield* publishState(run);
-  });
+  }, Effect.uninterruptible);
   const publishState = Effect.fnUntraced(function* (run: Run) {
     const pending = run.record.pendingStateEvent;
     if (!pending) return;

@@ -40,7 +40,13 @@ export const formanExecutable = Effect.fn("output.formanExecutable")(function* (
     break;
   }
   const command = onPath ? "forman" : executable.map(shellQuote).join(" ");
-  return { onPath, command: `FORMAN_HOME=${shellQuote(config.home)} ${command}` };
+  return {
+    onPath,
+    command:
+      config.home === config.defaultHome
+        ? command
+        : `FORMAN_HOME=${shellQuote(config.home)} ${command}`,
+  };
 });
 
 function eventSummary(event: RunEventBody): string {
@@ -96,6 +102,7 @@ export function renderResult(
   compact = false,
   executable = "forman",
   eventsName?: string,
+  verbose = false,
 ): string {
   switch (result._tag) {
     case "Pong":
@@ -119,11 +126,13 @@ export function renderResult(
     case "Events":
       return [
         ...(result.gap ? ["gap: true"] : []),
-        ...result.events.map(
-          ({ seq, at, event }) =>
-            `${seq} ${DateTime.formatIso(at)} ${event._tag} ${oneLine(eventSummary(event))}`,
-        ),
-        `next: ${executable} events ${eventsName} --after ${result.next}`,
+        ...result.events
+          .filter(({ event }) => verbose || (event._tag !== "Other" && event._tag !== "TokenUsage"))
+          .map(
+            ({ seq, at, event }) =>
+              `${seq} ${DateTime.formatIso(at)} ${event._tag} ${oneLine(eventSummary(event))}`,
+          ),
+        `next: ${executable} events ${eventsName} --after ${result.next}${verbose ? " --verbose" : ""}`,
       ].join("\n");
     case "Ok":
       return "ok";

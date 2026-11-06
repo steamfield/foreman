@@ -1,4 +1,4 @@
-import { Effect, FileSystem, Path, type PlatformError } from "effect";
+import { Effect, FileSystem, Glob, Path, type PlatformError } from "effect";
 import { ChildProcess, type ChildProcessSpawner } from "effect/process";
 import { WorktreeInvalid } from "../../errors";
 import type { Digest } from "../../schemas/daemon";
@@ -68,6 +68,8 @@ export function allowedPaths(contract: string): readonly string[] {
 
 function covers(path: string, entry: string): boolean {
   if (entry.endsWith("/")) return path.startsWith(entry) || path.includes(`/${entry}`);
+  if (entry.includes("*"))
+    return Glob.match(Glob.make(`**/${entry.replace(/^(?:\.\/)+/, "")}`, { dot: true }), path);
   return path === entry || path.endsWith(`/${entry}`);
 }
 

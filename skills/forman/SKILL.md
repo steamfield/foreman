@@ -130,6 +130,7 @@ When wait returns, read its outcome and each digest. All wait outcomes exit 0:
 
 After handling attention, run the final `next:` command as another background task. It carries
 the cursor (`--after`) that prevents repeated attention and preserves any explicit `--timeout`.
+When using a home other than `~/.forman`, the command also carries `FORMAN_HOME=...`.
 Don't rebuild it from memory. `start`, `answer`, `followup`, `steer` and `interrupt` accept `--wait` with
 the same 60-minute default as standalone wait. For a foreground call, use `--timeout 9m`
 to stay below Claude Code's foreground limit.
@@ -153,10 +154,9 @@ decisions; progress, findings and corrections belong in the hand-off.
 Run these `--wait` calls in the background too. One question takes exactly two calls:
 `start --wait`, then `answer --wait`. Without `--wait`, answer, steer and followup print `ok`
 and a `next:` wait command with the run's cursor at acceptance. Interrupt does the same.
-When another run in the group is active, the command uses `wait --all` and captures every
-run in that group. The cursor carries the target group, even when invoked from another repo.
-Use it to hear either run's next outcome without replaying earlier
-attention. With `--json`, the acknowledgement is
+These waits and their next commands always name the target run. Use an explicit `wait --all`
+to supervise the group. The cursor carries the target group, even when invoked from another repo.
+With `--json`, the acknowledgement is
 `Accepted` with `cursor` and `next`; `--wait` returns `Waited`. Start's combined JSON result
 also carries `started: {name, runDir, worktree, branch}` for a new worktree in the same value.
 
@@ -203,6 +203,8 @@ whether they hold work. Inspect those lines after a crash or `--keep-worktree`. 
 Read `forman status <name>`, `forman result <name>`, `forman events <name>` and
 `git -C <worktree> status` before deciding. The digest gives the run directory; its records,
 `events.jsonl`, raw Codex traffic and `turns/<n>.md` hand-offs help explain partial work.
+Text events omit protocol chatter and token usage by default. Use `events <name> --verbose`
+to see everything; `--json` always returns the complete event page.
 Config and state live under `FORMAN_HOME` (default `~/.forman`): `config.json`, `forman.sock`,
 `daemon.lock`, `runs/` and `logs/`. Doctor prints this home. Daemon diagnostics are in
 `logs/daemon.jsonl` and `logs/app-server.log` beneath it.

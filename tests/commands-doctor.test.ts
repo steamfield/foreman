@@ -101,6 +101,31 @@ it.live("doctor lists clean and dirty managed orphan worktrees but excludes regi
 );
 
 describe("bounded doctor diagnostics", () => {
+  it.live("queries the daemon through a single socket connection", () =>
+    Effect.gen(function* () {
+      const home = yield* temp();
+      let connections = 0;
+      const server = yield* NodeSocketServer.make({ path: `${home}/forman.sock` });
+      yield* Effect.forkScoped(
+        server.run((socket) =>
+          Effect.scoped(
+            Effect.gen(function* () {
+              connections++;
+              const reader = yield* socket.reader;
+              yield* reader.pull;
+              yield* (yield* socket.writer).write(
+                `${JSON.stringify({ id: 1, result: { _tag: "Pong", version: "test", pid: 123 } })}\n`,
+              );
+              yield* Effect.never;
+            }),
+          ).pipe(Effect.catchTag("SocketError", () => Effect.void)),
+        ),
+      );
+      const result = yield* doctor(home).pipe(Effect.provide(settings(home, `${home}/missing`)));
+      expect(result.daemon).toMatchObject({ state: "running", pid: 123 });
+      expect(connections).toBe(1);
+    }).pipe(Effect.provide(platform)),
+  );
   it.live.each(["same", "different", "legacy", "absent"] as const)(
     "reports a %s daemon build through text and JSON without replacing it",
     (mode) =>

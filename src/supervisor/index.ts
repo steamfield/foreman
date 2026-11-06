@@ -182,7 +182,7 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
               }),
             );
             return yield* Effect.gen(function* () {
-              const accepted = yield* acceptedCursor(registry, run);
+              const accepted = yield* acceptedCursor(run);
               yield* turns.followup(run, body, threadId);
               return { _tag: "Accepted" as const, ...accepted };
             }).pipe(Effect.tapCause((cause) => registry.recover(run, cause)));
@@ -219,6 +219,8 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
       }
       default: {
         if (!("name" in body)) return yield* Effect.die("Supervisor received an unhandled request");
+        if (body._tag === "Interrupt" && (yield* turns.cancelStart(body.name)))
+          return { _tag: "Ok" };
         const run = yield* registry.lookup(body.name);
         return yield* run.lock.withPermits(1)(
           Effect.gen(function* (): Effect.fn.Return<
@@ -239,7 +241,7 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
                   !activeStates.has(run.record.state) && handoff.latestTurnWithoutHandoff,
               };
             }
-            const accepted = yield* acceptedCursor(registry, run);
+            const accepted = yield* acceptedCursor(run);
             switch (body._tag) {
               case "Steer":
                 yield* turns.steer(run, body.message);

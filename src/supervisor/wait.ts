@@ -40,21 +40,13 @@ const identity = (run: Run) =>
   `${DateTime.formatIso(run.record.createdAt)}:${run.record.threadId ?? ""}`;
 
 // Call with the run lock held, before queued notifications can advance its position.
-export const acceptedCursor = Effect.fnUntraced(function* (registry: Registry, run: Run) {
-  const group = [...registry.runs.values()].filter(
-    (other) => other.record.group === run.record.group,
-  );
-  const all = group.some((other) => other !== run && activeStates.has(other.record.state));
-  const positions: Record<RunName, { identity: string; seq: number }> = {};
-  // Peer logs expose only committed lines. Taking peer locks here would deadlock two
-  // concurrent mutations, each of which already holds its own run lock.
-  for (const other of all ? group : [run]) {
-    const page = yield* readEvents(other.dir, 0, Number.MAX_SAFE_INTEGER);
-    positions[other.record.name] = { identity: identity(other), seq: page.next };
-  }
+export const acceptedCursor = Effect.fnUntraced(function* (run: Run) {
+  const page = yield* readEvents(run.dir, 0, Number.MAX_SAFE_INTEGER);
   return {
-    cursor: encode(positions, all ? run.record.group : undefined),
-    ...(all ? { all: true } : {}),
+    cursor: encode(
+      { [run.record.name]: { identity: identity(run), seq: page.next } },
+      run.record.group,
+    ),
   };
 });
 const decodeCursor = Effect.fnUntraced(function* (cursor: Cursor | undefined) {

@@ -26,6 +26,7 @@ export function nextCommand(text: string, executable: string) {
     { encoding: "utf8" },
   ).split("\0");
   tokens.pop();
+  if (tokens[0]?.startsWith("FORMAN_HOME=")) tokens.shift();
   expect(["forman", executable]).toContain(tokens.shift() ?? "");
   expect(tokens[0]).toBe("wait");
   return tokens;

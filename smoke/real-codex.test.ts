@@ -284,7 +284,7 @@ smoke(
     const holdMs = (short ? 2 : 16) * 60_000;
     const question = await f.until(
       await f.start(
-        "Before doing anything else call ask_orchestrator with question 'Choose the token or let me choose after timeout'. Wait for its answer. If told to proceed with best judgment, choose AUTO-ANSWER-USED and include that token and the received answer in your final hand-off. Run no commands.",
+        "Before doing anything else call ask_orchestrator with question 'Choose the label or let me choose after timeout'. Wait for its answer. If told to proceed with best judgment, include the standalone completion marker AUTO-ANSWER-USED and the received answer in your final hand-off. Run no commands.",
         ["--question-timeout", timeout, "--budget", "20m"],
       ),
       "question",

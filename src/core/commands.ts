@@ -1,11 +1,11 @@
 import { Effect } from "effect";
 import { AppConfig } from "../config";
 import { call } from "../daemon/client";
-import { Usage } from "../errors";
 import type { DaemonRequestBody, DaemonResult, QuestionId, RunName } from "../schemas/daemon";
 import { Output } from "../services/output";
 import { durationMs, type MessageInput, messageText, readText, realPath } from "./command-input";
 import { formanExecutable } from "./command-output";
+import { validateStartMode } from "./start-mode";
 
 const request = Effect.fn("commands.request")(function* (body: DaemonRequestBody) {
   const config = yield* AppConfig;
@@ -42,15 +42,15 @@ const afterAccepted = Effect.fnUntraced(function* (
   if (result._tag !== "Accepted") return result;
   if (options.wait)
     return yield* wait({
-      names: result.all ? [] : [name],
-      all: result.all ?? false,
+      names: [name],
+      all: false,
       after: result.cursor,
       timeout: options.timeout,
     });
   const executable = yield* formanExecutable();
   return {
     ...result,
-    next: `${executable.command} wait ${result.all ? "--all" : name} --after ${result.cursor}`,
+    next: `${executable.command} wait ${name} --after ${result.cursor}`,
   };
 });
 
@@ -71,11 +71,7 @@ interface StartInput extends WaitOptions {
 }
 
 export const start = Effect.fn("commands.start")(function* (input: StartInput) {
-  if (
-    input.newWorktree === (input.worktree !== undefined) ||
-    (!input.newWorktree && (input.from !== undefined || input.setup !== undefined))
-  )
-    return yield* new Usage();
+  yield* validateStartMode(input);
   const started = yield* request({
     _tag: "Start",
     name: input.name,
