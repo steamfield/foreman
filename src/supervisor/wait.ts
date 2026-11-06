@@ -18,6 +18,8 @@ const Positions = Schema.Record(
   Schema.Struct({
     identity: Schema.String,
     seq: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+    minimumTurn: Schema.optionalKey(Schema.Int),
+    continuation: Schema.optionalKey(Schema.String),
   }),
 );
 const GroupPositions = Schema.TaggedStruct("GroupCursor", {
@@ -25,43 +27,49 @@ const GroupPositions = Schema.TaggedStruct("GroupCursor", {
   positions: Positions,
 });
 const CursorJson = Schema.fromJsonString(Schema.Union([GroupPositions, Positions]));
-const encode = (positions: typeof Positions.Type, group?: string) =>
-  Schema.decodeUnknownSync(Cursor)(
-    btoa(
-      Schema.encodeSync(CursorJson)(
-        group === undefined ? positions : { _tag: "GroupCursor", group, positions },
-      ),
-    )
-      .replaceAll("+", "-")
-      .replaceAll("/", "_")
-      .replace(/=+$/, ""),
+const encode = (positions: typeof Positions.Type, group?: string) => {
+  const json = Schema.encodeSync(CursorJson)(
+    group === undefined ? positions : { _tag: "GroupCursor", group, positions },
   );
+  const bytes = new TextEncoder().encode(json);
+  const base64 = btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join(""));
+  return Schema.decodeUnknownSync(Cursor)(
+    `u1.${base64.replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")}`,
+  );
+};
 
 const identity = (run: Run) =>
   `${DateTime.formatIso(run.record.createdAt)}:${run.record.threadId ?? ""}`;
 
 // Call with the run lock held, before queued notifications can advance its position.
-export const acceptedCursor = Effect.fnUntraced(function* (registry: Registry, run: Run) {
-  const group = [...registry.runs.values()].filter(
-    (other) => other.record.group === run.record.group,
-  );
-  const all = group.some((other) => other !== run && activeStates.has(other.record.state));
-  const positions: Record<RunName, { identity: string; seq: number }> = {};
-  // Peer logs expose only committed lines. Taking peer locks here would deadlock two
-  // concurrent mutations, each of which already holds its own run lock.
-  for (const other of all ? group : [run]) {
-    const page = yield* readEvents(other.dir, 0, Number.MAX_SAFE_INTEGER);
-    positions[other.record.name] = { identity: identity(other), seq: page.next };
-  }
+export const acceptedCursor = Effect.fnUntraced(function* (run: Run, continuation?: string) {
+  const page = yield* readEvents(run.dir, 0, Number.MAX_SAFE_INTEGER);
   return {
-    cursor: encode(positions, all ? run.record.group : undefined),
-    ...(all ? { all: true } : {}),
+    cursor: encode(
+      {
+        [run.record.name]: {
+          identity: identity(run),
+          seq: page.next,
+          ...(continuation === undefined ? {} : { continuation }),
+        },
+      },
+      run.record.group,
+    ),
   };
 });
 const decodeCursor = Effect.fnUntraced(function* (cursor: Cursor | undefined) {
   if (cursor === undefined) return { positions: {} };
+  const unicode = cursor.startsWith("u1.");
+  const payload = unicode ? cursor.slice(3) : cursor;
   const text = yield* Effect.try({
-    try: () => atob(cursor.replaceAll("-", "+").replaceAll("_", "/")),
+    try: () => {
+      const binary = atob(payload.replaceAll("-", "+").replaceAll("_", "/"));
+      return unicode
+        ? new TextDecoder("utf-8", { fatal: true }).decode(
+            Uint8Array.from(binary, (char) => char.charCodeAt(0)),
+          )
+        : binary;
+    },
     catch: () => new Usage(),
   });
   const parsed = yield* Schema.decodeUnknownEffect(CursorJson)(text).pipe(
@@ -73,11 +81,30 @@ const decodeCursor = Effect.fnUntraced(function* (cursor: Cursor | undefined) {
 });
 
 export const groupFor = Effect.fn("supervisor.groupFor")(function* (cwd: string) {
-  return (yield* mainCheckout(cwd).pipe(Effect.orElseSucceed(() => null))) ?? "";
+  return (yield* mainCheckout(cwd)) ?? "";
 });
 
-const attention = Effect.fnUntraced(function* (registry: Registry, run: Run, after: number) {
+const attention = Effect.fnUntraced(function* (
+  registry: Registry,
+  run: Run,
+  after: number,
+  minimumTurn = 0,
+  continuation?: string,
+) {
   const page = yield* readEvents(run.dir, after, Number.MAX_SAFE_INTEGER);
+  const delivered = page.events.flatMap(({ event }) =>
+    event._tag === "QuestionResolved" &&
+    event.continuation !== undefined &&
+    event.continuation.id === continuation
+      ? [event.continuation]
+      : [],
+  )[0];
+  const requiredTurn = delivered?.turn ?? minimumTurn;
+  const awaitingDelivery = continuation !== undefined && delivered === undefined;
+  const position = {
+    ...(requiredTurn > 0 ? { minimumTurn: requiredTurn } : {}),
+    ...(awaitingDelivery ? { continuation } : {}),
+  };
   const relevant = page.events.filter(
     ({ event }) =>
       event._tag === "QuestionAsked" ||
@@ -85,7 +112,7 @@ const attention = Effect.fnUntraced(function* (registry: Registry, run: Run, aft
       (event._tag === "StateChanged" && (event.to === "lost" || event.to === "failed")),
   );
   const outcomes: (typeof WaitOutcome.Type)[] = [];
-  if (relevant.length === 0) return { outcomes, next: page.next };
+  if (relevant.length === 0) return { outcomes, next: page.next, ...position };
   const digest = yield* registry.digest(run, true);
   for (const { event } of relevant) {
     if (event._tag === "QuestionAsked") {
@@ -98,6 +125,7 @@ const attention = Effect.fnUntraced(function* (registry: Registry, run: Run, aft
           handoff: null,
         });
     } else if (event._tag === "TurnCompleted") {
+      if (awaitingDelivery || event.turn < requiredTurn) continue;
       // The interrupted working turn belongs to the budget transition, not a hand-off yet.
       if (run.record.turnKind === "handoff" && activeStates.has(run.record.state)) continue;
       let kind: "done" | "failed" | "interrupted" = "done";
@@ -106,10 +134,16 @@ const attention = Effect.fnUntraced(function* (registry: Registry, run: Run, aft
       else if (event.status === "interrupted" || (current && digest.state === "interrupted"))
         kind = "interrupted";
       const { handoff } = yield* readHandoff(run.dir, event.turn);
+      const unanswered = digest.unansweredQuestions ?? [];
+      const blocked = unanswered.find((question) => question.kind === "blocked");
+      let summary = `turn ${event.turn}`;
+      if (blocked) summary = `blocked on ${blocked.id}`;
+      else if (unanswered.length)
+        summary = `${kind}, ${unanswered.length} unanswered question${unanswered.length === 1 ? "" : "s"}`;
       outcomes.push({
         name: run.record.name,
         kind,
-        summary: `turn ${event.turn}`,
+        summary,
         digest,
         handoff: handoff?.turn === event.turn ? handoff : null,
       });
@@ -117,6 +151,7 @@ const attention = Effect.fnUntraced(function* (registry: Registry, run: Run, aft
       // A normal failed completion already carries its own turn number and hand-off.
       if (
         event.to === "failed" &&
+        !awaitingDelivery &&
         page.events.some(
           ({ event }) => event._tag === "TurnCompleted" && event.turn === run.record.turns,
         )
@@ -133,7 +168,7 @@ const attention = Effect.fnUntraced(function* (registry: Registry, run: Run, aft
     }
   }
   const latest = outcomes.at(-1);
-  return { outcomes: latest ? [latest] : [], next: page.next };
+  return { outcomes: latest ? [latest] : [], next: page.next, ...position };
 });
 
 export const wait = Effect.fn("supervisor.wait")(function* (
@@ -160,13 +195,24 @@ export const wait = Effect.fn("supervisor.wait")(function* (
     outcome: "events" | "timeout" | "none",
     runs: readonly (typeof WaitOutcome.Type)[],
     cursor: Cursor,
-  ): Extract<DaemonResult, { _tag: "Waited" }> => ({
-    _tag: "Waited",
-    outcome,
-    runs,
-    cursor,
-    next: `forman wait ${body.all ? "--all" : body.names.join(" ")} --after ${cursor}`,
-  });
+  ): Extract<DaemonResult, { _tag: "Waited" }> => {
+    const target = runs.flatMap(({ name, digest }) => [
+      ...digest.questions.map((question) => ({ name, question, pending: true })),
+      ...(digest.unansweredQuestions ?? []).map((question) => ({ name, question, pending: false })),
+    ])[0];
+    return {
+      _tag: "Waited",
+      outcome,
+      runs,
+      cursor,
+      next: target
+        ? `forman answer ${target.name} ${target.question.id} "<answer>"`
+        : `forman wait ${body.all ? "--all" : body.names.join(" ")} --after ${cursor}`,
+      ...(target?.pending
+        ? { alternative: `forman defer ${target.name} ${target.question.id}` }
+        : {}),
+    };
+  };
   const encodeNext = (next: typeof Positions.Type) => encode(next, group);
   const timeout = () => result("timeout", [], body.after ?? encodeNext(positions));
   const consider = Effect.gen(function* () {
@@ -188,8 +234,17 @@ export const wait = Effect.fn("supervisor.wait")(function* (
               ? positions[run.record.name]
               : undefined;
             const after = previous?.identity === currentIdentity ? previous.seq : 0;
-            const result = yield* attention(registry, run, after);
-            next[run.record.name] = { identity: currentIdentity, seq: result.next };
+            const minimumTurn =
+              previous?.identity === currentIdentity ? previous.minimumTurn : undefined;
+            const continuation =
+              previous?.identity === currentIdentity ? previous.continuation : undefined;
+            const result = yield* attention(registry, run, after, minimumTurn, continuation);
+            next[run.record.name] = {
+              identity: currentIdentity,
+              seq: result.next,
+              ...(result.minimumTurn === undefined ? {} : { minimumTurn: result.minimumTurn }),
+              ...(result.continuation === undefined ? {} : { continuation: result.continuation }),
+            };
             outcomes.push(...result.outcomes);
             active ||= activeStates.has(run.record.state);
           }),

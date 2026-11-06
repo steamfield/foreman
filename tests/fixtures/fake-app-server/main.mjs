@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { randomUUID } from "node:crypto";
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { setTimeout as delay } from "node:timers/promises";
 import { Schema } from "effect";
@@ -97,6 +97,10 @@ async function receive(line) {
   const rule = scenario.rules[index];
   if (!rule) { write({ id: message.id, error: { code: -32601, message: `no rule for ${message.method}` } }); return; }
   used.add(index);
+  if (rule.gate) {
+    writeFileSync(rule.gate.ready, "ready");
+    readFileSync(rule.gate.release);
+  }
   if (rule.respond !== "none") {
     if (rule.delayMs !== undefined) await delay(rule.delayMs);
     if ("error" in rule.respond) write({ id: message.id, error: substitute(rule.respond.error) });

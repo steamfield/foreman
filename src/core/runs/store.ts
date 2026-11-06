@@ -8,8 +8,10 @@ import {
   PlatformError,
   Result,
   Schema,
+  Stream,
 } from "effect";
 import { RunConflict } from "../../errors";
+import { makeLogAppender, redactDiagnostic, redactDiagnosticText } from "../../logging";
 import {
   activeStates,
   type DaemonResult,
@@ -18,8 +20,127 @@ import {
   type RunEventBody,
   type RunName,
   RunRecord,
+  StorageHeader,
 } from "../../schemas/daemon";
 import { readGitStatus } from "./worktree";
+
+const decodeStored = Effect.fnUntraced(function* <A>(
+  text: string,
+  schema: Schema.Codec<A, unknown>,
+) {
+  const value = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown))(text);
+  yield* Schema.decodeUnknownEffect(StorageHeader)(value);
+  return yield* Schema.decodeUnknownEffect(schema)(value);
+});
+
+const encodeStored = Effect.fnUntraced(function* <A>(
+  schema: Schema.Codec<A, unknown>,
+  value: A,
+  diagnostic = false,
+  formatVersion: 1 | 2 = 1,
+) {
+  const encoded = yield* Schema.encodeEffect(schema)(value);
+  const fields = yield* Schema.decodeUnknownEffect(Schema.Record(Schema.String, Schema.Unknown))(
+    encoded,
+  );
+  return yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))({
+    ...(diagnostic
+      ? yield* Schema.decodeUnknownEffect(Schema.Record(Schema.String, Schema.Unknown))(
+          redactDiagnostic(fields),
+        )
+      : fields),
+    formatVersion,
+  });
+});
+
+// Decode only newline-terminated records, including when a writer has a torn UTF-8 tail.
+const committedLines = (file: string) =>
+  Stream.unwrap(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      return fs.stream(file).pipe(
+        Stream.decodeText(),
+        Stream.mapAccum(
+          () => "",
+          (tail, chunk) => {
+            const lines = (tail + chunk).split("\n");
+            return [lines.pop() ?? "", lines] as const;
+          },
+        ),
+        Stream.filter((line) => line !== ""),
+        Stream.mapError((error) =>
+          error.reason._tag === "BadArgument"
+            ? error
+            : PlatformError.systemError({
+                ...error.reason,
+                method: "readFile",
+                pathOrDescriptor: file,
+              }),
+        ),
+        Stream.catchReason("PlatformError", "NotFound", () => Stream.empty),
+      );
+    }),
+  );
+
+// Check every storage boundary before mutating any file. Unknown historical bodies are
+// readable only by their own decoder, but a declared unsupported version always fences writes.
+const checkVersion = (text: string) =>
+  Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown))(text).pipe(
+    Effect.result,
+    Effect.flatMap((result) =>
+      Result.isFailure(result)
+        ? Effect.void
+        : Schema.decodeUnknownEffect(StorageHeader)(result.success).pipe(Effect.asVoid),
+    ),
+  );
+// The daemon is the serialized writer. Cache checked file identities, invalidating on
+// metadata changes; startup always validates the complete history again.
+const formatChecks = new WeakMap<FileSystem.FileSystem, Map<string, string>>();
+const checksFor = (fs: FileSystem.FileSystem) => {
+  let checks = formatChecks.get(fs);
+  if (!checks) {
+    checks = new Map();
+    formatChecks.set(fs, checks);
+  }
+  return checks;
+};
+const fileStamp = (info: FileSystem.File.Info) =>
+  `${info.dev}:${info.ino._tag === "Some" ? info.ino.value : ""}:${info.size}:${info.mode}:${info.mtime._tag === "Some" ? info.mtime.value.getTime() : ""}`;
+const rememberVersion = Effect.fnUntraced(function* (file: string) {
+  const fs = yield* FileSystem.FileSystem;
+  checksFor(fs).set(file, fileStamp(yield* fs.stat(file)));
+});
+const forgetVersions = Effect.fnUntraced(function* (dir: string) {
+  const checks = checksFor(yield* FileSystem.FileSystem);
+  for (const file of ["events.jsonl", "questions.jsonl", "codex.jsonl"])
+    checks.delete(`${dir}/${file}`);
+});
+const assertLogVersions = Effect.fnUntraced(function* (runDir: string, fresh = false) {
+  const fs = yield* FileSystem.FileSystem;
+  const checks = checksFor(fs);
+  for (const file of ["events.jsonl", "questions.jsonl", "codex.jsonl"]) {
+    const fullPath = `${runDir}/${file}`;
+    const info = yield* fs
+      .stat(fullPath)
+      .pipe(Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(null)));
+    if (info?.type !== "File") {
+      checks.delete(fullPath);
+      continue;
+    }
+    const stamp = fileStamp(info);
+    if (!fresh && checks.get(fullPath) === stamp) continue;
+    yield* committedLines(fullPath).pipe(Stream.runForEach(checkVersion));
+    checks.set(fullPath, stamp);
+  }
+});
+export const assertSupported = Effect.fnUntraced(function* (runDir: string) {
+  const fs = yield* FileSystem.FileSystem;
+  yield* fs.readFileString(`${runDir}/run.json`).pipe(
+    Effect.flatMap(checkVersion),
+    Effect.catchReason("PlatformError", "NotFound", () => Effect.void),
+  );
+  yield* assertLogVersions(runDir);
+});
 
 export const runDirectory = Effect.fn("runs.runDirectory")(function* (
   dataDir: string,
@@ -32,9 +153,7 @@ export const runDirectory = Effect.fn("runs.runDirectory")(function* (
 export const readRun = Effect.fn("runs.readRun")(function* (runDir: string) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  return yield* Schema.decodeUnknownEffect(Schema.fromJsonString(RunRecord))(
-    yield* fs.readFileString(path.join(runDir, "run.json")),
-  );
+  return yield* decodeStored(yield* fs.readFileString(path.join(runDir, "run.json")), RunRecord);
 });
 
 // The daemon serializes mutations for each run; these functions keep no sequence or record cache.
@@ -42,7 +161,17 @@ export const writeRun = Effect.fn("runs.writeRun")(function* (runDir: string, re
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const file = path.join(runDir, "run.json");
-  const text = yield* Schema.encodeEffect(Schema.fromJsonString(RunRecord))(record);
+  yield* assertSupported(runDir);
+  const text = yield* encodeStored(RunRecord, {
+    ...record,
+    failure:
+      record.failure === null
+        ? null
+        : {
+            message: redactDiagnosticText(record.failure.message),
+            codexErrorInfo: redactDiagnostic(record.failure.codexErrorInfo),
+          },
+  });
   yield* fs.writeFileString(`${file}.tmp`, text);
   yield* fs.rename(`${file}.tmp`, file);
 });
@@ -56,6 +185,10 @@ export const createRun = Effect.fn("runs.createRun")(function* (
   const path = yield* Path.Path;
   const baseline = yield* readGitStatus(record.worktree);
   const dir = yield* runDirectory(dataDir, record.name);
+  if (yield* fs.exists(dir))
+    return yield* new RunConflict({
+      detail: `${record.name} already has run data; preserve it before reusing the name.`,
+    });
   yield* fs.makeDirectory(path.dirname(dir), { recursive: true });
   return yield* Effect.acquireUseRelease(
     fs.makeTempDirectory({ directory: path.dirname(dir), prefix: `.tmp-${record.name}-` }),
@@ -70,7 +203,11 @@ export const createRun = Effect.fn("runs.createRun")(function* (
         return dir;
       }),
     (staging, exit) =>
-      Exit.isFailure(exit) ? fs.remove(staging, { recursive: true }) : Effect.void,
+      forgetVersions(staging).pipe(
+        Effect.andThen(
+          Exit.isFailure(exit) ? fs.remove(staging, { recursive: true }) : Effect.void,
+        ),
+      ),
   );
 });
 
@@ -87,40 +224,42 @@ export const readAllRuns = Effect.fn("runs.readAllRuns")(function* (dataDir: str
     if (name === ".archive" || name.startsWith(".tmp-")) continue;
     const dir = path.join(root, name);
     if ((yield* fs.stat(dir)).type !== "Directory") continue;
-    const result = yield* Effect.result(readRun(dir));
+    const result = yield* Effect.result(
+      readRun(dir).pipe(Effect.tap(() => assertLogVersions(dir, true))),
+    );
     if (Result.isFailure(result)) skipped.push({ name, reason: String(result.failure) });
     else runs.push(result.success);
   }
   return { runs, skipped };
 });
 
-export const archiveRun = Effect.fn("runs.archiveRun")(function* (dataDir: string, name: RunName) {
+export const archiveRun = Effect.fn("runs.archiveRun")(function* <E = never, R = never>(
+  dataDir: string,
+  name: RunName,
+  beforeArchive: Effect.Effect<void, E, R> = Effect.void,
+) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const dir = yield* runDirectory(dataDir, name);
   const record = yield* readRun(dir);
+  yield* assertLogVersions(dir);
   if (activeStates.has(record.state))
     return yield* new RunConflict({
       detail: `${name} is ${record.state}; active runs cannot be archived`,
     });
+  yield* beforeArchive;
   const archive = path.join(dataDir, "runs", ".archive");
   yield* fs.makeDirectory(archive, { recursive: true });
   const target = path.join(archive, `${name}-${yield* Clock.currentTimeMillis}`);
   yield* fs.rename(dir, target);
+  yield* forgetVersions(dir);
   return target;
 });
 
 const readLines = Effect.fnUntraced(function* <A>(file: string, schema: Schema.Codec<A, unknown>) {
-  const fs = yield* FileSystem.FileSystem;
-  const text = yield* fs
-    .readFileString(file)
-    .pipe(Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed("")));
-  return yield* Effect.forEach(
-    text
-      .split("\n")
-      .slice(0, -1)
-      .filter((line) => line !== ""),
-    (line) => Schema.decodeUnknownEffect(Schema.fromJsonString(schema))(line),
+  return yield* committedLines(file).pipe(
+    Stream.mapEffect((line) => decodeStored(line, schema)),
+    Stream.runCollect,
   );
 });
 
@@ -166,11 +305,14 @@ const appendLine = Effect.fnUntraced(function* <A>(
   file: string,
   schema: Schema.Codec<A, unknown>,
   value: A,
+  diagnostic = true,
+  formatVersion: 1 | 2 = 1,
 ) {
   const fs = yield* FileSystem.FileSystem;
-  const text = yield* Schema.encodeEffect(Schema.fromJsonString(schema))(value);
+  const text = yield* encodeStored(schema, value, diagnostic, formatVersion);
   yield* repairTail(file);
   yield* fs.writeFileString(file, `${text}\n`, { flag: "a" });
+  yield* rememberVersion(file);
 });
 
 export const readEvents = Effect.fn("runs.readEvents")(function* (
@@ -183,14 +325,36 @@ export const readEvents = Effect.fn("runs.readEvents")(function* (
   FileSystem.FileSystem | Path.Path
 > {
   const path = yield* Path.Path;
-  const all = yield* readLines(path.join(runDir, "events.jsonl"), RunEvent);
-  const events = all.filter((event) => event.seq > after).slice(0, Math.max(0, limit));
+  let first: number | undefined;
+  const events = yield* committedLines(path.join(runDir, "events.jsonl")).pipe(
+    Stream.rechunk(1),
+    Stream.mapEffect((line) => decodeStored(line, RunEvent)),
+    Stream.tap((event) =>
+      Effect.sync(() => {
+        first ??= event.seq;
+      }),
+    ),
+    Stream.filter((event) => event.seq > after),
+    Stream.take(Math.max(0, limit)),
+    Stream.runCollect,
+  );
   return {
     _tag: "Events",
     events,
-    gap: all[0] !== undefined && after < all[0].seq - 1,
+    gap: first !== undefined && after < first - 1,
     next: events.at(-1)?.seq ?? after,
   };
+});
+
+export const hasTransition = Effect.fnUntraced(function* (runDir: string, id: string) {
+  const path = yield* Path.Path;
+  const found = yield* committedLines(path.join(runDir, "events.jsonl")).pipe(
+    Stream.rechunk(1),
+    Stream.mapEffect((line) => decodeStored(line, RunEvent)),
+    Stream.filter((entry) => entry.transitionId === id),
+    Stream.runHead,
+  );
+  return found._tag === "Some";
 });
 
 const readLastEvent = Effect.fnUntraced(function* (file: string) {
@@ -232,7 +396,7 @@ const readLastEvent = Effect.fnUntraced(function* (file: string) {
       }
       if (reversed.length === 0) return null;
       const text = new TextDecoder().decode(Uint8Array.from(reversed.reverse()));
-      return yield* Schema.decodeUnknownEffect(Schema.fromJsonString(RunEvent))(text);
+      return yield* decodeStored(text, RunEvent);
     }),
   ).pipe(Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(null)));
 });
@@ -240,17 +404,21 @@ const readLastEvent = Effect.fnUntraced(function* (file: string) {
 export const appendEvent = Effect.fn("runs.appendEvent")(function* (
   runDir: string,
   event: RunEventBody,
+  transitionId?: string,
 ) {
   const path = yield* Path.Path;
   const file = path.join(runDir, "events.jsonl");
+  yield* assertSupported(runDir);
   yield* repairTail(file);
   const previous = yield* readLastEvent(file);
   const entry: RunEvent = {
     seq: (previous?.seq ?? 0) + 1,
     at: DateTime.makeUnsafe(yield* Clock.currentTimeMillis),
     event,
+    ...(transitionId === undefined ? {} : { transitionId }),
   };
-  yield* appendLine(file, RunEvent, entry);
+  // File-change paths are identities used by scope reporting, not diagnostic text.
+  yield* appendLine(file, RunEvent, entry, event._tag !== "FileChange", 2);
   return entry;
 });
 
@@ -259,7 +427,12 @@ export const appendCodexMessage = Effect.fn("runs.appendCodexMessage")(function*
   message: unknown,
 ) {
   const path = yield* Path.Path;
-  yield* appendLine(path.join(runDir, "codex.jsonl"), Schema.Unknown, message);
+  yield* assertSupported(runDir);
+  const text = yield* encodeStored(Schema.Unknown, message, true);
+  yield* repairTail(path.join(runDir, "codex.jsonl"));
+  const append = yield* makeLogAppender(path.join(runDir, "codex.jsonl"), 1);
+  yield* append(`${text}\n`);
+  yield* rememberVersion(path.join(runDir, "codex.jsonl"));
 });
 
 export const readQuestions = Effect.fn("runs.readQuestions")(function* (runDir: string) {
@@ -272,7 +445,8 @@ export const appendQuestion = Effect.fn("runs.appendQuestion")(function* (
   line: QuestionLine,
 ) {
   const path = yield* Path.Path;
-  yield* appendLine(path.join(runDir, "questions.jsonl"), QuestionLine, line);
+  yield* assertSupported(runDir);
+  yield* appendLine(path.join(runDir, "questions.jsonl"), QuestionLine, line, true, 2);
 });
 
 export function pendingQuestions(lines: readonly QuestionLine[]) {
@@ -284,6 +458,19 @@ export function pendingQuestions(lines: readonly QuestionLine[]) {
   return [...pending.values()];
 }
 
+export function unansweredQuestions(lines: readonly QuestionLine[]) {
+  const asked = new Map<string, Extract<QuestionLine, { _tag: "Asked" }>>();
+  const unanswered = new Map<string, Extract<QuestionLine, { _tag: "Asked" }>>();
+  for (const line of lines) {
+    if (line._tag === "Asked") asked.set(line.id, line);
+    else if (line._tag === "Deferred") {
+      const question = asked.get(line.id);
+      if (question) unanswered.set(line.id, question);
+    } else unanswered.delete(line.id);
+  }
+  return [...unanswered.values()];
+}
+
 export const writeHandoff = Effect.fn("runs.writeHandoff")(function* (
   runDir: string,
   turn: number,
@@ -292,10 +479,14 @@ export const writeHandoff = Effect.fn("runs.writeHandoff")(function* (
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const turns = path.join(runDir, "turns");
+  yield* assertSupported(runDir);
   yield* fs.makeDirectory(turns, { recursive: true });
   const file = path.join(turns, `${turn}.md`);
-  yield* fs.writeFileString(file, text);
-  yield* fs.copyFile(file, path.join(runDir, "last-message.md"));
+  yield* fs.writeFileString(`${file}.tmp`, redactDiagnosticText(text));
+  yield* fs.rename(`${file}.tmp`, file);
+  const latest = path.join(runDir, "last-message.md");
+  yield* fs.writeFileString(`${latest}.tmp`, redactDiagnosticText(text));
+  yield* fs.rename(`${latest}.tmp`, latest);
 });
 
 export const readHandoff = Effect.fn("runs.readHandoff")(function* (

@@ -6,7 +6,7 @@ import {
   type RunEvent,
   type RunRecord,
 } from "../../schemas/daemon";
-import { pendingQuestions } from "./store";
+import { pendingQuestions, unansweredQuestions } from "./store";
 import type { WorktreeFields } from "./worktree";
 
 const transientKinds = new Set([
@@ -50,6 +50,11 @@ export function buildDigest(
   const warnings = run.warnings.filter(
     (warning) => warning !== "Thread resumed: questions may not reach Claude in this turn.",
   );
+  const unanswered = unansweredQuestions(questions).map(({ id, kind, question }) => ({
+    id,
+    kind,
+    question,
+  }));
   return {
     name: run.name,
     state: run.state,
@@ -69,6 +74,7 @@ export function buildDigest(
       question: question.question,
       pendingMs: Math.max(0, Math.trunc(now - DateTime.toEpochMillis(question.at))),
     })),
+    ...(unanswered.length ? { unansweredQuestions: unanswered } : {}),
     commands: {
       total: commands.length,
       failed: commands.filter(
@@ -135,6 +141,7 @@ export function renderStatus(digest: Digest): string {
     `turn ${digest.turn}${digest.turnKind === null ? "" : ` (${digest.turnKind})`}`,
     duration(digest.elapsedMs),
     ...digest.questions.map(({ id }) => `${id} pending`),
+    ...(digest.unansweredQuestions ?? []).map(({ id }) => `${id} deferred, unanswered`),
     ...(digest.warnings.some((warning) => warning.startsWith("worktree removed: "))
       ? ["worktree removed"]
       : []),
@@ -164,10 +171,15 @@ export function renderDigest(digest: Digest): string {
       : []),
     `turn:      ${digest.turn}${digest.turnKind === null ? "" : ` (${digest.turnKind})`}`,
   ];
-  if (digest.questions.length === 0) lines.push("question:  (none)");
+  if (digest.questions.length === 0 && !digest.unansweredQuestions?.length)
+    lines.push("question:  (none)");
   for (const question of digest.questions)
     lines.push(
       `question:  ${question.id} (${question.kind}) pending ${duration(question.pendingMs)}: ${question.question}`,
+    );
+  for (const question of digest.unansweredQuestions ?? [])
+    lines.push(
+      `question:  ${question.id} deferred, unanswered (${question.kind}): ${question.question}`,
     );
   lines.push(
     `commands:  ${digest.commands.total} (${digest.commands.failed} failed, ${digest.commands.blockedByHooks} blocked by repo hooks)`,

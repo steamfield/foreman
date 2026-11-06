@@ -15,7 +15,10 @@ export const formanExecutable = Effect.fn("output.formanExecutable")(function* (
   const config = yield* AppConfig;
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const executable = host.executable.map((part) => path.resolve(part));
+  const executable =
+    config.launcher === null
+      ? host.executable.map((part) => path.resolve(part))
+      : [config.launcher];
   const running = yield* fs.realPath(executable[0] ?? "").pipe(Effect.result);
   let onPath = false;
   for (const directory of config.inheritedEnvironment.PATH?.split(path.sep === "\\" ? ";" : ":") ??
@@ -36,9 +39,14 @@ export const formanExecutable = Effect.fn("output.formanExecutable")(function* (
       resolved.success === running.success;
     break;
   }
-  let command = executable.map(shellQuote).join(" ");
-  if (executable.length > 1) command = `FORMAN_HOME=${shellQuote(config.home)} ${command}`;
-  return { onPath, command: onPath ? "forman" : command };
+  const command = onPath ? "forman" : executable.map(shellQuote).join(" ");
+  return {
+    onPath,
+    command:
+      config.home === config.defaultHome
+        ? command
+        : `FORMAN_HOME=${shellQuote(config.home)} ${command}`,
+  };
 });
 
 function eventSummary(event: RunEventBody): string {
@@ -89,7 +97,13 @@ export const renderOrphan = (orphan: typeof OrphanWorktree.Type) =>
 const worktreeLines = (started: { worktree?: string; branch?: string }) =>
   started.worktree ? [`worktree: ${started.worktree}`, `branch: ${started.branch}`] : [];
 
-export function renderResult(result: DaemonResult, compact = false, executable = "forman"): string {
+export function renderResult(
+  result: DaemonResult,
+  compact = false,
+  executable = "forman",
+  eventsName?: string,
+  verbose = false,
+): string {
   switch (result._tag) {
     case "Pong":
       return `running ${result.version} (pid ${result.pid})`;
@@ -112,16 +126,18 @@ export function renderResult(result: DaemonResult, compact = false, executable =
     case "Events":
       return [
         ...(result.gap ? ["gap: true"] : []),
-        ...result.events.map(
-          ({ seq, at, event }) =>
-            `${seq} ${DateTime.formatIso(at)} ${event._tag} ${oneLine(eventSummary(event))}`,
-        ),
-        `next: ${result.next}`,
+        ...result.events
+          .filter(({ event }) => verbose || (event._tag !== "Other" && event._tag !== "TokenUsage"))
+          .map(
+            ({ seq, at, event }) =>
+              `${seq} ${DateTime.formatIso(at)} ${event._tag} ${oneLine(eventSummary(event))}`,
+          ),
+        `next: ${executable} events ${eventsName} --after ${result.next}${verbose ? " --verbose" : ""}`,
       ].join("\n");
     case "Ok":
       return "ok";
     case "Accepted":
-      return `ok\nnext: ${result.next}`;
+      return `ok${result.delivery === "queued" ? " (answer queued for the next available turn)" : ""}\nnext: ${result.next}`;
     case "Result":
       return [
         renderDigest(result.digest),
@@ -148,6 +164,7 @@ export function renderResult(result: DaemonResult, compact = false, executable =
         ...(result.runs.length === 0 ? [] : [""]),
         `cursor: ${result.cursor}`,
         `next: ${result.next}`,
+        ...(result.alternative ? [`or: ${result.alternative}`] : []),
       ].join("\n");
   }
 }

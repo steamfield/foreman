@@ -76,12 +76,12 @@ Use the delegated repo's install command in `--setup`. forman creates `<main che
 
 The contract should give the goal, files the delegate may change, checks to run and the expected hand-off. Runs are read-only by default; use `--write` for coding work. The default model is the newest visible `gpt-*-sol` in Codex's model cache, falling back to `gpt-6.1-sol`; effort defaults to `high`, tier to `priority`, budget to one hour and question timeout to 15 minutes.
 
-Here is a small example in this repo. Start from its main checkout, with `forman` on `PATH` and repo setup complete. The branch and worktree names must be unused:
+Here is a small example in this repo. Start from its main checkout, with `forman` on `PATH` and repo setup complete. Scope lines need a leading bullet and backticked paths. The branch and worktree names must be unused:
 
 ```sh
 cat > /tmp/fix-doctor-contract.txt <<'CONTRACT'
 Improve the doctor help description so it mentions repo hook trust.
-May change: src/commands/doctor.ts only.
+- May change: `src/commands/doctor.ts`
 Run: bun run lint and bun run typecheck.
 Leave changes uncommitted. Report the change and check results.
 CONTRACT

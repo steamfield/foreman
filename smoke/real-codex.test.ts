@@ -120,14 +120,24 @@ smoke("3 steer during slow commands changes the final answer", async (f) => {
   expect(late.stderr).toContain("RunConflict");
 });
 
-smoke("4 interrupt cancels a question, refuses its answer and permits followup", async (f) => {
+smoke("4 interrupt cancels a question, accepts its late answer and permits followup", async (f) => {
   const question = await f.until(await f.start(ask), "question");
   await f.ok(["interrupt", "smoke"]);
   await f.until(question, "interrupted");
-  const refused = await f.run(["answer", "smoke", questionId(question), "TOO-LATE", "--json"]);
-  expect(refused.status).toBe(8);
-  expect(refused.stdout).toBe("");
-  expect(refused.stderr).toContain("RunConflict");
+  const late = await f.ok([
+    "answer",
+    "smoke",
+    questionId(question),
+    "Run no commands and ask no questions. Reply exactly LATE-ANSWER-OK.",
+    "--wait",
+  ]);
+  expect(late).toContain("done        smoke turn 2");
+  expect((await f.result()).handoff?.text.trim()).toBe("LATE-ANSWER-OK");
+  expect((await f.events()).map(({ event }) => event)).toContainEqual({
+    _tag: "QuestionResolved",
+    id: questionId(question),
+    resolution: "late",
+  });
   const followup = await f.ok([
     "followup",
     "smoke",
@@ -278,24 +288,24 @@ smoke("8 unapproved repo hooks refuse start before any turn and doctor explains"
 });
 
 smoke(
-  "9 unanswered question auto-answers after its timeout and survives the hold",
+  "9 unanswered question defers after its timeout and survives the hold",
   async (f) => {
     const timeout = short ? "1m" : "15m";
     const holdMs = (short ? 2 : 16) * 60_000;
     const question = await f.until(
       await f.start(
-        "Before doing anything else call ask_orchestrator with question 'Choose the token or let me choose after timeout'. Wait for its answer. If told to proceed with best judgment, choose AUTO-ANSWER-USED and include that token and the received answer in your final hand-off. Run no commands.",
+        "Before doing anything else call ask_orchestrator with question 'Which label does the human approve?'. Wait for its answer. If told there is no answer yet, leave that decision open and include the standalone completion marker DEFERRAL-USED and the complete received answer in your final hand-off under Open. Run no commands.",
         ["--question-timeout", timeout, "--budget", "20m"],
       ),
       "question",
     );
     const heldAt = Date.now();
     const done = await f.until(question, "done", short ? "2m" : "16m");
-    expect(done).toContain("AUTO-ANSWER-USED");
-    expect((await f.result()).handoff?.text).toContain("No answer from the orchestrator");
+    expect(done).toContain("DEFERRAL-USED");
+    expect((await f.result()).handoff?.text).toContain("No answer yet");
     expect(
       (await f.events()).some(
-        ({ event }) => event._tag === "QuestionResolved" && event.resolution === "auto-answered",
+        ({ event }) => event._tag === "QuestionResolved" && event.resolution === "deferred",
       ),
     ).toBe(true);
     const history = (await readFile(join(f.data, "runs/smoke/questions.jsonl"), "utf8"))
@@ -303,7 +313,7 @@ smoke(
       .split("\n")
       .map((line) => Schema.decodeUnknownSync(QuestionLine)(JSON.parse(line)));
     const asked = history.find((line) => line._tag === "Asked");
-    const answered = history.find((line) => line._tag === "Resolved");
+    const answered = history.find((line) => line._tag === "Deferred");
     if (!asked || !answered) throw new Error("Missing timed question history");
     expect(
       DateTime.toEpochMillis(answered.at) - DateTime.toEpochMillis(asked.at),

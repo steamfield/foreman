@@ -69,15 +69,15 @@ Claude Code
 
 Any command that needs the daemon connects to `$FORMAN_HOME/forman.sock`. If the connection fails, it spawns `forman daemon` fully detached (new session, stdin, stdout and stderr on `/dev/null`) so the calling command never waits on the daemon's output, then polls the socket for up to 10 s. Several CLIs doing this at once is normal, since Claude starts units in parallel; the daemon's own startup sorts out which one wins:
 
-1. Take the lock by creating `$FORMAN_HOME/daemon.lock` with exclusive create and its owner PID. If it exists, try connecting to the socket: success means another daemon is running, so exit 0. On failure, a confirmed-dead recorded owner permits immediate takeover under the reclaim guard; a live owner is preserved. Legacy empty or torn owner records keep the 30-second age rule. This lets the command after SIGKILL restart within the CLI's 10-second startup limit.
+1. Hold an exclusive SQLite transaction on `$FORMAN_HOME/daemon.guard.sqlite`. SQLite supplies OS-managed advisory file locks through the built-in `node:sqlite` in both Bun and Node, without a native addon. A busy lock means another owner, so exit 0. The kernel releases ownership on process death, including SIGKILL; neither PID reuse nor a stale record delays takeover. Never remove this database, since contenders must lock the same inode. Use a local filesystem with advisory locking. `$FORMAN_HOME/daemon.lock` holds the PID for diagnostics only.
 2. Remove a leftover socket file (Effect's socket server doesn't), then listen.
-3. Remove the lock on exit.
+3. On every exit, close the listener, interrupt and join connection dispatch, then close the supervisor scope and join its workers, subprocesses, persistence and rollback finalizers. Remove the diagnostic PID record and any remaining socket path, then close the lock database. The socket server may unlink its pathname when the listener closes; ownership remains locked throughout supervisor cleanup.
 
 The CLI spawns the daemon with its own executable: `process.execPath daemon` for the compiled binary, and `bun src/bin.ts daemon` when running from source (`bun run dev`), chosen by whether `process.execPath` is the `bun` runtime.
 
-The daemon exits after 30 minutes with no run in `starting`, `running` or `waiting` and no open connection. It stops listening before it exits, and the CLI treats a connection reset during connect the same as no daemon. macOS limits socket paths to 104 bytes; the daemon refuses to start with a clear error if the path is longer.
+The daemon exits after 30 minutes with no run in `starting`, `running` or `waiting` and no open connection. It stops listening before it exits, and the CLI treats a connection reset during connect the same as no daemon. Ping and Shutdown replies each have a 10-second deadline. `daemon stop` also bounds connection acquisition to 10 seconds, then allows a separate 10 seconds for cleanup. Shutdown confirmation requires the socket and PID record to disappear and the advisory lock to become available. A Shutdown timeout is ambiguous: inspect daemon state before retrying. The client never replays a mutation after a timeout. macOS limits socket paths to 104 bytes; both caller and daemon validate the UTF-8 byte length before connecting or starting.
 
-The daemon logs to `$FORMAN_HOME/logs/daemon.jsonl` by default (it has no terminal), and the app server's stderr goes to `$FORMAN_HOME/logs/app-server.log`. Both are rotated like the CLI log.
+The daemon logs to `$FORMAN_HOME/logs/daemon.jsonl` by default (it has no terminal), and the app server's stderr goes to `$FORMAN_HOME/logs/app-server.log`. Both are rotated like the CLI log. Fatal daemon causes are recorded before the logger drains, with safe operation fields and message-free defect frames.
 
 ### The app server's environment
 
@@ -102,7 +102,7 @@ A run is one Codex thread working in one worktree. Claude names it (`[a-z0-9][a-
 | `failed` | The last turn failed, with the error recorded |
 | `interrupted` | The last turn was interrupted by Claude or by the time budget |
 | `lost` | The daemon or app server went away while a turn was in progress |
-| `unknown` | A `thread/start` or `turn/start` request timed out; the daemon reconciles from the next notification for that thread, or marks it `lost` after 5 minutes |
+| `unknown` | Execution is unconfirmed; reconcile from the next notification, or retire and join that app-server connection before marking it `lost` after 5 minutes |
 
 `starting`, `running`, `waiting` and `unknown` are active. The rest are inactive and accept a follow-up. Only active runs block anything: a new run may reuse the name or worktree of an inactive run, in which case the old run's directory is moved to `runs/.archive/<name>-<timestamp>/`. A follow-up on an inactive run whose worktree no longer exists is refused.
 
@@ -113,16 +113,32 @@ State lives in `$FORMAN_HOME/runs/<name>/`:
 | `run.json` | name, thread id, group, worktree, main checkout, base commit, optional `managedWorktree {branch, baseCommit, fromRef}` ownership, model, effort, sandbox, tier, budgets, state, timestamps, latest token totals |
 | `contract.md` | the contract as given at `start`, copied so the digest doesn't depend on Claude's scratchpad |
 | `events.jsonl` | normalized events, each with a sequence number and timestamp |
-| `codex.jsonl` | the raw app-server notifications and requests for this thread, for diagnosing a failed run |
-| `questions.jsonl` | one line per question asked, answered, auto-answered or cancelled |
+| `codex.jsonl` | bounded app-server notifications and requests, with secret-looking keys and values redacted |
+| `questions.jsonl` | question history: asked, deferred and resolved (including legacy auto-answered or cancelled records) |
 | `turns/<n>.md` | the final answer of turn `n`, when it produced one |
 | `last-message.md` | a copy of the newest `turns/<n>.md`, the name the codex-delegate skill already reads |
 | `start-mark` | an empty file touched at start, for finding files written during the run |
 | `baseline.txt` | `git status` at start, for the "new since start" comparison |
 
-`run.json` is written atomically (temp file and rename). The daemon rebuilds its registry from these files at startup.
+`run.json` is written atomically (temp file and rename). It and raw Codex records carry `formatVersion: 1`; new question and event lines carry `formatVersion: 2`. Readers accept versions 1 and 2, treating unversioned records as version 1. Version 2 fences out older readers before decoding the new question states. An unsupported version fences the whole run against writes and appends, including startup recovery and archive cleanup. Opening a run validates existing history; the serialized writer tracks checked file identities and metadata and records its own appends, avoiding repeated scans of unchanged logs. Start refuses unreadable or unsupported names and preserves their directories. Automatic deletion applies only to unpublished staging directories that this operation created.
 
-Normalized events cover what the digest and `forman events` need: turn started and completed (status, error), command executions (command, exit code, status, the last 2 KB of output), file changes (paths), agent messages, hook runs that blocked something, questions, steers and follow-ups Claude sent, token totals, and MCP startup failures. Agent message deltas and reasoning items are dropped.
+Question history records `Deferred {id, by: "timeout" | "orchestrator", note?, at}`. `Resolved` records use `answered`, `late`, `correction` or `superseded`, retaining legacy `auto-answered` and `cancelled`; delivered answers include `delivery: "response" | "steer" | "followup" | "queued"`. Events publish the corresponding `QuestionResolved` resolution, including `deferred`. Pending questions have an open RPC; unanswered questions are deferred questions with no subsequent resolution. CLI and daemon exchange these states only on compatible builds. An older busy daemon stays alive until its runs finish, so the CLI refuses `defer` and late answers or corrections against it; in-time answers remain supported.
+
+State changes persist a pending transition identifier in `run.json` before appending the matching event. Startup streams the history to find that identifier, publishes missing transitions and clears completed ones without duplicating attention. Turn hand-offs and `last-message.md` also publish through temporary files and rename; readers ignore unfinished temporary files.
+
+New wait cursors use UTF-8 with an explicit `u1.` prefix. Unprefixed legacy cursors keep their Latin-1 decoding, including paths whose bytes could also be interpreted as UTF-8.
+
+Queued answers use a FIFO worker separate from protocol notifications, which must keep processing while a continuation waits. Outstanding answers retain the run's ownership and prevent shutdown between turns. A queued answer's cursor carries a continuation id; its delivery publishes `QuestionResolved.continuation {id, turn}`, binding that cursor to the actual receiving turn rather than an estimated turn number. This binding remains readable from event history after delivery.
+
+Normalized events cover what the digest and `forman events` need: turn started and completed (status, error), command executions (command, exit code, status, redacted output tail), file changes (paths), agent messages, hook runs that blocked something, questions, steers and follow-ups Claude sent, token totals, and MCP startup failures. Command output tails retain their last 2 KB with best-effort redaction. Agent message deltas and reasoning items are dropped.
+
+Diagnostic persistence keeps useful stderr, raw wire bodies and command tails while redacting secret-looking keys using the logger’s secret/password/token/authorization/cookie/API-key/access-key rules. Text redaction also covers sk- and GitHub token shapes, Bearer values, secret KEY=value assignments, complete private-key blocks within a record and long base64/hex-like blobs. Stderr tracks private-key blocks across lines per connection and replaces every block line with a redaction marker. UUID-shaped identifiers remain readable. Normalized file-change paths remain exact because scope reporting uses them as identities. Redaction is best effort: unknown credential formats can escape it, and ordinary opaque strings can be redacted. Review captures before sharing. The daemon keeps all of this under its private 0700 home, and stderr and raw capture files are created with mode 0600. Existing captures are not rewritten. There is no unrestricted wire-capture mode.
+
+Contracts, agent messages, questions, answers and hand-offs remain private run data, even when their diagnostic text has been redacted. Preserve requested hand-offs before cleanup.
+
+`codex.jsonl`, daemon/app-server logs and the configured CLI file sink rotate at 5 MB, keeping one `.1` file; an oversized single diagnostic record becomes an omission marker. Event pages stream committed records and stop after the requested page. Normalized events and questions retain their complete history, so archives have no automatic age or aggregate-size deletion policy.
+
+To reclaim archives, inspect `runs/.archive/<name>-<timestamp>/`, copy any requested hand-offs (`turns/` and `last-message.md`) and needed contracts or diagnostics to the chosen retention location, then remove only the reviewed archive directory. Retain archives until their work is reviewed and those artifacts are saved; clean them manually after releases or when checking disk usage. Never include a worktree, branch, current run or unreadable run directory in archive cleanup. Unpublished `.tmp-*` directories may be inspected and removed while the daemon is stopped; they are never grounds to delete a published name.
 
 ## Commands
 
@@ -166,7 +182,13 @@ Every run belongs to a group: the main checkout of its worktree. `status` with n
 
 `--new-worktree` creates `<main checkout>/.claude/worktrees/<name>` on a new branch `forman/<name>`, from the HEAD of the repository containing the caller's current directory, or `--from <ref>`. It refuses existing paths and branches. It adds `.claude/worktrees/` to the common `.git/info/exclude` unless Git already ignores it. `--setup` runs `/bin/sh -c` in the created worktree with the app-server environment before validation or any Codex request. `--worktree <path>` remains the prepared-worktree alternative; the flags are mutually exclusive, and `--from` and `--setup` require `--new-worktree`.
 
+Start mode validation runs before discovery or reservation; `src/core/start-mode.ts` supplies the shared validator used by the daemon. On the current wire protocol, `Start.worktree` is the source directory in managed mode and the prepared destination otherwise. Setup defaults to a ten-minute deadline. An explicit `start --budget <duration>` also sets the setup deadline, with the turn receiving its own budget of that duration afterward. `Turns.cancelStart(name)` cancels preflight without waiting for the run's name lock; interrupt dispatch must call it before looking up a registered run. Cancellation and timeout close the command scope, terminate and join its process group (escalating to SIGKILL after two seconds), then attempt rollback and release the reservation before acknowledging cancellation.
+
+Command capture retains at most 1 MiB per output stream by default and fails visibly on overflow so Git parsers cannot consume partial output. Setup explicitly requests a 4096-byte tail per stream; failure details include an overflow note when output was discarded.
+
 Creation and removal live in `src/core/managed-worktree.ts`, using `main-checkout.ts` and `process.ts`. The daemon holds the run's name lock through setup, validation, registration and startup. Under the registration lock it reserves the destination before creation and keeps that reservation through rollback or publication, blocking a differently named run from entering a worktree still in setup. Different runs can install concurrently. The run keeps its ownership, branch, original base commit and source ref. Branch source refs remain symbolic so archive can recognize a later merge; detached or tag bases remain commits.
+
+Rollback tracks branch acquisition separately from successful worktree creation. It reserves the empty destination directory and records its filesystem identity before adding the worktree. A failed or interrupted add never authorizes worktree removal. Successful creation also records the `.git` file and administration directory identities and transfers this receipt to Start before leaving its interruption mask. Rollback checks those identities, the registered path and branch, and the original HEAD before removal. Dirty, replaced or advanced worktrees remain for inspection. Git removes worktrees without `--force`, and branch deletion uses the original expected OID and refuses a branch still checked out in any worktree. A failed rollback reports the retained path alongside the original failure. Cancellation acknowledges only when it won preflight, after cleanup and reservation release; a completed or rejected preflight returns false so interrupt dispatch can check the registered run.
 
 `archive` removes a forman-created worktree and branch only with no uncommitted or untracked files and either no new commits or a tip already merged into its source branch. It also refuses when another active or starting run reserves that path, or HEAD is detached. Branch deletion uses the checked tip as its expected OID, preserving a branch that advances during removal. Otherwise `RunConflict.detail` names the path, branch, remaining work and `forman archive <name> --keep-worktree`. That option archives the record while keeping both. Passed worktrees are never removed. Named and unnamed `status`, and `doctor`, list orphan directories under `.claude/worktrees/` on `forman/*` branches with no unarchived run, including their path, branch and whether they hold work. Without trustworthy run metadata, an orphan's commits are compared conservatively with main HEAD.
 
@@ -215,13 +237,32 @@ Every thread registers one dynamic tool:
 
 `kind` lets `status` tell a blocker from a question. On `item/tool/call` for this tool the daemon assigns a question id (`q1`, `q2`, ... per run), appends it to `questions.jsonl`, sets the run to `waiting`, wakes waiters, and holds the JSON-RPC request. Several questions can be pending at once if the model calls the tool in parallel; the digest lists each. `answer` replies `{success: true, contentItems: [{type: "inputText", text}]}`.
 
-When a question's timeout passes, the daemon answers "No answer from the orchestrator. Proceed with your best judgment and note this question and your choice under Open in the hand-off." and records it `auto-answered`. Spike 1 held a call for 3 minutes. The smoke suite has a separately enabled 15-minute timeout with a 16-minute observation window (`FORMAN_SMOKE_LONG=1`); unit 11 runs a one-minute timeout and two-minute observation window (`FORMAN_SMOKE_SHORT=1`) to check the mechanism. A 15-minute pending call is still unverified; the long case must pass before treating that duration as established.
+When a question's timeout passes (15 minutes by default), the daemon frees the tool call with this deferral and records `Deferred` by `timeout`:
+
+> No answer yet; the decision may need a person and can take a while. Continue with all work that doesn't depend on it. For the question itself, take no irreversible step and nothing outside the contract; if a safe, reversible default exists, use it and say so; otherwise leave that part undone. End your turn normally and list the question, and what you did about it, under Open. The answer will arrive as a message later.
+
+`forman defer <run> <question-id> ["note"]` frees a pending call immediately with the same text, adding `Orchestrator note: <note>` when supplied, and records `Deferred` by `orchestrator`. Deferring a non-pending question conflicts and names its state. The timeout flag and default stay unchanged. Spike 1 held a call for 3 minutes. The smoke suite has a separately enabled 15-minute timeout with a 16-minute observation window (`FORMAN_SMOKE_LONG=1`); the short case uses a one-minute timeout and two-minute observation window (`FORMAN_SMOKE_SHORT=1`). A 15-minute pending call is still unverified; the long case must pass before treating that duration as established.
 
 When a turn ends with questions pending, they are recorded `cancelled`, because the app server cancels the call itself and drops a later answer without a word.
+
+`forman answer <run> <question-id> "<text>"` also accepts closed questions. An answer to an already answered question is a correction. The daemon frames late answers as `Answer to your earlier question q2 ("<question text>"): <text>` and corrections as `Correction to your answer to q2 ("<question text>"): <text>`, then routes them by run state:
+
+| Run state | Delivery |
+| --- | --- |
+| Another question pending | Conflict: `answer q3 first; the answer can carry this too` |
+| Normal turn running | Steer; if Codex refuses, start a follow-up when the turn ends in the same command |
+| Budget hand-off running | Accept and queue a follow-up after the hand-off; the acknowledgement says it is queued |
+| Inactive (idle, failed, lost or interrupted) | Follow-up on the saved thread, using the usual worktree and start checks |
+
+These commands' `--wait` and `next:` continuations target this run only. An answer queued during a hand-off waits for the answer's follow-up, rather than returning the hand-off's completion or an earlier queued answer's completion. Further answers and corrections join the same queue while older answers await delivery.
+
+Only a newly deferred question is unanswered. An answer closes it as `late`; an explicit `steer` or `followup` closes all unanswered questions as `superseded`. Legacy `auto-answered` and `cancelled` questions never appear unanswered, but still accept late answers. Status shows `question: q2 deferred, unanswered` with its text. On completion, wait says `done, N unanswered question[s]`, or `blocked on q2` for a blocked question. Its `next:` suggests `forman answer <run> q2 "<answer>"`. On arrival of a pending question it suggests the same answer command, followed by `or: forman defer <run> q2`.
 
 Any other dynamic tool call or server request gets a JSON-RPC error response, so nothing unexpected can hang a turn.
 
 ### Resume and the tool
+
+Existing threads retain their original tool description. The timeout response explains deferral itself.
 
 `thread/resume` takes no `dynamicTools`, but the unit 11 real-Codex test confirms that `ask_orchestrator` survives a daemon/app-server restart on Codex 0.166.0. The resumed thread asks a question and uses the CLI's answer in its hand-off. The captured resume response reports `sandbox: {type: "readOnly"}` and the original run model. forman passes `model`, `serviceTier`, `approvalPolicy`, `sandbox` and `cwd` from `run.json` on every resume, preventing fallback to the user's defaults. A write run also resumes with `sandbox: {type: "dangerFullAccess"}` and can write a file after restart. Every successful resume appends a `Resumed {sandbox, model}` event decoded through `ThreadOpened`; a differing sandbox produces `resumed with sandbox X, run expects Y` in the digest, using Codex policy names. There is no warning about the question tool after resume.
 
@@ -229,7 +270,7 @@ Any other dynamic tool call or server request gets a JSON-RPC error response, so
 
 `forman wait` returns when one of the named runs (or any run in the group, with `--all`) has something newer than its cursor: a question pending, a turn completed, failed or interrupted, or the run lost. With `--all` and no active run in the group, it returns at once with `none`. Without `--after` it returns anything that happened since the run started that Claude hasn't been given a cursor past.
 
-Each result prints a cursor line (`cursor: <opaque>`) and ends with the exact continuation command: `next: <executable> wait <same names, or --all> --after <cursor>`, followed by `--timeout <dur>` if supplied. The invoking CLI selects the executable as described above. This applies to `timeout` and `none` too. JSON `Waited` includes the command in `next`. The daemon keeps no per-reader state, so a `status` from another session or a `wait` killed mid-print loses nothing.
+Each result prints a cursor line (`cursor: <opaque>`). Pending or unanswered questions suggest `next: <executable> answer <name> <question-id> "<answer>"`; pending questions also print `or: <executable> defer <name> <question-id>`. Other results, including `timeout` and `none`, end with `next: <executable> wait <same names, or --all> --after <cursor>`, preserving `--timeout <dur>` if supplied. The invoking CLI selects the executable as described above. JSON `Waited` includes `next` and an optional `alternative` for defer. The daemon keeps no per-reader state, so a `status` from another session or a `wait` killed mid-print loses nothing.
 
 Claude starts a single delegation with `start --wait` as a background Bash task. If it asks a question, `answer <name> <id> <text> --wait` resumes and waits in one more call. A delegation needing no answer is one call; one question is two. `steer --wait` and `followup --wait` use the same loop. On timeout, run the printed `next:` command. For several units, start without `--wait` and use `forman wait --all` for the group. After a request without `--wait`, use its acknowledgement's `next:` command, whose cursor skips attention from before acceptance. Terminal outcomes carry the turn's hand-off, so reading it needs no separate `result` call. `result` remains available to reread hand-offs and can fall back to an earlier turn; wait carries null when its completed turn has no hand-off.
 
@@ -239,7 +280,8 @@ Claude starts a single delegation with `start --wait` as a background Bash task.
 question  unit-a q2 (blocked): lint rejects the CLI-help test's runtime imports under src/
 done      unit-b turn 1
 cursor:   7f3a…
-next: forman wait --all --after 7f3a…
+next: forman answer unit-a q2 "<answer>"
+or: forman defer unit-a q2
 ```
 
 The other first words are `failed`, `interrupted`, `lost`, `timeout` and `none`. meight's scheme (1 timeout, 2 failed, 3 question) is not used because 2 and 3 already mean usage error and invalid config in this project's error table. Claude reads a background task's output either way, so the exit code only separates "here is something" from "forman itself broke".
@@ -301,14 +343,16 @@ The hand-off of a turn is its `agentMessage` with `phase: "final_answer"`, or it
 | --- | --- |
 | Setup, preflight, hook trust or thread startup refuses a new worktree | Roll back only the worktree and branch created in that call. Setup errors carry its exit code and output tail in `WorktreeInvalid.detail`; passed worktrees remain untouched. Retain a worktree after an unconfirmed turn start even if still clean, or whenever a failed turn start leaves work; preserve the recovery state and report its path and branch in the refusal and digest warning |
 | Archive finds work | Refuse with `RunConflict`, naming path, branch and remaining files or commits; `--keep-worktree` archives while retaining them, then orphan diagnostics keep them visible |
-| App server exits | Active runs become `lost`, pending questions `cancelled`; the next request that needs it restarts the app server; a follow-up resumes the thread |
+| App server exits | Log its safe termination reason once with affected run identities, persist that reason on each active run as it becomes `lost`, and cancel pending questions; the next request that needs it restarts the app server; a follow-up resumes the thread |
 | Daemon exits | Same, found from `run.json` at the next daemon start |
-| One run's background work fails | Log once with the run name and reason. An unconfirmed active turn stays `unknown` with its turn ID and worktree reservation; other failures become `failed` and wake waiters. Each run consumes its own ordered message queue, so its lock and worktree scans cannot delay other runs. Acquire run locks before the global registration lock; release registration before thread and turn RPCs. Only infrastructure failures reach the daemon's fatal worker boundary |
+| One run's background work fails | Log once with run identity, error tag and safe platform operation/path/reason or message-free defect frames; include the same fields for a recovery failure. An unconfirmed active turn stays `unknown` with its turn ID and worktree reservation; other failures become `failed` and wake waiters. Each run consumes its own ordered message queue, so its lock and worktree scans cannot delay other runs. Acquire run locks before the global registration lock; release registration before thread and turn RPCs. Only infrastructure failures reach the daemon's fatal worker boundary |
 | Worktree removed during a turn | Completion keeps the last available worktree fields. Digests warn that the worktree was removed; the daemon and other runs continue |
 | Crash during a JSONL append | Ignore the final line without a newline and truncate it before the next append. Corruption in complete records still fails that run's recovery; log its name and skip it while recovering the others |
-| Crash during run creation | Build under `runs/.tmp-<name>-<random>` and publish by rename after writing `run.json`. Registry discovery ignores staging directories; Start removes an unregistered directory occupying the requested name |
+| Crash during run creation | Build under `runs/.tmp-<name>-<random>` and publish by rename after writing `run.json`. Registry discovery ignores staging directories; Start refuses an unreadable published name and preserves all its files |
 | Request times out | `thread/start` waits up to 180 s (MCP servers can take 120 s to start); other requests 30 s. A timed-out `thread/start` or `turn/start` puts the run in `unknown`, and a retry is refused while it is |
-| Recording `unknown` fails | Keep the reservation in memory and the five-minute recovery deadline armed. Once storage is writable, the deadline can still mark the run `lost` |
+| Recording `unknown` fails | Keep the reservation and any acknowledged turn ID in memory and the five-minute recovery deadline armed. Retire and join its app server before releasing ownership, even when storage is damaged; every retirement caller waits for the shared process-resource cleanup completion, including an already-closing scope. The same connection's other active runs become lost too |
+| CLI disconnects during Answer | An accepted Answer has a daemon-owned lifetime through delivery and resolution persistence. Pending calls carry their originating connection generation and cannot be answered on a replacement connection |
+| Crash between state and event publication | Replay the pending transition by its identifier at startup, including inactive `lost` and `failed` records, so a continuing wait receives the outcome |
 | A message fails to decode | Logged and recorded. `turn/started` and `turn/completed` fall back to a minimal decode of `threadId`, `turn.id` and `turn.status`, so a schema change can't leave a run `running` forever |
 | Unknown notification or item type | Recorded as a generic event |
 

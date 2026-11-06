@@ -5,6 +5,7 @@ import { doctorCommand } from "./commands/doctor";
 import {
   answerCommand,
   archiveCommand,
+  deferCommand,
   eventsCommand,
   followupCommand,
   interruptCommand,
@@ -18,7 +19,12 @@ import { Output } from "./services/output";
 
 export const cli = (name: string) =>
   Command.make(name).pipe(
-    Command.withSharedFlags({ json: Flag.Boolean("json").pipe(Flag.withDefault(false)) }),
+    Command.withSharedFlags({
+      json: Flag.Boolean("json").pipe(
+        Flag.withDefault(false),
+        Flag.withDescription("Print the complete result as JSON."),
+      ),
+    }),
     Command.withHandler(() =>
       Effect.fail(new CliError.ShowHelp({ commandPath: [name], errors: [] })),
     ),
@@ -30,6 +36,7 @@ export const cli = (name: string) =>
       followupCommand,
       interruptCommand,
       answerCommand,
+      deferCommand,
       resultCommand,
       archiveCommand,
       waitCommand,

@@ -143,6 +143,36 @@ it.effect(
     }).pipe(Effect.provide(NodeServices.layer)),
 );
 
+it.effect.each(["", "./", "././"])(
+  "matches May change stars within segments and globstars across directories, prefix=%s",
+  (prefix) =>
+    Effect.gen(function* () {
+      const { fs, path, worktree, runDir } = yield* setup(
+        `- May change: \`dirty.txt\`, \`${prefix}tests/run-*.test.ts\`, \`${prefix}src/**/*.ts\`, \`literal[1].txt\`, \`assets/\`\n`,
+      );
+      for (const file of [
+        "tests/run-store.test.ts",
+        "tests/run-deep/nested.test.ts",
+        "tests/other.test.ts",
+        "src/main.ts",
+        "src/core/nested/file.ts",
+        "src/core/file.ts.bak",
+        "literal[1].txt",
+        "literal1.txt",
+        "assets/deep/file.bin",
+      ]) {
+        yield* fs.makeDirectory(path.dirname(path.join(worktree, file)), { recursive: true });
+        yield* fs.writeFileString(path.join(worktree, file), "written\n");
+      }
+      expect((yield* computeWorktreeFields(worktree, runDir)).outsideMayChange).toEqual([
+        "literal1.txt",
+        "src/core/file.ts.bak",
+        "tests/other.test.ts",
+        "tests/run-deep/nested.test.ts",
+      ]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+);
+
 it.effect("returns empty worktree lists when there are no new writes or status entries", () =>
   Effect.gen(function* () {
     const { fs, path, worktree, runDir } = yield* setup("- May change: `dirty.txt`\n");

@@ -21,6 +21,7 @@ import { buildDigest } from "../core/runs/digest";
 import * as Store from "../core/runs/store";
 import { computeWorktreeFields, type WorktreeFields } from "../core/runs/worktree";
 import { CodexUnavailable, RunConflict, RunNotFound } from "../errors";
+import { causeFields } from "../logging";
 import type { RpcId, ThreadItem } from "../schemas/codex";
 import {
   activeStates,
@@ -30,13 +31,16 @@ import {
   type RunRecord,
   type RunState,
 } from "../schemas/daemon";
+import type { AppServer } from "./app-server";
 
 export interface Run {
   record: RunRecord;
   readonly dir: string;
   readonly lock: Semaphore.Semaphore;
-  readonly calls: Map<QuestionId, RpcId>;
+  readonly calls: Map<QuestionId, { id: RpcId; server: AppServer }>;
   readonly messages: Queue.Queue<Effect.Effect<void, unknown>, Cause.Done>;
+  readonly answers: Queue.Queue<Effect.Effect<void, unknown>, Cause.Done>;
+  queuedAnswers: number;
   items: ThreadItem[];
   projectHook: boolean;
   hooksRequired: boolean;
@@ -44,6 +48,7 @@ export interface Run {
   budgetExpired: boolean;
   budgetTurnId: string | null;
   serverGeneration: symbol | null;
+  retireServer: Effect.Effect<void>;
   recoveryVersion: number;
 }
 
@@ -72,7 +77,7 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
       if (
         other.record.name !== name &&
         other.record.worktree === worktree &&
-        activeStates.has(other.record.state)
+        (activeStates.has(other.record.state) || other.queuedAnswers > 0)
       )
         return yield* new RunConflict({
           detail: `${other.record.name} is ${other.record.state} in ${worktree}; wait or interrupt it before reusing this worktree.`,
@@ -84,7 +89,7 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
       Effect.gen(function* () {
         yield* requireWorktreeAvailable(name, worktree);
         const previous = runs.get(name);
-        if (previous && activeStates.has(previous.record.state))
+        if (previous && (activeStates.has(previous.record.state) || previous.queuedAnswers > 0))
           return yield* new RunConflict({
             detail: `${name} is ${previous.record.state}; wait or interrupt it first.`,
           });
@@ -110,6 +115,8 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
       lock: yield* lockFor(record.name),
       calls: new Map(),
       messages: yield* Queue.unbounded<Effect.Effect<void, unknown>, Cause.Done>(),
+      answers: yield* Queue.unbounded<Effect.Effect<void, unknown>, Cause.Done>(),
+      queuedAnswers: 0,
       items: [],
       projectHook: false,
       hooksRequired: false,
@@ -117,6 +124,7 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
       budgetExpired: false,
       budgetTurnId: null,
       serverGeneration: null,
+      retireServer: Effect.void,
       recoveryVersion: 0,
     };
     runs.set(record.name, run);
@@ -124,6 +132,21 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
       workers,
       Stream.fromQueue(run.messages).pipe(
         Stream.runForEach((work) => background(run, run.lock.withPermits(1)(work))),
+      ),
+    );
+    // Continuations wait outside the notification lock, in acceptance order.
+    yield* FiberSet.run(
+      workers,
+      Stream.fromQueue(run.answers).pipe(
+        Stream.runForEach((work) =>
+          background(run, work).pipe(
+            Effect.ensuring(
+              Effect.sync(() => {
+                run.queuedAnswers -= 1;
+              }),
+            ),
+          ),
+        ),
       ),
     );
     return run;
@@ -140,11 +163,25 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
   });
   const event = (run: Run, body: RunEventBody) =>
     Store.appendEvent(run.dir, body).pipe(Effect.tap(() => wake));
+  // Finish the journal before interruption can release the run lock or expose the state.
   const state = Effect.fnUntraced(function* (run: Run, to: RunState) {
+    yield* publishState(run);
     const from = run.record.state;
     if (from === to) return;
-    yield* save(run, { state: to });
-    yield* event(run, { _tag: "StateChanged", from, to });
+    yield* save(run, { state: to, pendingStateEvent: { id: crypto.randomUUID(), from, to } });
+    yield* publishState(run);
+  }, Effect.uninterruptible);
+  const publishState = Effect.fnUntraced(function* (run: Run) {
+    const pending = run.record.pendingStateEvent;
+    if (!pending) return;
+    if (!(yield* Store.hasTransition(run.dir, pending.id)))
+      yield* Store.appendEvent(
+        run.dir,
+        { _tag: "StateChanged", from: pending.from, to: pending.to },
+        pending.id,
+      );
+    yield* save(run, { pendingStateEvent: null });
+    yield* wake;
   });
   const cancelQuestions = Effect.fnUntraced(function* (run: Run) {
     for (const question of Store.pendingQuestions(yield* Store.readQuestions(run.dir))) {
@@ -159,10 +196,13 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
       yield* event(run, { _tag: "QuestionResolved", id: question.id, resolution: "cancelled" });
     }
   });
-  const lost = Effect.fnUntraced(function* (run: Run) {
+  const lost = Effect.fnUntraced(function* (
+    run: Run,
+    reason = "daemon restarted before the turn ended",
+  ) {
     if (!activeStates.has(run.record.state)) return;
     yield* cancelQuestions(run);
-    yield* save(run, { activeTurnId: null });
+    yield* save(run, { activeTurnId: null, failure: { message: reason, codexErrorInfo: null } });
     yield* state(run, "lost");
   });
   const lookup = Effect.fnUntraced(function* (name: RunName) {
@@ -198,8 +238,10 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
                   isCurrent(run) &&
                   run.record.state === "unknown" &&
                   run.recoveryVersion === version
-                )
-                  yield* lost(run);
+                ) {
+                  yield* run.retireServer;
+                  yield* lost(run, "app server retired after unconfirmed execution");
+                }
               }),
             ),
           ),
@@ -212,7 +254,11 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
   const recover = Effect.fnUntraced(function* (
     run: Run,
     cause: Cause.Cause<unknown>,
-  ): Effect.fn.Return<string | null, never, FileSystem.FileSystem | Path.Path> {
+  ): Effect.fn.Return<
+    ReturnType<typeof causeFields> | null,
+    never,
+    FileSystem.FileSystem | Path.Path
+  > {
     if (Cause.hasInterruptsOnly(cause)) return null;
     const error = cause.reasons.find(Cause.isFailReason)?.error;
     const uncertain =
@@ -225,11 +271,15 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
       error instanceof CodexUnavailable ||
       error instanceof CodexRpcError
     );
+    const diagnostic = causeFields(cause);
     const patch = {
       ...(uncertain ? {} : { activeTurnId: null }),
       ...(infrastructure || !uncertain
         ? {
-            failure: { message: "Supervisor operation failed", codexErrorInfo: null },
+            failure: {
+              message: `Supervisor operation failed (${diagnostic.reasonTag}${diagnostic.method ? `: ${diagnostic.method}` : ""})`,
+              codexErrorInfo: null,
+            },
           }
         : {}),
     };
@@ -249,7 +299,7 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
     if (Exit.isFailure(recovery)) {
       run.record = { ...run.record, ...patch, state: next };
       yield* wake;
-      return reasonTag(recovery.cause);
+      return causeFields(recovery.cause);
     }
     return null;
   });
@@ -268,9 +318,17 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
             yield* Effect.logError("supervisor.run.failed").pipe(
               Effect.annotateLogs({
                 name: run.record.name,
-                reasonTag: reasonTag(cause),
+                ...causeFields(cause),
                 state: run.record.state,
-                recoveryReason,
+                recoveryReason: recoveryReason?.reasonTag ?? null,
+                ...(recoveryReason
+                  ? Object.fromEntries(
+                      Object.entries(recoveryReason).map(([key, value]) => [
+                        `recovery_${key}`,
+                        value,
+                      ]),
+                    )
+                  : {}),
               }),
             );
           }),
@@ -281,6 +339,14 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
     const context = yield* Effect.context<R>();
     yield* Queue.offer(run.messages, work.pipe(Effect.provide(context)));
   });
+  const enqueueAnswer = Effect.fnUntraced(function* <E, R>(
+    run: Run,
+    work: Effect.Effect<void, E, R>,
+  ) {
+    const context = yield* Effect.context<R>();
+    run.queuedAnswers += 1;
+    yield* Queue.offer(run.answers, work.pipe(Effect.provide(context)));
+  }, Effect.uninterruptible);
   const requireCurrent = Effect.fnUntraced(function* (run: Run) {
     if (!isCurrent(run))
       return yield* new RunNotFound({
@@ -330,12 +396,13 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
   for (const record of existing.runs) {
     const run = yield* add(record);
     yield* run.lock
-      .withPermits(1)(lost(run))
+      .withPermits(1)(publishState(run).pipe(Effect.andThen(lost(run))))
       .pipe(
         Effect.catchCause((cause) => {
           if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause);
           runs.delete(record.name);
           return Queue.end(run.messages).pipe(
+            Effect.andThen(Queue.end(run.answers)),
             Effect.andThen(
               Effect.logWarning("supervisor.run.skipped").pipe(
                 Effect.annotateLogs({ name: record.name, reasonTag: reasonTag(cause) }),
@@ -351,17 +418,20 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
       starts.withPermits(1)(
         Effect.gen(function* () {
           yield* requireCurrent(run);
-          if (activeStates.has(run.record.state))
+          if (activeStates.has(run.record.state) || run.queuedAnswers > 0)
             return yield* new RunConflict({
               detail: `${name} is ${run.record.state}; active runs cannot be archived.`,
             });
-          if (!keepWorktree && run.record.managedWorktree) {
-            yield* requireWorktreeAvailable(name, run.record.worktree);
-            yield* archiveWorktree(run.record);
-          }
-          const archivePath = yield* Store.archiveRun(dataDir, name);
+          const cleanup = Effect.gen(function* () {
+            if (!keepWorktree && run.record.managedWorktree) {
+              yield* requireWorktreeAvailable(name, run.record.worktree);
+              yield* archiveWorktree(run.record);
+            }
+          });
+          const archivePath = yield* Store.archiveRun(dataDir, name, cleanup);
           runs.delete(name);
           yield* Queue.end(run.messages);
+          yield* Queue.end(run.answers);
           yield* wake;
           return { _tag: "Archived" as const, name, archivePath };
         }).pipe(Effect.uninterruptible),
@@ -393,11 +463,14 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
     recover,
     background,
     enqueue,
+    enqueueAnswer,
     archive,
     busy: Effect.sync(
       () =>
         reservations.size > 0 ||
-        [...runs.values()].some((run) => activeStates.has(run.record.state)),
+        [...runs.values()].some(
+          (run) => activeStates.has(run.record.state) || run.queuedAnswers > 0,
+        ),
     ),
     change: Effect.suspend(() => Effect.succeed(Deferred.await(changed))),
   };

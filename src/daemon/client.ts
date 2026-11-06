@@ -4,6 +4,7 @@ import type { Socket } from "effect/socket";
 import { type AppError, DaemonUnavailable, Defect } from "../errors";
 import type { DaemonRequestBody, DaemonResult } from "../schemas/daemon";
 import { Host } from "../services/host";
+import { takeLock } from "./lock";
 import { errorFromResponse, lines, requestJson, responseJson } from "./protocol";
 import { DaemonSockets } from "./sockets";
 
@@ -74,6 +75,15 @@ const open = Effect.fnUntraced(function* (socketPath: string) {
   return { socket, reader: yield* socket.reader };
 });
 
+const validateSocketPath = (socketPath: string) =>
+  new TextEncoder().encode(socketPath).length > 104
+    ? Effect.fail(
+        new DaemonUnavailable({
+          detail: `Socket path exceeds 104 bytes: ${socketPath}. Set FORMAN_HOME to a shorter absolute path.`,
+        }),
+      )
+    : Effect.void;
+
 const connect = Effect.fn("daemon.connect")(
   function* (socketPath: string, options: CallOptions) {
     const initial = yield* Effect.result(open(socketPath));
@@ -111,6 +121,21 @@ const connect = Effect.fn("daemon.connect")(
 
 const connectionClosed = "Daemon connection closed during the request.";
 
+// Diagnostics never launch or replace a daemon; only a missing/refused socket is absence.
+export const probe = Effect.fn("daemon.probe")(function* (dataDir: string) {
+  const path = yield* Path.Path;
+  const socketPath = path.join(dataDir, "forman.sock");
+  yield* validateSocketPath(socketPath);
+  const opened = yield* open(socketPath).pipe(Effect.result);
+  if (opened._tag === "Failure") {
+    if (absent(opened.failure)) return null;
+    return yield* new DaemonUnavailable({
+      detail: "Could not read daemon socket; check home and socket permissions.",
+    });
+  }
+  return yield* exchange({ _tag: "Ping" }, opened.success.socket, opened.success.reader);
+}, Effect.scoped);
+
 const exchange = Effect.fn("daemon.exchange")(
   function* (body: DaemonRequestBody, socket: Socket.Socket, reader: Socket.Reader) {
     const writer = yield* socket.writer;
@@ -143,6 +168,20 @@ const exchange = Effect.fn("daemon.exchange")(
       }),
     ),
   ),
+  (effect, body) =>
+    body._tag === "Ping" || body._tag === "Shutdown"
+      ? effect.pipe(
+          Effect.timeoutOrElse({
+            duration: "10 seconds",
+            orElse: () =>
+              Effect.fail(
+                new DaemonUnavailable({
+                  detail: `${body._tag} reply timed out after 10 seconds. Inspect FORMAN_HOME/logs/daemon.jsonl and the daemon process; ${body._tag === "Shutdown" ? "shutdown may have been accepted. Confirm daemon state before retrying." : "the command was not sent."}`,
+                }),
+              ),
+          }),
+        )
+      : effect,
 );
 
 const exchangeRunRequest = Effect.fn("daemon.exchangeRunRequest")(function* (
@@ -151,6 +190,24 @@ const exchangeRunRequest = Effect.fn("daemon.exchangeRunRequest")(function* (
   reader: Socket.Reader,
   outdated: boolean,
 ) {
+  if (outdated && body._tag === "Defer")
+    return yield* new DaemonUnavailable({
+      detail:
+        "Outdated daemon cannot defer questions; finish its active runs and restart the daemon.",
+    });
+  if (outdated && body._tag === "Answer") {
+    const status = yield* exchange({ _tag: "Status", name: body.name, cwd: "" }, socket, reader);
+    if (
+      status._tag !== "Digests" ||
+      !status.digests.some((digest) =>
+        digest.questions.some((question) => question.id === body.question),
+      )
+    )
+      return yield* new DaemonUnavailable({
+        detail:
+          "Outdated daemon cannot route late answers or corrections; finish its active runs and restart the daemon.",
+      });
+  }
   if (outdated && body._tag === "Start" && body.newWorktree)
     return yield* new DaemonUnavailable({
       detail:
@@ -200,6 +257,7 @@ export const call = Effect.fn("daemon.call")(function* (
   const path = yield* Path.Path;
   const host = yield* Host;
   const socketPath = path.join(options.dataDir, "forman.sock");
+  yield* validateSocketPath(socketPath);
   let connection = yield* connect(socketPath, options);
   const check = Effect.gen(function* () {
     const pong = yield* exchange({ _tag: "Ping" }, connection.socket, connection.reader);
@@ -263,7 +321,12 @@ const stopConnected = Effect.fn("daemon.stopConnected")(
         const current = yield* fs
           .stat(lock)
           .pipe(Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(null)));
-        if (current === null && !(yield* fs.exists(path.join(dataDir, "forman.sock")))) return;
+        if (
+          current === null &&
+          !(yield* fs.exists(path.join(dataDir, "forman.sock"))) &&
+          (yield* Effect.scoped(takeLock(dataDir)))
+        )
+          return;
         if (
           original !== null &&
           current !== null &&
@@ -296,7 +359,18 @@ const stopConnected = Effect.fn("daemon.stopConnected")(
 // Only a missing/refused socket means there is no daemon. Other failures remain visible.
 export const shutdown = Effect.fn("daemon.shutdown")(function* (dataDir: string) {
   const path = yield* Path.Path;
-  const opened = yield* Effect.result(open(path.join(dataDir, "forman.sock")));
+  yield* validateSocketPath(path.join(dataDir, "forman.sock"));
+  const opened = yield* Effect.result(open(path.join(dataDir, "forman.sock"))).pipe(
+    Effect.timeoutOrElse({
+      duration: "10 seconds",
+      orElse: () =>
+        Effect.fail(
+          new DaemonUnavailable({
+            detail: `Could not connect to daemon within 10 seconds: ${path.join(dataDir, "forman.sock")}. Inspect the daemon process and ${path.join(dataDir, "logs/daemon.jsonl")}; no Shutdown request was sent.`,
+          }),
+        ),
+    }),
+  );
   if (opened._tag === "Failure") {
     if (absent(opened.failure)) return false;
     return yield* new DaemonUnavailable({

@@ -23,8 +23,9 @@ import { activeStates, type DaemonRequestBody, type DaemonResult } from "../sche
 import { Host } from "../services/host";
 import { type AppServer, makeAppServer } from "./app-server";
 import { handleNotification } from "./notifications";
+import { deferral } from "./prompts";
 import { makeQuestions } from "./questions";
-import { makeRegistry } from "./registry";
+import { makeRegistry, type Run } from "./registry";
 import { makeTurns } from "./turns";
 import { acceptedCursor, groupFor, wait } from "./wait";
 
@@ -144,6 +145,126 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
     if (stopping)
       return yield* new RunConflict({ detail: "Daemon is stopping; retry after it exits." });
   });
+  // Called with the run lock, matching the public Followup reservation order.
+  const followupLocked = Effect.fnUntraced(function* (
+    run: Run,
+    body: Extract<DaemonRequestBody, { _tag: "Followup" }>,
+    supersede = true,
+  ) {
+    const threadId = yield* registry.starts.withPermits(1)(
+      Effect.gen(function* () {
+        yield* acceptingStarts;
+        yield* registry.requireCurrent(run);
+        return yield* turns.reserveFollowup(run);
+      }),
+    );
+    return yield* Effect.gen(function* () {
+      const accepted = yield* acceptedCursor(run);
+      yield* turns.followup(run, body, threadId);
+      if (supersede) yield* questions.supersede(run);
+      return { _tag: "Accepted" as const, ...accepted };
+    }).pipe(Effect.tapCause((cause) => registry.recover(run, cause)));
+  });
+  // Waiting outside the per-run queue lets it process the completion that frees this turn.
+  const followupAnswer = Effect.fnUntraced(function* (
+    run: Run,
+    id: Extract<DaemonRequestBody, { _tag: "Answer" }>["question"],
+    text: string,
+    message: string,
+    resolution: "late" | "correction",
+    continuation?: string,
+  ) {
+    while (true) {
+      const changed = yield* registry.change;
+      const accepted = yield* run.lock.withPermits(1)(
+        Effect.gen(function* () {
+          yield* registry.requireCurrent(run);
+          if (activeStates.has(run.record.state)) return null;
+          const result = yield* followupLocked(
+            run,
+            { _tag: "Followup", name: run.record.name, message },
+            false,
+          );
+          yield* questions.record(
+            run,
+            id,
+            resolution,
+            text,
+            "followup",
+            continuation === undefined ? undefined : { id: continuation, turn: run.record.turns },
+          );
+          return { ...result, delivery: "followup" as const };
+        }),
+      );
+      if (accepted) return accepted;
+      yield* changed;
+    }
+  });
+  const answer = Effect.fnUntraced(function* (
+    body: Extract<DaemonRequestBody, { _tag: "Answer" }>,
+  ) {
+    const run = yield* registry.lookup(body.name);
+    const prepared = yield* run.lock.withPermits(1)(
+      Effect.gen(function* () {
+        yield* registry.requireCurrent(run);
+        const question = yield* questions.inspect(run, body.question);
+        if (!question.open && question.pending[0])
+          return yield* new RunConflict({
+            detail: `answer ${question.pending[0].id} first; the answer can carry this too`,
+          });
+        if (question.open) {
+          const accepted = yield* acceptedCursor(run);
+          yield* questions.resolve(run, yield* servers.get, body.question, body.text, "answered");
+          return { _tag: "Accepted" as const, ...accepted, delivery: "response" as const };
+        }
+        const resolution: "correction" | "late" = question.correction ? "correction" : "late";
+        const prefix = question.correction
+          ? "Correction to your answer to"
+          : "Answer to your earlier question";
+        const message = `${prefix} ${body.question} (${JSON.stringify(question.question.question)}): ${body.text}`;
+        if (
+          run.queuedAnswers > 0 ||
+          (run.record.turnKind === "handoff" && activeStates.has(run.record.state))
+        ) {
+          const continuation = crypto.randomUUID();
+          const queued = yield* acceptedCursor(run, continuation);
+          yield* questions.record(run, body.question, resolution, body.text, "queued");
+          yield* registry.enqueueAnswer(
+            run,
+            followupAnswer(run, body.question, body.text, message, resolution, continuation).pipe(
+              Effect.asVoid,
+            ),
+          );
+          return { _tag: "Accepted" as const, ...queued, delivery: "queued" as const };
+        }
+        if (run.record.state === "running") {
+          const accepted = yield* acceptedCursor(run);
+          const result = yield* turns.steer(run, message).pipe(Effect.result);
+          if (result._tag === "Success") {
+            yield* questions.record(run, body.question, resolution, body.text, "steer");
+            return { _tag: "Accepted" as const, ...accepted, delivery: "steer" as const };
+          }
+          if (
+            !(result.failure instanceof RunConflict) ||
+            !(
+              result.failure.detail?.startsWith("Codex refused the steer") ||
+              result.failure.detail?.startsWith("activeTurnNotSteerable")
+            )
+          )
+            return yield* Effect.fail(result.failure);
+        }
+        return { _tag: "FollowupAnswer" as const, message, resolution };
+      }),
+    );
+    if (prepared._tag === "Accepted") return prepared;
+    return yield* followupAnswer(
+      run,
+      body.question,
+      body.text,
+      prepared.message,
+      prepared.resolution,
+    );
+  });
   const dispatch = Effect.fnUntraced(function* (
     body: DaemonRequestBody,
   ): Effect.fn.Return<
@@ -156,7 +277,7 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
         return yield* registry.starts.withPermits(1)(
           Effect.gen(function* () {
             const active = [...registry.runs.values()]
-              .filter((run) => activeStates.has(run.record.state))
+              .filter((run) => activeStates.has(run.record.state) || run.queuedAnswers > 0)
               .map((run) => run.record.name);
             const starting = [...registry.reservations.values()];
             if (active.length > 0 || starting.length > 0)
@@ -171,24 +292,19 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
         return yield* turns.start(body, acceptingStarts);
       case "Followup": {
         const run = yield* registry.lookup(body.name);
-        return yield* Effect.scoped(
+        return yield* run.lock.withPermits(1)(
           Effect.gen(function* () {
-            yield* run.lock.takeScoped(1);
-            const threadId = yield* registry.starts.withPermits(1)(
-              Effect.gen(function* () {
-                yield* acceptingStarts;
-                yield* registry.requireCurrent(run);
-                return yield* turns.reserveFollowup(run);
-              }),
-            );
-            const accepted = yield* acceptedCursor(registry, run);
-            yield* turns
-              .followup(run, body, threadId)
-              .pipe(Effect.tapCause((cause) => registry.recover(run, cause)));
-            return { _tag: "Accepted" as const, ...accepted };
+            if (run.queuedAnswers > 0)
+              return yield* new RunConflict({
+                detail:
+                  "Answers are queued for this run; wait for their delivery before a followup.",
+              });
+            return yield* followupLocked(run, body);
           }),
         );
       }
+      case "Answer":
+        return yield* answer(body);
       case "Wait":
         return yield* wait(registry, body);
       case "Archive":
@@ -219,6 +335,8 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
       }
       default: {
         if (!("name" in body)) return yield* Effect.die("Supervisor received an unhandled request");
+        if (body._tag === "Interrupt" && (yield* turns.cancelStart(body.name)))
+          return { _tag: "Ok" };
         const run = yield* registry.lookup(body.name);
         return yield* run.lock.withPermits(1)(
           Effect.gen(function* (): Effect.fn.Return<
@@ -239,23 +357,32 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
                   !activeStates.has(run.record.state) && handoff.latestTurnWithoutHandoff,
               };
             }
-            const accepted = yield* acceptedCursor(registry, run);
+            const accepted = yield* acceptedCursor(run);
             switch (body._tag) {
               case "Steer":
                 yield* turns.steer(run, body.message);
+                yield* questions.supersede(run);
                 break;
               case "Interrupt":
                 yield* turns.interrupt(run, yield* servers.get, "orchestrator");
                 break;
-              case "Answer":
+              case "Defer": {
+                const question = yield* questions.inspect(run, body.question);
+                if (!question.open)
+                  return yield* new RunConflict({
+                    detail: `${body.question} is ${question.state}; only a pending question can be deferred.`,
+                  });
                 yield* questions.resolve(
                   run,
                   yield* servers.get,
                   body.question,
-                  body.text,
-                  "answered",
+                  deferral + (body.note === undefined ? "" : `\n\nOrchestrator note: ${body.note}`),
+                  "deferred",
+                  "orchestrator",
+                  body.note,
                 );
                 break;
+              }
             }
             return { _tag: "Accepted", ...accepted };
           }),
@@ -270,7 +397,12 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
           Effect.catchCause((cause) => rejectRequest(body, cause)),
           Effect.provide(context),
         );
-        if (body._tag === "Start" || body._tag === "Followup") {
+        if (
+          body._tag === "Start" ||
+          body._tag === "Followup" ||
+          body._tag === "Answer" ||
+          body._tag === "Defer"
+        ) {
           const exit = yield* Fiber.join(yield* registry.fork(Effect.exit(work)));
           return Exit.isFailure(exit) ? yield* Effect.failCause(exit.cause) : exit.value;
         }
@@ -283,20 +415,23 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
 
 // daemon() calls busy only after it owns the socket lock. A losing launcher must not rebuild runs.
 export const makeSupervisor = Effect.fn("supervisor.make")(function* () {
-  const scope = yield* Effect.scope;
+  const scope = yield* Effect.acquireRelease(Scope.make(), (scope) =>
+    Scope.close(scope, Exit.void),
+  );
   const context = yield* Effect.context<
     AppConfig | Host | FileSystem.FileSystem | Path.Path | ChildProcessSpawner.ChildProcessSpawner
   >();
   const ready = yield* Deferred.make<Effect.Success<ReturnType<typeof buildSupervisor>>, unknown>();
   const initialize = yield* Effect.cached(
     buildSupervisor().pipe(
-      Effect.provide(context),
       Scope.provide(scope),
+      Effect.provide(context),
       Effect.tap((value) => Deferred.succeed(ready, value)),
       Effect.tapCause((cause) => Deferred.failCause(ready, cause)),
     ),
   );
   return {
+    shutdown: Scope.close(scope, Exit.void),
     handler: (body: DaemonRequestBody) =>
       initialize.pipe(
         Effect.catchCause((cause) => rejectRequest(body, cause)),

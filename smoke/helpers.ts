@@ -18,16 +18,27 @@ const Rpc = Schema.Struct({
 });
 
 export function nextCommand(text: string, executable: string) {
-  const line = text.trimEnd().split("\n").at(-1);
-  if (!line?.startsWith("next: ")) throw new Error("Missing printed next command");
+  const lines = text.trimEnd().split("\n");
+  const line = lines.findLast((line) => line.startsWith("next: "));
+  if (!line) throw new Error("Missing printed next command");
   const tokens = execFileSync(
     "/bin/sh",
     ["-c", `set -- ${line.slice("next: ".length)}; printf '%s\\0' "$@"`],
     { encoding: "utf8" },
   ).split("\0");
   tokens.pop();
+  if (tokens[0]?.startsWith("FORMAN_HOME=")) tokens.shift();
   expect(["forman", executable]).toContain(tokens.shift() ?? "");
-  expect(tokens[0]).toBe("wait");
+  expect(["wait", "answer", "defer"]).toContain(tokens[0] ?? "");
+  if (tokens[0] !== "wait") {
+    const cursor = lines
+      .findLast((line) => line.startsWith("cursor:"))
+      ?.slice("cursor:".length)
+      .trim();
+    if (!cursor) throw new Error("Missing printed cursor");
+    // Smoke observes timeout/deferral without executing the answer placeholder.
+    return ["wait", tokens[1] ?? "", "--after", cursor];
+  }
   return tokens;
 }
 

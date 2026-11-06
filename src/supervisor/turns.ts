@@ -1,4 +1,4 @@
-import { Cause, Clock, DateTime, Effect, FileSystem, Queue, Schema } from "effect";
+import { Cause, Clock, DateTime, Deferred, Effect, FileSystem, Queue, Schema } from "effect";
 import { CodexRequestTimeout, CodexRpcError } from "../codex/client";
 import type { AppConfig } from "../config";
 import {
@@ -14,11 +14,13 @@ import { checkHookTrust, hasRepoHooks } from "../core/preflight/hooks";
 import { defaultModel } from "../core/preflight/model";
 import { validateWorktree } from "../core/preflight/worktree";
 import * as Store from "../core/runs/store";
+import { validateStartMode } from "../core/start-mode";
 import { CodexUnavailable, RunConflict } from "../errors";
 import * as Codex from "../schemas/codex";
 import {
   activeStates,
   type DaemonRequestBody,
+  type RunName,
   type RunRecord,
   type TurnKind,
 } from "../schemas/daemon";
@@ -31,11 +33,26 @@ const policy = (sandbox: RunRecord["sandbox"]) =>
     ? { type: "dangerFullAccess" }
     : { type: "readOnly", networkAccess: false };
 
+interface Preflight {
+  readonly cancel: Deferred.Deferred<void>;
+  readonly done: Deferred.Deferred<boolean>;
+  cancelled: boolean;
+}
+
 export const makeTurns = Effect.fn("supervisor.turns")(function* (
   registry: Registry,
   servers: AppServers,
   config: AppConfig["Service"],
 ) {
+  const preflights = new Map<RunName, Preflight>();
+  // Interrupt routing must call this before looking up a registered run or
+  // taking its name lock, which Start holds until rollback has finished.
+  const cancelStart = Effect.fnUntraced(function* (name: RunName) {
+    const pending = preflights.get(name);
+    if (!pending) return false;
+    yield* Deferred.succeed(pending.cancel, undefined);
+    return yield* Deferred.await(pending.done);
+  });
   const fs = yield* FileSystem.FileSystem;
   const settings = (run: Run) => ({
     cwd: run.record.worktree,
@@ -91,6 +108,8 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
       },
       Codex.TurnStartResponse,
     );
+    // The turn exists remotely even if the following persistence operation fails.
+    run.record = { ...run.record, activeTurnId: response.turn.id };
     yield* registry.save(run, { activeTurnId: response.turn.id });
     yield* registry.state(run, "running");
     yield* armBudget(run, server);
@@ -129,10 +148,7 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
               return yield* Effect.fail(interrupted.failure);
             }
             // The completed notification starts the hand-off, after Codex has ended the old turn.
-            if (kind === "handoff") {
-              yield* registry.save(run, { activeTurnId: null });
-              yield* registry.state(run, "interrupted");
-            }
+            if (kind === "handoff") yield* registry.markUnknown(run);
           }),
         ),
       ),
@@ -145,6 +161,7 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
     body: Extract<DaemonRequestBody, { _tag: "Start" }>,
     accepting: Effect.Effect<void, RunConflict>,
     destination: string,
+    pending: Preflight,
   ) {
     let created: CreatedWorktree | undefined;
     const available = Effect.gen(function* () {
@@ -161,11 +178,18 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
     const previous = registry.runs.get(body.name);
     yield* accepting;
     yield* available;
-    if (body.newWorktree) created = yield* createWorktree(body.worktree, body.name, body.from);
+    if (!previous && (yield* fs.exists(yield* Store.runDirectory(config.home, body.name))))
+      return yield* new RunConflict({
+        detail: `${body.name} has unreadable run data; preserve and inspect its run directory before reusing the name.`,
+      });
     const prepare = Effect.gen(function* () {
+      if (body.newWorktree)
+        yield* createWorktree(body.worktree, body.name, body.from, (owned) => {
+          created = owned;
+        });
       const worktree = created?.worktree ?? body.worktree;
       if (body.setup !== undefined)
-        yield* setupWorktree(worktree, body.setup, yield* servers.environment);
+        yield* setupWorktree(worktree, body.setup, yield* servers.environment, body.budgetMs);
       const validated = yield* validateWorktree(worktree, body.skipDepsCheck);
       yield* available;
       yield* checkHookTrust(
@@ -179,9 +203,24 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
         warning: yield* servers.protocolWarning,
       };
     });
-    const { validated, model, warning } = yield* created
-      ? rollbackOnFailure(created, prepare)
-      : prepare;
+    const { validated, model, warning } = yield* Effect.raceFirst(
+      prepare,
+      Deferred.await(pending.cancel).pipe(Effect.as(undefined)),
+    ).pipe(
+      Effect.flatMap((prepared) => {
+        if (prepared !== undefined) return Effect.succeed(prepared);
+        pending.cancelled = true;
+        return Effect.fail(
+          new RunConflict({ detail: `Start cancelled during preflight: ${body.name}` }),
+        );
+      }),
+      (work) => rollbackOnFailure(() => created, work),
+      Effect.ensuring(
+        Effect.sync(() => {
+          preflights.delete(body.name);
+        }),
+      ),
+    );
     const register = registry.starts.withPermits(1)(
       Effect.gen(function* () {
         yield* accepting;
@@ -194,10 +233,9 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
           yield* Store.archiveRun(config.home, body.name);
           registry.runs.delete(body.name);
           yield* Queue.end(previous.messages);
-        } else
-          yield* fs.remove(yield* Store.runDirectory(config.home, body.name), {
-            recursive: true,
-            force: true,
+        } else if (yield* fs.exists(yield* Store.runDirectory(config.home, body.name)))
+          return yield* new RunConflict({
+            detail: `${body.name} has unreadable run data; preserve and inspect its run directory before reusing the name.`,
           });
         const now = DateTime.makeUnsafe(yield* Clock.currentTimeMillis);
         const record: RunRecord = {
@@ -236,6 +274,7 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
         run.hooksRequired = yield* hasRepoHooks(run.record.group);
         const server = yield* servers.get;
         run.serverGeneration = server.generation;
+        run.retireServer = servers.retire(server);
         const opened = yield* server.connection.request(
           Codex.Method.threadStart,
           {
@@ -290,15 +329,31 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
     body: Extract<DaemonRequestBody, { _tag: "Start" }>,
     accepting: Effect.Effect<void, RunConflict>,
   ) {
+    // On the wire, worktree is the source cwd in managed mode and the
+    // prepared destination otherwise. Validate before discovery or reservation.
+    yield* validateStartMode({ ...body, worktree: body.newWorktree ? undefined : body.worktree });
     const destination = body.newWorktree
       ? yield* managedWorktreePath(body.worktree, body.name)
       : body.worktree;
     return yield* (yield* registry.lockFor(body.name)).withPermits(1)(
-      Effect.acquireUseRelease(
-        registry.reserveWorktree(body.name, destination),
-        () => startLocked(body, accepting, destination),
-        () => registry.releaseWorktree(body.name, destination),
-      ),
+      Effect.gen(function* () {
+        const cancel = yield* Deferred.make<void>();
+        const done = yield* Deferred.make<boolean>();
+        const pending: Preflight = { cancel, done, cancelled: false };
+        preflights.set(body.name, pending);
+        return yield* Effect.acquireUseRelease(
+          registry.reserveWorktree(body.name, destination),
+          () => startLocked(body, accepting, destination, pending),
+          () => registry.releaseWorktree(body.name, destination),
+        ).pipe(
+          Effect.ensuring(
+            Effect.gen(function* () {
+              preflights.delete(body.name);
+              yield* Deferred.succeed(done, pending.cancelled);
+            }),
+          ),
+        );
+      }),
     );
   });
   const reserveFollowup = Effect.fnUntraced(function* (run: Run) {
@@ -325,6 +380,7 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
   ) {
     const server = yield* servers.get;
     run.serverGeneration = server.generation;
+    run.retireServer = servers.retire(server);
     if (!server.loaded.has(threadId)) {
       const resumed = yield* server.connection.request(
         Codex.Method.threadResume,
@@ -375,6 +431,16 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
       );
     yield* registry.event(run, { _tag: "Steered", message });
   });
-  return { start, reserveFollowup, followup, begin, armBudget, handoff, interrupt, steer };
+  return {
+    start,
+    cancelStart,
+    reserveFollowup,
+    followup,
+    begin,
+    armBudget,
+    handoff,
+    interrupt,
+    steer,
+  };
 });
 export type Turns = Effect.Success<ReturnType<typeof makeTurns>>;

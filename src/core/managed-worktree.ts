@@ -1,6 +1,6 @@
-import { Effect, Exit, FileSystem, Path } from "effect";
+import { Cause, Effect, Exit, FileSystem, Option, Path } from "effect";
 import { ChildProcess } from "effect/process";
-import { RunConflict, WorktreeInvalid } from "../errors";
+import { errorText, failure, RunConflict, WorktreeInvalid } from "../errors";
 import type { ManagedWorktree, OrphanWorktree, RunName, RunRecord } from "../schemas/daemon";
 import { mainCheckout } from "./main-checkout";
 import { commandResult } from "./process";
@@ -22,6 +22,12 @@ export interface CreatedWorktree {
   readonly worktree: string;
   readonly main: string;
   readonly managed: typeof ManagedWorktree.Type;
+  readonly identity: {
+    readonly directory: FileSystem.File.Info;
+    readonly gitFile: FileSystem.File.Info;
+    readonly gitDirectory: string;
+    readonly administration: FileSystem.File.Info;
+  };
 }
 
 export const managedWorktreePath = Effect.fnUntraced(function* (cwd: string, name: RunName) {
@@ -40,16 +46,58 @@ export const createdWorktreeHasWork = Effect.fnUntraced(function* (created: Crea
 export const removeCreatedWorktree = Effect.fn("worktrees.rollback")(function* (
   created: CreatedWorktree,
 ) {
+  const fs = yield* FileSystem.FileSystem;
+  const retained = (reason: string) =>
+    new WorktreeInvalid({
+      detail: `Rollback retained ${created.worktree} (${created.managed.branch}): ${reason}; inspect it before cleanup.`,
+    });
   const listing = yield* git(created.main, ["worktree", "list", "--porcelain", "-z"]);
-  if (listing.split("\0").includes(`worktree ${created.worktree}`))
-    yield* git(created.main, ["worktree", "remove", "--force", created.worktree]);
-  yield* git(created.main, ["branch", "-D", created.managed.branch]);
+  const entry = listing
+    .split("\0\0")
+    .find((entry) => entry.split("\0").includes(`worktree ${created.worktree}`));
+  if (!entry?.split("\0").includes(`branch refs/heads/${created.managed.branch}`))
+    return yield* retained("worktree path or checked-out branch changed");
+  const identity = created.identity;
+  if (
+    !sameFile(identity.directory, yield* fs.stat(created.worktree)) ||
+    !sameFile(identity.gitFile, yield* fs.stat(`${created.worktree}/.git`)) ||
+    (yield* git(created.worktree, ["rev-parse", "--absolute-git-dir"])) !== identity.gitDirectory ||
+    !sameFile(identity.administration, yield* fs.stat(identity.gitDirectory))
+  )
+    return yield* retained("worktree identity changed");
+  if (yield* createdWorktreeHasWork(created))
+    return yield* retained("worktree holds changes or commits");
+  // Git makes the final dirty-files check; never force removal after our inspection.
+  yield* git(created.main, ["worktree", "remove", created.worktree]);
+  yield* deleteCreatedBranch(created.main, created.managed);
+});
+
+const sameFile = (expected: FileSystem.File.Info, actual: FileSystem.File.Info) =>
+  expected.dev === actual.dev &&
+  Option.isSome(expected.ino) &&
+  Option.isSome(actual.ino) &&
+  expected.ino.value === actual.ino.value &&
+  Option.isSome(expected.birthtime) &&
+  Option.isSome(actual.birthtime) &&
+  expected.birthtime.value.getTime() === actual.birthtime.value.getTime();
+
+const deleteCreatedBranch = Effect.fnUntraced(function* (
+  main: string,
+  managed: typeof ManagedWorktree.Type,
+) {
+  const listing = yield* git(main, ["worktree", "list", "--porcelain", "-z"]);
+  if (listing.split("\0").includes(`branch refs/heads/${managed.branch}`))
+    return yield* new WorktreeInvalid({
+      detail: `Rollback retained checked-out branch ${managed.branch}; inspect its worktree before cleanup.`,
+    });
+  yield* git(main, ["update-ref", "-d", `refs/heads/${managed.branch}`, managed.baseCommit]);
 });
 
 export const createWorktree = Effect.fn("worktrees.create")(function* (
   cwd: string,
   name: RunName,
   from?: string,
+  takeOwnership?: (created: CreatedWorktree) => void,
 ) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -80,25 +128,76 @@ export const createWorktree = Effect.fn("worktrees.create")(function* (
     yield* fs.writeFileString(file, "\n.claude/worktrees/\n", { flag: "a" });
   }
   yield* fs.makeDirectory(path.dirname(worktree), { recursive: true });
-  const created: CreatedWorktree = { worktree, main, managed: { branch, baseCommit, fromRef } };
+  const managed = { branch, baseCommit, fromRef };
   // Reserve the branch atomically before worktree add, which can leave a new branch
   // behind on checkout failure. A pre-existing branch is never part of rollback.
-  yield* git(main, ["branch", branch, baseCommit]);
-  yield* rollbackOnFailure(created, git(main, ["worktree", "add", worktree, branch]));
-  return created;
+  return yield* Effect.uninterruptibleMask((restore) =>
+    Effect.gen(function* () {
+      yield* git(main, ["branch", branch, baseCommit]);
+      // A failed or interrupted add proves branch ownership only. Git can leave a
+      // partial checkout, or another process can have taken the destination.
+      return yield* restore(
+        Effect.gen(function* () {
+          yield* fs.makeDirectory(worktree);
+          return yield* fs.stat(worktree);
+        }),
+      ).pipe(
+        Effect.flatMap((directory) =>
+          Effect.gen(function* () {
+            yield* restore(git(main, ["worktree", "add", worktree, branch]));
+            if (!sameFile(directory, yield* fs.stat(worktree)))
+              return yield* new WorktreeInvalid({
+                detail: `Worktree identity changed during creation: ${worktree}; retained for inspection.`,
+              });
+            const gitDirectory = yield* git(worktree, ["rev-parse", "--absolute-git-dir"]);
+            const created: CreatedWorktree = {
+              worktree,
+              main,
+              managed,
+              identity: {
+                directory,
+                gitFile: yield* fs.stat(`${worktree}/.git`),
+                gitDirectory,
+                administration: yield* fs.stat(gitDirectory),
+              },
+            };
+            // Transfer the receipt before leaving the mask, where pending
+            // interruption can otherwise discard the return value.
+            takeOwnership?.(created);
+            return created;
+          }),
+        ),
+        Effect.onExit((exit) =>
+          Exit.isFailure(exit) ? deleteCreatedBranch(main, managed) : Effect.void,
+        ),
+      );
+    }),
+  );
 });
 
 export const setupWorktree = Effect.fn("worktrees.setup")(function* (
   worktree: string,
   command: string,
   env: Readonly<Record<string, string>>,
+  timeoutMs = 600_000,
 ) {
   const result = yield* commandResult(
     ChildProcess.make("/bin/sh", ["-c", command], { cwd: worktree, env, extendEnv: false }),
+    { output: "tail", maxOutputBytes: 4096 },
+  ).pipe(
+    Effect.timeoutOrElse({
+      duration: timeoutMs,
+      orElse: () =>
+        Effect.fail(
+          new WorktreeInvalid({
+            detail: `Setup timed out after ${timeoutMs} ms in ${worktree}: ${command}`,
+          }),
+        ),
+    }),
   );
   if (result.code !== 0)
     return yield* new WorktreeInvalid({
-      detail: `Setup exited ${result.code} in ${worktree}: ${command}\n${`${result.stdout}\n${result.stderr}`.trimEnd().split("\n").slice(-20).join("\n").slice(-4096)}`,
+      detail: `Setup exited ${result.code} in ${worktree}: ${command}\n${result.overflowNote ?? ""}\n${`${result.stdout}\n${result.stderr}`.trimEnd().split("\n").slice(-20).join("\n").slice(-4096)}`,
     });
 });
 
@@ -195,9 +294,23 @@ export const orphanWorktrees = Effect.fn("worktrees.orphans")(function* (
 });
 
 export const rollbackOnFailure = <A, E, R>(
-  created: CreatedWorktree,
+  created: CreatedWorktree | (() => CreatedWorktree | undefined),
   work: Effect.Effect<A, E, R>,
 ) =>
   work.pipe(
-    Effect.onExit((exit) => (Exit.isFailure(exit) ? removeCreatedWorktree(created) : Effect.void)),
+    Effect.catchCause((cause) =>
+      Effect.gen(function* () {
+        const owned = typeof created === "function" ? created() : created;
+        if (!owned) return yield* Effect.failCause(cause);
+        const cleanup = yield* removeCreatedWorktree(owned).pipe(Effect.exit);
+        if (Exit.isFailure(cleanup)) {
+          if (!Cause.hasDies(cause) && !Cause.hasInterrupts(cause) && !Cause.hasDies(cleanup.cause))
+            return yield* new WorktreeInvalid({
+              detail: `${errorText(failure(cause))}\nRollback could not complete for ${owned.worktree} (${owned.managed.branch}): ${errorText(failure(cleanup.cause))}`,
+            });
+          return yield* Effect.failCause(Cause.combine(cause, cleanup.cause));
+        }
+        return yield* Effect.failCause(cause);
+      }).pipe(Effect.uninterruptible),
+    ),
   );

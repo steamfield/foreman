@@ -163,8 +163,18 @@ it("seeded stress: concurrent delegations recover from daemon SIGKILL and app-se
     }
   };
   const consistent = async () => {
-    const status = await run(["status"]);
+    let status = await run(["status"]);
     if (status._tag !== "Digests") throw new Error("Expected status digests");
+    const deadline = Date.now() + 5000;
+    // Wait can wake for the first run while its peers are still reconciling.
+    while (
+      status.digests.some((digest) => ["starting", "running", "waiting"].includes(digest.state))
+    ) {
+      if (Date.now() > deadline) throw new Error("Runs did not settle after app-server exit");
+      await setImmediate();
+      status = await run(["status"]);
+      if (status._tag !== "Digests") throw new Error("Expected status digests");
+    }
     expect(status.digests.map((digest) => digest.name).sort()).toEqual([...expectedNames].sort());
     for (const name of expectedNames) {
       const record = Schema.decodeUnknownSync(Schema.fromJsonString(RunRecord))(

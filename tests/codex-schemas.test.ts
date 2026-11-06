@@ -28,6 +28,34 @@ const decodes = (schema: Schema.ConstraintDecoder<unknown>, value: unknown) =>
   Exit.isSuccess(Schema.decodeUnknownExit(schema)(value));
 
 describe("Codex schemas", () => {
+  it.each(["agentMessage", "commandExecution", "fileChange", "dynamicToolCall"])(
+    "rejects malformed known %s items instead of dropping their payload",
+    (type) => {
+      const item = { type, id: "item", text: 42 };
+      expect(decodes(Codex.ThreadItem, item)).toBe(false);
+      expect(decodes(Codex.ItemNotification, { threadId: "t", turnId: "u", item })).toBe(false);
+    },
+  );
+
+  it("preserves agent text with an unfamiliar phase and accepts unknown item types", () => {
+    const item = { type: "agentMessage", id: "item", text: "Hand-off", phase: "future_phase" };
+    expect(Schema.decodeUnknownSync(Codex.ThreadItem)(item)).toEqual(item);
+    expect(Schema.decodeUnknownSync(Codex.ThreadItem)({ type: "futureItem", id: "item" })).toEqual({
+      type: "futureItem",
+      id: "item",
+    });
+  });
+
+  it("advertises the closed schema generated from the ask_orchestrator validator", () => {
+    const document = Schema.toJsonSchemaDocument(Codex.AskOrchestratorArguments, {
+      onExcessProperty: "error",
+    });
+    expect(Codex.askOrchestratorTool.inputSchema).toEqual(document.schema);
+    expect(Codex.askOrchestratorTool.inputSchema).toMatchObject({
+      additionalProperties: false,
+      required: ["question"],
+    });
+  });
   it.each(lines.filter((line) => line.method !== undefined))("decode $method", (line) => {
     const schema = paramsSchema[line.method as string];
     expect(schema, `no schema for ${line.method}`).toBeDefined();

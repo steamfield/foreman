@@ -16,6 +16,43 @@ async function configFile(content: string) {
 }
 
 describe("real config and emitted logging", () => {
+  it.each([undefined, "", " \t ", "./npm/forman.cjs"])(
+    "resolves launcher identity only from FORMAN_LAUNCHER=%j",
+    async (launcher) => {
+      const result = await runCli(["--json"], {
+        env: { FORMAN_LAUNCHER: launcher },
+        program: Effect.gen(function* () {
+          yield* (yield* Output).result((yield* AppConfig).launcher, "launcher");
+        }),
+      });
+      expect(result).toMatchObject({ status: 0, stderr: "" });
+      expect(JSON.parse(result.stdout)).toBe(launcher?.trim() ? resolve(launcher) : null);
+    },
+  );
+  it("replaces an oversized CLI log record with a bounded omission record", async () => {
+    const home = await tempDir();
+    const log = join(home, "cli.jsonl");
+    const result = await runCli(["--json"], {
+      home,
+      env: { TEST_CLI_LOG_FILE: log },
+      program: Effect.logError("x".repeat(5_000_001)),
+    });
+    expect(result.status).toBe(0);
+    const text = await readFile(log, "utf8");
+    expect(text.length).toBeLessThan(1000);
+    expect(ndjson(text)).toContainEqual(expect.objectContaining({ msg: "log.record.omitted" }));
+  });
+  it("rotates a full CLI file sink while preserving the current command record", async () => {
+    const home = await tempDir();
+    const log = join(home, "cli.jsonl");
+    await writeFile(log, "x".repeat(5_000_001));
+    const result = await runCli(["absent", "--json"], { home, env: { TEST_CLI_LOG_FILE: log } });
+    expect(result.status).toBe(2);
+    expect((await readFile(`${log}.1`, "utf8")).length).toBe(5_000_001);
+    expect(ndjson(await readFile(log, "utf8"))).toContainEqual(
+      expect.objectContaining({ msg: "command" }),
+    );
+  });
   it.each([undefined, "", " ", "absolute", "relative"])(
     "uses FORMAN_HOME=%s for configuration and state, ignoring legacy paths",
     async (setting) => {

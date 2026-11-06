@@ -1,11 +1,11 @@
 import { Effect } from "effect";
 import { AppConfig } from "../config";
 import { call } from "../daemon/client";
-import { Usage } from "../errors";
 import type { DaemonRequestBody, DaemonResult, QuestionId, RunName } from "../schemas/daemon";
 import { Output } from "../services/output";
 import { durationMs, type MessageInput, messageText, readText, realPath } from "./command-input";
 import { formanExecutable } from "./command-output";
+import { validateStartMode } from "./start-mode";
 
 const request = Effect.fn("commands.request")(function* (body: DaemonRequestBody) {
   const config = yield* AppConfig;
@@ -16,7 +16,16 @@ const request = Effect.fn("commands.request")(function* (body: DaemonRequestBody
     codexBin: config.codexBin,
     codexHome: config.codexHome,
     logFile: (yield* config.logging).file,
-    onOutdated: output.note("Daemon is outdated; it will be replaced once its runs finish."),
+    onOutdated: output.note(
+      output.json
+        ? JSON.stringify({
+            notice: {
+              tag: "DaemonOutdated",
+              message: "Daemon is outdated; it will be replaced once its runs finish.",
+            },
+          })
+        : "Daemon is outdated; it will be replaced once its runs finish.",
+    ),
   });
 });
 
@@ -33,15 +42,15 @@ const afterAccepted = Effect.fnUntraced(function* (
   if (result._tag !== "Accepted") return result;
   if (options.wait)
     return yield* wait({
-      names: result.all ? [] : [name],
-      all: result.all ?? false,
+      names: [name],
+      all: false,
       after: result.cursor,
       timeout: options.timeout,
     });
   const executable = yield* formanExecutable();
   return {
     ...result,
-    next: `${executable.command} wait ${result.all ? "--all" : name} --after ${result.cursor}`,
+    next: `${executable.command} wait ${name} --after ${result.cursor}`,
   };
 });
 
@@ -62,11 +71,7 @@ interface StartInput extends WaitOptions {
 }
 
 export const start = Effect.fn("commands.start")(function* (input: StartInput) {
-  if (
-    input.newWorktree === (input.worktree !== undefined) ||
-    (!input.newWorktree && (input.from !== undefined || input.setup !== undefined))
-  )
-    return yield* new Usage();
+  yield* validateStartMode(input);
   const started = yield* request({
     _tag: "Start",
     name: input.name,
@@ -158,6 +163,18 @@ export const answer = Effect.fn("commands.answer")(function* (
   return yield* afterAccepted(result, input.name, input);
 });
 
+export const defer = Effect.fn("commands.defer")(function* (
+  input: WaitOptions & { name: RunName; question: QuestionId; note: string | undefined },
+) {
+  const result = yield* request({
+    _tag: "Defer",
+    name: input.name,
+    question: input.question,
+    ...(input.note === undefined ? {} : { note: input.note }),
+  });
+  return yield* afterAccepted(result, input.name, input);
+});
+
 export const result = (name: RunName) => request({ _tag: "Result", name });
 
 export const archive = (name: RunName, keepWorktree = false) =>
@@ -182,6 +199,11 @@ export const wait = Effect.fn("commands.wait")(function* (
     ...result,
     next:
       result.next.replace(/^forman(?= )/, () => executable.command) +
-      (input.timeout === undefined ? "" : ` --timeout ${input.timeout}`),
+      (input.timeout === undefined || !result.next.startsWith("forman wait ")
+        ? ""
+        : ` --timeout ${input.timeout}`),
+    ...(result.alternative === undefined
+      ? {}
+      : { alternative: result.alternative.replace(/^forman(?= )/, () => executable.command) }),
   };
 });

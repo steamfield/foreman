@@ -12,6 +12,7 @@ import { join, relative } from "node:path";
 import { NodeServices, NodeSocket, NodeSocketServer } from "@effect/platform-node";
 import { Effect, Fiber, Layer, ManagedRuntime, Schema } from "effect";
 import { describe, expect, it, onTestFinished } from "vitest";
+import { allowedPaths } from "../src/core/runs/worktree";
 import { call } from "../src/daemon/client";
 import { daemon } from "../src/daemon/server";
 import { DaemonSockets } from "../src/daemon/sockets";
@@ -133,6 +134,50 @@ function machine(stdout: string) {
 }
 
 describe("command requests through the real parser and daemon", () => {
+  it.each(["defer", "answer"])(
+    "refuses new %s delivery through an incompatible busy daemon",
+    async (command) => {
+      const f = await fixture((body) => {
+        if (body._tag === "Status")
+          return { _tag: "Digests", digests: [{ ...digest, questions: [] }] };
+        if (body._tag === "Wait")
+          return {
+            _tag: "Waited",
+            outcome: "timeout",
+            runs: [],
+            cursor,
+            next: "forman wait unit-a --after opaque:42",
+          };
+        return { _tag: "Accepted", cursor };
+      }, "old");
+      const result = await f.run([
+        command,
+        name,
+        "q2",
+        ...(command === "answer" ? ["Late decision"] : []),
+        "--json",
+      ]);
+      expect(result.status).toBe(4);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("Outdated daemon");
+      expect(f.requests.some((body) => body._tag === "Defer" || body._tag === "Answer")).toBe(
+        false,
+      );
+    },
+  );
+  it.each([false, true])("omits the home prefix for the default home, json=%s", async (json) => {
+    const f = await fixture({ _tag: "Accepted", cursor });
+    await symlink(f.dataDir, join(f.dataDir, ".forman"));
+    const result = await f.run(["interrupt", name, ...(json ? ["--json"] : [])], {
+      FORMAN_HOME: join(f.dataDir, ".forman"),
+    });
+    expect(result).toMatchObject({ status: 0, stderr: "" });
+    if (json)
+      expect(machine(result.stdout)).toMatchObject({
+        next: "forman wait unit-a --after opaque:42",
+      });
+    else expect(result.stdout).toBe("ok\nnext: forman wait unit-a --after opaque:42\n");
+  });
   it("review: refuses a managed start before sending it to an outdated busy daemon", async () => {
     const f = await fixture({ _tag: "Started", name, runDir: "/unsafe" }, "old");
     const contract = join(f.dataDir, "contract.md");
@@ -215,7 +260,7 @@ describe("command requests through the real parser and daemon", () => {
     expect(f.requests).toEqual([]);
   });
   it.each(["answer", "steer", "followup", "interrupt"])(
-    "prints and waits on the combined continuation for %s",
+    "prints and waits on the named continuation for %s even with an older group acknowledgement",
     async (command) => {
       const f = await fixture((body) =>
         body._tag === "Wait"
@@ -224,7 +269,7 @@ describe("command requests through the real parser and daemon", () => {
               outcome: "timeout",
               runs: [],
               cursor,
-              next: "forman wait --all --after opaque:42",
+              next: "forman wait unit-a --after opaque:42",
             }
           : { _tag: "Accepted", all: true, cursor },
       );
@@ -238,16 +283,18 @@ describe("command requests through the real parser and daemon", () => {
       const human = await f.run(args);
       expect(human).toMatchObject({
         status: 0,
-        stdout: "ok\nnext: forman wait --all --after opaque:42\n",
+        stdout: `ok\nnext: FORMAN_HOME=${f.dataDir} forman wait unit-a --after opaque:42\n`,
         stderr: "",
       });
       const json = await f.run([...args, "--json"]);
-      expect(machine(json.stdout)).toMatchObject({ next: "forman wait --all --after opaque:42" });
+      expect(machine(json.stdout)).toMatchObject({
+        next: `FORMAN_HOME=${f.dataDir} forman wait unit-a --after opaque:42`,
+      });
       expect((await f.run([...args, "--wait", "--timeout", "0ms"])).status).toBe(0);
       expect(f.requests.at(-1)).toMatchObject({
         _tag: "Wait",
-        all: true,
-        names: [],
+        all: false,
+        names: [name],
         after: cursor,
       });
     },
@@ -281,7 +328,7 @@ describe("command requests through the real parser and daemon", () => {
           : {
               _tag: "Accepted",
               cursor,
-              next: "forman wait unit-a --after opaque:42",
+              next: `FORMAN_HOME=${f.dataDir} forman wait unit-a --after opaque:42`,
             },
       );
       expect(f.requests.map((body) => body._tag)).toEqual(
@@ -316,7 +363,7 @@ describe("command requests through the real parser and daemon", () => {
         : {
             _tag: "Accepted",
             cursor,
-            next: "forman wait unit-a --after opaque:42",
+            next: `FORMAN_HOME=${f.dataDir} forman wait unit-a --after opaque:42`,
           },
     );
     expect(f.requests[0]).toEqual({ _tag: "Interrupt", name });
@@ -326,7 +373,11 @@ describe("command requests through the real parser and daemon", () => {
   it.each(["answer", "followup", "steer"])(
     "refuses %s before dispatch when an outdated busy daemon cannot provide a cursor",
     async (command) => {
-      const f = await fixture({ _tag: "Ok" }, "old");
+      const f = await fixture(
+        (body) =>
+          body._tag === "Status" ? { _tag: "Digests", digests: [digest] } : { _tag: "Ok" },
+        "old",
+      );
       const result = await f.run(
         [command, "unit-a", ...(command === "answer" ? ["q2"] : []), "Proceed", "--wait", "--json"],
         { LOG_LEVEL: "none" },
@@ -339,33 +390,34 @@ describe("command requests through the real parser and daemon", () => {
           detail: expect.stringContaining("request was not sent"),
         },
       });
-      expect(f.requests.map((body) => body._tag)).toEqual(["Shutdown", "Wait"]);
+      expect(f.requests.map((body) => body._tag)).toEqual(
+        command === "answer" ? ["Shutdown", "Status", "Wait"] : ["Shutdown", "Wait"],
+      );
     },
   );
 
   it("prefers a busy different build's accepted cursor over its compatibility probe", async () => {
     const accepted = Schema.decodeUnknownSync(Cursor)("accepted:99");
-    const f = await fixture(
-      (body) =>
-        body._tag === "Wait"
-          ? {
-              _tag: "Waited",
-              outcome: "timeout",
-              runs: [],
-              cursor,
-              next: "forman wait unit-a --after opaque:42",
-            }
-          : { _tag: "Accepted", cursor: accepted },
-      "different",
-    );
+    const f = await fixture((body) => {
+      if (body._tag === "Status") return { _tag: "Digests", digests: [digest] };
+      if (body._tag === "Wait")
+        return {
+          _tag: "Waited",
+          outcome: "timeout",
+          runs: [],
+          cursor,
+          next: "forman wait unit-a --after opaque:42",
+        };
+      return { _tag: "Accepted", cursor: accepted };
+    }, "different");
     const result = await f.run(["answer", "unit-a", "q2", "Proceed", "--json"]);
     expect(result.status).toBe(0);
     expect(machine(result.stdout)).toEqual({
       _tag: "Accepted",
       cursor: accepted,
-      next: "forman wait unit-a --after accepted:99",
+      next: `FORMAN_HOME=${f.dataDir} forman wait unit-a --after accepted:99`,
     });
-    expect(f.requests.map((body) => body._tag)).toEqual(["Shutdown", "Wait", "Answer"]);
+    expect(f.requests.map((body) => body._tag)).toEqual(["Shutdown", "Status", "Wait", "Answer"]);
   });
 
   for (const command of ["start", "answer", "followup", "steer"] as const) {
@@ -756,13 +808,15 @@ const outputCases: { label: string; args: string[]; response: DaemonResult; text
     label: "events",
     args: ["events", "unit-a"],
     response: { _tag: "Events", events: [event], gap: true, next: 7 },
-    text: ["gap: true\n7 2026-11-05T20:00:00.000Z AgentMessage first\\nsecond\nnext: 7\n"],
+    text: [
+      "gap: true\n7 2026-11-05T20:00:00.000Z AgentMessage first\\nsecond\nnext: forman events unit-a --after 7\n",
+    ],
   },
   {
     label: "empty events",
     args: ["events", "unit-a"],
     response: { _tag: "Events", events: [], gap: false, next: 0 },
-    text: ["next: 0\n"],
+    text: ["next: forman events unit-a --after 0\n"],
   },
   { label: "ok", args: ["interrupt", "unit-a"], response: { _tag: "Ok" }, text: ["ok\n"] },
   {
@@ -832,6 +886,22 @@ const outputCases: { label: string; args: string[]; response: DaemonResult; text
 ];
 
 describe("daemon result rendering", () => {
+  it("parses the README example's doctor scope", async () => {
+    const readme = await readFile("README.md", "utf8");
+    const contract = readme.split("<<'CONTRACT'\n")[1]?.split("\nCONTRACT")[0];
+    expect(contract).toBeDefined();
+    expect(allowedPaths(contract ?? "")).toEqual(["src/commands/doctor.ts"]);
+  });
+  it("retains the absolute home when the caller supplies a relative FORMAN_HOME", async () => {
+    const f = await fixture({ _tag: "Accepted", cursor });
+    const result = await f.run(["interrupt", name, "--json"], {
+      FORMAN_HOME: relative(process.cwd(), f.dataDir),
+    });
+    expect(result).toMatchObject({ status: 0, stderr: "" });
+    expect(machine(result.stdout)).toMatchObject({
+      next: `FORMAN_HOME=${f.dataDir} forman wait unit-a --after opaque:42`,
+    });
+  });
   it.each(["same", "different", "absent"] as const)(
     "prints usable next commands when forman on PATH is %s",
     async (target) => {
@@ -856,7 +926,7 @@ describe("daemon result rendering", () => {
         );
         expect(result.status).toBe(0);
         expect(result.stderr).toBe("");
-        const next = `${executable} wait --all --after opaque:42 --timeout 9m`;
+        const next = `FORMAN_HOME=${f.dataDir} ${executable} wait --all --after opaque:42 --timeout 9m`;
         if (json) expect(machine(result.stdout)).toMatchObject({ next });
         else expect(result.stdout.trimEnd().split("\n").at(-1)).toBe(`next: ${next}`);
       }
@@ -866,7 +936,9 @@ describe("daemon result rendering", () => {
         { PATH: bin },
       );
       expect(result.status).toBe(0);
-      expect(result.stdout.trimEnd().split("\n").at(-1)).toBe(`next: ${executable} wait unit-a`);
+      expect(result.stdout.trimEnd().split("\n").at(-1)).toBe(
+        `next: FORMAN_HOME=${started.dataDir} ${executable} wait unit-a`,
+      );
       for (const command of ["answer", "followup", "steer"]) {
         const accepted = await fixture({ _tag: "Accepted", cursor });
         for (const json of [false, true]) {
@@ -881,7 +953,7 @@ describe("daemon result rendering", () => {
             { PATH: bin },
           );
           expect(result).toMatchObject({ status: 0, stderr: "" });
-          const next = `${executable} wait unit-a --after opaque:42`;
+          const next = `FORMAN_HOME=${accepted.dataDir} ${executable} wait unit-a --after opaque:42`;
           if (json)
             expect(machine(result.stdout)).toMatchObject({ _tag: "Accepted", cursor, next });
           else expect(result.stdout).toBe(`ok\nnext: ${next}\n`);
@@ -896,13 +968,20 @@ describe("daemon result rendering", () => {
       const human = await f.run(args);
       expect(human.status).toBe(0);
       expect(human.stderr).toBe("");
-      for (const part of text) expect(human.stdout).toContain(part);
+      for (const part of text)
+        expect(human.stdout).toContain(
+          part.replaceAll("next: forman", `next: FORMAN_HOME=${f.dataDir} forman`),
+        );
       if (response._tag === "Waited") {
         expect(human.stdout).not.toContain("\n\n\n");
-        expect(human.stdout.trimEnd().split("\n").at(-1)).toBe(`next: ${response.next}`);
+        expect(human.stdout.trimEnd().split("\n").at(-1)).toBe(
+          `next: FORMAN_HOME=${f.dataDir} ${response.next}`,
+        );
       }
       if (response._tag === "Started")
-        expect(human.stdout.trimEnd().split("\n").at(-1)).toBe("next: forman wait unit-a");
+        expect(human.stdout.trimEnd().split("\n").at(-1)).toBe(
+          `next: FORMAN_HOME=${f.dataDir} forman wait unit-a`,
+        );
       if (response._tag === "Digests" && args.length === 1) {
         expect(human.stdout.trimEnd().split("\n")).toHaveLength(
           Math.max(1, response.digests.length),
@@ -911,7 +990,11 @@ describe("daemon result rendering", () => {
       const json = await f.run([...args, "--json"]);
       expect(json.status).toBe(0);
       expect(json.stderr).toBe("");
-      expect(machine(json.stdout)).toEqual(response);
+      expect(machine(json.stdout)).toEqual(
+        response._tag === "Waited"
+          ? { ...response, next: `FORMAN_HOME=${f.dataDir} ${response.next}` }
+          : response,
+      );
     },
   );
 });
