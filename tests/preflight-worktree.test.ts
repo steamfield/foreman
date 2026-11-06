@@ -3,8 +3,8 @@ import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem, Path } from "effect";
 import { ChildProcess } from "effect/process";
-import { commandResult } from "../src/core/preflight/command";
 import { validateWorktree } from "../src/core/preflight/worktree";
+import { commandResult } from "../src/core/process";
 import { groupFor } from "../src/supervisor/wait";
 
 const setup = Effect.fnUntraced(function* () {

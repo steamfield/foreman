@@ -151,7 +151,13 @@ const exchangeRunRequest = Effect.fn("daemon.exchangeRunRequest")(function* (
   reader: Socket.Reader,
   outdated: boolean,
 ) {
-  if (!outdated || (body._tag !== "Answer" && body._tag !== "Followup" && body._tag !== "Steer"))
+  if (
+    !outdated ||
+    (body._tag !== "Answer" &&
+      body._tag !== "Followup" &&
+      body._tag !== "Steer" &&
+      body._tag !== "Interrupt")
+  )
     return yield* exchange(body, socket, reader);
   // Busy older builds acknowledge with Ok. Capture their position before sending the
   // mutation, so even an immediate continuation is visible to the subsequent wait.

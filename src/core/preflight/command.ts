@@ -1,1 +1,0 @@
-export { commandResult } from "../process";

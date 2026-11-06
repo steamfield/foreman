@@ -1,6 +1,6 @@
 import { Effect, FileSystem } from "effect";
 import { ChildProcess } from "effect/process";
-import { commandResult } from "./command";
+import { commandResult } from "../process";
 
 export type SshProbe = { alive: boolean; launchdSocket: string | undefined };
 

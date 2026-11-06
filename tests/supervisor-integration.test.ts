@@ -19,7 +19,7 @@ import { ChildProcess } from "effect/process";
 import { TestClock } from "effect/testing";
 import { openConnection } from "../src/codex/client";
 import { AppConfig } from "../src/config";
-import { commandResult } from "../src/core/preflight/command";
+import { commandResult } from "../src/core/process";
 import * as Store from "../src/core/runs/store";
 import { computeWorktreeFields } from "../src/core/runs/worktree";
 import { call } from "../src/daemon/client";

@@ -9,7 +9,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import { TestClock } from "effect/testing";
 import { AppConfig } from "../src/config";
 import { doctor } from "../src/core/doctor";
-import { commandResult } from "../src/core/preflight/command";
+import { commandResult } from "../src/core/process";
 import { DaemonSockets } from "../src/daemon/sockets";
 import { DoctorResult } from "../src/schemas/doctor";
 import { Host } from "../src/services/host";

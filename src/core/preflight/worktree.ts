@@ -2,7 +2,7 @@ import { Effect, FileSystem, Path } from "effect";
 import { ChildProcess } from "effect/process";
 import { WorktreeInvalid } from "../../errors";
 import { mainCheckout } from "../main-checkout";
-import { commandResult } from "./command";
+import { commandResult } from "../process";
 
 const invalid = (rule: number, worktree: string, reason: string) =>
   new WorktreeInvalid({ detail: `Rule ${rule}: ${worktree}: ${reason}` });

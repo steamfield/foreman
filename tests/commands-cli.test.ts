@@ -133,6 +133,45 @@ function machine(stdout: string) {
 }
 
 describe("command requests through the real parser and daemon", () => {
+  it.each([false, true])(
+    "merge: interrupt adapts an older busy daemon's Ok, wait=%s",
+    async (waiting) => {
+      const f = await fixture(
+        (body) =>
+          body._tag === "Wait"
+            ? {
+                _tag: "Waited",
+                outcome: "timeout",
+                runs: [],
+                cursor,
+                next: "forman wait unit-a --after opaque:42",
+              }
+            : { _tag: "Ok" },
+        "old",
+      );
+      const result = await f.run([
+        "interrupt",
+        "unit-a",
+        ...(waiting ? ["--wait", "--timeout", "90s"] : []),
+        "--json",
+      ]);
+      expect(result.status).toBe(0);
+      expect(machine(result.stdout)).toMatchObject(
+        waiting
+          ? { _tag: "Waited" }
+          : {
+              _tag: "Accepted",
+              cursor,
+              next: "forman wait unit-a --after opaque:42",
+            },
+      );
+      expect(f.requests.map((body) => body._tag)).toEqual(
+        waiting
+          ? ["Shutdown", "Wait", "Interrupt", "Shutdown", "Wait"]
+          : ["Shutdown", "Wait", "Interrupt"],
+      );
+    },
+  );
   it.each([false, true])("interrupt returns a continuation, wait=%s", async (waiting) => {
     const f = await fixture((body) =>
       body._tag === "Wait"

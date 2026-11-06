@@ -5,8 +5,8 @@ import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem, Schema } from "effect";
 import { ChildProcess } from "effect/process";
 import { openConnection } from "../src/codex/client";
-import { commandResult } from "../src/core/preflight/command";
 import { checkHookTrust } from "../src/core/preflight/hooks";
+import { commandResult } from "../src/core/process";
 import { Scenario } from "./fixtures/fake-app-server/scenario";
 import {
   missingProjectHooks,

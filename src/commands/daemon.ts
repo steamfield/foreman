@@ -94,7 +94,13 @@ export const daemonCommand = Command.make(
           const supervisor = yield* makeSupervisor();
           yield* Effect.raceFirst(
             supervisor.failed,
-            daemon({ dataDir: config.dataDir, version: host.version, ...supervisor }),
+            daemon({
+              dataDir: config.dataDir,
+              version: host.version,
+              codexBin: config.codexBin,
+              codexHome: config.codexHome,
+              ...supervisor,
+            }),
           );
         }),
       ),

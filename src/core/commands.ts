@@ -12,6 +12,9 @@ const request = Effect.fn("commands.request")(function* (body: DaemonRequestBody
   const output = yield* Output;
   return yield* call(body, {
     dataDir: config.dataDir,
+    codexBin: config.codexBin,
+    codexHome: config.codexHome,
+    logFile: (yield* config.logging).file,
     onOutdated: output.note("Daemon is outdated; it will be replaced once its runs finish."),
   });
 });
