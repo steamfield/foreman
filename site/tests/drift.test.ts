@@ -27,12 +27,13 @@ function readTable(header: string, source = readme) {
   return rows;
 }
 
-function codexVersion(requirements: string) {
-  return normalize(requirements)
-    .replaceAll("*", "")
-    .match(/Codex(?: CLI)? (\d+\.\d+\.\d+)/)?.[1];
+function codexVersion(text: string) {
+  return normalize(text)
+    .replaceAll("**", "")
+    .match(/Codex (?:CLI )?(\d+\.\d+\.\d+)/)?.[1];
 }
 
+// The README's Install section names the Codex version foreman is checked against.
 const installation = readme.split("## Install\n")[1]?.split("\n## ")[0] ?? "";
 
 describe("landing copy agrees with the repository README", () => {
@@ -73,7 +74,7 @@ describe("landing copy agrees with the repository README", () => {
     },
   );
 
-  it("uses the Codex version from README Install", () => {
+  it("uses the Codex version from the README Install section", () => {
     const documentedVersion = codexVersion(installation);
     const pageVersion = codexVersion(install.requirements.join("\n"));
     expect(documentedVersion).toBeDefined();
@@ -89,12 +90,8 @@ describe("landing copy agrees with the repository README", () => {
     expect(budget).toBeDefined();
     expect(timeout).toBeDefined();
     expect(mode).toBeDefined();
-    expect(source).toContain(
-      `--budget defaults to ${budget} per working turn.`,
-    );
-    expect(source).toContain(
-      `Timeout does the same after ${timeout} by default.`,
-    );
+    expect(source).toContain(`--budget defaults to ${budget} per working turn`);
+    expect(source).toContain(`after ${timeout} by default`);
     expect(source).toContain(`mode ${mode}`);
   });
 });

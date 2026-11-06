@@ -9,6 +9,7 @@
     "@astrojs/rss": "^4.0.19",
     "@astrojs/sitemap": "^3.7.4",
     "@fontsource-variable/archivo": "^5.3.0",
+    "@fontsource/archivo": "^5.3.0",
     "@fontsource/ibm-plex-mono": "^5.3.0",
     "@steamfield/ui": "~0.4.0",
     "@tailwindcss/typography": "^0.5.20",
@@ -17,6 +18,8 @@
     "posthog-js": "^1.447.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
+    "satori": "^0.63.2",
+    "sharp": "^0.35.5",
     "tailwindcss": "^4.3.4"
   },
   "devDependencies": {

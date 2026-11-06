@@ -35,8 +35,13 @@ function scrubCursors(text) {
   });
 }
 
+// Versioned model names (gpt-6.1-sol) go stale when Codex ships new ones; the page
+// names the family (gpt-sol).
+const genericModels = (text) =>
+  text.replace(/\bgpt-\d+(?:\.\d+)*-([a-z]+)\b/g, "gpt-$1");
+
 function scrub(text) {
-  return scrubPaths(scrubCursors(text));
+  return genericModels(scrubPaths(scrubCursors(text)));
 }
 
 const [name, ...rest] = process.argv.slice(2);

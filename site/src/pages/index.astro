@@ -8,6 +8,7 @@ import {
   WorkOrder,
 } from "../components/landing/evidence";
 import { Lifecycle } from "../components/landing/Lifecycle";
+import { Models } from "../components/landing/Models";
 import {
   CodeFrame,
   DataTable,
@@ -27,12 +28,14 @@ import {
   hero,
   install,
   lifecycle,
+  models,
   parallel,
   session,
   questions,
   waitOutcomes,
   why,
 } from "../data/landing";
+import { runTimelines } from "../data/evidence";
 import { lifecycleModel } from "../data/lifecycle";
 import { loadRun, releaseRuns } from "../data/runs";
 import { buildSession } from "../data/session";
@@ -121,7 +124,11 @@ const [npm] = install.options;
     </div>
   </Section>
 
-  <Section track id="session" title={session.title} lede={session.lede}>
+  <Section track id="models" title={models.title} lede={models.lede}>
+    <Models />
+  </Section>
+
+  <Section band track id="session" title={session.title} lede={session.lede}>
     <SessionDiagram
       client:visible
       session={buildSession(loadRun("site-commands"), {
@@ -132,36 +139,23 @@ const [npm] = install.options;
     />
   </Section>
 
-  <Section
-    band
-    track
-    id="lifecycle"
-    title={lifecycle.title}
-    lede={lifecycle.lede}
-  >
+  <Section track id="lifecycle" title={lifecycle.title} lede={lifecycle.lede}>
     <Lifecycle client:visible model={lifecycleModel()} />
   </Section>
 
-  <Section id="handoff" title={handoff.title} lede={handoff.lede}>
+  <Section band id="handoff" title={handoff.title} lede={handoff.lede}>
     <WorkOrder run={loadRun("site-console")} note={handoff.note} />
   </Section>
 
-  <Section
-    band
-    track
-    id="questions"
-    title={questions.title}
-    lede={questions.lede}
-  >
+  <Section track id="questions" title={questions.title} lede={questions.lede}>
     <QuestionTimeline run={supervisor} />
   </Section>
 
-  <Section id="parallel" title={parallel.title} lede={parallel.lede}>
-    <ParallelRuns runs={releaseRuns} />
+  <Section band id="parallel" title={parallel.title} lede={parallel.lede}>
+    <ParallelRuns client:visible timeline={runTimelines(releaseRuns)} />
   </Section>
 
   <Section
-    band
     track
     id="commands"
     title={commands.title}
@@ -170,7 +164,7 @@ const [npm] = install.options;
     <CommandTabs client:visible commands={loadCommands()} />
   </Section>
 
-  <Section id="guardrails" title={guardrails.title}>
+  <Section band id="guardrails" title={guardrails.title}>
     <DataTable
       caption="foreman's guardrails"
       head={["Guardrail", "What foreman does"]}
@@ -178,7 +172,7 @@ const [npm] = install.options;
     />
   </Section>
 
-  <Section band id="agents" title={agentFacing.title} lede={agentFacing.lede}>
+  <Section id="agents" title={agentFacing.title} lede={agentFacing.lede}>
     <div class="grid gap-8 lg:grid-cols-2">
       <div>
         <h3 class="text-ink mb-3 font-semibold">Wait outcomes</h3>
@@ -201,7 +195,7 @@ const [npm] = install.options;
     </div>
   </Section>
 
-  <Section track id="install" title={install.title}>
+  <Section band track id="install" title={install.title}>
     <div class="grid gap-10 lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-16">
       <div class="flex min-w-0 flex-col gap-8">
         <InstallPanel client:visible options={install.options} />

@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, expect, test, vi } from "vitest";
-import { lifecycleModel } from "../../data/lifecycle";
+import { lifecycleModel, tourLength, tourStopMs } from "../../data/lifecycle";
 import { Lifecycle } from "./Lifecycle";
 
 afterEach(() => {
@@ -19,7 +19,7 @@ test("server HTML contains every detail in order without hidden panels or inert 
       .getAllByRole("heading", { level: 3 })
       .map((heading) => heading.textContent),
   ).toEqual(model.nodes.map((node) => node.label));
-  expect(view.getAllByRole("listitem")).toHaveLength(10);
+  expect(view.getAllByRole("listitem")).toHaveLength(model.nodes.length);
   expect(view.queryByRole("tab")).not.toBeInTheDocument();
   expect(root.querySelector("[hidden]")).toBeNull();
   for (const node of model.nodes) {
@@ -152,5 +152,80 @@ test("archive renders the real recording when present", () => {
     const panel = screen.getByRole("tabpanel", { name: "Archive" });
     expect(within(panel).getByText(recording.source)).toBeVisible();
     expect(panel.textContent).toContain(recording.text);
+  }
+});
+
+function reduceMotion(reduced: boolean) {
+  vi.spyOn(window, "matchMedia").mockImplementation((query) => ({
+    matches: reduced && query.includes("prefers-reduced-motion"),
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => true,
+  }));
+}
+const toured = () =>
+  [...document.querySelectorAll("[data-tour-active]")].map(
+    (tab) => tab.textContent,
+  );
+const advance = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms));
+
+test("the tour walks the stages and loops without touching the selection", async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal("IntersectionObserver", undefined);
+  reduceMotion(false);
+  try {
+    const model = lifecycleModel();
+    render(<Lifecycle model={model} />);
+    await advance(100);
+    expect(toured()).toEqual(["Contract"]);
+    await advance(tourStopMs * 3 + 500);
+    expect(toured()).toEqual(["Question"]);
+    await advance(tourLength(model));
+    expect(toured()).toHaveLength(1);
+    expect(
+      screen.getByRole("tab", { name: "Question", selected: true }),
+    ).toBeInTheDocument();
+    expect(document.activeElement).toBe(document.body);
+    expect(screen.getByRole("status")).toHaveTextContent("");
+  } finally {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  }
+});
+
+test("the tour stops for good once the reader touches the diagram", async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal("IntersectionObserver", undefined);
+  reduceMotion(false);
+  try {
+    render(<Lifecycle model={lifecycleModel()} />);
+    await advance(100);
+    expect(toured()).toHaveLength(1);
+    fireEvent.pointerDown(screen.getByRole("tab", { name: "Done" }));
+    expect(toured()).toHaveLength(0);
+    await advance(10_000);
+    expect(toured()).toHaveLength(0);
+    expect(document.querySelector("[data-tour-edge]")).toBeNull();
+  } finally {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  }
+});
+
+test("the tour stays still under reduced motion", async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal("IntersectionObserver", undefined);
+  reduceMotion(true);
+  try {
+    render(<Lifecycle model={lifecycleModel()} />);
+    await advance(5000);
+    expect(toured()).toHaveLength(0);
+  } finally {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
   }
 });

@@ -51,6 +51,8 @@ export interface Scene {
   step: number;
   held: boolean;
   claude: string;
+  /** Claude is doing something rather than idling on a background wait. */
+  claudeActive: boolean;
   delegates: DelegateScene[];
   packets: (Packet & { progress: number })[];
 }
@@ -97,7 +99,7 @@ export function buildSession(
   const specs = [
     {
       name: "site-console",
-      model: "gpt-6-astra",
+      model: "gpt-astra",
       work: "Hero console",
       contract: "console.md",
       scope:
@@ -109,7 +111,7 @@ export function buildSession(
     },
     {
       name: "site-commands",
-      model: "gpt-6.1-sol",
+      model: "gpt-sol",
       work: "Command tabs + llms.txt",
       contract: "commands.md",
       scope:
@@ -121,7 +123,7 @@ export function buildSession(
     },
     {
       name: "site-e2e",
-      model: "gpt-6.1-terra",
+      model: "gpt-terra",
       work: "Browser + accessibility checks",
       contract: "e2e.md",
       scope: "site/e2e/, site/playwright.config.ts",
@@ -353,5 +355,6 @@ export function sceneAt(session: Session, time: number): Scene {
       "Review · commit · merge",
       "Archive merged branches",
     ][step] ?? "";
-  return { step, held, claude, delegates, packets };
+  const claudeActive = step !== 2;
+  return { step, held, claude, claudeActive, delegates, packets };
 }

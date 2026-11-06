@@ -1,1 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" rx="4" fill="#111311"/><rect x="5" y="5" width="14" height="3.5" rx="0.75" fill="#FF5B14"/><rect x="5" y="11.5" width="7.5" height="7.5" rx="0.75" fill="#F1F2EE"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <title>foreman</title>
+  <rect width="32" height="32" rx="7" fill="#111311"/>
+  <rect x=".5" y=".5" width="31" height="31" rx="6.5" fill="none" stroke="#2D322B"/>
+  <path fill="#F1F2EE" d="M5 8h3.6l5.6 8-5.6 8H5l5.6-8z"/>
+  <path fill="#F1F2EE" d="M11.4 8h3.6l5.6 8-5.6 8H11.4l5.6-8z"/>
+  <path fill="#FF5B14" d="M17.8 8h3.6l5.6 8-5.6 8H17.8l5.6-8z"/>
+</svg>

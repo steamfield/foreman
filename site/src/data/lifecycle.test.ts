@@ -1,7 +1,13 @@
-import { expect, test } from "vitest";
+import { describe, expect, it, test } from "vitest";
 import start from "../../fixtures/cli/start-wait.json";
 import supervisor from "../../fixtures/runs/fix-supervisor.json";
-import { lifecycleModel } from "./lifecycle";
+import {
+  lifecycleModel,
+  tourAt,
+  tourLength,
+  tourRoutes,
+  tourStopMs,
+} from "./lifecycle";
 
 test("the lifecycle includes the question loop and all four wait endings", () => {
   const model = lifecycleModel();
@@ -14,6 +20,7 @@ test("the lifecycle includes the question loop and all four wait endings", () =>
     "failed",
     "interrupted",
     "lost",
+    "recover",
     "review",
     "archive",
   ]);
@@ -26,6 +33,18 @@ test("the lifecycle includes the question loop and all four wait endings", () =>
     from: "question",
     to: "running",
     label: "answer / timeout",
+  });
+  // Only a done turn reaches review; every other ending goes back to Claude.
+  expect(
+    model.edges.filter((edge) => edge.to === "review").map((e) => e.from),
+  ).toEqual(["done"]);
+  expect(
+    model.edges.filter((edge) => edge.to === "recover").map((e) => e.from),
+  ).toEqual(["failed", "interrupted", "lost"]);
+  expect(model.edges).toContainEqual({
+    from: "recover",
+    to: "running",
+    label: "followup",
   });
   for (const edge of model.edges) {
     expect(model.nodes.some((node) => node.id === edge.from)).toBe(true);
@@ -57,6 +76,7 @@ test("question uses q1 verbatim and unrecorded states never fabricate output", (
     "failed",
     "interrupted",
     "lost",
+    "recover",
     "review",
   ]) {
     expect(nodes.find((node) => node.id === id)?.excerpt).toBeUndefined();
@@ -91,3 +111,60 @@ test.each(Object.values(archives))(
     ).toBe(recording.output);
   },
 );
+
+describe("lifecycle tour", () => {
+  const model = lifecycleModel();
+
+  it("walks real edges, asking once and ending each loop a different way", () => {
+    const routes = tourRoutes(model);
+    expect(routes.map((route) => route[3])).toEqual([
+      "question",
+      "failed",
+      "interrupted",
+      "lost",
+    ]);
+    // A failed, interrupted or lost turn goes back to Claude, whose follow-up
+    // turn then finishes; no route reviews or archives anything but a done turn.
+    for (const route of routes.slice(1))
+      expect(route.slice(3)).toEqual([
+        route[3],
+        "recover",
+        "running",
+        "done",
+        "review",
+        "archive",
+      ]);
+    for (const route of routes)
+      expect(route[route.indexOf("review") - 1]).toBe("done");
+    expect(routes.slice(1).some((route) => route.includes("question"))).toBe(
+      false,
+    );
+    expect(tourLength(model)).toBe(routes.flat().length * tourStopMs);
+  });
+
+  it("crosses an edge before resting on the next stage", () => {
+    expect(tourAt(model, 0)).toEqual({ node: "contract", edge: undefined });
+    expect(tourAt(model, tourStopMs + 100)).toEqual({
+      node: "contract",
+      edge: { from: "contract", to: "start" },
+    });
+    expect(tourAt(model, tourStopMs * 2 - 1)).toEqual({
+      node: "start",
+      edge: undefined,
+    });
+    expect(tourAt(model, tourStopMs * 3 + 600).node).toBe("question");
+    expect(tourAt(model, tourLength(model))).toEqual({
+      node: "archive",
+      edge: undefined,
+    });
+  });
+
+  it("refuses a route over an edge the diagram does not draw", () => {
+    expect(() =>
+      tourRoutes({
+        ...model,
+        edges: model.edges.filter((e) => e.to !== "question"),
+      }),
+    ).toThrow("running→question");
+  });
+});

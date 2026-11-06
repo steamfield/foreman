@@ -1,5 +1,6 @@
 import type { ConsoleEvent } from "../../../data/supervision";
 import { formatOffset } from "../../../lib/format";
+import { StateBadge } from "../primitives";
 import { ConsoleText } from "./ConsoleText";
 
 export function EventEntry({
@@ -62,8 +63,12 @@ export function EventEntry({
       break;
     case "question":
       content = (
-        <div className="border-signal border-l-2 pl-3">
-          <p className="text-signal">question {event.id}</p>
+        <div className="console-note">
+          <StateBadge
+            state="waiting"
+            surface="console"
+            label={`question ${event.id}`}
+          />
           <ConsoleText
             text={event.text}
             interactive={interactive}
@@ -74,8 +79,8 @@ export function EventEntry({
       break;
     case "hook-blocked":
       content = (
-        <div className="border-state-failed border-l-2 pl-3">
-          <p className="text-state-failed">hook blocked</p>
+        <div className="console-note">
+          <StateBadge state="failed" surface="console" label="hook blocked" />
           <ConsoleText
             text={event.feedback}
             interactive={interactive}

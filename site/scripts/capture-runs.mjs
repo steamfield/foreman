@@ -102,6 +102,11 @@ function digestFromTranscript(name, file) {
   return `${lines.slice(start, end + 1).join("\n")}\n`;
 }
 
+// Versioned model names (gpt-6.1-sol) go stale when Codex ships new ones; the page
+// names the family (gpt-sol).
+const genericModels = (text) =>
+  text.replace(/\bgpt-\d+(?:\.\d+)*-([a-z]+)\b/g, "gpt-$1");
+
 function exportRun(arg) {
   const [name, transcript] = arg.split(":");
   const dir = runDir(name);
@@ -223,7 +228,7 @@ function exportRun(arg) {
     digest: scrubber(run, { relative: false })(digest),
   };
   const out = new URL(`${name}.json`, outDir);
-  writeFileSync(out, `${JSON.stringify(fixture, null, 2)}\n`);
+  writeFileSync(out, genericModels(`${JSON.stringify(fixture, null, 2)}\n`));
   console.log(`${name}: ${events.length} events -> fixtures/runs/${name}.json`);
 }
 

@@ -10,6 +10,7 @@ export type LifecycleId =
   | "failed"
   | "interrupted"
   | "lost"
+  | "recover"
   | "review"
   | "archive";
 
@@ -108,7 +109,7 @@ export function lifecycleModel(
         reports:
           "Codex called `ask_orchestrator`. foreman holds the call open, and the wait returns `question` with an id. This is q1 from fix-supervisor, as Codex wrote it.",
         claude:
-          "Answer the question with `--wait` to resume the held call and keep watching. An unanswered question auto-answers after the question timeout (15 minutes by default); Codex proceeds and notes its choice in the hand-off.",
+          "Answer the question with `--wait` to resume the held call and keep watching, or `defer` it to release the call without deciding. Codex then continues with independent work, avoids irreversible steps on the decision and lists it under Open. The question timeout (15 minutes by default) does the same, and Claude can still answer later.",
         command: 'foreman answer <name> <id> "<text>" --wait',
         excerpt: {
           source: "Recorded: fix-supervisor q1",
@@ -162,6 +163,17 @@ export function lifecycleModel(
         command: "foreman status <name>\nforeman doctor",
       },
       {
+        id: "recover",
+        label: "Claude decides",
+        state: "starting",
+        reports:
+          "Nothing runs. The run is inactive with its edits, its Codex thread and the failure kept, and the result names a `transient:` or `usage-limit:` hint when there is one.",
+        claude:
+          "Read `foreman result` and the worktree, then decide. If the work is on track, send a `followup` with what to fix (and a larger `--budget` if the turn ran out): the next turn continues the same Codex thread. If the approach went wrong, or a lost run has no saved thread, archive it with `--keep-worktree` and dispatch a fresh run from a new contract.",
+        command:
+          "foreman result <name>\nforeman followup <name> --file <followup> --wait",
+      },
+      {
         id: "review",
         label: "Review and commit",
         state: "done",
@@ -201,10 +213,72 @@ export function lifecycleModel(
       { from: "running", to: "interrupted" },
       { from: "running", to: "lost" },
       { from: "done", to: "review" },
-      { from: "failed", to: "review" },
-      { from: "interrupted", to: "review" },
-      { from: "lost", to: "review" },
+      { from: "failed", to: "recover" },
+      { from: "interrupted", to: "recover" },
+      { from: "lost", to: "recover" },
+      { from: "recover", to: "running", label: "followup" },
       { from: "review", to: "archive" },
     ],
   };
+}
+
+/** One hop of the lifecycle tour: cross `edge` (if any), then rest on `node`. */
+export interface TourStop {
+  node: LifecycleId;
+  edge?: { from: LifecycleId; to: LifecycleId };
+}
+
+const TOUR_CROSS_MS = 500;
+const TOUR_REST_MS = 700;
+const TOUR_ENDINGS = ["done", "failed", "interrupted", "lost"] as const;
+
+/**
+ * Paths through the graph, one per wait ending. The first also asks a question. The
+ * others go back to Claude, who sends a follow-up turn that then finishes; only a done
+ * turn reaches review and archive.
+ */
+export function tourRoutes(model: LifecycleModel): LifecycleId[][] {
+  const routes = TOUR_ENDINGS.map((ending): LifecycleId[] => [
+    "contract",
+    "start",
+    "running",
+    ...(ending === "done"
+      ? (["question", "running"] as const)
+      : ([ending, "recover", "running"] as const)),
+    "done",
+    "review",
+    "archive",
+  ]);
+  for (const route of routes)
+    route.slice(1).forEach((to, i) => {
+      const from = route[i];
+      if (!model.edges.some((e) => e.from === from && e.to === to))
+        throw new Error(`Lifecycle tour crosses a missing edge ${from}→${to}`);
+    });
+  return routes;
+}
+
+export const tourStopMs = TOUR_CROSS_MS + TOUR_REST_MS;
+
+export function tourLength(model: LifecycleModel) {
+  return tourRoutes(model).flat().length * tourStopMs;
+}
+
+/** Where the tour is at `t` ms: the node it rests on and the edge it is crossing. */
+export function tourAt(model: LifecycleModel, t: number) {
+  const stops = tourRoutes(model).flatMap((route) =>
+    route.map((node, i): TourStop => ({
+      node,
+      edge: i > 0 ? { from: route[i - 1] as LifecycleId, to: node } : undefined,
+    })),
+  );
+  const index = Math.min(
+    stops.length - 1,
+    Math.max(0, Math.floor(t / tourStopMs)),
+  );
+  const stop = stops[index] as TourStop;
+  const crossing = t - index * tourStopMs < TOUR_CROSS_MS && stop.edge;
+  return crossing
+    ? { node: stop.edge?.from ?? stop.node, edge: stop.edge }
+    : { node: stop.node, edge: undefined };
 }

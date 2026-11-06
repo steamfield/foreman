@@ -47,7 +47,13 @@ src/data/*.ts            pure build-time shaping per section: supervision (hero 
                          session (orchestration diagram), lifecycle, evidence, commands
 src/components/landing/  primitives.tsx (Section, DataTable, CodeFrame, StateBadge) and
                          one component per section; console/ and session/ hold subparts
-src/components/Logo.astro the mark (also public/favicon.svg)
+src/components/Logo.astro the mark and "foreman" lockup, inlined from public/brand/
+public/brand/            brand pack sources (icon tile, light and dark marks, horizontal and
+                         stacked lockups); `make brand` (scripts/brand.ts) renders their WebP
+                         sizes, the social cards and public/site.webmanifest.
+                         public/favicon.svg is a copy of foreman-icon.svg
+src/lib/og.ts            the satori social card; src/pages/og/index.webp.ts serves it
+design/logos/            the logo exploration and its preview.html (not shipped)
 src/lib/                 format.ts (foreman's elapsed and token formats), analytics, events,
                          blog publication rules
 src/scripts/site.ts      copy buttons, section_viewed tracking, scroll reveals
@@ -72,7 +78,9 @@ Demos replay recordings; never hand-write foreman output or Codex events. Captur
 with `node scripts/capture-runs.mjs <name>` (or `<name>:<transcript>` to take the digest
 from a saved `start --wait` transcript, which also works for archived runs) and CLI output
 with `node scripts/capture-cli.mjs <name> -- foreman <args>`. Both scrub home paths, the
-username, temp directories and the paths inside wait cursors. Capture a run's digest before
+username, temp directories and the paths inside wait cursors, and reduce versioned
+model names to their family (`gpt-6.1-sol` becomes `gpt-sol`) so the page does not go
+stale when Codex ships new models. Capture a run's digest before
 committing its worktree: the digest's scope check reads the worktree's uncommitted files.
 Prose written for the page beside recorded output is labeled as written for the page.
 
@@ -175,8 +183,7 @@ only for moved content, never for trailing slashes or `.html` canonicalization.
 
 ## Deferred
 
-Landing page design, final tokens, font imports, event callers and replacing the
-static social image. Generated per-post Open Graph images are off.
+Landing page design, final tokens, font imports and event callers. Generated per-post Open Graph images are off.
 
 ## Pending user actions
 

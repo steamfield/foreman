@@ -2,16 +2,22 @@ import { usePlayback } from "@steamfield/ui/react/playback";
 import { sceneAt, type Session } from "../../data/session";
 import { track } from "../../lib/analytics";
 import { Events } from "../../lib/events";
-import { CodeFrame, Inline } from "./primitives";
+import { CodeFrame, Inline, StateBadge } from "./primitives";
 import { SessionCanvas } from "./session/SessionCanvas";
+
+/** Story milliseconds per wall-clock millisecond: 54s of story plays in about 22s. */
+export const PLAYBACK_RATE = 2.5;
 
 export function SessionDiagram({ session }: { session: Session }) {
   const playback = usePlayback({
-    duration: session.duration,
+    duration: session.duration / PLAYBACK_RATE,
     reducedPolicy: "hold",
   });
   const still = !playback.ready || playback.reduced;
-  const scene = sceneAt(session, still ? session.stillAt : playback.elapsed);
+  const scene = sceneAt(
+    session,
+    still ? session.stillAt : playback.elapsed * PLAYBACK_RATE,
+  );
   const current = session.steps[scene.step];
   return (
     <div className="min-w-0" data-session-diagram>
@@ -74,20 +80,31 @@ export function SessionDiagram({ session }: { session: Session }) {
         {session.steps.map((step, i) => (
           <li key={step.at} className="min-w-0">
             {still ? (
-              <h3 className="text-ink font-semibold">
-                {i + 1}. {step.title}
+              <h3 className="text-ink flex items-center gap-3 font-semibold">
+                <span aria-hidden="true" className="step-number">
+                  {i + 1}
+                </span>
+                <span className="sr-only">{i + 1}. </span>
+                {step.title}
               </h3>
             ) : (
               <button
                 type="button"
                 aria-current={i === scene.step ? "step" : undefined}
-                className={`rounded-control w-full border-l-2 px-3 py-2 text-left font-semibold ${i === scene.step ? "border-ink bg-band text-ink" : "border-line text-ink-2 hover:border-ink"}`}
+                className={`rounded-control flex w-full items-center gap-3 border px-3 py-2 text-left font-semibold transition-colors ${i === scene.step ? "border-ink bg-card text-ink" : "text-ink-2 hover:border-line-strong hover:text-ink border-transparent"}`}
                 onClick={() => {
-                  playback.seek(step.at);
+                  playback.seek(step.at / PLAYBACK_RATE);
                   playback.pause();
                 }}
               >
-                {i + 1}. {step.title}
+                <span
+                  aria-hidden="true"
+                  className={`step-number ${i === scene.step ? "step-number-current" : ""}`}
+                >
+                  {i + 1}
+                </span>
+                <span className="sr-only">{i + 1}. </span>
+                {step.title}
               </button>
             )}
             <p className="text-ink-2 mt-2 text-sm leading-relaxed">
@@ -121,13 +138,17 @@ export function SessionDiagram({ session }: { session: Session }) {
                       />
                     </details>
                   ) : (
-                    <blockquote
-                      className={`rounded-control border-l-2 p-3 text-sm leading-relaxed ${i === 3 ? "border-signal bg-band text-ink" : "border-line-strong bg-band text-ink"}`}
-                    >
-                      <p className="text-ink-3 mb-2 font-mono text-xs">
+                    <blockquote className="rounded-control border-line bg-card text-ink overflow-hidden border text-sm leading-relaxed">
+                      <p className="border-line text-ink-3 flex items-center gap-2 border-b px-3 py-2 font-mono text-xs">
+                        {i === 3 && (
+                          <StateBadge
+                            state="waiting"
+                            label={`question ${session.question.id}`}
+                          />
+                        )}
                         {step.recorded.title}
                       </p>
-                      <p className="wrap-anywhere">{step.recorded.text}</p>
+                      <p className="wrap-anywhere p-3">{step.recorded.text}</p>
                     </blockquote>
                   ))}
                 {step.commands.length > 0 && (

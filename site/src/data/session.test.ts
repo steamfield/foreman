@@ -97,11 +97,18 @@ describe("the simulated session", () => {
     );
   });
 
+  it("marks Claude idle only while its background wait is the whole job", () => {
+    expect(sceneAt(session, 0).claudeActive).toBe(true);
+    expect(sceneAt(session, 12_000).claudeActive).toBe(false);
+    expect(sceneAt(session, session.stillAt).claudeActive).toBe(true);
+    expect(sceneAt(session, session.duration).claudeActive).toBe(true);
+  });
+
   it("starts isolated worktrees on the three specified models, staggered", () => {
     expect(session.delegates.map((d) => d.model)).toEqual([
-      "gpt-6-astra",
-      "gpt-6.1-sol",
-      "gpt-6.1-terra",
+      "gpt-astra",
+      "gpt-sol",
+      "gpt-terra",
     ]);
     expect(sceneAt(session, 0).delegates.map((d) => d.state)).toEqual([
       "queued",

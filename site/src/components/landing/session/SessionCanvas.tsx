@@ -37,6 +37,55 @@ const stateFill: Record<SessionState, string> = {
   done: "fill-state-done",
   archived: "fill-console-muted",
 };
+// Activity colors per state: a tinted card, a stronger border, and (while
+// playing) a segment tracing the border. Done and idle cards stay plain.
+type Activity = { tint: string; stroke: string; trace: string };
+const activity: Partial<Record<SessionState, Activity>> = {
+  starting: {
+    tint: "fill-state-running/10",
+    stroke: "stroke-state-running-ink",
+    trace: "stroke-state-running-ink",
+  },
+  running: {
+    tint: "fill-state-running/10",
+    stroke: "stroke-state-running-ink",
+    trace: "stroke-state-running-ink",
+  },
+  waiting: {
+    tint: "fill-signal/15",
+    stroke: "stroke-signal",
+    trace: "stroke-signal",
+  },
+};
+
+/** A card's activity layers: pulsing tint, then the tracing border segment. */
+function ActiveCard({
+  box,
+  look,
+  playing,
+}: {
+  box: Box;
+  look: Activity;
+  playing: boolean;
+}) {
+  const rect = { x: box.x, y: box.y, width: box.w, height: box.h, rx: 6 };
+  return (
+    <>
+      <rect {...rect} className={`session-tint ${look.tint}`} stroke="none" />
+      {playing && (
+        <rect
+          {...rect}
+          pathLength={100}
+          fill="none"
+          strokeWidth={2.5}
+          strokeLinecap="round"
+          className={`session-trace ${look.trace}`}
+        />
+      )}
+    </>
+  );
+}
+
 const short = (text: string, length: number) =>
   text.length > length ? `${text.slice(0, length - 1)}…` : text;
 
@@ -128,20 +177,58 @@ function Drawing({
 }) {
   const board = g.board;
   const claude = g.claude;
+  // A link is busy while a packet travels it (key -1 is Claude to the daemon);
+  // the value says whether that packet moves along the path or against it.
+  const busy = new Map(
+    scene.packets.map((p) =>
+      typeof p.from === "number"
+        ? [p.from, false]
+        : typeof p.to === "number"
+          ? [p.to, p.from === "daemon"]
+          : [-1, p.from === "claude"],
+    ),
+  );
+  const links = [-1, ...session.delegates.map((_, i) => i)];
   return (
     <>
       <g fill="none" className="stroke-line-strong">
-        <path d={link(g).path} />
-        {session.delegates.map((d, i) => (
-          <path key={d.name} d={link(g, i).path} />
+        {links.map((i) => (
+          <path key={i} d={link(g, i < 0 ? undefined : i).path} />
         ))}
       </g>
+      {playing && (
+        <g fill="none" className="stroke-ink" strokeWidth={1.5}>
+          {links
+            .filter((i) => busy.has(i))
+            .map((i) => (
+              <path
+                key={i}
+                data-link-busy={i < 0 ? "claude" : session.delegates[i]?.name}
+                d={link(g, i < 0 ? undefined : i).path}
+                className={
+                  busy.get(i)
+                    ? "session-flow"
+                    : "session-flow session-flow-back"
+                }
+                strokeDasharray="4 6"
+              />
+            ))}
+        </g>
+      )}
       <rect
         data-session-card="claude"
+        data-activity={scene.claudeActive ? "active" : "idle"}
         {...{ x: claude.x, y: claude.y, width: claude.w, height: claude.h }}
         rx="6"
-        className="fill-card stroke-line-strong"
+        className={`fill-card ${scene.claudeActive ? "stroke-ink" : "stroke-line-strong"}`}
       />
+      {scene.claudeActive && (
+        <ActiveCard
+          box={claude}
+          playing={playing}
+          look={{ tint: "fill-ink/5", stroke: "", trace: "stroke-ink" }}
+        />
+      )}
       <Text
         x={claude.x + 16}
         y={claude.y + 30}
@@ -222,12 +309,24 @@ function Drawing({
         const view = scene.delegates[i];
         if (!view) return null;
         const y = board.y + 64 + i * 62;
+        const live = activity[view.state];
         return (
           <g key={d.name}>
             <path
               d={`M${board.x + 16} ${y - 17}H${board.x + board.w - 16}`}
               className="stroke-console-line"
             />
+            {live && (
+              <rect
+                data-board-row={d.name}
+                x={board.x + 8}
+                y={y - 16}
+                width={board.w - 16}
+                height={44}
+                rx="2"
+                className={`session-tint ${view.state === "waiting" ? "fill-signal/20" : "fill-state-running/15"}`}
+              />
+            )}
             <rect
               x={board.x + 16}
               y={y - 8}
@@ -308,18 +407,21 @@ function Drawing({
             : event?.kind === "files"
               ? `write ${event.paths.at(-1) ?? ""}`
               : "Awaiting recorded activity";
+        const live = activity[view.state];
         return (
           <g key={d.name}>
             <rect
               data-session-card={d.name}
+              data-activity={live ? view.state : "idle"}
               x={box.x}
               y={box.y}
               width={box.w}
               height={box.h}
               rx="6"
-              className={`fill-card ${view.state === "waiting" ? "stroke-signal" : "stroke-line-strong"}`}
+              className={`fill-card ${live?.stroke ?? (view.state === "done" ? "stroke-state-done-ink" : "stroke-line-strong")}`}
               strokeDasharray={empty ? "4 4" : undefined}
             />
+            {live && <ActiveCard box={box} look={live} playing={playing} />}
             <Text
               x={box.x + 14}
               y={box.y + 25}
@@ -528,6 +630,7 @@ export function SessionCanvas({
       viewBox="0 0 1120 1120"
       preserveAspectRatio="none"
       aria-hidden="true"
+      data-playing={playing || undefined}
       className="session-canvas mx-auto block w-full max-w-md lg:max-w-none"
     >
       <g className="session-wide" transform={`scale(1 ${1120 / WIDE.height})`}>

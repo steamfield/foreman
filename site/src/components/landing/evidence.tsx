@@ -1,8 +1,10 @@
+import { usePlayback } from "@steamfield/ui/react/playback";
 import {
   contractExcerpt,
   digestBlocks,
+  parallelFrame,
   questionPairs,
-  runTimelines,
+  type RunTimeline,
 } from "../../data/evidence";
 import { parallel } from "../../data/landing";
 import type { Run } from "../../data/runs";
@@ -135,12 +137,29 @@ export function QuestionTimeline({ run }: { run: Run }) {
   );
 }
 
-export function ParallelRuns({ runs }: { runs: readonly Run[] }) {
-  const timeline = runTimelines(runs);
+/** Wall-clock length of the replay; the recorded axis is about 80 minutes. */
+const PARALLEL_REPLAY_MS = 14_000;
+
+export function ParallelRuns({ timeline }: { timeline: RunTimeline }) {
+  const playback = usePlayback<HTMLDivElement>({
+    duration: timeline.extentMs,
+    speed: timeline.extentMs / PARALLEL_REPLAY_MS,
+  });
+  // The server, no-JS and reduced-motion frame is the recorded end state.
+  const still = !playback.ready || playback.reduced;
+  const frame = parallelFrame(
+    timeline,
+    still ? timeline.extentMs : playback.elapsed,
+  );
   const percent = (ms: number) => `${(ms / timeline.extentMs) * 100}%`;
   return (
     <div>
-      <div aria-hidden="true" className="space-y-6">
+      <div
+        ref={playback.ref}
+        aria-hidden="true"
+        className="space-y-6"
+        data-playing={playback.playing || undefined}
+      >
         <div className="grid gap-3 sm:grid-cols-[12rem_minmax(0,1fr)]">
           <p className="text-ink-3 text-xs">Minutes from first start</p>
           <div className="relative h-6 font-mono text-xs tabular-nums">
@@ -159,50 +178,60 @@ export function ParallelRuns({ runs }: { runs: readonly Run[] }) {
             ))}
           </div>
         </div>
-        {timeline.rows.map((row) => (
-          <div
-            key={row.name}
-            className="border-line grid min-w-0 gap-3 border-b pb-6 sm:grid-cols-[12rem_minmax(0,1fr)]"
-          >
-            <p className="text-ink font-mono text-sm font-medium">{row.name}</p>
-            <div className="min-w-0">
-              <div className="bg-line relative h-3">
-                <div
-                  className="bg-ink absolute inset-y-0"
-                  style={{
-                    left: percent(row.startMs),
-                    width: percent(row.durationMs),
-                  }}
-                />
-                {row.questions.map((question) => (
-                  <span
-                    key={question.id}
-                    className="bg-signal absolute -top-1 h-5 w-1"
-                    style={{ left: percent(question.atMs) }}
+        {timeline.rows.map((row, i) => {
+          const now = frame[i];
+          if (!now) return null;
+          const live = playback.playing && now.state !== "done";
+          return (
+            <div
+              key={row.name}
+              className="border-line grid min-w-0 gap-3 border-b pb-6 sm:grid-cols-[12rem_minmax(0,1fr)]"
+            >
+              <p className="text-ink font-mono text-sm font-medium">
+                {row.name}
+              </p>
+              <div className="min-w-0">
+                <div className="bg-line relative h-3">
+                  <div
+                    data-parallel-bar={now.state}
+                    className={`bg-ink absolute inset-y-0 ${live && now.state === "running" ? "parallel-live" : ""}`}
+                    style={{
+                      left: percent(row.startMs),
+                      width: percent(now.shownMs),
+                    }}
                   />
-                ))}
-              </div>
-              <div className="text-ink-2 mt-3 flex justify-between gap-2 font-mono text-xs tabular-nums sm:justify-start sm:gap-8">
-                <div>
-                  {formatElapsed(row.durationMs)}
-                  <span className="text-ink-3 block">duration</span>
+                  {row.questions
+                    .filter((question) => now.questions.includes(question.id))
+                    .map((question) => (
+                      <span
+                        key={question.id}
+                        className={`bg-signal absolute -top-1 h-5 w-1 ${live && now.state === "waiting" && question.id === now.questions.at(-1) ? "state-waiting" : ""}`}
+                        style={{ left: percent(question.atMs) }}
+                      />
+                    ))}
                 </div>
-                <div>
-                  {row.commands} / {row.failed}
-                  <span className="text-ink-3 block">cmd / failed</span>
-                </div>
-                <div>
-                  {row.files}
-                  <span className="text-ink-3 block">files</span>
-                </div>
-                <div>
-                  {formatTokens(row.outputTokens)}
-                  <span className="text-ink-3 block">tokens out</span>
+                <div className="text-ink-2 mt-3 flex justify-between gap-2 font-mono text-xs tabular-nums sm:justify-start sm:gap-8">
+                  <div>
+                    {formatElapsed(now.shownMs)}
+                    <span className="text-ink-3 block">duration</span>
+                  </div>
+                  <div>
+                    {now.commands} / {now.failed}
+                    <span className="text-ink-3 block">cmd / failed</span>
+                  </div>
+                  <div>
+                    {now.files}
+                    <span className="text-ink-3 block">files</span>
+                  </div>
+                  <div>
+                    {formatTokens(now.outputTokens)}
+                    <span className="text-ink-3 block">tokens out</span>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
         <p className="text-ink-3 flex items-center gap-2 text-xs">
           <span className="bg-signal h-3 w-1" /> Codex asked a question
         </p>

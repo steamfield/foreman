@@ -1,10 +1,10 @@
 export const site = {
   title: "foreman",
   description:
-    "foreman lets Claude Code hand coding tasks to Codex, each in its own git worktree, and supervise them while they run. Claude answers Codex's questions and reviews the diff before anything is committed.",
+    "foreman makes Codex models available to Claude Code as subagents: Claude plans and reviews, and hands implementation to sol, terra or astra, each in its own git worktree. Claude answers their questions and reviews the diff before anything is committed.",
   url: "https://foreman.steamfield.io",
   author: "Riley Hilliard",
-  image: "/default-og.svg",
+  image: "/og/index.webp",
   repo: "https://github.com/steamfield/foreman",
   readme: "https://github.com/steamfield/foreman#readme",
   npm: "https://www.npmjs.com/package/@steamfield/foreman",

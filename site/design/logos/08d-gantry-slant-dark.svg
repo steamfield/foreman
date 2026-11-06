@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="foreman: Slanted legs">
+  <rect x="3" y="5" width="26" height="6" rx="1" fill="#ff5b14"/>
+  <g fill="#e4e8e0">
+    <path d="M7 14h5l-3 14H4z"/>
+    <path d="M15.5 14h5l-3 14h-5z"/>
+    <path d="M24 14h5l-3 14h-5z"/>
+  </g>
+</svg>

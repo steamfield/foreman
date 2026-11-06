@@ -43,7 +43,7 @@ test("the landing page owns the root and links the shared privacy page", () => {
   const page = document("index.html");
   assert.equal(
     page.querySelector("h1")?.textContent?.trim(),
-    "Let Claude Code hand work to Codex and supervise it while it runs.",
+    "Codex models as subagents for Claude Code.",
   );
   assert.equal(
     page.querySelector('link[rel="canonical"]')?.getAttribute("href"),
@@ -57,7 +57,35 @@ test("the landing page owns the root and links the shared privacy page", () => {
     page.querySelector('footer a[href="https://steamfield.io/privacy"]'),
   );
   assert.equal(page.querySelector('nav a[href^="/blog"]'), null);
-  assert.ok(read("default-og.svg").includes("<svg"));
+});
+
+test("every page carries the brand pack: favicon, touch icon, manifest and the social card", async () => {
+  const brand = (name) => readFileSync(`public/brand/${name}`, "utf8");
+  assert.equal(read("favicon.svg"), brand("foreman-icon.svg"));
+  const manifest = JSON.parse(read("site.webmanifest"));
+  assert.equal(manifest.name, "foreman");
+  for (const icon of manifest.icons) assert.ok(existsSync(`dist${icon.src}`));
+  const { default: sharp } = await import("sharp");
+  const card = await sharp("dist/og/index.webp").metadata();
+  assert.deepEqual([card.format, card.width, card.height], ["webp", 1200, 630]);
+  for (const path of ["index.html", "blog.html", "404.html"]) {
+    const page = document(path);
+    const href = (selector, attribute = "href") =>
+      page.querySelector(selector)?.getAttribute(attribute);
+    assert.equal(href('link[rel="icon"]'), "/favicon.svg");
+    assert.ok(existsSync(`dist${href('link[rel="apple-touch-icon"]')}`));
+    assert.equal(href('link[rel="manifest"]'), "/site.webmanifest");
+    for (const meta of [
+      'meta[property="og:image"]',
+      'meta[name="twitter:image"]',
+    ])
+      assert.equal(
+        href(meta, "content"),
+        "https://foreman.steamfield.io/og/index.webp",
+      );
+    const logo = page.querySelector('header a[href="/"] svg[role="img"]');
+    assert.equal(logo?.getAttribute("aria-label"), "foreman");
+  }
 });
 
 for (const path of ["index.html", "blog.html", "404.html"]) {
