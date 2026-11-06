@@ -45,14 +45,18 @@ const print = Effect.fnUntraced(function* <E, R>(
   command: string,
   program: Effect.Effect<DaemonResult, E, R>,
   compact = false,
+  eventsName?: string,
 ) {
   yield* (yield* Invocation).named(command);
   const result = yield* program;
   const encoded = yield* Schema.encodeEffect(DaemonResult)(result).pipe(
     Effect.mapError(() => new Defect()),
   );
-  const executable = result._tag === "Started" ? (yield* formanExecutable()).command : "forman";
-  yield* (yield* Output).result(encoded, renderResult(result, compact, executable));
+  const executable =
+    result._tag === "Started" || result._tag === "Events"
+      ? (yield* formanExecutable()).command
+      : "forman";
+  yield* (yield* Output).result(encoded, renderResult(result, compact, executable, eventsName));
 });
 
 export const startCommand = Command.make(
@@ -97,7 +101,7 @@ export const eventsCommand = Command.make(
       Flag.map(Option.getOrUndefined),
     ),
   },
-  (input) => print("events", programs.events(input)),
+  (input) => print("events", programs.events(input), false, input.name),
 ).pipe(Command.withDescription("Read normalized run events after a sequence number."));
 
 export const steerCommand = Command.make("steer", { name, ...message, ...waiting }, (input) =>

@@ -33,6 +33,7 @@ export class AppConfig extends Context.Service<
     home: string;
     codexBin: string;
     codexHome: string;
+    launcher: string | null;
     inheritedEnvironment: Readonly<Record<string, string | undefined>>;
   }
 >()("app/AppConfig") {
@@ -62,6 +63,10 @@ export class AppConfig extends Context.Service<
         const configFile = path.join(home, "config.json");
         const environmentCodexBin = yield* text("CODEX_BIN");
         const codexHome = absolute(yield* text("CODEX_HOME", path.join(userHome, ".codex")));
+        const launcherSetting = yield* read(
+          Config.schema(CodexBin, "FORMAN_LAUNCHER").pipe(Config.withDefault("")),
+        ).pipe(Effect.orDie);
+        const launcher = launcherSetting === "" ? null : absolute(launcherSetting);
         const file = yield* Effect.cached(
           fs.readFileString(configFile).pipe(
             Effect.catch((error) =>
@@ -129,6 +134,7 @@ export class AppConfig extends Context.Service<
           home,
           codexBin,
           codexHome,
+          launcher,
           inheritedEnvironment: { ...env },
         };
       }),

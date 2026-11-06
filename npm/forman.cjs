@@ -21,7 +21,10 @@ try {
   process.exit(1);
 }
 
-const child = spawn(binary, process.argv.slice(2), { stdio: "inherit" });
+const child = spawn(binary, process.argv.slice(2), {
+  stdio: "inherit",
+  env: { ...process.env, FORMAN_LAUNCHER: __filename },
+});
 const forward = (signal) => child.kill(signal);
 process.on("SIGINT", forward);
 process.on("SIGTERM", forward);
