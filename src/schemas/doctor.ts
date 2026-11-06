@@ -24,6 +24,12 @@ export const DoctorResult = Schema.Struct({
   repoHooks: RepoHookTrust,
   daemon: Schema.Union([
     Schema.Struct({ state: Schema.Literal("not running") }),
-    Schema.Struct({ state: Schema.Literal("running"), version: Schema.String, pid: Schema.Int }),
+    Schema.Struct({
+      state: Schema.Literal("running"),
+      version: Schema.String,
+      pid: Schema.Int,
+      build: Schema.NullOr(Schema.String),
+      buildMatches: Schema.NullOr(Schema.Boolean),
+    }),
   ]),
 });

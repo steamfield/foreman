@@ -27,6 +27,20 @@ const metadata = Schema.decodeUnknownSync(PackageInfo)(
 
 const binary = resolve("dist", metadata.name);
 
+async function waitForExit(pid: number) {
+  const deadline = Date.now() + 5000;
+  while (true) {
+    try {
+      process.kill(pid, 0);
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ESRCH") return;
+      throw error;
+    }
+    if (Date.now() >= deadline) throw new Error(`Daemon ${pid} did not exit within 5 seconds`);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
 const pong = (dataDir: string) =>
   new Promise<Extract<DaemonResult, { _tag: "Pong" }>>((resolve, reject) => {
     const socket = createConnection(join(dataDir, "forman.sock"));
@@ -112,9 +126,11 @@ test("compiled identities survive identical rebuilds and replace idle daemons af
     const second = await pong(env.FORMAN_DATA_DIR);
     expect(second.pid).not.toBe(first.pid);
     expect(second.build).not.toBe(first.build);
+    await waitForExit(first.pid);
     expect(await run(["status", "--json"], true)).toMatchObject({ status: 0, stderr: "" });
     const dev = await pong(env.FORMAN_DATA_DIR);
     expect(dev.build).toBe(`dev-${second.build}`);
+    await waitForExit(second.pid);
     expect(await run(["status", "--json"], true)).toMatchObject({ status: 0, stderr: "" });
     expect(await pong(env.FORMAN_DATA_DIR)).toEqual(dev);
     await writeFile(source, `${await readFile(source, "utf8")}\n// Changed dev input.\n`);
@@ -122,8 +138,11 @@ test("compiled identities survive identical rebuilds and replace idle daemons af
     const editedDev = await pong(env.FORMAN_DATA_DIR);
     expect(editedDev.pid).not.toBe(dev.pid);
     expect(editedDev.build).not.toBe(dev.build);
+    await waitForExit(dev.pid);
   } finally {
+    const stopped = await pong(env.FORMAN_DATA_DIR);
     expect((await run(["daemon", "stop"])).status).toBe(0);
+    await waitForExit(stopped.pid);
     await rm(root, { recursive: true, force: true });
   }
 }, 30_000);
@@ -233,12 +252,10 @@ test.each(["compiled", "development"])(
       expect(timed).toMatchObject({ status: 0, stderr: "" });
       expect(timed.stdout.split("\n")[0]).toBe("timeout");
       expect(next(timed.stdout)).toEndWith(" --timeout 0ms");
-      expect(await run(["answer", "unit", "q1", "Proceed"])).toEqual({
-        status: 0,
-        stdout: "ok\n",
-        stderr: "",
-      });
-      const done = await runPrinted(command);
+      const answered = await run(["answer", "unit", "q1", "Proceed"]);
+      expect(answered).toMatchObject({ status: 0, stderr: "" });
+      expect(answered.stdout).toMatch(/^ok\nnext: /);
+      const done = await runPrinted(next(answered.stdout));
       expect(done).toMatchObject({ status: 0, stderr: "" });
       expect(done.stdout).toContain("done        unit turn 1");
       expect(done.stdout).toContain("No hand-off available.");
@@ -250,14 +267,16 @@ test.each(["compiled", "development"])(
         const replaced = await pong(env.FORMAN_DATA_DIR);
         expect(replaced.pid).not.toBe(upgrade.busy.pid);
         expect(replaced.build).not.toBe(upgrade.busy.build);
+        await waitForExit(upgrade.busy.pid);
       }
-      const none = await runPrinted(`${next(done.stdout)} --json`);
+      const allNext = `${next(done.stdout).replace(" wait unit ", " wait --all ")} --timeout 9m`;
+      const none = await runPrinted(`${allNext} --json`);
       expect(none).toMatchObject({ status: 0, stderr: "" });
       const result = Schema.decodeUnknownSync(DaemonResult)(JSON.parse(none.stdout));
       expect(result).toMatchObject({
         outcome: "none",
         runs: [],
-        next: next(done.stdout),
+        next: allNext,
       });
       expect(result).toMatchObject({
         next: expect.stringMatching(/ wait --all --after \S+ --timeout 9m$/),
@@ -292,6 +311,82 @@ test.each(["compiled", "development"])(
   },
   30_000,
 );
+
+test("one question delegation takes exactly two calls using printed attention", async () => {
+  const root = await mkdtemp("/tmp/fm-two-");
+  const repo = join(root, "repo");
+  const worktree = join(repo, "work");
+  const env = {
+    HOME: root,
+    CODEX_HOME: join(root, "codex"),
+    PATH: `${root}:/usr/bin:/bin`,
+    CODEX_BIN: resolve("tests/fixtures/fake-app-server/main.mjs"),
+    FORMAN_DATA_DIR: join(root, "d"),
+    FAKE_APP_SERVER_SCENARIO: join(root, "scenario.json"),
+    LOG_LEVEL: "none",
+  };
+  await mkdir(repo);
+  await symlink(process.execPath, join(root, "node"));
+  const git = (args: string[]) => execFileSync("git", args, { cwd: repo, env, stdio: "pipe" });
+  git(["init", "-q"]);
+  git([
+    "-c",
+    "user.name=Test",
+    "-c",
+    "user.email=test@example.invalid",
+    "commit",
+    "--allow-empty",
+    "-qm",
+    "initial",
+  ]);
+  git(["worktree", "add", "-qb", "unit", worktree]);
+  const contract = join(root, "contract.md");
+  await writeFile(contract, "Do the work.");
+  await writeFile(env.FAKE_APP_SERVER_SCENARIO, JSON.stringify(askOrchestrator()));
+  let calls = 0;
+  const run = async (args: string[], statuses = [0]) => {
+    calls += 1;
+    const child = Bun.spawn([binary, ...args], { cwd: repo, env, stdout: "pipe", stderr: "pipe" });
+    const [status, stdout, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ]);
+    expect(statuses).toContain(status);
+    if (status === 0) expect(stderr).toBe("");
+    return stdout;
+  };
+  try {
+    const attention = await run([
+      "start",
+      "unit",
+      "--worktree",
+      worktree,
+      "--contract",
+      contract,
+      "--wait",
+      "--timeout",
+      "5s",
+    ]);
+    const question = /^question\s+(\S+) (q\d+) /m.exec(attention);
+    expect(question).not.toBeNull();
+    const [, name, id] = question ?? [];
+    if (!name || !id) throw new Error("Expected a printed run name and question id");
+    const done = await run(["answer", name, id, "Proceed", "--wait", "--timeout", "5s"]);
+    expect(done).toContain(`done        ${name} turn 1`);
+    expect(calls).toBe(2);
+  } finally {
+    await run(["answer", "unit", "q1", "Proceed"], [0, 7, 8]);
+    const child = Bun.spawn([binary, "daemon", "stop"], {
+      cwd: repo,
+      env,
+      stdout: "ignore",
+      stderr: "inherit",
+    });
+    expect(await child.exited).toBe(0);
+    await rm(root, { recursive: true, force: true });
+  }
+}, 15_000);
 
 test("compiled output, config precedence, log records, errors, and no dotenv autoload", async () => {
   const home = await mkdtemp(join(tmpdir(), "cli-binary-"));

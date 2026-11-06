@@ -15,9 +15,16 @@ const probeTimeout = "5 seconds";
 
 const daemonState = Effect.fnUntraced(
   function* (dataDir: string) {
+    const host = yield* Host;
     const result = yield* call({ _tag: "Ping" }, { dataDir, connectOnly: true });
     return result._tag === "Pong"
-      ? { state: "running" as const, version: result.version, pid: result.pid }
+      ? {
+          state: "running" as const,
+          version: result.version,
+          pid: result.pid,
+          build: result.build ?? null,
+          buildMatches: result.build === undefined ? null : result.build === host.build,
+        }
       : { state: "not running" as const };
   },
   Effect.timeout(probeTimeout),

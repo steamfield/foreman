@@ -29,6 +29,15 @@ const encode = (positions: typeof Positions.Type) =>
       .replaceAll("/", "_")
       .replace(/=+$/, ""),
   );
+
+const identity = (run: Run) =>
+  `${DateTime.formatIso(run.record.createdAt)}:${run.record.threadId ?? ""}`;
+
+// Call with the run lock held, before queued notifications can advance its position.
+export const acceptedCursor = Effect.fnUntraced(function* (run: Run) {
+  const page = yield* readEvents(run.dir, 0, Number.MAX_SAFE_INTEGER);
+  return encode({ [run.record.name]: { identity: identity(run), seq: page.next } });
+});
 const decodeCursor = Effect.fnUntraced(function* (cursor: Cursor | undefined) {
   if (cursor === undefined) return {};
   const text = yield* Effect.try({
@@ -138,13 +147,13 @@ export const wait = Effect.fn("supervisor.wait")(function* (
           Effect.gen(function* () {
             if (body.all && !registry.isCurrent(run)) return;
             yield* registry.requireCurrent(run);
-            const identity = `${DateTime.formatIso(run.record.createdAt)}:${run.record.threadId ?? ""}`;
+            const currentIdentity = identity(run);
             const previous = Object.hasOwn(positions, run.record.name)
               ? positions[run.record.name]
               : undefined;
-            const after = previous?.identity === identity ? previous.seq : 0;
+            const after = previous?.identity === currentIdentity ? previous.seq : 0;
             const result = yield* attention(registry, run, after);
-            next[run.record.name] = { identity, seq: result.next };
+            next[run.record.name] = { identity: currentIdentity, seq: result.next };
             outcomes.push(...result.outcomes);
             active ||= activeStates.has(run.record.state);
           }),

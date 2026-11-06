@@ -260,6 +260,11 @@ export const DaemonResult = Schema.TaggedUnion({
   Digests: { digests: Schema.Array(Digest) },
   Events: { events: Schema.Array(RunEvent), gap: Schema.Boolean, next: Schema.Int },
   Ok: {},
+  Accepted: {
+    cursor: Cursor,
+    // The CLI supplies the executable-aware continuation.
+    next: Schema.optionalKey(Schema.String),
+  },
   Result: {
     digest: Digest,
     handoff: Schema.NullOr(Handoff),
@@ -267,6 +272,8 @@ export const DaemonResult = Schema.TaggedUnion({
     latestTurnWithoutHandoff: Schema.Boolean,
   },
   Waited: {
+    // start --wait keeps its start metadata in the same JSON value as the outcome.
+    started: Schema.optionalKey(Schema.Struct({ name: RunName, runDir: Schema.String })),
     outcome: Schema.Literals(["events", "timeout", "none"]),
     runs: Schema.Array(WaitOutcome),
     cursor: Cursor,

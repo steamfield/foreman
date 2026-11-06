@@ -29,7 +29,7 @@ export PATH="$HOME/.local/bin:$PATH"
 
 Keep that `PATH` setting in your shell's startup file. Rebuild and copy the binary after updating this checkout, then run `forman daemon stop` to stop the old build. Stop refuses while any run is active and names those runs; finish or interrupt them first. With no daemon running it succeeds without starting one. The next run command starts the rebuilt daemon. npm publishing is pending. For development, `bun run dev <args>` runs from source, with separate state under `.dev/data` and logs under `logs/`. Optional lefthook git hooks install during `bun install` if lefthook is available (`brew install lefthook` on macOS).
 
-`doctor` succeeds even when configuration or a Codex probe is unavailable, so read its output. It reports config paths, the resolved Codex executable, Codex version, protocol match, login, daemon state and repo hook trust. Each probe has a 5-second execution timeout. Unavailable Codex checks are null in JSON; repo hook probe failures have state `unknown`. It never starts the daemon or a Codex turn.
+`doctor` succeeds even when configuration or a Codex probe is unavailable, so read its output. It reports config paths, the resolved Codex executable, Codex version, protocol match, login, daemon state and repo hook trust. For a running daemon it reports `build` and `buildMatches` in JSON, with the build and its match to this CLI in text; both are unknown (null in JSON) for an old daemon without a build identity. Each probe has a 5-second execution timeout. Unavailable Codex checks are null in JSON; repo hook probe failures have state `unknown`. It never starts or replaces the daemon or starts a Codex turn.
 
 If your Codex executable is a version-manager shim that fails in a subprocess, set `CODEX_BIN` to the actual executable path and rerun `doctor`.
 
@@ -69,22 +69,25 @@ May change: src/commands/doctor.ts only.
 Run: bun run lint and bun run typecheck.
 Leave changes uncommitted. Report the change and check results.
 CONTRACT
-forman start fix-doctor --worktree .worktrees/fix-doctor --contract /tmp/fix-doctor-contract.txt --write
-forman wait --all
+forman start fix-doctor --worktree .worktrees/fix-doctor --contract /tmp/fix-doctor-contract.txt --write --wait
 ```
 
-`start` returns after starting the turn and ends with `next: <executable> wait <name>`. The executable is `forman` when that name on `PATH` resolves to this binary, or the running executable's absolute path otherwise; `doctor` reports the comparison. Run the printed command as a background task so Claude can keep working while the delegate runs. To watch several runs, use `wait --all`: it covers the repo containing the current directory, including its linked worktrees.
+Run `start --wait` as one background task so Claude can keep working while the delegate runs. It starts the turn, then waits with the same 60-minute default and `--timeout` option as `wait`. Text prints the run name and directory followed by the wait result and its `next:` line. JSON is one `Waited` value with `started: {name, runDir}` alongside the outcome. Without `--wait`, `start` returns immediately and ends with `next: <executable> wait <name>`. The executable is `forman` when that name on `PATH` resolves to this binary, or the running executable's absolute path otherwise; `doctor` reports the comparison. To watch several runs, use `wait --all`: it covers the repo containing the current directory, including its linked worktrees.
 
 When wait returns, read each run's outcome and digest. A `done`, `failed` or `interrupted` outcome includes that turn's hand-off, or says no hand-off is available. A `question` includes the full text and question id; `answer` resumes the held tool call. Use `steer` to change an active turn with no pending question, `followup` to start another turn on an inactive run, and `result` to reread the available hand-off. For example, these are alternatives at the appropriate run state:
 
 ```sh
-forman answer fix-doctor q1 "Keep the description to one sentence."
-forman steer fix-doctor "Mention that doctor reports unknown if Codex is unavailable."
-forman followup fix-doctor "Also check the help output manually."
+forman answer fix-doctor q1 "Keep the description to one sentence." --wait
+forman steer fix-doctor "Mention that doctor reports unknown if Codex is unavailable." --wait
+forman followup fix-doctor "Also check the help output manually." --wait
 forman result fix-doctor
 ```
 
-After handling a wait result, run the command on its final `next:` line. It includes the run names or `--all`, the cursor that prevents repeated attention, and your explicit `--timeout` if given. Repeat after answering or starting a follow-up. Review the hand-off and diff before committing; forman does not commit or merge for you.
+`answer`, `steer` and `followup` print `ok` and `next: <executable> wait <name> --after <cursor>`. Their acknowledgement cursor is captured when the request is accepted, so the wait sees the next outcome without replaying earlier attention. Add `--wait` to return that outcome directly instead of `ok`; `--timeout` sets the wait limit. A task needing no answer takes one call (`start --wait`); one question takes two (`start --wait`, `answer --wait`).
+
+For a busy older daemon that only acknowledges with `Ok`, the CLI captures its cursor before sending the request, so an immediate continuation is still observed. This compatibility probe adds no CLI call.
+
+On a timeout or when continuing to watch, run the final `next:` command. It includes the run names or `--all`, the cursor that prevents repeated attention, and your explicit `--timeout` if given. Review the hand-off and diff before committing; forman does not commit or merge for you.
 
 After merging a run's work, remove its worktree, then archive the inactive run to remove it from status:
 
@@ -97,7 +100,7 @@ Archive prints the destination under `runs/.archive/<name>-<timestamp>/`, preser
 
 ## Commands
 
-All commands accept `--json` for one schema-encoded result. Messages for `steer`, `followup` and `answer` come from exactly one positional argument or `--file <path>`.
+All commands accept `--json` for one schema-encoded result. Messages for `steer`, `followup` and `answer` come from exactly one positional argument or `--file <path>`. `start`, `steer`, `followup` and `answer` accept `--wait [--timeout <dur>]` to wait in the same call. Without `--wait`, the last three return `Accepted` with `cursor` and `next` in JSON; `interrupt` keeps its `Ok` acknowledgement.
 
 | Command | What it does |
 | --- | --- |

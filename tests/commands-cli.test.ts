@@ -53,7 +53,10 @@ const event = Schema.decodeUnknownSync(RunEvent)({
   event: { _tag: "AgentMessage", text: "first\nsecond", phase: null },
 });
 
-async function fixture(response: DaemonResult | AppError = { _tag: "Ok" }) {
+async function fixture(
+  response: DaemonResult | AppError | ((body: DaemonRequestBody) => DaemonResult) = { _tag: "Ok" },
+  build = "test",
+) {
   const dataDir = await mkdtemp("/tmp/fm-u6-");
   await symlink(process.execPath, join(dataDir, "forman"));
   const requests: DaemonRequestBody[] = [];
@@ -67,7 +70,7 @@ async function fixture(response: DaemonResult | AppError = { _tag: "Ok" }) {
       Host.layer({
         name: "forman",
         version: "test",
-        build: "test",
+        build,
         platform: "node",
         compiled: false,
         executable: [process.execPath],
@@ -82,7 +85,10 @@ async function fixture(response: DaemonResult | AppError = { _tag: "Ok" }) {
       busy: Effect.succeed(false),
       handler: (body) => {
         requests.push(body);
-        return response instanceof Error ? Effect.fail(response) : Effect.succeed(response);
+        if (build !== "test" && body._tag === "Shutdown")
+          return Effect.fail(new RunConflict({ detail: "Active old runs" }));
+        if (response instanceof Error) return Effect.fail(response);
+        return Effect.succeed(typeof response === "function" ? response(body) : response);
       },
     }),
   );
@@ -118,6 +124,92 @@ function machine(stdout: string) {
 }
 
 describe("command requests through the real parser and daemon", () => {
+  it.each(["answer", "followup", "steer"])(
+    "refuses %s before dispatch when an outdated busy daemon cannot provide a cursor",
+    async (command) => {
+      const f = await fixture({ _tag: "Ok" }, "old");
+      const result = await f.run(
+        [command, "unit-a", ...(command === "answer" ? ["q2"] : []), "Proceed", "--wait", "--json"],
+        { LOG_LEVEL: "none" },
+      );
+      expect(result.status).toBe(4);
+      expect(result.stdout).toBe("");
+      expect(JSON.parse(result.stderr.trimEnd().split("\n").at(-1) ?? "")).toMatchObject({
+        error: {
+          tag: "DaemonUnavailable",
+          detail: expect.stringContaining("request was not sent"),
+        },
+      });
+      expect(f.requests.map((body) => body._tag)).toEqual(["Shutdown", "Wait"]);
+    },
+  );
+
+  it("prefers a busy different build's accepted cursor over its compatibility probe", async () => {
+    const accepted = Schema.decodeUnknownSync(Cursor)("accepted:99");
+    const f = await fixture(
+      (body) =>
+        body._tag === "Wait"
+          ? {
+              _tag: "Waited",
+              outcome: "timeout",
+              runs: [],
+              cursor,
+              next: "forman wait unit-a --after opaque:42",
+            }
+          : { _tag: "Accepted", cursor: accepted },
+      "different",
+    );
+    const result = await f.run(["answer", "unit-a", "q2", "Proceed", "--json"]);
+    expect(result.status).toBe(0);
+    expect(machine(result.stdout)).toEqual({
+      _tag: "Accepted",
+      cursor: accepted,
+      next: "forman wait unit-a --after accepted:99",
+    });
+    expect(f.requests.map((body) => body._tag)).toEqual(["Shutdown", "Wait", "Answer"]);
+  });
+
+  for (const command of ["start", "answer", "followup", "steer"] as const) {
+    it.each([undefined, "90s"])(
+      `${command} --wait uses timeout %s and the accepted cursor`,
+      async (timeout) => {
+        const f = await fixture((body) => {
+          if (body._tag === "Wait")
+            return {
+              _tag: "Waited",
+              outcome: "timeout",
+              runs: [],
+              cursor,
+              next: "forman wait unit-a --after opaque:42",
+            };
+          return command === "start"
+            ? { _tag: "Started", name, runDir: "/runs/unit-a" }
+            : { _tag: "Accepted", cursor };
+        });
+        const args =
+          command === "start"
+            ? [command, "unit-a", "--worktree", ".", "--contract", "README.md"]
+            : [command, "unit-a", ...(command === "answer" ? ["q2"] : []), "Proceed"];
+        const result = await f.run([
+          ...args,
+          "--wait",
+          ...(timeout ? ["--timeout", timeout] : []),
+          "--json",
+        ]);
+        expect(result).toMatchObject({ status: 0, stderr: "" });
+        expect(machine(result.stdout)).toMatchObject({ _tag: "Waited", outcome: "timeout" });
+        expect(f.requests).toHaveLength(2);
+        expect(f.requests[1]).toEqual({
+          _tag: "Wait",
+          names: [name],
+          all: false,
+          cwd: await realpath(process.cwd()),
+          timeoutMs: timeout ? 90000 : 3600000,
+          ...(command === "start" ? {} : { after: cursor }),
+        });
+      },
+    );
+  }
   it.each([false, true])("stops the daemon through the parser, json=%s", async (json) => {
     const f = await fixture();
     const result = await f.run(["daemon", "stop", ...(json ? ["--json"] : [])]);
@@ -311,6 +403,16 @@ describe("command requests through the real parser and daemon", () => {
     ["wait", "--timeout", "-1s"],
     ["wait", "--timeout", "1.5m"],
     ["wait", "--timeout", "1h\n"],
+    ...["start", "answer", "followup", "steer"].map((command) => [
+      command,
+      "unit-a",
+      ...(command === "start"
+        ? ["--worktree", ".", "--contract", "README.md"]
+        : [...(command === "answer" ? ["q2"] : []), "Proceed"]),
+      "--wait",
+      "--timeout",
+      "tomorrow",
+    ]),
     ["events", "unit-a", "--after", "-1"],
     ["events", "unit-a", "--limit", "0"],
     ["answer", "unit-a", "invalid", "yes"],
@@ -532,6 +634,26 @@ describe("daemon result rendering", () => {
       );
       expect(result.status).toBe(0);
       expect(result.stdout.trimEnd().split("\n").at(-1)).toBe(`next: ${executable} wait unit-a`);
+      for (const command of ["answer", "followup", "steer"]) {
+        const accepted = await fixture({ _tag: "Accepted", cursor });
+        for (const json of [false, true]) {
+          const result = await accepted.run(
+            [
+              command,
+              "unit-a",
+              ...(command === "answer" ? ["q2"] : []),
+              "Proceed",
+              ...(json ? ["--json"] : []),
+            ],
+            { PATH: bin },
+          );
+          expect(result).toMatchObject({ status: 0, stderr: "" });
+          const next = `${executable} wait unit-a --after opaque:42`;
+          if (json)
+            expect(machine(result.stdout)).toMatchObject({ _tag: "Accepted", cursor, next });
+          else expect(result.stdout).toBe(`ok\nnext: ${next}\n`);
+        }
+      }
     },
   );
   it.each(outputCases)(

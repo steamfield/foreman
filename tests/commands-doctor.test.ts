@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { NodeServices, NodeSocket, NodeSocketServer } from "@effect/platform-node";
 import { describe, expect, it } from "@effect/vitest";
 import { Deferred, Effect, Fiber, FileSystem, Layer, Schema } from "effect";
-import { ChildProcess } from "effect/process";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import { TestClock } from "effect/testing";
 import { AppConfig } from "../src/config";
 import { doctor } from "../src/core/doctor";
@@ -52,6 +52,68 @@ const entered = Effect.fnUntraced(function* (marker: string) {
 });
 
 describe("bounded doctor diagnostics", () => {
+  it.live.each(["same", "different", "legacy", "absent"] as const)(
+    "reports a %s daemon build through text and JSON without replacing it",
+    (mode) =>
+      Effect.gen(function* () {
+        const home = yield* temp();
+        const fs = yield* FileSystem.FileSystem;
+        const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+        let pid: number | undefined;
+        if (mode !== "absent") {
+          const bun = (yield* spawner.string(ChildProcess.make("which", ["bun"]))).trim();
+          const child = yield* spawner.spawn(
+            ChildProcess.make(
+              bun,
+              [
+                fileURLToPath(new URL("./fixtures/daemon/entry.ts", import.meta.url)),
+                home,
+                mode === "same" ? "test" : "old",
+                mode === "legacy" ? "legacy" : "same",
+              ],
+              { stdout: "ignore", stderr: "inherit", forceKillAfter: "2 seconds" },
+            ),
+          );
+          pid = Number(child.pid);
+          yield* entered(`${home}/ready`).pipe(Effect.timeout("3 seconds"));
+        }
+        for (const json of [false, true]) {
+          const result = yield* Effect.promise(() =>
+            runCli(["doctor", ...(json ? ["--json"] : [])], {
+              home,
+              env: { TEST_CLI_DATA_DIR: home, LOG_LEVEL: "none" },
+            }),
+          );
+          expect(result).toMatchObject({ status: 0, stderr: "" });
+          const build = { legacy: null, same: "test", different: "old", absent: null }[mode];
+          const buildMatches = mode === "legacy" ? null : mode === "same";
+          if (json) {
+            const decoded = Schema.decodeUnknownSync(Schema.fromJsonString(DoctorResult))(
+              result.stdout,
+            );
+            expect(decoded.daemon).toEqual(
+              mode === "absent"
+                ? { state: "not running" }
+                : {
+                    state: "running",
+                    version: mode === "legacy" ? "legacy" : "fixture",
+                    pid,
+                    build,
+                    buildMatches,
+                  },
+            );
+          } else if (mode === "absent") expect(result.stdout).toContain("Daemon: not running");
+          else {
+            expect(result.stdout).toContain(`(pid ${pid})`);
+            expect(result.stdout).toContain(`Daemon build: ${build ?? "unknown"}`);
+            expect(result.stdout).toContain(
+              `Daemon build matches this CLI: ${buildMatches ?? "unknown"}`,
+            );
+          }
+        }
+        if (mode === "absent") expect(yield* fs.exists(`${home}/forman.sock`)).toBe(false);
+      }).pipe(Effect.provide(platform)),
+  );
   it.live("never passes API credentials to doctor Codex probes", () =>
     Effect.gen(function* () {
       const home = yield* temp();
