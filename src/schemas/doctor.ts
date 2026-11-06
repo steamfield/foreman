@@ -22,6 +22,11 @@ export const DoctorResult = Schema.Struct({
   formanOnPath: Schema.Boolean,
   configFile: Schema.String,
   home: Schema.String,
+  homePermissions: Schema.Struct({
+    state: Schema.Literals(["ok", "missing", "unsafe", "unusable", "unknown"]),
+    path: Schema.String,
+    detail: Schema.NullOr(Schema.String),
+  }),
   codexBin: Schema.String,
   configError: Schema.NullOr(Schema.String),
   codexVersion: Schema.NullOr(Schema.String),
@@ -30,6 +35,7 @@ export const DoctorResult = Schema.Struct({
   repoHooks: RepoHookTrust,
   daemon: Schema.Union([
     Schema.Struct({ state: Schema.Literal("not running") }),
+    Schema.Struct({ state: Schema.Literal("unavailable"), detail: Schema.String }),
     Schema.Struct({
       state: Schema.Literal("running"),
       version: Schema.String,

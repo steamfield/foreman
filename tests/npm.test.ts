@@ -14,7 +14,7 @@ import { constants, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { Schema } from "effect";
-import { afterAll, beforeAll, expect, onTestFinished, test } from "vitest";
+import { afterAll, beforeAll, expect, onTestFinished, test, vi } from "vitest";
 import manifest from "../package.json";
 import { DoctorResult } from "../src/schemas/doctor";
 
@@ -23,6 +23,7 @@ const repo = resolve(".");
 const target = `${process.platform}-${process.arch}`;
 const packageName = `@steamfield/forman-${target}`;
 const packResult = Schema.Array(Schema.Struct({ filename: Schema.String }));
+const daemonHomes = new Set<string>();
 let root: string;
 let installed: string;
 let native: string;
@@ -45,6 +46,55 @@ async function run(command: string, args: string[], cwd = root, environment = en
       throw error;
     return { status: error.code, stdout: error.stdout, stderr: error.stderr };
   }
+}
+
+function processAlive(pid: number) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ESRCH") return false;
+    throw error;
+  }
+}
+
+async function stopDaemonHomes(homes: readonly string[]) {
+  const results = await Promise.allSettled(
+    homes.map(async (home) => {
+      const environment = { ...env, FORMAN_HOME: home };
+      const diagnostic = await run(native, ["doctor", "--json"], root, environment);
+      expect(diagnostic.status).toBe(0);
+      const { daemon } = Schema.decodeUnknownSync(DoctorResult)(JSON.parse(diagnostic.stdout));
+      expect(daemon.state).not.toBe("unavailable");
+      expect(await run(native, ["daemon", "stop"], root, environment)).toMatchObject({
+        status: 0,
+        stderr: "",
+      });
+      if (daemon.state === "running")
+        await vi.waitFor(() => expect(processAlive(daemon.pid)).toBe(false), {
+          timeout: 5000,
+          interval: 10,
+        });
+      daemonHomes.delete(home);
+    }),
+  );
+  const errors = results
+    .filter((result) => result.status === "rejected")
+    .map((result) => result.reason);
+  if (errors.length) throw new AggregateError(errors, "Could not stop npm test daemons");
+}
+
+async function withDaemonHomes(homes: readonly string[], body: () => Promise<void>) {
+  for (const home of homes) daemonHomes.add(home);
+  const cleanup = () => stopDaemonHomes(homes.filter((home) => daemonHomes.has(home)));
+  onTestFinished(cleanup);
+  const outcome = await Promise.allSettled([body()]);
+  const cleaned = await Promise.allSettled([cleanup()]);
+  const errors = [...outcome, ...cleaned]
+    .filter((result) => result.status === "rejected")
+    .map((result) => result.reason);
+  if (errors.length === 1) throw errors[0];
+  if (errors.length > 1) throw new AggregateError(errors, "npm assertion and cleanup failed");
 }
 
 beforeAll(async () => {
@@ -99,7 +149,10 @@ beforeAll(async () => {
 }, 120_000);
 
 afterAll(async () => {
-  if (root) await rm(root, { recursive: true, force: true });
+  if (root) {
+    await stopDaemonHomes([...daemonHomes]);
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("packed npm launcher preserves native version, doctor output and usage failures", async () => {
@@ -124,17 +177,56 @@ test("packed npm launcher preserves native version, doctor output and usage fail
 });
 
 test("packed install works on PATH from a scratch directory", async () => {
-  const pathEnv = { ...env, PATH: `${dirname(installed)}:${env.PATH}` };
-  const help = await run("forman", ["--help"], root, pathEnv);
-  expect(help).toMatchObject({ status: 0, stderr: "" });
-  expect(help.stdout).toContain("forman");
-  const doctor = await run("forman", ["doctor"], root, pathEnv);
-  expect(doctor).toMatchObject({ status: 0, stderr: "" });
-  expect(doctor.stdout).toContain("not running");
-  expect(await run("forman", ["daemon", "stop"], root, pathEnv)).toMatchObject({
-    status: 0,
-    stderr: "",
+  const pathEnv = {
+    ...env,
+    PATH: `${dirname(installed)}:${env.PATH}`,
+    FORMAN_LAUNCHER: "/ignored/inherited-launcher",
+  };
+  await withDaemonHomes([env.FORMAN_HOME ?? "", join(root, "wrong-home")], async () => {
+    const help = await run("forman", ["--help"], root, pathEnv);
+    expect(help).toMatchObject({ status: 0, stderr: "" });
+    expect(help.stdout).toContain("forman");
+    const doctor = await run("forman", ["doctor"], root, pathEnv);
+    expect(doctor).toMatchObject({ status: 0, stderr: "" });
+    expect(doctor.stdout).toContain("not running");
+    expect(doctor.stdout).toContain("forman on PATH is this binary: true");
+    const diagnostic = await run("forman", ["doctor", "--json"], root, pathEnv);
+    expect(JSON.parse(diagnostic.stdout)).toMatchObject({ formanOnPath: true });
+    const waiting = await run("forman", ["wait", "--all", "--timeout", "0ms"], root, pathEnv);
+    expect(waiting).toMatchObject({ status: 0, stderr: "" });
+    const next = waiting.stdout.trimEnd().split("\n").at(-1)?.slice("next: ".length);
+    expect(next).toMatch(/^FORMAN_HOME=\S+ forman wait /);
+    if (!next) throw new Error("No continuation printed");
+    const continued = await run("/bin/sh", ["-c", next], root, {
+      ...pathEnv,
+      FORMAN_HOME: join(root, "wrong-home"),
+    });
+    expect(continued).toMatchObject({ status: 0, stderr: "" });
+    expect(continued.stdout).toContain(`FORMAN_HOME=${env.FORMAN_HOME} forman wait `);
   });
+});
+
+test("packed-install cleanup stops both homes after an assertion fails", async () => {
+  const homes = [join(root, "a"), join(root, "b")];
+  const pids: number[] = [];
+  onTestFinished(() => stopDaemonHomes(homes));
+  await expect(
+    withDaemonHomes(homes, async () => {
+      for (const home of homes) {
+        const environment = { ...env, FORMAN_HOME: home };
+        expect(
+          await run(installed, ["wait", "--all", "--timeout", "0ms"], root, environment),
+        ).toMatchObject({ status: 0 });
+        const diagnostic = await run(installed, ["doctor", "--json"], root, environment);
+        const { daemon } = Schema.decodeUnknownSync(DoctorResult)(JSON.parse(diagnostic.stdout));
+        expect(daemon.state).toBe("running");
+        if (daemon.state === "running") pids.push(daemon.pid);
+      }
+      expect.fail("simulated assertion failure");
+    }),
+  ).rejects.toThrow("simulated assertion failure");
+  expect(pids).toHaveLength(2);
+  for (const pid of pids) expect(processAlive(pid)).toBe(false);
 });
 
 test("launcher names the missing package and unsupported platform", async () => {

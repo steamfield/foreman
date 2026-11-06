@@ -34,12 +34,25 @@ jobs:
       - run: bun run typecheck
       - run: bun run coverage
       - run: bun run e2e
-      - run: bun run build:npm
+      - name: Restore release artifacts
+        id: artifacts
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        continue-on-error: true
+        with:
+          name: release-packages
+          path: dist/release
+      - if: steps.artifacts.outcome != 'success'
+        run: bun run build:npm
+      - if: steps.artifacts.outcome != 'success'
+        run: node npm/release.cjs pack dist/npm dist/release
+      - if: steps.artifacts.outcome != 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-packages
+          path: dist/release/
+          if-no-files-found: error
       - name: Publish platform packages, then main package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          for package in dist/npm/forman-*; do
-            (cd "$package" && npm publish --provenance --access public)
-          done
-          (cd dist/npm/forman && npm publish --provenance --access public)
+          node npm/release.cjs publish dist/release

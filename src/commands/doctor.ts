@@ -2,8 +2,20 @@ import { Effect } from "effect";
 import { Command } from "effect/cli";
 import { renderOrphan } from "../core/command-output";
 import { doctor } from "../core/doctor";
+import type { DoctorResult } from "../schemas/doctor";
 import { Invocation } from "../services/invocation";
 import { Output } from "../services/output";
+
+function daemonSummary(daemon: typeof DoctorResult.Type.daemon): string {
+  switch (daemon.state) {
+    case "running":
+      return `Daemon: running ${daemon.version} (pid ${daemon.pid})`;
+    case "unavailable":
+      return `Daemon: unavailable (${daemon.detail})`;
+    case "not running":
+      return "Daemon: not running";
+  }
+}
 
 export const doctorCommand = Command.make(
   "doctor",
@@ -21,6 +33,7 @@ export const doctorCommand = Command.make(
         `Config: ${result.configError ?? "ok"}`,
         `Config file: ${result.configFile}`,
         `Home: ${result.home}`,
+        `Home permissions: ${result.homePermissions.state}${result.homePermissions.detail === null ? "" : ` (${result.homePermissions.detail})`}`,
         `Codex: ${result.codexVersion ?? "unavailable"}`,
         `Protocol matches: ${result.protocolMatches ?? "unavailable"}`,
         `Logged in: ${result.loggedIn ?? "unavailable"}`,
@@ -38,10 +51,11 @@ export const doctorCommand = Command.make(
               result.repoHooks.acceptsStart === null
                 ? "  forman start: unknown (hook trust could not be checked)."
                 : `  forman start will ${result.repoHooks.acceptsStart ? "accept" : "refuse"} runs here (hook trust).`,
+              ...(result.repoHooks.state === "known" && result.repoHooks.detail !== null
+                ? [result.repoHooks.detail]
+                : []),
             ]),
-        result.daemon.state === "running"
-          ? `Daemon: running ${result.daemon.version} (pid ${result.daemon.pid})`
-          : "Daemon: not running",
+        daemonSummary(result.daemon),
         ...(result.daemon.state === "running"
           ? [
               `Daemon build: ${result.daemon.build ?? "unknown"}`,

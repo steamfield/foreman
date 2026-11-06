@@ -15,7 +15,10 @@ export const formanExecutable = Effect.fn("output.formanExecutable")(function* (
   const config = yield* AppConfig;
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const executable = host.executable.map((part) => path.resolve(part));
+  const executable =
+    config.launcher === null
+      ? host.executable.map((part) => path.resolve(part))
+      : [config.launcher];
   const running = yield* fs.realPath(executable[0] ?? "").pipe(Effect.result);
   let onPath = false;
   for (const directory of config.inheritedEnvironment.PATH?.split(path.sep === "\\" ? ";" : ":") ??
@@ -36,9 +39,8 @@ export const formanExecutable = Effect.fn("output.formanExecutable")(function* (
       resolved.success === running.success;
     break;
   }
-  let command = executable.map(shellQuote).join(" ");
-  if (executable.length > 1) command = `FORMAN_HOME=${shellQuote(config.home)} ${command}`;
-  return { onPath, command: onPath ? "forman" : command };
+  const command = onPath ? "forman" : executable.map(shellQuote).join(" ");
+  return { onPath, command: `FORMAN_HOME=${shellQuote(config.home)} ${command}` };
 });
 
 function eventSummary(event: RunEventBody): string {
@@ -89,7 +91,12 @@ export const renderOrphan = (orphan: typeof OrphanWorktree.Type) =>
 const worktreeLines = (started: { worktree?: string; branch?: string }) =>
   started.worktree ? [`worktree: ${started.worktree}`, `branch: ${started.branch}`] : [];
 
-export function renderResult(result: DaemonResult, compact = false, executable = "forman"): string {
+export function renderResult(
+  result: DaemonResult,
+  compact = false,
+  executable = "forman",
+  eventsName?: string,
+): string {
   switch (result._tag) {
     case "Pong":
       return `running ${result.version} (pid ${result.pid})`;
@@ -116,7 +123,7 @@ export function renderResult(result: DaemonResult, compact = false, executable =
           ({ seq, at, event }) =>
             `${seq} ${DateTime.formatIso(at)} ${event._tag} ${oneLine(eventSummary(event))}`,
         ),
-        `next: ${result.next}`,
+        `next: ${executable} events ${eventsName} --after ${result.next}`,
       ].join("\n");
     case "Ok":
       return "ok";

@@ -156,7 +156,7 @@ export const AgentMessageItem = Schema.Struct({
   type: Schema.Literal("agentMessage"),
   id: Schema.String,
   text: Schema.String,
-  phase: Schema.NullOr(Schema.Literals(["commentary", "partial_answer", "final_answer"])),
+  phase: Schema.NullOr(Schema.String),
 });
 export const FileChangeItem = Schema.Struct({
   type: Schema.Literal("fileChange"),
@@ -170,7 +170,20 @@ export const DynamicToolCallItem = Schema.Struct({
   status: Schema.String,
 });
 // Any other item type: userMessage, reasoning, plan, mcpToolCall and whatever Codex adds.
-export const OtherItem = Schema.Struct({ type: Schema.String, id: Schema.String });
+export const OtherItem = Schema.Struct({
+  type: Schema.String.check(
+    Schema.makeFilter(
+      (type) =>
+        ![
+          CommandExecutionItem.fields.type.literal,
+          AgentMessageItem.fields.type.literal,
+          FileChangeItem.fields.type.literal,
+          DynamicToolCallItem.fields.type.literal,
+        ].some((known) => known === type),
+    ),
+  ),
+  id: Schema.String,
+});
 export const ThreadItem = Schema.Union([
   CommandExecutionItem,
   AgentMessageItem,
@@ -284,14 +297,8 @@ export const askOrchestratorTool: typeof DynamicToolSpec.Type = {
   name: "ask_orchestrator",
   description:
     "Ask the orchestrator only when blocked by something the contract and code don't settle, or a decision with real consequences is needed. Progress, findings and corrections go in the hand-off: every call pauses the turn until answered. If the answer times out, proceed with best judgment and note the question and choice under Open.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      question: { type: "string" },
-      kind: { type: "string", enum: ["question", "blocked"] },
-    },
-    required: ["question"],
-  },
+  inputSchema: Schema.toJsonSchemaDocument(AskOrchestratorArguments, { onExcessProperty: "error" })
+    .schema,
 };
 
 // Repo hook trust, resolved by Codex for each requested working directory.

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdir, realpath, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, realpath, stat, symlink, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { NodeServices, NodeSocket, NodeSocketServer } from "@effect/platform-node";
@@ -315,12 +315,129 @@ if (probe === ${JSON.stringify(stalled)}) {
       const result = yield* TestClock.withLive(
         Fiber.join(pending).pipe(Effect.timeout("2 seconds")),
       );
-      expect(result.daemon).toEqual({ state: "not running" });
+      expect(result.daemon).toEqual({
+        state: "unavailable",
+        detail: "Daemon Ping timed out after 5 seconds.",
+      });
     }).pipe(Effect.provide(platform)),
   );
 });
 
 const fake = fileURLToPath(new URL("./fixtures/fake-app-server/main.mjs", import.meta.url));
+
+it("reports a writable home owned by another user", async () => {
+  const root = await tempDir();
+  const home = `${root}/state`;
+  await symlink("/tmp", home);
+  expect((await stat(home)).uid).not.toBe(process.getuid?.());
+  const result = await runCli(["doctor", "--json"], {
+    home: root,
+    env: { FORMAN_HOME: home, LOG_LEVEL: "none" },
+  });
+  expect(result.status).toBe(0);
+  expect(JSON.parse(result.stdout)).toMatchObject({
+    homePermissions: {
+      state: "unsafe",
+      detail: expect.stringContaining("owned by another user"),
+    },
+  });
+});
+
+it.live("reports an unreadable daemon socket as unavailable", () =>
+  Effect.gen(function* () {
+    const home = yield* temp();
+    const fs = yield* FileSystem.FileSystem;
+    yield* NodeSocketServer.make({ path: `${home}/forman.sock` });
+    yield* fs.chmod(`${home}/forman.sock`, 0);
+    yield* Effect.addFinalizer(() => fs.chmod(`${home}/forman.sock`, 0o600).pipe(Effect.orDie));
+    const result = yield* doctor(home).pipe(Effect.provide(settings(home, `${home}/missing`)));
+    expect(result.daemon).toEqual({
+      state: "unavailable",
+      detail: "Could not read daemon socket; check home and socket permissions.",
+    });
+  }).pipe(Effect.provide(platform)),
+);
+
+it.each(["private", "public", "unwritable", "file", "missing", "blocked-parent"])(
+  "inspects a %s home without changing it",
+  async (mode) => {
+    const root = await tempDir();
+    const home = `${root}/state`;
+    if (mode === "file") await writeFile(home, "occupied");
+    else if (mode !== "missing" && mode !== "blocked-parent") {
+      await mkdir(home, { mode: mode === "public" ? 0o755 : 0o700 });
+      if (mode === "unwritable") await chmod(home, 0o500);
+    }
+    if (mode === "blocked-parent") await chmod(root, 0o500);
+    try {
+      for (const json of [false, true]) {
+        const result = await runCli(["doctor", ...(json ? ["--json"] : [])], {
+          home: root,
+          env: { FORMAN_HOME: home, LOG_LEVEL: "none" },
+        });
+        expect(result).toMatchObject({ status: 0, stderr: "" });
+        const state = {
+          private: "ok",
+          public: "unsafe",
+          unwritable: "unusable",
+          file: "unusable",
+          missing: "missing",
+          "blocked-parent": "unusable",
+        }[mode];
+        if (json) {
+          const decoded = Schema.decodeUnknownSync(Schema.fromJsonString(DoctorResult))(
+            result.stdout,
+          );
+          expect(decoded).toMatchObject({ homePermissions: { state, path: home } });
+          if (mode === "public") expect(result.stdout).toContain("chmod 700");
+        } else expect(result.stdout).toContain(`Home permissions: ${state}`);
+      }
+      if (mode === "private" || mode === "public" || mode === "unwritable")
+        expect((await stat(home)).mode & 0o777).toBe(
+          { private: 0o700, public: 0o755, unwritable: 0o500 }[mode],
+        );
+      if (mode === "missing" || mode === "blocked-parent")
+        await expect(stat(home)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await chmod(root, 0o700);
+      if (mode === "unwritable") await chmod(home, 0o700);
+    }
+  },
+);
+
+it.live("reports a malformed daemon reply as unavailable in text and JSON", () =>
+  Effect.gen(function* () {
+    const home = yield* temp();
+    const server = yield* NodeSocketServer.make({ path: `${home}/forman.sock` });
+    yield* Effect.forkScoped(
+      server.run((socket) =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            const reader = yield* socket.reader;
+            yield* reader.pull;
+            const writer = yield* socket.writer;
+            yield* writer.write("not json\n");
+            yield* Effect.never;
+          }),
+        ),
+      ),
+    );
+    for (const json of [false, true]) {
+      const result = yield* Effect.promise(() =>
+        runCli(["doctor", ...(json ? ["--json"] : [])], {
+          home,
+          env: { FORMAN_HOME: home, LOG_LEVEL: "none" },
+        }),
+      );
+      expect(result.status).toBe(0);
+      if (json)
+        expect(JSON.parse(result.stdout)).toMatchObject({
+          daemon: { state: "unavailable", detail: expect.stringContaining("decode daemon reply") },
+        });
+      else expect(result.stdout).toContain("Daemon: unavailable (Could not decode daemon reply");
+    }
+  }).pipe(Effect.provide(platform)),
+);
 
 it.each(["trusted", "untrusted", "none", "unknown"] as const)(
   "reports %s repo hooks through doctor text and JSON",
@@ -397,6 +514,12 @@ it.each(["trusted", "untrusted", "none", "unknown"] as const)(
             expect(result.stdout).toContain(
               "Repo hooks: unknown (Could not query Codex hook trust.)\n  forman start: unknown",
             );
+          if (trust === "untrusted") {
+            expect(result.stdout).toContain(
+              `${main}/.codex/hooks.json:pre_tool_use:0:0: untrusted`,
+            );
+            expect(result.stdout).toContain("run /hooks and approve these hooks");
+          }
         }
       }
     } finally {

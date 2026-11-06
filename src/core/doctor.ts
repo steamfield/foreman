@@ -1,10 +1,11 @@
-import { Effect, FileSystem } from "effect";
-import { ChildProcess, ChildProcessSpawner } from "effect/process";
+import { Effect, FileSystem, Option, Path, Predicate, Schema } from "effect";
+import { ChildProcess, ChildProcessSpawner, CommandLine } from "effect/process";
 import { checkProtocol, codexVersion } from "../codex/check";
 import { openConnection } from "../codex/client";
 import { appServerEnvironment } from "../codex/environment";
 import { AppConfig } from "../config";
 import { call } from "../daemon/client";
+import { DaemonSockets } from "../daemon/sockets";
 import { errorTable, WorktreeInvalid } from "../errors";
 import type { DoctorResult, RepoHookTrust } from "../schemas/doctor";
 import { Host } from "../services/host";
@@ -19,6 +20,26 @@ const probeTimeout = "5 seconds";
 const daemonState = Effect.fnUntraced(
   function* (dataDir: string) {
     const host = yield* Host;
+    const path = yield* Path.Path;
+    const opened = yield* Effect.scoped(
+      Effect.gen(function* () {
+        const socket = yield* (yield* DaemonSockets).connect(path.join(dataDir, "forman.sock"));
+        yield* socket.reader;
+      }),
+    ).pipe(Effect.result);
+    if (opened._tag === "Failure") {
+      const reason = opened.failure.reason;
+      if (
+        reason._tag === "SocketOpenError" &&
+        Predicate.hasProperty(reason.cause, "code") &&
+        (reason.cause.code === "ENOENT" || reason.cause.code === "ECONNREFUSED")
+      )
+        return { state: "not running" as const };
+      return {
+        state: "unavailable" as const,
+        detail: "Could not read daemon socket; check home and socket permissions.",
+      };
+    }
     const result = yield* call({ _tag: "Ping" }, { dataDir, connectOnly: true });
     return result._tag === "Pong"
       ? {
@@ -28,10 +49,84 @@ const daemonState = Effect.fnUntraced(
           build: result.build ?? null,
           buildMatches: result.build === undefined ? null : result.build === host.build,
         }
-      : { state: "not running" as const };
+      : { state: "unavailable" as const, detail: "Daemon returned an unexpected Ping reply." };
   },
   Effect.timeout(probeTimeout),
-  Effect.orElseSucceed(() => ({ state: "not running" as const })),
+  Effect.catch((error) => {
+    let detail = "Could not query daemon; reply was unreadable.";
+    if (error._tag === "TimeoutError") detail = "Daemon Ping timed out after 5 seconds.";
+    if (error._tag === "DaemonUnavailable") detail = error.detail ?? "Could not query daemon.";
+    return Effect.succeed({ state: "unavailable" as const, detail });
+  }),
+);
+
+const homePermissions = Effect.fnUntraced(
+  function* (home: string) {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+    let target = home;
+    let info = yield* fs
+      .stat(target)
+      .pipe(Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(null)));
+    while (info === null && path.dirname(target) !== target) {
+      target = path.dirname(target);
+      info = yield* fs
+        .stat(target)
+        .pipe(Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(null)));
+    }
+    const result = (
+      state: typeof DoctorResult.Type.homePermissions.state,
+      detail: string | null,
+    ) => ({ state, path: home, detail });
+    if (info === null || info.type !== "Directory")
+      return result(
+        "unusable",
+        `Home or parent is not a directory: ${target}. Choose a directory for FORMAN_HOME.`,
+      );
+    const access = yield* fs.access(target, { readable: true, writable: true }).pipe(Effect.result);
+    const searchable = yield* spawner.exitCode(
+      ChildProcess.make("/bin/test", ["-x", target], { stdout: "ignore", stderr: "ignore" }),
+    );
+    if (access._tag === "Failure" || searchable !== 0)
+      return result(
+        "unusable",
+        `Home or parent needs read, write and search access: ${target}. Correct its permissions or choose another FORMAN_HOME.`,
+      );
+    if (target !== home)
+      return result("missing", `Home does not exist; accessible parent: ${target}.`);
+    const uid = yield* spawner
+      .string(ChildProcess.make("/usr/bin/id", ["-u"]))
+      .pipe(
+        Effect.flatMap((value) =>
+          Schema.decodeUnknownEffect(Schema.NumberFromString)(value.trim()),
+        ),
+      );
+    if (Option.isNone(info.uid)) return result("unknown", "Could not determine home ownership.");
+    if (info.uid.value !== uid)
+      return result(
+        "unsafe",
+        "Home is owned by another user. Choose a FORMAN_HOME owned by your user or correct its ownership.",
+      );
+    if ((info.mode & 0o077) !== 0)
+      return result(
+        "unsafe",
+        `Home is accessible to other users. Run ${CommandLine.join(["chmod", "700", home])} to make it private.`,
+      );
+    return result("ok", null);
+  },
+  (effect, home) =>
+    effect.pipe(
+      Effect.timeout(probeTimeout),
+      Effect.catch(() =>
+        Effect.succeed({
+          state: "unknown" as const,
+          path: home,
+          detail:
+            "Could not inspect home ownership or permissions; check access to the home and its parents.",
+        }),
+      ),
+    ),
 );
 
 const repoHookTrust = Effect.fnUntraced(function* (
@@ -147,6 +242,7 @@ export const doctor = Effect.fn("doctor")(function* (cwd = ".") {
     formanOnPath: (yield* formanExecutable()).onPath,
     configFile: config.configFile,
     home: config.home,
+    homePermissions: yield* homePermissions(config.home),
     codexBin: config.codexBin,
     codexVersion: version,
     protocolMatches,

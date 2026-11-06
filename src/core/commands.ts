@@ -16,7 +16,16 @@ const request = Effect.fn("commands.request")(function* (body: DaemonRequestBody
     codexBin: config.codexBin,
     codexHome: config.codexHome,
     logFile: (yield* config.logging).file,
-    onOutdated: output.note("Daemon is outdated; it will be replaced once its runs finish."),
+    onOutdated: output.note(
+      output.json
+        ? JSON.stringify({
+            notice: {
+              tag: "DaemonOutdated",
+              message: "Daemon is outdated; it will be replaced once its runs finish.",
+            },
+          })
+        : "Daemon is outdated; it will be replaced once its runs finish.",
+    ),
   });
 });
 

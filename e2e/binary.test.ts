@@ -310,7 +310,7 @@ test("compiled identities survive identical rebuilds and replace idle daemons af
   }
 }, 30_000);
 
-test.each(["compiled", "development"])(
+test.each(["compiled", "path", "development"])(
   "%s wait commands continue through question, timeout, done and none",
   async (mode) => {
     const root = await mkdtemp("/tmp/fm-w-");
@@ -320,6 +320,7 @@ test.each(["compiled", "development"])(
     await mkdir(buildDir);
     const executable = join(buildDir, "forman");
     await copyFile(binary, executable);
+    if (mode === "path") await symlink(executable, join(root, "forman"));
     // The fake's env-node shebang uses this runner without consulting a user's version manager.
     await symlink(process.execPath, join(root, "node"));
     await symlink(process.execPath, join(root, "bun"));
@@ -328,7 +329,7 @@ test.each(["compiled", "development"])(
       CODEX_HOME: join(root, "codex"),
       PATH: `${root}:/usr/bin:/bin`,
       CODEX_BIN: resolve("tests/fixtures/fake-app-server/main.mjs"),
-      FORMAN_HOME: mode === "compiled" ? join(root, "d") : "",
+      FORMAN_HOME: mode === "development" ? "" : join(root, "home path's"),
       FAKE_APP_SERVER_SCENARIO: join(root, "scenario.json"),
       LOG_LEVEL: "none",
     };
@@ -355,8 +356,8 @@ test.each(["compiled", "development"])(
     await writeFile(env.FAKE_APP_SERVER_SCENARIO, JSON.stringify(askOrchestrator()));
     const contract = join(root, "contract.md");
     await writeFile(contract, "Do the work.\n- May change: `result.txt`");
-    const invoke = async (argv: string[]) => {
-      const child = Bun.spawn(argv, { cwd: repo, env, stdout: "pipe", stderr: "pipe" });
+    const invoke = async (argv: string[], cwd = repo) => {
+      const child = Bun.spawn(argv, { cwd, env, stdout: "pipe", stderr: "pipe" });
       const [stdout, stderr, status] = await Promise.all([
         new Response(child.stdout).text(),
         new Response(child.stderr).text(),
@@ -366,10 +367,20 @@ test.each(["compiled", "development"])(
     };
     const run = (args: string[]) =>
       invoke([
-        ...(mode === "compiled" ? [executable] : [process.execPath, "run", "--silent", "dev"]),
+        ...(mode === "development"
+          ? [process.execPath, "run", "--silent", "dev"]
+          : [mode === "path" ? "forman" : executable]),
         ...args,
       ]);
-    const runPrinted = (command: string) => invoke(["/bin/sh", "-c", command]);
+    const runPrinted = async (command: string) => {
+      const previous = env.FORMAN_HOME;
+      env.FORMAN_HOME = join(root, "wrong-home");
+      try {
+        return await invoke(["/bin/sh", "-c", command], worktree);
+      } finally {
+        env.FORMAN_HOME = previous;
+      }
+    };
     const next = (stdout: string) => {
       const line = stdout.trimEnd().split("\n").at(-1);
       expect(line).toMatch(/^next: .+ wait /);
@@ -409,9 +420,12 @@ test.each(["compiled", "development"])(
         const upgraded = await rebuild();
         const outdated = await invoke([upgraded, "status", "--json"]);
         expect(outdated.status).toBe(0);
-        expect(outdated.stderr).toBe(
-          "Daemon is outdated; it will be replaced once its runs finish.\n",
-        );
+        expect(JSON.parse(outdated.stderr)).toEqual({
+          notice: {
+            tag: "DaemonOutdated",
+            message: "Daemon is outdated; it will be replaced once its runs finish.",
+          },
+        });
         expect(Schema.decodeUnknownSync(DaemonResult)(JSON.parse(outdated.stdout))).toMatchObject({
           _tag: "Digests",
           digests: [{ name: "unit", state: "waiting" }],
@@ -436,6 +450,16 @@ test.each(["compiled", "development"])(
       expect(done).toMatchObject({ status: 0, stderr: "" });
       expect(done.stdout).toContain("done        unit turn 1");
       expect(done.stdout).toContain("No hand-off available.");
+      const events = await run(["events", "unit"]);
+      expect(events).toMatchObject({ status: 0, stderr: "" });
+      const eventsNext = events.stdout.trimEnd().split("\n").at(-1)?.slice("next: ".length);
+      expect(eventsNext).toMatch(/ events unit --after \d+$/);
+      if (!eventsNext) throw new Error("Missing events continuation");
+      expect(await runPrinted(eventsNext)).toMatchObject({
+        status: 0,
+        stdout: `next: ${eventsNext}\n`,
+        stderr: "",
+      });
       if (upgrade !== undefined) {
         const replacement = join(buildDir, "forman.next");
         await copyFile(upgrade.binary, replacement);

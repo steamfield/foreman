@@ -16,6 +16,19 @@ async function configFile(content: string) {
 }
 
 describe("real config and emitted logging", () => {
+  it.each([undefined, "", " \t ", "./npm/forman.cjs"])(
+    "resolves launcher identity only from FORMAN_LAUNCHER=%j",
+    async (launcher) => {
+      const result = await runCli(["--json"], {
+        env: { FORMAN_LAUNCHER: launcher },
+        program: Effect.gen(function* () {
+          yield* (yield* Output).result((yield* AppConfig).launcher, "launcher");
+        }),
+      });
+      expect(result).toMatchObject({ status: 0, stderr: "" });
+      expect(JSON.parse(result.stdout)).toBe(launcher?.trim() ? resolve(launcher) : null);
+    },
+  );
   it.each([undefined, "", " ", "absolute", "relative"])(
     "uses FORMAN_HOME=%s for configuration and state, ignoring legacy paths",
     async (setting) => {
