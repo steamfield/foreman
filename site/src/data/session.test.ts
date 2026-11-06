@@ -4,7 +4,12 @@ import { loadRun } from "./runs";
 import { buildSession, sceneAt, stepAt } from "./session";
 
 const source = loadRun("site-commands");
-const session = buildSession(source);
+const laneSources = {
+  "site-console": loadRun("site-console"),
+  "site-commands": source,
+  "site-e2e": loadRun("site-e2e"),
+};
+const session = buildSession(source, laneSources);
 
 describe("the simulated session", () => {
   it("keeps pre-question and post-answer activity on the correct side of the exchange", () => {
@@ -63,16 +68,19 @@ describe("the simulated session", () => {
   });
 
   it("refuses a recording without a matching answer instead of inventing an exchange", () => {
-    expect(() => buildSession({ ...source, questions: [] })).toThrow(
-      /recorded question/,
-    );
     expect(() =>
-      buildSession({
-        ...source,
-        questions: source.questions.filter(
-          (q) => q.id !== "q1" || q._tag === "Asked",
-        ),
-      }),
+      buildSession({ ...source, questions: [] }, laneSources),
+    ).toThrow(/recorded question/);
+    expect(() =>
+      buildSession(
+        {
+          ...source,
+          questions: source.questions.filter(
+            (q) => q.id !== "q1" || q._tag === "Asked",
+          ),
+        },
+        laneSources,
+      ),
     ).toThrow(/matching answer/);
   });
 
@@ -169,6 +177,8 @@ describe("the simulated session", () => {
 
   it("takes every event sample from its stated recording and counts unique file paths", () => {
     session.delegates.forEach((d, i) => {
+      expect(d.source).toBe(d.name);
+      expect(d.activity.some((a) => a.event.kind === "command")).toBe(true);
       for (const { event } of d.activity)
         expect(loadRun(d.source).events).toContainEqual(event);
       const last = sceneAt(session, session.duration).delegates[i];

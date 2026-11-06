@@ -124,7 +124,11 @@ const [npm] = install.options;
   <Section track id="session" title={session.title} lede={session.lede}>
     <SessionDiagram
       client:visible
-      session={buildSession(loadRun("site-commands"))}
+      session={buildSession(loadRun("site-commands"), {
+        "site-console": loadRun("site-console"),
+        "site-commands": loadRun("site-commands"),
+        "site-e2e": loadRun("site-e2e"),
+      })}
     />
   </Section>
 

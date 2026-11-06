@@ -137,6 +137,7 @@ function Drawing({
         ))}
       </g>
       <rect
+        data-session-card="claude"
         {...{ x: claude.x, y: claude.y, width: claude.w, height: claude.h }}
         rx="6"
         className="fill-card stroke-line-strong"
@@ -192,6 +193,7 @@ function Drawing({
       )}
 
       <rect
+        data-session-card="daemon"
         x={board.x}
         y={board.y}
         width={board.w}
@@ -298,6 +300,7 @@ function Drawing({
         const view = scene.delegates[i];
         if (!view) return null;
         const empty = view.state === "archived";
+        const chipWidth = d.model.length * 7.2 + 12;
         const event = view.latest;
         const eventLabel =
           event?.kind === "command"
@@ -308,6 +311,7 @@ function Drawing({
         return (
           <g key={d.name}>
             <rect
+              data-session-card={d.name}
               x={box.x}
               y={box.y}
               width={box.w}
@@ -347,23 +351,23 @@ function Drawing({
                 <rect
                   x={box.x + 14}
                   y={box.y + 58}
-                  width="132"
-                  height="23"
+                  width={chipWidth}
+                  height="20"
                   rx="2"
-                  className="fill-card stroke-line"
+                  className="fill-band"
                 />
-                <Text x={box.x + 21} y={box.y + 74} mono size={12}>
+                <Text x={box.x + 20} y={box.y + 72} mono size={12}>
                   {d.model}
                 </Text>
                 <rect
-                  x={box.x + 160}
-                  y={box.y + 65}
+                  x={box.x + chipWidth + 26}
+                  y={box.y + 64}
                   width="6"
                   height="6"
                   rx="2"
                   className={`${stateFill[view.state]} ${playing && view.state === "waiting" ? "state-waiting" : ""}`}
                 />
-                <Text x={box.x + 174} y={box.y + 74} mono size={12}>
+                <Text x={box.x + chipWidth + 40} y={box.y + 72} mono size={12}>
                   {view.state}
                 </Text>
                 <Text
@@ -414,9 +418,50 @@ function Drawing({
           forward ? packet.progress : 1 - packet.progress,
         );
         const width = packet.label.length * 7.2 + 16;
+        // Keep wide labels inside the link's gap throughout the flight, even
+        // when the label is wider than the remaining distance to a card.
+        const left = g.compact
+          ? 0
+          : agent === undefined
+            ? claude.x + claude.w
+            : board.x + board.w;
+        const right = g.compact
+          ? g.width
+          : agent === undefined
+            ? board.x
+            : g.agent(agent).x;
         const x = Math.max(
-          width / 2 + 4,
-          Math.min(g.width - width / 2 - 4, at.x),
+          left + width / 2 + 2,
+          Math.min(right - width / 2 - 2, at.x),
+        );
+        // Phone delegate links run down a narrow gutter. Turn their labels with
+        // the path so a full command fits beside the cards instead of over them.
+        const vertical = g.compact && agent !== undefined;
+        const label: Box = vertical
+          ? { x: Math.max(4, at.x - 30), y: at.y - width - 8, w: 22, h: width }
+          : { x: x - width / 2, y: at.y - 30, w: width, h: 22 };
+        const clearance = Math.min(
+          ...[
+            claude,
+            board,
+            ...session.delegates.map((_, i) => g.agent(i)),
+          ].map((card) =>
+            Math.max(
+              card.x - label.x - label.w,
+              label.x - card.x - card.w,
+              card.y - label.y - label.h,
+              label.y - card.y - card.h,
+            ),
+          ),
+        );
+        const opacity = Math.max(
+          0,
+          Math.min(
+            1,
+            packet.progress / 0.15,
+            (1 - packet.progress) / 0.15,
+            clearance / 2,
+          ),
         );
         return (
           <g key={`${packet.label}-${i}`}>
@@ -427,21 +472,39 @@ function Drawing({
               height="6"
               className={packet.attention ? "fill-signal" : "fill-ink"}
             />
-            <rect
-              x={x - width / 2}
-              y={at.y - 30}
-              width={width}
-              height="22"
-              rx="2"
-              className={
-                packet.attention
-                  ? "fill-signal"
-                  : "fill-card stroke-line-strong"
-              }
-            />
-            <Text x={x - width / 2 + 8} y={at.y - 15} mono size={12}>
-              {packet.label}
-            </Text>
+            {opacity > 0 && (
+              <g opacity={opacity}>
+                <rect
+                  data-packet-label={packet.label}
+                  x={label.x}
+                  y={label.y}
+                  width={label.w}
+                  height={label.h}
+                  rx="2"
+                  className={
+                    packet.attention
+                      ? "fill-signal"
+                      : "fill-card stroke-line-strong"
+                  }
+                />
+                <g
+                  transform={
+                    vertical
+                      ? `translate(${label.x + 15} ${label.y + label.h - 8}) rotate(-90)`
+                      : undefined
+                  }
+                >
+                  <Text
+                    x={vertical ? 0 : label.x + 8}
+                    y={vertical ? 0 : label.y + 15}
+                    mono
+                    size={12}
+                  >
+                    {packet.label}
+                  </Text>
+                </g>
+              </g>
+            )}
           </g>
         );
       })}

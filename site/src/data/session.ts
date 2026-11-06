@@ -1,5 +1,5 @@
 import answerCapture from "../../fixtures/cli/answer.json";
-import { loadRun, type Run, type RunEvent } from "./runs";
+import type { Run, RunEvent } from "./runs";
 
 export type SessionState =
   "queued" | "starting" | "running" | "waiting" | "done" | "archived";
@@ -70,7 +70,10 @@ function activityFor(events: Activity[], start: number, end: number) {
   }));
 }
 
-export function buildSession(questionSource: Run): Session {
+export function buildSession(
+  questionSource: Run,
+  laneSources: Record<"site-console" | "site-commands" | "site-e2e", Run>,
+): Session {
   const asked = questionSource.questions.find((q) => q._tag === "Asked");
   const resolved = questionSource.questions.find(
     (q) => q._tag === "Resolved" && q.id === asked?.id,
@@ -85,18 +88,12 @@ export function buildSession(questionSource: Run): Session {
       "The session needs a recorded question and its matching answer.",
     );
   }
-  const consoleRun = loadRun("site-console");
+  const consoleRun = laneSources["site-console"];
   const samples = (run: Run) =>
     run.events.filter(
       (e): e is Activity =>
         e.kind === "files" || (e.kind === "command" && e.command.length < 90),
     );
-  // No site-e2e recording exists. Its check samples are attributed in the UI.
-  const checks = samples(questionSource).filter((e) =>
-    e.kind === "files"
-      ? e.paths.every((path) => path.includes("test"))
-      : /^(make (check|test|build)|bunx vitest)/.test(e.command),
-  );
   const specs = [
     {
       name: "site-console",
@@ -119,19 +116,19 @@ export function buildSession(questionSource: Run): Session {
         "site/src/components/landing/CommandTabs.tsx, site/src/components/landing/CommandTabs.test.tsx, site/src/data/commands.ts, site/src/data/commands.test.ts, site/src/pages/llms.txt.ts",
       start: 6000,
       done: 43_500,
-      source: questionSource.name,
-      events: samples(questionSource),
+      source: laneSources["site-commands"].name,
+      events: samples(laneSources["site-commands"]),
     },
     {
       name: "site-e2e",
       model: "gpt-6.1-terra",
       work: "Browser + accessibility checks",
       contract: "e2e.md",
-      scope: "site/tests/, site/src/styles/tokens.test.ts",
+      scope: "site/e2e/, site/playwright.config.ts",
       start: 8000,
       done: 45_500,
-      source: questionSource.name,
-      events: checks,
+      source: laneSources["site-e2e"].name,
+      events: samples(laneSources["site-e2e"]),
     },
   ];
   const delegates = specs.map(({ events, ...spec }, i) => {
