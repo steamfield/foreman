@@ -5,10 +5,11 @@
 # should call the same targets.
 
 PORT_WEB ?= 4321
-export PORT_WEB
+PORT_E2E ?= 4322
+export PORT_WEB PORT_E2E
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev lint check test coverage build preview new-article format clean deploy-check deploy-preview deploy
+.PHONY: help install dev lint check test coverage build preview e2e new-article format clean deploy-check deploy-preview deploy
 
 help: ## List targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-14s %s\n", $$1, $$2}'
@@ -16,6 +17,7 @@ help: ## List targets
 install: ## Install dependencies (frozen lockfile when CI is set)
 	bun install $(if $(CI),--frozen-lockfile)
 	@if [ -z "$(CI)" ] && [ -f lefthook.yml ] && command -v lefthook >/dev/null 2>&1; then lefthook install; fi
+	@if [ -z "$(CI)" ]; then bunx --no-install playwright install chromium; fi
 
 # --ignore-lock keeps astro dev in the foreground when it detects an agent
 # (otherwise it backgrounds itself and exits). Stop a stray one: bunx astro dev stop
@@ -52,6 +54,10 @@ deploy: build ## Manual production deploy (CLOUDFLARE_API_TOKEN and CLOUDFLARE_A
 
 preview: ## Serve the production build
 	bunx astro preview --port $(PORT_WEB) --ignore-lock
+
+e2e: ## Browser and accessibility tests against a keyless production build
+	PUBLIC_POSTHOG_KEY= $(MAKE) build
+	bunx --no-install playwright test
 
 # SLUG and TITLE reach the script as env vars, so titles with quotes are safe.
 export SLUG TITLE

@@ -19,6 +19,7 @@ Run from `site/`. Bun 1.4.2 is recorded in `packageManager`, Node 26.13.0 in `.n
 | `make format`                                   | Prettier writes                                                            |
 | `make check`                                    | Astro strict type and content checks                                       |
 | `make test`                                     | Vitest unit and component suite                                            |
+| `make e2e`                                      | Build and run Chromium browser and accessibility tests on `PORT_E2E`       |
 | `bunx vitest run src/lib/analytics.test.ts`     | Run one test file                                                          |
 | `make coverage`                                 | Vitest with V8 coverage                                                    |
 | `make build`                                    | Static build plus Node build assertions                                    |
@@ -87,6 +88,7 @@ draft and unlisted posts to keep the full publishing pipeline covered.
 `make deploy-check` launches and stops Wrangler's local Pages runtime and checks
 headers, cache behavior, canonical redirects, feeds and 404s. No service runs first.
 Run each changed test file three times alone, then `make test`.
+`make install` installs Chromium outside CI; CI must run `bunx playwright install chromium`.
 
 ## Error handling
 
