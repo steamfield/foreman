@@ -42,7 +42,7 @@ test("the landing page owns the root and links the shared privacy page", () => {
   const page = document("index.html");
   assert.equal(
     page.querySelector("h1")?.textContent?.trim(),
-    "Let Claude Code hand work to Codex and supervise it while it runs.",
+    "Codex models as subagents for Claude Code.",
   );
   assert.equal(
     page.querySelector('link[rel="canonical"]')?.getAttribute("href"),

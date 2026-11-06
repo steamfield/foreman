@@ -108,7 +108,7 @@ export function lifecycleModel(
         reports:
           "Codex called `ask_orchestrator`. forman holds the call open, and the wait returns `question` with an id. This is q1 from fix-supervisor, as Codex wrote it.",
         claude:
-          "Answer the question with `--wait` to resume the held call and keep watching. An unanswered question auto-answers after the question timeout (15 minutes by default); Codex proceeds and notes its choice in the hand-off.",
+          "Answer the question with `--wait` to resume the held call and keep watching, or `defer` it to release the call without deciding. Codex then continues with independent work, avoids irreversible steps on the decision and lists it under Open. The question timeout (15 minutes by default) does the same, and Claude can still answer later.",
         command: 'forman answer <name> <id> "<text>" --wait',
         excerpt: {
           source: "Recorded: fix-supervisor q1",

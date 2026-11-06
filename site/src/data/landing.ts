@@ -2,8 +2,8 @@
 // README.md; tests/drift.test.ts checks the commands and exit codes against it.
 
 export const hero = {
-  title: "Let Claude Code hand work to Codex and supervise it while it runs.",
-  lede: "forman starts Codex in its own git worktree and wakes Claude when Codex finishes or asks a question. Claude can answer it or change its instructions mid-turn, then reviews the diff before anything is committed. It runs on the Codex CLI's ChatGPT login, so there is no OpenAI API key involved.",
+  title: "Codex models as subagents for Claude Code.",
+  lede: "Claude Code plans the work, writes the contracts and reviews the result. forman hands the implementation to Codex models, each in its own git worktree, and wakes Claude when one finishes or asks a question. Claude can answer it or change its instructions mid-turn, and nothing is committed until Claude has read the diff. It runs on the Codex CLI's ChatGPT login, so there is no OpenAI API key involved.",
   consoleCaption:
     "The fix-supervisor delegate from forman's own release, 70 minutes replayed in one, including the question Codex asked and Claude's answer. Codex's events and forman's output are recorded. Claude's side of the conversation was written for this page.",
 };
@@ -29,6 +29,47 @@ export const why = {
       "Claude reads the hand-off and the diff, refactors, runs your checks and commits.",
     ],
   },
+};
+
+export const models = {
+  title: "A model for each job",
+  lede: "Claude Code is best at the long view: planning, architecture, and keeping many tasks moving to a reviewed finish. Codex has models that are cheaper per task and good at the work in between. forman makes them available to Claude the way its own subagents are: start one with a contract, wait on it in the background, answer it, review it.",
+  roles: [
+    {
+      name: "Claude Code",
+      model: "orchestrator",
+      job: "Plans and architects the change, splits it into contracts, answers delegates' questions, reviews every diff, runs your checks and commits.",
+      evidence: "Designed this page and wrote every contract behind it.",
+    },
+    {
+      name: "sol",
+      model: "gpt-6.1-sol",
+      job: "The everyday worker. Implements a written contract, runs the repo's checks and hands back a report. forman's default model.",
+      evidence: "Built the command tabs and llms.txt (site-commands).",
+    },
+    {
+      name: "terra",
+      model: "gpt-6.1-terra",
+      job: "The cheapest model, and effective on narrow work: tests for existing behaviour, classification, mechanical edits.",
+      evidence: "Wrote the browser and accessibility tests (site-e2e).",
+    },
+    {
+      name: "astra",
+      model: "gpt-6-astra",
+      job: "The design model. Visual work and interface details that need taste, for much less than the same work on Claude's largest models.",
+      evidence: "Designed the console replay at the top (site-console).",
+    },
+  ],
+  /** How Claude drives a delegate, as command templates written for this page. */
+  loop: [
+    "forman start <name> --new-worktree --contract <file> --model gpt-6.1-sol --wait",
+    'forman answer <name> <question-id> "<decision>" --wait',
+    'forman steer <name> "<correction>"',
+    "forman result <name>",
+    "forman archive <name>",
+  ],
+  guidance:
+    "The delegates get close to Claude's quality when the repository tells them how to work. Codex reads `AGENTS.md` and the rules the contract names, runs under the same hooks Claude does (`.codex/hooks.json`), and every contract ends with an independent review in a fresh Codex process before the hand-off. Claude still reads the diff, so the review bar doesn't move; Claude's usage goes to planning and review, and the implementation runs on your ChatGPT plan.",
 };
 
 export const session = {
@@ -95,7 +136,7 @@ export const guardrails = {
     ],
     [
       "Budgets and timeouts",
-      "A turn stops after its budget (one hour by default). An unanswered question times out after 15 minutes and Codex is told to proceed and say so.",
+      "A turn stops after its budget (60 minutes by default). An unanswered question times out after 15 minutes and Codex continues with independent work, lists the decision under Open and avoids irreversible steps on it.",
     ],
     [
       "Private state",
@@ -109,12 +150,9 @@ export const agentFacing = {
   lede: "Every result ends with a `next:` line naming the command to run next. Its cursor means Claude never sees the same event twice.",
 };
 
-/** README "Wait outcomes and exit codes". */
+/** README "Exit codes" and "Wait outcomes". */
 export const exitCodes = [
-  [
-    "0",
-    "Success, including all wait outcomes and doctor with unavailable probes",
-  ],
+  ["0", "Success, including wait outcomes and doctor with unavailable probes"],
   ["1", "Internal error"],
   ["2", "Invalid command or arguments"],
   ["3", "Invalid configuration"],
@@ -128,17 +166,17 @@ export const exitCodes = [
   ["130", "Interrupted CLI invocation"],
 ] as const;
 
-/** README "Wait outcomes and exit codes". */
+/** README "Exit codes" and "Wait outcomes". */
 export const waitOutcomes = [
   [
     "events",
-    "A run needs attention: question, done, failed, interrupted or lost; each includes a digest",
+    "Attention: question, done, failed, interrupted or lost, with a digest for each reported run",
   ],
   [
     "timeout",
-    "Nothing needed attention within the timeout; run the printed next command",
+    "No new attention before the deadline; continue with the printed command",
   ],
-  ["none", "`--all` has no active runs or unseen attention in this repo"],
+  ["none", "`--all` has no active runs or unseen attention in the group"],
 ] as const;
 
 export const install = {
