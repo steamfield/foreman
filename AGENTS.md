@@ -56,6 +56,7 @@ e2e/             Bun tests against the compiled binary
 scripts/         build, dev and prepare scripts
 docs/            guidance per area, acceptance matrix, harness notes
 biome-plugins/   Grit lint rules for the platform and schema boundaries
+site/           the landing page: a separate Astro project with its own AGENTS.md and toolchain
 ```
 
 argv flows `bin.ts` → `main.ts` → `cli.ts` → `commands/*` → `core/*`; results go through the Output service to stdout, diagnostics through the logger to stderr and the log file.

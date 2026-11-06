@@ -1,6 +1,6 @@
 # forman landing page: product spec
 
-> Status: in progress. Kept beside the site so the reasoning behind the page ships with it.
+> Status: built. Kept beside the site so the reasoning behind the page ships with it.
 
 ## TL;DR
 
@@ -96,3 +96,10 @@ The first two weeks set the baseline; targets are starting guesses.
 | The npm package isn't published at launch        | Launch only after `npm view @steamfield/forman` resolves      |
 | Page copy drifts from the CLI                    | Recordings, plus the drift test                               |
 | The page reads as an OpenAI or Anthropic product | Name both plainly as third parties; no logos, no brand colors |
+
+## Changes made while building
+
+- A tenth section, "How a session runs", was added after review: an animated simulation of Claude running three delegates on different models (astra for the hero console's design, sol for the command tabs, terra for the browser tests), with a held question, an answer, a steer, a follow-up and archives. Its question and answer text and each lane's commands come from the recordings of the delegates that built this page.
+- The contract section shows the `site-console` run instead of fix-supervisor. fix-supervisor's digest flags two test files as outside scope only because its contract listed them with globs, which forman's scope check matches as literal paths.
+- The questions section kept fix-supervisor's two questions; the `answer` and `wait --all` command tabs are recordings from this site's own build.
+- Section titles are plain nouns ("Run states", "Commands", "Safeguards") after a writing pass.
