@@ -137,6 +137,6 @@ export const daemonCommand = Command.make(
     );
   }),
 ).pipe(
-  Command.withDescription("Run the background supervisor."),
+  Command.withDescription("Run the supervisor in the foreground (normally started automatically)."),
   Command.withSubcommands([stopCommand]),
 );

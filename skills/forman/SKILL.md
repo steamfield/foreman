@@ -3,273 +3,135 @@ name: forman
 description: Delegate coding work to Codex through forman, supervise its questions and progress, then review, refactor, check and commit the work yourself. Use when the user asks for Codex or delegation, or for substantial implementation, test authoring or mechanical refactors with a clear contract, including independent tasks that can run in parallel.
 ---
 
-# Delegating through forman
+# Delegate through forman
 
-Write a contract, then start an isolated delegate in one call:
+Write a contract and start Codex in an isolated worktree. Codex implements, runs the contract's checks and gets its independent review. Claude reviews the hand-off and diff, refactors and runs the gate before committing or merging. Honor instructions to leave work uncommitted.
 
-```sh
-forman start <name> --new-worktree --setup "<install>" --contract <file> --write --wait
-```
+## Read the repo and check setup
 
-forman creates `.claude/worktrees/<name>` on `forman/<name>` beneath the main checkout,
-starting from the current repository HEAD (or `--from <ref>`). It adds the exclude rule when
-needed and runs the repo's install command before validation or any Codex request. Start
-reports the path and branch. A refused start rolls back what that call created, retaining
-and reporting a worktree when turn execution is unconfirmed or has left work. Managed starts
-refuse an outdated busy daemon; finish its runs and restart it first.
+Read `AGENTS.md`, `CLAUDE.md` and `.claude/delegate.md` when present. Carry the repo's rules, install command, checks and constraints into the contract. Codex reads AGENTS.md but does not automatically load Claude's rules or this conversation. Name the applicable rule and skill files explicitly.
 
-Codex implements, runs the checks and gets one
-independent review in a fresh Codex process. Claude reviews the hand-off and diff, refactors,
-runs the gate, commits and merges, then cleans up. Changes stay uncommitted until Claude's pass.
+Delegate implementation against a written design, tests for existing behavior or a mechanical refactor when a contract costs less than doing the work. Keep shared interfaces and unresolved design decisions with Claude unless the user asks to delegate them. Do small edits yourself.
 
-With `--write`, Codex runs unsandboxed with your environment and Codex configuration. It can
-install packages, use the network and run tests. Read-only is the default; even test authoring
-usually needs `--write` because runners write caches. Claude subagents use Claude's Agent tool.
-
-## Read the repo's guidance
-
-Read `AGENTS.md`, `CLAUDE.md` and `.claude/delegate.md` when present. The repo overlay wins on
-worktree location, install command, gate, templates and constraints. Carry those requirements
-into the contract. Translate any older runner settings into supported forman options; check
-`forman --help` and `forman start --help` rather than forwarding old environment variables.
-
-Delegate when writing a contract costs less than doing the work: implementation against a
-written design, tests for existing behaviour, or a mechanical refactor. Give a feature the
-directory scope its design needs. Keep design decisions, shared interfaces and agent harness
-changes with Claude unless the user asks to delegate them. Finish small edits yourself.
-
-## One-time repo setup
-
-Have `forman` and a signed-in Codex CLI on `PATH` (use `codex login` if needed). The repo needs
-a commit. In its main checkout, open `codex` and trust the project if prompted. If it has
-`.codex/hooks.json`, use Codex's `/hooks`, inspect the project hooks and approve them. Exit
-Codex and run:
+Have forman and a signed-in Codex CLI on PATH. The repo needs a commit. For first use, open `codex` in the main checkout and trust the project if prompted. If `.codex/hooks.json` exists, run `/hooks`, inspect and approve the project hooks. Exit Codex and check:
 
 ```sh
 forman doctor
 ```
 
-Read the output even when the exit code is 0. Check the Codex executable, version, protocol
-match and login. Each project hook should be `trusted` or `managed`, followed by
-`forman start will accept runs here (hook trust).` Without project hooks, `no repo hooks apply`
-is expected. An unavailable probe or hook state `unknown` needs attention before starting.
-Doctor reports the running daemon's build and whether it matches this CLI; an old daemon
-without a build reports unknown. It never starts or replaces a daemon or starts a Codex turn;
-its hook check does not validate a worktree's
-dependencies. Set `CODEX_BIN` to the real executable if a version-manager shim fails.
+Read every probe even when exit is 0: executable, login, protocol match and hook trust. Project hooks must be trusted or managed. Without repo hooks, `no repo hooks apply` is expected. Doctor never starts or replaces the daemon or starts a turn. Set CODEX_BIN to the actual executable if a version-manager shim fails.
 
-Worktrees inside the main checkout inherit its approved hooks. Changes to the main checkout's
-hook definitions need approval again. Hook edits only in a delegated branch take effect after
-they reach the main checkout. Don't edit `~/.codex` config, hooks, trust or auth to get past a
-refusal. Codex's own runtime session and log writes there are fine.
+Linked worktrees inside the main checkout inherit its approved hooks. Reapprove changed main-checkout definitions. Hook edits in a delegated branch take effect after reaching the main checkout. Do not edit Codex trust, auth or hook settings to bypass a refusal.
 
-## Prepare the work
+## Prepare the contract
 
-1. Choose an unused run name, branch `forman/<name>` and directory `.claude/worktrees/<name>`.
-   Determine the repo's install command for `--setup`. For a `package.json` project, forman
-   checks for `node_modules/` or `.pnp.cjs`; use `--skip-deps-check` only when setup justifies
-   it. `--setup` runs with `/bin/sh -c` and the same environment as Codex. Failure reports
-   its exit code and output tail and removes the worktree and branch it just created.
+Choose an unused run name, `forman/<name>` branch and `.claude/worktrees/<name>` directory. Names are global within FORMAN_HOME, including across repos. Determine the install command. A package.json project needs node_modules or .pnp.cjs; use `--skip-deps-check` only when the setup warrants it.
 
-   For a worktree Claude already prepared inside the main checkout, use `--worktree <path>`
-   instead. Install its dependencies first. This flag is mutually exclusive with
-   `--new-worktree`; `--setup` and `--from` require `--new-worktree`. forman never removes a
-   passed worktree or its branch.
+Copy [contract.md](contract.md) to a scratch file outside the worktree and fill its placeholders, including the base branch and absolute contract path. The delegate fills the review directory. Use [contract-tests.md](contract-tests.md) for tests ahead of an implementer. Include wiring files in scope when needed.
 
-2. Copy [contract.md](contract.md) to a scratch file outside the worktree and fill the task
-   placeholders; the delegate fills `{REVIEW DIR}` after creating its review directory.
-   Use [contract-tests.md](contract-tests.md) for a test author working ahead of
-   an implementer. Name the applicable rule and skill files: Codex reads `AGENTS.md`, but does
-   not automatically load Claude's rules, `CLAUDE.md` or this conversation. Include wiring
-   files in scope when the task needs them.
+Scope must begin with `- May change:` and use backticked repo-relative paths:
 
-   The scope line must start with `- May change:` and list actual repo-relative paths in
-   backticks, with a trailing `/` for a directory. For example:
-
-   ```markdown
-   - May change: `src/doctor/`, `tests/doctor.test.ts`.
-   - Must not change: `src/cli.ts`.
-   ```
-
-   Prose such as "the files listed above" and glob patterns do not declare scope. Forman
-   compares dirty paths to these entries; it does not enforce the boundary for you.
-
-3. Choose a visible Codex model and fill `{REVIEW MODEL}` with its literal name. Use that same
-   name with `--model` below, then confirm it against the model in the digest's `run:` header.
-   For the usual default, read Codex's `models_cache.json` and choose the newest visible
-   `gpt-*-sol`; forman falls back to `gpt-6.1-sol` if its cache lookup fails. No old runner
-   variable supplies the review model. If the reported name differs, send a correction before
-   the delegate reviews. Fill the base branch and absolute contract path too.
-
-## Start and supervise
-
-```sh
-forman start <name> --new-worktree --setup "<install>" --contract <contract-path> --write --model <model> --wait
+```markdown
+- May change: `src/doctor/`, `tests/*doctor*.test.ts`.
+- Must not change: `src/cli.ts`.
 ```
 
-Run `start --wait` with Claude Code's Bash `run_in_background: true`, so Claude remains
-available. It prints the start lines followed by the next question or terminal outcome and
-hand-off. A delegation needing no answer takes one call. Without `--wait`, start returns
-after starting the turn and prints `next: forman wait <name>`; run that command in the
-background. For several runs use `forman wait --all`, also in the background. Run up to five delegates at
-once, each with its own worktree and independent scope. Names are global within forman's home
-directory; choose distinct names across repos. `--all` covers the current repo and its linked
-worktrees, not every repo.
+A trailing slash covers a directory prefix, `*` matches within a segment and `**` across directories. Literal paths also match suffixes. Prose such as "the files above" does not declare scope. The digest compares dirty Git paths to those entries; it does not enforce them. Follow-ups keep the original contract's scope. If the scope must expand, prepare a new run and inspect the existing diff explicitly.
 
-Defaults are high effort, priority tier, a one-hour turn budget and a 15-minute question
-timeout. Override with `start`'s `--effort`, `--tier`, `--budget` and `--question-timeout` when
-the contract warrants it. Durations are whole numbers such as `90s` or `45m`.
+Choose a visible Codex model and fill the review model with its literal name. For the usual default, read Codex's models_cache.json and choose the newest visible gpt-*-sol; forman falls back to gpt-6.1-sol. Use the same model on start and confirm the digest header before the delegate reviews. Do not forward settings from older runners; consult `forman start --help`.
 
-When wait returns, read its outcome and each digest. All wait outcomes exit 0:
+## Start the delegate
+
+For example, after filling `/tmp/doctor-help-contract.md` for this repo, choosing gpt-6.1-sol and checking that doctor-help is unused:
+
+```sh
+forman start doctor-help --new-worktree --setup "bun install" --contract /tmp/doctor-help-contract.md --write --model gpt-6.1-sol --wait
+```
+
+Substitute the repo's install command, filled contract path and chosen model for other tasks. Use Claude Code's Bash `run_in_background: true` so Claude remains available. Start with --wait prints nothing until attention arrives, then returns the run directory, worktree and branch together with the digest and available hand-off.
+
+forman creates the worktree beneath the main checkout, based on the caller's HEAD or `--from`. Setup runs through `/bin/sh -c` with Codex's filtered environment before validation or any Codex request. It defaults to a 10-minute limit; an explicit `--budget` sets the setup limit too, separately from the turn budget. Refusals roll back owned resources when safe; an unconfirmed turn start or remaining work retains the worktree and reports its path. Inspect that refusal before retrying.
+
+For an already prepared linked worktree inside the main checkout, use `--worktree` instead of `--new-worktree`. Install dependencies first. `--setup` and `--from` require `--new-worktree`. forman never removes a passed worktree or branch.
+
+Read-only is the default. `--write` gives full host access with no approval prompts; it permits network, installs and tests using the filtered inherited environment and Codex configuration. Even test authoring usually needs write access because runners write caches.
+
+Defaults are high effort, priority tier, a 60-minute turn budget and a 15-minute question timeout. Set `--effort`, `--tier`, `--budget` or `--question-timeout` when the contract calls for it. Durations are nonnegative whole numbers with ms, s, m or h, such as 90s or 45m.
+
+## Handle attention
+
+Read each outcome and digest. Every wait outcome exits 0:
 
 | Outcome | Action |
 | --- | --- |
-| `events` | Handle each `question`, `done`, `failed`, `interrupted` or `lost` item. |
-| `timeout` | Run the printed next wait command; the run may still be working. |
-| `none` | No active runs or unseen attention remain for `--all`; stop waiting until more work starts. |
+| events | Handle each question, done, failed, interrupted or lost item |
+| timeout | Run the printed next command; work may still be active |
+| none | For wait --all, no active runs or unseen attention remain in the group |
 
-After handling attention, run the printed `next:` command. Wait continuations carry
-the cursor (`--after`) that prevents repeated attention and preserve any explicit `--timeout`.
-Question continuations suggest `answer`; replace `<answer>` with the decision. A pending
-question also prints `or: forman defer <name> <question-id>` to free the delegate while a
-human considers it. The printed cursor remains available for an explicit wait.
-When using a home other than `~/.forman`, the command also carries `FORMAN_HOME=...`.
-Don't rebuild it from memory. `start`, `answer`, `defer`, `followup`, `steer` and `interrupt` accept `--wait` with
-the same 60-minute default as standalone wait. For a foreground call, use `--timeout 9m`
-to stay below Claude Code's foreground limit.
+Use printed `next:` commands. Question outcomes suggest answer, with defer as an alternative while pending. Replace the answer placeholder with the decision. Ordinary wait continuations carry an opaque `--after` cursor and preserve an explicit timeout. The executable may be an absolute path; FORMAN_HOME is prefixed only for a nondefault home. Keep those details intact.
 
-These commands apply at different states:
+For doctor-help, these commands are alternatives at the corresponding state; use the actual question id:
 
 ```sh
-forman answer <name> <question-id> "The decision the delegate needs." --wait
-forman defer <name> <question-id> "Waiting for the human's decision." --wait
-forman steer <name> "A correction to the active task." --wait
-forman followup <name> --file <followup-contract-path> --wait
-forman result <name>
+forman answer doctor-help q1 "Keep the description to one sentence." --wait
+forman defer doctor-help q1 "Waiting for a person to decide." --wait
+forman steer doctor-help "Include repo hook trust in the description." --wait
+forman followup doctor-help "Check the help output again and report the result." --wait
+forman interrupt doctor-help --wait
 ```
 
-Answer the printed question id to resume its held tool call. A timeout now defers the question:
-Codex continues independent work, takes no irreversible step on that decision and lists it
-under Open. `defer` does this immediately, with an optional note; it requires a pending question.
-Status keeps deferred, unanswered questions visible. A completed turn's wait summary says
-`done, N unanswered questions` or `blocked on qN`, and suggests an answer.
+Answer pending questions to resume their held tool calls. If the decision needs a person, defer immediately so the delegate can continue independent work. Timeout also defers: Codex is told to avoid irreversible steps on that decision, use a safe reversible default within the contract if available, and list the question and its handling under Open. Defer requires a pending question. Deferred questions remain in status and wait digests until answered or superseded.
 
-Use the same `answer` command when the decision arrives late, including after timeout or
-interruption. It adds the original question's context and steers a running turn, or starts a
-follow-up on an inactive run. If Codex refuses the steer, the command waits for that turn to
-end and starts the follow-up. During a budget hand-off it returns accepted with a queued
-message and delivers the answer after the hand-off; `--wait` waits for that answer's follow-up.
-Further answers and corrections join the queue behind earlier answers. Shutdown and run reuse
-wait until accepted answers have been delivered.
-Answering again sends a correction. If another question is pending, answer that id first
-and include both decisions in the text. An older busy daemon supports only in-time answers;
-finish its runs and restart it to use late answers or `defer`.
+Send the same answer command when the decision arrives late, including after timeout or interruption. It carries the original question text and steers a running turn or starts a follow-up on an inactive run. A refused late steer waits for the turn to finish and falls back to a follow-up in the same command. Answering again sends a correction. If another question is pending, answer that id first and include both decisions in its text.
 
-An explicit `steer` or `followup` supersedes unanswered questions, since the new message
-handles the delegate's Open list. A superseded question still accepts a late answer. Legacy
-auto-answered and cancelled questions accept late answers but never count as unanswered.
-Use `steer` only on an active turn
-with no pending question. Use `followup` on an inactive run to continue its Codex thread, with
-`--budget <duration>` or `--effort <effort>` if needed. Answer, steer and followup accept either
-one text argument or `--file <path>`, never both. Ask the user only for a decision you cannot
-make from the contract and repo. Delegates use `ask_orchestrator` for blockers or consequential
-decisions; progress, findings and corrections belong in the hand-off.
+During a budget hand-off, answer returns accepted with queued delivery. Further answers and corrections join behind it. Followup refuses while answers are queued; shutdown, archive and run/worktree reuse also retain ownership for accepted answers. `answer --wait` waits for the delivered answer's turn, not the earlier hand-off. If the daemon crashes, inspect question history and resend undelivered decisions: the delivery queue is not rebuilt.
 
-Run these `--wait` calls in the background too. One question takes exactly two calls:
-`start --wait`, then `answer --wait`. Without `--wait`, answer, defer, steer and followup print `ok`
-and a `next:` wait command with the run's cursor at acceptance. Interrupt does the same.
-These waits and their next commands always name the target run. Use an explicit `wait --all`
-to supervise the group. The cursor carries the target group, even when invoked from another repo.
-With `--json`, the acknowledgement is
-`Accepted` with `cursor` and `next`; `--wait` returns `Waited`. Start's combined JSON result
-also carries `started: {name, runDir, worktree, branch}` for a new worktree in the same value.
+Use explicit steer only on a running turn with no pending question. Use followup on an inactive run to continue its saved thread, optionally changing its budget or persistent effort. Steer and followup supersede unanswered questions; those ids still accept late answers. Answer, steer and followup take one message argument or `--file`, never both. Ask the user only for a decision the contract and repo cannot settle. Delegate progress belongs in the hand-off; ask_orchestrator pauses the turn.
 
-## Review and land the work
-
-`done` means the turn ended. Read the included hand-off, or reread it with `forman result
-<name>`, then inspect the diff and new files. Focus on decisions, disputed review findings and
-"Look closer at". Check every changed path, including the digest's `outside May change` list.
-The contract requires one independent review in a fresh Codex process before hand-off. A
-missing review or implementation work still needed goes back as a follow-up contract; Claude
-does not dispatch a second reviewer. Start a narrower fresh run only if the approach went wrong.
-
-Keep follow-ups inside the original scope: the digest checks the original contract's May change
-entries. If scope must expand, prepare a new run and contract and inspect the existing diff
-explicitly; a follow-up file does not replace those entries.
-
-Refactor with Claude's editing tools so the repo's hooks see the changes. Match surrounding
-idiom, use existing helpers and remove unnecessary abstractions. Undo only the delegate's
-out-of-scope edits; preserve other people's work. Run the full repo gate in the worktree after
-the refactor, commit there using the repo's convention, then merge as the task requires.
-Forman does not commit or merge. Honour any user instruction to leave work uncommitted.
-
-Once merged, archive the inactive run:
+Run combined waits in the background too. Start, answer, defer, steer, followup and interrupt accept `--wait`, defaulting to 60 minutes. For a foreground call use a shorter wait, such as `--timeout 9m`; this bounds attention waiting, not earlier setup or mutation delivery. Without wait, accepted mutations normally print ok and a named-run wait command with the cursor captured before dispatch. Only continuations from a completed wait preserve an explicit timeout. Combined waits and next commands target the named run only, even when peers are active. To supervise the current repo group, including its linked worktrees, explicitly run:
 
 ```sh
-forman archive <name>
+forman wait --all
 ```
 
-Archive removes a forman-created worktree and branch only if it has no uncommitted or
-untracked files and no new commits, or its tip is merged into its source branch. A refusal
-names the path, branch and remaining work. Keep that work with:
+Use separate worktrees and independent scopes for parallel delegations. A quiet delegation takes one start --wait call; a single in-time question takes a second answer --wait call. JSON start returns Started, or Waited with started metadata when waiting. Other mutations normally return Accepted, or Waited with --wait. Interrupting start preflight returns Ok without a cursor or continuation, even with --wait; read status before deciding what to start next.
+
+## Review and land
+
+Done means the turn ended. Read its hand-off, or reread it:
 
 ```sh
-forman archive <name> --keep-worktree
+forman result doctor-help
+git -C .claude/worktrees/doctor-help diff
+git -C .claude/worktrees/doctor-help status --short
 ```
 
-Both forms preserve the run's records, print the archive path and free the name. Status
-(named or unnamed) and doctor list orphan `forman/*` worktrees with their path, branch and
-whether they hold work. Inspect those lines after a crash or `--keep-worktree`. For a passed
-`--worktree`, Claude owns removal and branch cleanup. Cleanup belongs to Claude, never the delegate.
+Inspect new files, every changed path and the digest's outside May change list. Focus on decisions, disputed review findings and Look closer at. The contract template requires one independent review in a fresh Codex process. Missing review or unfinished implementation goes back in a follow-up contract; Claude does not dispatch a second reviewer.
 
-## Recover a failed or lost run
+Refactor with Claude's editing tools so repo hooks see the changes. Match surrounding idioms and remove unnecessary abstractions. Undo only the delegate's out-of-scope edits; preserve others' work. Run the full repo gate in the worktree, commit using its convention, then merge as requested. forman does not commit or merge. Honor the user's instructions about leaving work uncommitted.
 
-Read `forman status <name>`, `forman result <name>`, `forman events <name>` and
-`git -C <worktree> status` before deciding. The digest gives the run directory; its records,
-`events.jsonl`, raw Codex traffic and `turns/<n>.md` hand-offs help explain partial work.
-Text events omit protocol chatter and token usage by default. Use `events <name> --verbose`
-to see everything; `--json` always returns the complete event page.
-Config and state live under `FORMAN_HOME` (default `~/.forman`): `config.json`, `forman.sock`,
-`daemon.lock`, `runs/` and `logs/`. Doctor prints this home. Daemon diagnostics are in
-`logs/daemon.jsonl` and `logs/app-server.log` beneath it.
-
-An interrupted or failed run leaves its edits in place. If it is on track, send a short
-follow-up contract, with a larger `--budget` if the turn budget expired. A `transient:` hint
-suggests a short "continue" follow-up; a `usage-limit:` hint needs available plan capacity.
-If the same failure repeats twice, stop and ask rather than retrying indefinitely.
-
-`lost` means supervision was lost, not that the edits disappeared. Check the processes and
-logs before resuming so two writers cannot share a worktree. An inactive run with a saved
-thread and an existing worktree can accept a follow-up; without either, prepare a new run.
-Read resume warnings: questions may not reach Claude on a resumed thread. Don't promise
-automatic recovery or a final hand-off. For a supervised active turn, `forman interrupt
-<name>` requests interruption; read its result before reusing the worktree.
-
-## Upgrade forman
-
-After updating the source, run `bun install` and `bun run build`, then replace your installed
-binary with `dist/forman`. Run `forman daemon stop` so the next run command starts the new
-build. Stop refuses while runs are active and names them; finish them or use `forman interrupt
-<name>` first, then retry stop. With no daemon, stop succeeds without starting one. Run
-`forman doctor` after the upgrade and read its probes.
-
-## Example: clarify doctor help
-
-In this repo, after setup, choose an unused name. Copy `contract.md` to a scratch file, with the goal
-"Clarify that doctor reports repo hook trust", this scope, checks `bun run lint` and
-`bun run typecheck`, and the filled review instructions:
-
-```markdown
-- May change: `src/commands/doctor.ts`.
-```
-
-For example, if the selected visible model is `gpt-6.1-sol`, set
-`{REVIEW MODEL}` to that literal name and start:
+Once merged and clean, archive:
 
 ```sh
-forman start doctor-help --new-worktree --setup "bun install" --contract <filled-contract-path> --write --model gpt-6.1-sol --wait
+forman archive doctor-help
 ```
 
-Run it in the background, confirm the model in its digest header and follow each `next:`
-command. Read the hand-off and diff, refactor, run `bun run check`, commit and merge, then
-`forman archive doctor-help`. If retaining unmerged work, use `--keep-worktree`.
+Managed cleanup refuses dirty/untracked files or new commits not merged into the source ref. To retain unfinished work, use `forman archive doctor-help --keep-worktree`. Both forms preserve records and free the name. Inspect orphan lines in status or doctor after a crash or retained archive. For a passed worktree, cleanup is Claude's job, never the delegate's.
+
+## Recover and upgrade
+
+Read status, result and events before retrying. For this example:
+
+```sh
+forman status doctor-help
+forman events doctor-help
+forman events doctor-help --verbose
+```
+
+Default text events omit protocol chatter and token usage; verbose includes them, and JSON always includes the complete selected page. The digest names the run directory. Its event/question history and turn hand-offs help explain partial work. Daemon logs live under FORMAN_HOME/logs, defaulting to ~/.forman/logs. Question and event storage uses format 2; older binaries refuse those runs.
+
+Failed and interrupted runs retain edits. If the approach is sound, send a short follow-up contract. A transient hint suggests continuing; a usage-limit hint needs plan capacity. After the same failure twice, stop and ask instead of retrying indefinitely. Budget expiry interrupts work and requests a read-only hand-off with its own 10-minute budget; a later follow-up restores the configured sandbox.
+
+Lost means supervision ended. Inspect processes and logs before resuming to prevent two writers. An inactive run needs a saved thread and an existing worktree to continue. Unknown means execution is unconfirmed and ownership remains reserved. Read resume warnings: dynamic question delivery on resumed threads depends on Codex retaining the tool. Do not promise automatic recovery or a final hand-off.
+
+After installing an upgrade, the next run command replaces an idle outdated daemon automatically. A busy daemon stays in service until its runs finish; a later call retries replacement. Stop polling loops using an older executable, since they can replace an idle new daemon with their old build again. Managed starts and defer are refused while it is outdated and busy. Only questions it still reports pending can be answered; late answers and corrections need the new daemon. Finish its runs first. Explicit `forman daemon stop` stops an idle daemon without starting another and succeeds when none is running. Doctor reports the build comparison without replacing it.

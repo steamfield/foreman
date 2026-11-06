@@ -1,12 +1,12 @@
 # forman
 
-Instructions for coding agents working in this repository. Keep this file under about 200 lines: it is loaded at the start of every session. Put detail that matters only for one area in a doc and link it from Deeper context.
+Instructions for coding agents working in this repository. Keep this file under 200 lines: it is loaded at the start of every session. Put area-specific detail in a doc and link it from Deeper context.
 
 ## Overview
 
-forman lets Claude Code delegate coding tasks to OpenAI's Codex and supervise them while they run: start a Codex agent in a git worktree, watch what it does, steer or interrupt it, and answer questions Codex asks mid-turn. It drives `codex app-server` over JSON-RPC and uses the Codex CLI's own ChatGPT login, never an API key. It is a TypeScript CLI on Effect 4, compiled to one binary with Bun; an MCP server wrapping the CLI comes later. The command is `forman`; npm installs use `@steamfield/forman`.
+forman 0.1.0 lets Claude Code delegate coding tasks to OpenAI's Codex in git worktrees and supervise them through a local daemon. It drives `codex app-server` over JSON-RPC with the Codex CLI's ChatGPT login. The TypeScript CLI uses Effect 4 and compiles to one binary with Bun. The command is `forman`; npm installs use `@steamfield/forman`.
 
-The CLI and bridge are implemented: the daemon supervises Codex turns, questions, budgets and repo hooks. See [README repo setup](README.md#one-time-repo-setup) before delegating into another repo.
+The daemon owns turns, question deferral and late answers, budgets and repo hook enforcement. Mutation continuations wait on the named run; explicit `wait --all` supervises a repo group. Read [repo setup](README.md#one-time-repo-setup) before delegating into another repo and [architecture](docs/architecture.md) before changing supervision or storage.
 
 ## Commands
 
@@ -43,8 +43,8 @@ src/
   core/          platform-free command programs and doctor
     preflight/   worktree validation, hook trust, model selection and SSH probe
     runs/        persistence, normalization, worktree changes and digests
-  daemon/        socket client/server, automatic startup and ownership lock
-  supervisor/    app-server lifetime, turns, questions, budgets and wait cursors
+  daemon/        socket client/server, ownership lock, startup and build replacement
+  supervisor/    app-server lifetime, per-run queues, deferral/answers, budgets, hooks and waits
   schemas/       Schema definitions for every boundary shape (args, config, machine output)
   services/      Context.Service classes: Host, Invocation, Output
   config.ts      file + environment config (only place that reads env)
@@ -54,12 +54,12 @@ src/
 tests/           Vitest on Node: CLI through the real parser, config/logging, hook tests
 e2e/             Bun tests against the compiled binary
 scripts/         build, dev and prepare scripts
-docs/            guidance per area, acceptance matrix, harness notes
+docs/            current architecture, historical RFC, area guidance, acceptance and harness notes
 biome-plugins/   Grit lint rules for the platform and schema boundaries
 site/           the landing page: a separate Astro project with its own AGENTS.md and toolchain
 ```
 
-argv flows `bin.ts` → `main.ts` → `cli.ts` → `commands/*` → `core/*`; results go through the Output service to stdout, diagnostics through the logger to stderr and the log file.
+argv flows `bin.ts` -> `main.ts` -> `cli.ts` -> `commands/*` -> `core/*` -> daemon client. The daemon dispatches to the supervisor, which owns Codex and persisted runs. Results go through Output to stdout; diagnostics use stderr and the log file.
 
 ## Agent harness
 
@@ -140,12 +140,11 @@ None yet.
 
 ## Deferred
 
-The MCP server wrapper.
+The MCP server wrapper, Channels push, launchd installation and an archive-deletion command remain deferred. See the [current design and limits](docs/architecture.md).
 
 ## Pending user actions
 
-- Require the `ci-ok` check in the branch ruleset once the repository exists.
-Repo trust and hook approval are done for this repo. For other repos, follow [README repo setup](README.md#one-time-repo-setup).
+Verify that the repository branch ruleset requires `ci-ok`; repository files do not establish the hosted setting. Configure `NPM_TOKEN` for release publishing if it is not already set. Confirm local repo trust and hook approval with `forman doctor`; follow [README repo setup](README.md#one-time-repo-setup) for this repo and others.
 
 ## Deeper context
 
@@ -153,7 +152,8 @@ Read these only when the task needs them.
 
 | Need | Read |
 | --- | --- |
-| Usage, configuration, architecture | [`README.md`](README.md) |
+| Usage and configuration | [`README.md`](README.md) |
+| Processes, supervision, storage and recovery | [`docs/architecture.md`](docs/architecture.md) |
 | The hook layers and why | [`docs/harness.md`](docs/harness.md) |
 | CLI, services, testing and verification guidance | [`docs/guidance/typescript-cli/index.md`](docs/guidance/typescript-cli/index.md) |
 | Effect names and patterns | [`docs/guidance/effect/index.md`](docs/guidance/effect/index.md) |
