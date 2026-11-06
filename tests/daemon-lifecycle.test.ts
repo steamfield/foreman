@@ -10,7 +10,6 @@ import {
   FileSystem,
   Layer,
   Logger,
-  Option,
   Queue,
   Ref,
   References,
@@ -22,7 +21,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import { Socket } from "effect/socket";
 import { TestClock } from "effect/testing";
 import { call, shutdown } from "../src/daemon/client";
-import { releaseLock } from "../src/daemon/lock";
+import { takeLock } from "../src/daemon/lock";
 import { lines, requestJson, respond, responseJson } from "../src/daemon/protocol";
 import { type DaemonOptions, daemon } from "../src/daemon/server";
 import { DaemonSockets } from "../src/daemon/sockets";
@@ -112,15 +111,42 @@ const observeClosures = Effect.fnUntraced(function* () {
 });
 
 describe("daemon lifecycle and protocol", () => {
-  it.live("preserves an old lock whose recorded owner is still alive without a socket", () =>
+  it.live(
+    "a killed Bun owner releases its lock even when its PID record names a live Node process",
+    () =>
+      Effect.gen(function* () {
+        const dataDir = yield* temp();
+        const fs = yield* FileSystem.FileSystem;
+        const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+        const bun = (yield* spawner.string(ChildProcess.make("which", ["bun"]))).trim();
+        const child = yield* spawner.spawn(
+          ChildProcess.make(
+            bun,
+            [fileURLToPath(new URL("./fixtures/daemon/entry.ts", import.meta.url)), dataDir],
+            { stdout: "ignore", stderr: "inherit" },
+          ),
+        );
+        yield* ready(dataDir).pipe(Effect.timeout("3 seconds"));
+        yield* fs.remove(`${dataDir}/forman.sock`);
+        yield* fs.writeFileString(`${dataDir}/daemon.lock`, JSON.stringify({ pid: process.pid }));
+        // Neither a missing socket nor an old diagnostic record can displace a live owner.
+        yield* fs.utimes(`${dataDir}/daemon.lock`, 0, 0);
+        yield* daemon(options(dataDir));
+        yield* child.kill({ killSignal: "SIGKILL" });
+        const exit = yield* child.exitCode.pipe(Effect.result);
+        assert.strictEqual(exit._tag, "Failure");
+        assert.isFalse(yield* child.isRunning);
+        const replacement = yield* start(options(dataDir));
+        assert.strictEqual((yield* ping(dataDir))._tag, "Pong");
+        yield* Fiber.interrupt(replacement);
+      }).pipe(Effect.provide(platform)),
+  );
+  it.live("preserves a live advisory owner without a listening socket", () =>
     Effect.gen(function* () {
       const dataDir = yield* temp();
       const fs = yield* FileSystem.FileSystem;
-      const owner = JSON.stringify({ pid: process.pid });
-      yield* fs.writeFileString(`${dataDir}/daemon.lock`, owner);
-      yield* fs.utimes(`${dataDir}/daemon.lock`, 0, 0);
+      assert.isTrue(yield* takeLock(dataDir));
       yield* daemon(options(dataDir));
-      assert.strictEqual(yield* fs.readFileString(`${dataDir}/daemon.lock`), owner);
       assert.isFalse(yield* fs.exists(`${dataDir}/forman.sock`));
     }).pipe(Effect.provide(platform)),
   );
@@ -621,38 +647,6 @@ describe("daemon lifecycle and protocol", () => {
     }).pipe(Effect.provide(platform)),
   );
 
-  it.live("review: shutdown waits for old ownership cleanup before a replacement starts", () =>
-    Effect.gen(function* () {
-      const dataDir = yield* temp();
-      const fs = yield* FileSystem.FileSystem;
-      const running = yield* start(options(dataDir));
-      const guard = `${dataDir}/daemon.reclaim`;
-      yield* fs.makeDirectory(guard);
-      yield* fs.writeFileString(`${guard}/held`, "");
-      yield* Effect.addFinalizer(() =>
-        fs.remove(guard, { recursive: true, force: true }).pipe(Effect.orDie),
-      );
-      const returned = yield* Deferred.make<void>();
-      const stopping = yield* Effect.forkScoped(
-        shutdown(dataDir).pipe(Effect.tap(() => Deferred.succeed(returned, undefined))),
-      );
-      while ((yield* ping(dataDir).pipe(Effect.result))._tag === "Success") yield* Effect.yieldNow;
-      assert.isTrue(Option.isNone(yield* Deferred.await(returned).pipe(Effect.timeoutOption(250))));
-      yield* fs.remove(guard, { recursive: true });
-      assert.isTrue(yield* Fiber.join(stopping).pipe(Effect.timeout("2 seconds")));
-      yield* Fiber.join(running);
-      const replacement = yield* start(options(dataDir, { version: "replacement" }));
-      assert.deepStrictEqual(yield* ping(dataDir), {
-        _tag: "Pong",
-        version: "replacement",
-        pid: process.pid,
-        build: "test",
-      });
-      yield* call({ _tag: "Shutdown" }, { dataDir, connectOnly: true });
-      yield* Fiber.join(replacement);
-    }).pipe(Effect.provide(platform)),
-  );
-
   it.live("review: accepted shutdown survives the requesting client disconnecting", () =>
     Effect.gen(function* () {
       const dataDir = yield* temp();
@@ -774,59 +768,6 @@ describe("daemon lifecycle and protocol", () => {
       if (result._tag !== "Pong") return;
       const loser = result.version === "first" ? second : first;
       yield* Fiber.join(loser);
-      assert.deepStrictEqual(yield* ping(dataDir), result);
-    }).pipe(Effect.provide(platform)),
-  );
-
-  it.live("simultaneous stale-lock takeovers leave exactly one serving daemon", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const dataDir = yield* temp();
-      yield* fs.writeFileString(`${dataDir}/daemon.lock`, "");
-      yield* fs.utimes(`${dataDir}/daemon.lock`, 0, 0);
-      const observed = yield* Deferred.make<void>();
-      const release = yield* Deferred.make<void>();
-      let held = false;
-      // Keep real filesystem operations, but force the stale-stat/unlink interleaving.
-      const filesystem: FileSystem.FileSystem = {
-        ...fs,
-        stat: (path) =>
-          fs.stat(path).pipe(
-            Effect.tap(() => {
-              if (path !== `${dataDir}/daemon.lock` || held) return Effect.void;
-              held = true;
-              return Deferred.succeed(observed, undefined).pipe(
-                Effect.andThen(Deferred.await(release)),
-              );
-            }),
-          ),
-        writeFileString: (path, value, config) =>
-          fs
-            .writeFileString(path, value, config)
-            .pipe(
-              Effect.tap(() =>
-                path === `${dataDir}/daemon.lock` && config?.flag === "wx"
-                  ? Deferred.succeed(release, undefined)
-                  : Effect.void,
-              ),
-            ),
-      };
-      const first = yield* Effect.forkScoped(
-        daemon(options(dataDir, { version: "first" })).pipe(
-          Effect.provideService(FileSystem.FileSystem, filesystem),
-        ),
-      );
-      yield* Deferred.await(observed);
-      const second = yield* Effect.forkScoped(
-        daemon(options(dataDir, { version: "second" })).pipe(
-          Effect.provideService(FileSystem.FileSystem, filesystem),
-          Effect.ensuring(Deferred.succeed(release, undefined)),
-        ),
-      );
-      const result = yield* ready(dataDir);
-      assert.strictEqual(result._tag, "Pong");
-      if (result._tag !== "Pong") return;
-      yield* Fiber.join(result.version === "first" ? second : first).pipe(Effect.timeout(500));
       assert.deepStrictEqual(yield* ping(dataDir), result);
     }).pipe(Effect.provide(platform)),
   );
@@ -955,63 +896,6 @@ describe("daemon lifecycle and protocol", () => {
       yield* fs.writeFileString(`${dataDir}/forman.sock`, "leftover");
       yield* start(options(dataDir));
       assert.strictEqual((yield* ping(dataDir))._tag, "Pong");
-    }).pipe(Effect.provide(platform)),
-  );
-
-  it.live("recovers a stale reclaim guard left by a killed reclaimer", () =>
-    Effect.gen(function* () {
-      const dataDir = yield* temp();
-      const fs = yield* FileSystem.FileSystem;
-      yield* fs.writeFileString(`${dataDir}/daemon.lock`, "");
-      yield* fs.utimes(`${dataDir}/daemon.lock`, 0, 0);
-      yield* fs.makeDirectory(`${dataDir}/daemon.reclaim`);
-      yield* fs.writeFileString(`${dataDir}/daemon.reclaim/old-owner`, "");
-      yield* fs.utimes(`${dataDir}/daemon.reclaim/old-owner`, 0, 0);
-      yield* start(options(dataDir));
-      assert.strictEqual((yield* ping(dataDir))._tag, "Pong");
-      assert.deepStrictEqual(yield* fs.readDirectory(`${dataDir}/daemon.reclaim`), []);
-    }).pipe(Effect.provide(platform)),
-  );
-
-  it.live("leaves a fresh reclaimer alone while it owns a stale lock", () =>
-    Effect.gen(function* () {
-      const dataDir = yield* temp();
-      const fs = yield* FileSystem.FileSystem;
-      yield* fs.writeFileString(`${dataDir}/daemon.lock`, "");
-      yield* fs.utimes(`${dataDir}/daemon.lock`, 0, 0);
-      yield* fs.makeDirectory(`${dataDir}/daemon.reclaim`);
-      yield* fs.writeFileString(`${dataDir}/daemon.reclaim/current-owner`, "");
-      yield* daemon(options(dataDir));
-      assert.isFalse(yield* fs.exists(`${dataDir}/forman.sock`));
-      assert.deepStrictEqual(yield* fs.readDirectory(`${dataDir}/daemon.reclaim`), [
-        "current-owner",
-      ]);
-    }).pipe(Effect.provide(platform)),
-  );
-
-  it.live("shutdown cleanup preserves files belonging to a replacement lock", () =>
-    Effect.gen(function* () {
-      const dataDir = yield* temp();
-      const fs = yield* FileSystem.FileSystem;
-      yield* fs.writeFileString(`${dataDir}/daemon.lock`, "original");
-      const original = yield* fs.stat(`${dataDir}/daemon.lock`);
-      yield* fs.rename(`${dataDir}/daemon.lock`, `${dataDir}/original.lock`);
-      yield* fs.writeFileString(`${dataDir}/daemon.lock`, "replacement");
-      yield* fs.writeFileString(`${dataDir}/forman.sock`, "replacement socket");
-      yield* Effect.scoped(releaseLock(dataDir, `${dataDir}/forman.sock`, original));
-      assert.strictEqual(yield* fs.readFileString(`${dataDir}/daemon.lock`), "replacement");
-      assert.strictEqual(yield* fs.readFileString(`${dataDir}/forman.sock`), "replacement socket");
-    }).pipe(Effect.provide(platform)),
-  );
-
-  it.live("leaves a fresh lock alone when its owner is still starting", () =>
-    Effect.gen(function* () {
-      const dataDir = yield* temp();
-      const fs = yield* FileSystem.FileSystem;
-      yield* fs.writeFileString(`${dataDir}/daemon.lock`, "");
-      yield* daemon(options(dataDir));
-      assert.isFalse(yield* fs.exists(`${dataDir}/forman.sock`));
-      assert.isTrue(yield* fs.exists(`${dataDir}/daemon.lock`));
     }).pipe(Effect.provide(platform)),
   );
 

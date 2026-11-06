@@ -283,20 +283,23 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
 
 // daemon() calls busy only after it owns the socket lock. A losing launcher must not rebuild runs.
 export const makeSupervisor = Effect.fn("supervisor.make")(function* () {
-  const scope = yield* Effect.scope;
+  const scope = yield* Effect.acquireRelease(Scope.make(), (scope) =>
+    Scope.close(scope, Exit.void),
+  );
   const context = yield* Effect.context<
     AppConfig | Host | FileSystem.FileSystem | Path.Path | ChildProcessSpawner.ChildProcessSpawner
   >();
   const ready = yield* Deferred.make<Effect.Success<ReturnType<typeof buildSupervisor>>, unknown>();
   const initialize = yield* Effect.cached(
     buildSupervisor().pipe(
-      Effect.provide(context),
       Scope.provide(scope),
+      Effect.provide(context),
       Effect.tap((value) => Deferred.succeed(ready, value)),
       Effect.tapCause((cause) => Deferred.failCause(ready, cause)),
     ),
   );
   return {
+    shutdown: Scope.close(scope, Exit.void),
     handler: (body: DaemonRequestBody) =>
       initialize.pipe(
         Effect.catchCause((cause) => rejectRequest(body, cause)),

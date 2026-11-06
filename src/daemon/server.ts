@@ -7,6 +7,7 @@ import {
   FiberSet,
   FileSystem,
   Path,
+  PlatformError,
   Ref,
   Schema,
   Scope,
@@ -16,7 +17,7 @@ import { Socket } from "effect/socket";
 import { type AppError, DaemonUnavailable } from "../errors";
 import type { DaemonRequestBody, DaemonResult } from "../schemas/daemon";
 import { Host } from "../services/host";
-import { releaseLock, takeLock } from "./lock";
+import { recordOwner, releaseLock, takeLock } from "./lock";
 import { lines, respond, responseJson } from "./protocol";
 import { DaemonSockets } from "./sockets";
 
@@ -25,6 +26,7 @@ export interface DaemonOptions {
   readonly version: string;
   readonly handler: (body: DaemonRequestBody) => Effect.Effect<DaemonResult, AppError>;
   readonly busy: Effect.Effect<boolean>;
+  readonly shutdown?: Effect.Effect<void>;
   readonly idleLimitMs?: number;
   readonly codexBin?: string;
   readonly codexHome?: string;
@@ -53,7 +55,6 @@ export const daemon = Effect.fn("daemon")(
     const host = yield* Host;
     const sockets = yield* DaemonSockets;
     const socketPath = path.join(options.dataDir, "forman.sock");
-    const lock = path.join(options.dataDir, "daemon.lock");
     if (new TextEncoder().encode(socketPath).length > 104) {
       return yield* new DaemonUnavailable({
         detail: `Socket path exceeds 104 bytes: ${socketPath}`,
@@ -61,17 +62,10 @@ export const daemon = Effect.fn("daemon")(
     }
     yield* fs.makeDirectory(options.dataDir, { recursive: true, mode: 0o700 });
     yield* fs.chmod(options.dataDir, 0o700);
-    const identity = yield* Effect.acquireRelease(
-      Effect.gen(function* () {
-        if (!(yield* takeLock(options.dataDir, socketPath))) return undefined;
-        return yield* fs.stat(lock);
-      }),
-      (identity) =>
-        identity === undefined
-          ? Effect.void
-          : releaseLock(options.dataDir, socketPath, identity).pipe(Effect.orDie),
-    );
-    if (identity === undefined) return;
+    if (!(yield* takeLock(options.dataDir))) return;
+    yield* Effect.addFinalizer(() => releaseLock(options.dataDir, socketPath).pipe(Effect.orDie));
+    yield* Effect.addFinalizer(() => options.shutdown ?? Effect.void);
+    yield* recordOwner(options.dataDir);
     yield* fs.remove(socketPath, { force: true });
     const activity = yield* Ref.make({ connections: 0, last: yield* Clock.currentTimeMillis });
     yield* Effect.scoped(
@@ -84,6 +78,7 @@ export const daemon = Effect.fn("daemon")(
         yield* Effect.addFinalizer(() => Effect.logInfo("daemon.stopped"));
         const shutdown = yield* Deferred.make<void>();
         let drainUntil: number | null = null;
+        let orderly = false;
         const serve = server.run((socket) =>
           Effect.scoped(
             Effect.gen(function* () {
@@ -180,7 +175,19 @@ export const daemon = Effect.fn("daemon")(
             }),
           ),
         );
-        const serving = yield* Effect.forkScoped(serve);
+        const serving = yield* Effect.acquireRelease(Effect.forkScoped(serve), (serving) =>
+          Effect.gen(function* () {
+            // Closing starts synchronously, refusing new clients before dispatch is interrupted.
+            // The close callback waits for existing clients, so join it after cancelling dispatch.
+            // One deadline bounds output draining across all accepted connections.
+            drainUntil = (yield* Clock.currentTimeMillis) + (orderly ? 100 : 0);
+            const closing = yield* Effect.forkChild(Scope.close(listener, Exit.void), {
+              startImmediately: true,
+            });
+            yield* Fiber.interrupt(serving);
+            yield* Fiber.join(closing);
+          }),
+        );
         yield* Effect.raceFirst(
           Fiber.join(serving),
           Effect.raceFirst(
@@ -188,17 +195,7 @@ export const daemon = Effect.fn("daemon")(
             Deferred.await(shutdown),
           ),
         );
-        yield* Effect.gen(function* () {
-          // Closing starts synchronously, refusing new clients before dispatch is interrupted.
-          // The close callback waits for existing clients, so join it after cancelling dispatch.
-          // One deadline bounds output draining across all accepted connections.
-          drainUntil = (yield* Clock.currentTimeMillis) + 100;
-          const closing = yield* Effect.forkChild(Scope.close(listener, Exit.void), {
-            startImmediately: true,
-          });
-          yield* Fiber.interrupt(serving);
-          yield* Fiber.join(closing);
-        }).pipe(Effect.uninterruptible);
+        orderly = true;
       }),
     );
   },
@@ -206,6 +203,10 @@ export const daemon = Effect.fn("daemon")(
   Effect.mapError((error) =>
     error._tag === "DaemonUnavailable"
       ? error
-      : new DaemonUnavailable({ detail: `Daemon startup or listener failed: ${error._tag}` }),
+      : new DaemonUnavailable({
+          detail: PlatformError.isPlatformError(error)
+            ? `Daemon startup failed: ${error.reason.method} (${error.reason._tag})${"pathOrDescriptor" in error.reason ? `: ${error.reason.pathOrDescriptor}` : ""}. Check home permissions and logs/daemon.jsonl.`
+            : `Daemon startup or listener failed: ${error._tag} (${error.reason._tag}). Check the socket path and logs/daemon.jsonl.`,
+        }),
   ),
 );
