@@ -38,14 +38,14 @@ One theme, light, with dark consoles inside it. No theme toggle.
 
 These colors carry the run states everywhere they appear (console header, lifecycle diagram, timelines). On paper use the `-ink` variant for text.
 
-| State                        | Console         | On paper (`-ink`) |
-| ---------------------------- | --------------- | ----------------- |
-| `running`                    | `#6FA8FF`       | `#1F57B8`         |
-| `waiting` (question pending) | `signal`        | `signal-text`     |
-| `done` / idle after success  | `#5CC98A`       | `#1F7A46`         |
-| `failed`                     | `#FF7A70`       | `#B42D24`         |
-| `interrupted`                | `#E2C04F`       | `#7D6206`         |
-| `lost`                       | `console-muted` | `ink-3`           |
+| State                        | Console token                 | On paper token                    |
+| ---------------------------- | ----------------------------- | --------------------------------- |
+| `running`                    | `state-running` (#6FA8FF)     | `state-running-ink` (#1F57B8)     |
+| `waiting` (question pending) | `signal`                      | `signal-text`                     |
+| `done` / idle after success  | `state-done` (#5CC98A)        | `state-done-ink` (#1F7A46)        |
+| `failed`                     | `state-failed` (#FF7A70)      | `state-failed-ink` (#B42D24)      |
+| `interrupted`                | `state-interrupted` (#E2C04F) | `state-interrupted-ink` (#7D6206) |
+| `lost`                       | `console-muted`               | `ink-3`                           |
 
 Exit codes and command results in consoles use `done` for exit 0 and `failed` otherwise.
 

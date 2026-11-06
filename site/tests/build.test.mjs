@@ -89,6 +89,16 @@ test("only a keyed build ships analytics and consent JavaScript", () => {
   assertAnalyticsBundle();
 });
 
+test("llms.txt includes the install command and every exit code", () => {
+  assert.ok(existsSync("dist/llms.txt"));
+  const text = read("llms.txt");
+  assert.match(text, /^# forman\n/);
+  assert.ok(text.includes("npm i -g @steamfield/forman"));
+  for (const code of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 130]) {
+    assert.match(text, new RegExp(`^\\| ${code} \\| .+ \\|$`, "m"));
+  }
+});
+
 test("a production build hides drafts and renders unlisted posts without listing them", () => {
   const root = mkdtempSync(join(tmpdir(), "blog-build-"));
   const originalKey = process.env.PUBLIC_POSTHOG_KEY;
