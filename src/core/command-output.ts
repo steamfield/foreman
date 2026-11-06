@@ -37,7 +37,7 @@ export const formanExecutable = Effect.fn("output.formanExecutable")(function* (
     break;
   }
   let command = executable.map(shellQuote).join(" ");
-  if (executable.length > 1) command = `FORMAN_DATA_DIR=${shellQuote(config.dataDir)} ${command}`;
+  if (executable.length > 1) command = `FORMAN_HOME=${shellQuote(config.home)} ${command}`;
   return { onPath, command: onPath ? "forman" : command };
 });
 

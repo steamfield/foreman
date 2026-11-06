@@ -167,7 +167,7 @@ const fixture = Effect.fnUntraced(function* (script: Scenario, legacy = false) {
     PATH: `${root}:${dirname(process.execPath)}:/usr/bin:/bin`,
     CODEX_HOME: `${root}/codex`,
     CODEX_BIN: fake,
-    FORMAN_DATA_DIR: dataDir,
+    FORMAN_HOME: dataDir,
     FAKE_APP_SERVER_SCENARIO: scenarioFile,
     FAKE_APP_SERVER_LOG: log,
   };

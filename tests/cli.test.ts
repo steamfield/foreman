@@ -77,7 +77,7 @@ describe("stdout and error contracts", () => {
     })),
   )("help and version survive broken config %j", async ({ args }) => {
     const home = await tempDir();
-    const dir = join(home, "config", "test-cli");
+    const dir = join(home, ".forman");
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, "config.json"), "broken");
     const result = await runCli(args, { home, env: { LOG_LEVEL: "none" } });

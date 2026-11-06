@@ -39,7 +39,7 @@ export const makeAppServer = Effect.fn("supervisor.appServer")(function* (
   const owner = yield* Effect.scope;
   const lock = yield* Semaphore.make(1);
   const path = yield* Path.Path;
-  const append = yield* makeLogAppender(path.join(config.dataDir, "logs/app-server.log"));
+  const append = yield* makeLogAppender(path.join(config.home, "logs/app-server.log"));
   const env = yield* Effect.cached(
     probeSsh(config.inheritedEnvironment).pipe(
       Effect.map((ssh) => appServerEnvironment(config.inheritedEnvironment, ssh)),

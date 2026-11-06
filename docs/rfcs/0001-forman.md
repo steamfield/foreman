@@ -56,16 +56,18 @@ Claude Code
         │  unix socket, JSON lines
         ▼
      forman daemon             (one per user, started on demand)
-        ├─ run registry, state under $FORMAN_DATA_DIR/runs/
+        ├─ run registry, state under $FORMAN_HOME/runs/
         └─ codex app-server --listen stdio://   (child, explicit environment)
               └─ one thread per run, cwd = the run's worktree
 ```
 
 ### Starting and stopping the daemon
 
-Any command that needs the daemon connects to `$FORMAN_DATA_DIR/forman.sock`. If the connection fails, it spawns `forman daemon` fully detached (new session, stdin, stdout and stderr on `/dev/null`) so the calling command never waits on the daemon's output, then polls the socket for up to 10 s. Several CLIs doing this at once is normal, since Claude starts units in parallel; the daemon's own startup sorts out which one wins:
+`FORMAN_HOME` defaults to `~/.forman` and holds `config.json`, the socket and lock, `runs/` and `logs/`. The CLI resolves a relative override before passing the absolute home to a spawned daemon. Development uses `.dev/home`.
 
-1. Take the lock by creating `$FORMAN_DATA_DIR/daemon.lock` with exclusive create. If it exists, try connecting to the socket: success means another daemon is running, so exit 0. Failure means the lock is stale only if the lock is older than 30 s, in which case remove it and retry once; otherwise exit 0 and let the polling CLI find the other daemon.
+Any command that needs the daemon connects to `$FORMAN_HOME/forman.sock`. If the connection fails, it spawns `forman daemon` fully detached (new session, stdin, stdout and stderr on `/dev/null`) so the calling command never waits on the daemon's output, then polls the socket for up to 10 s. Several CLIs doing this at once is normal, since Claude starts units in parallel; the daemon's own startup sorts out which one wins:
+
+1. Take the lock by creating `$FORMAN_HOME/daemon.lock` with exclusive create. If it exists, try connecting to the socket: success means another daemon is running, so exit 0. Failure means the lock is stale only if the lock is older than 30 s, in which case remove it and retry once; otherwise exit 0 and let the polling CLI find the other daemon.
 2. Remove a leftover socket file (Effect's socket server doesn't), then listen.
 3. Remove the lock on exit.
 
@@ -73,7 +75,7 @@ The CLI spawns the daemon with its own executable: `process.execPath daemon` for
 
 The daemon exits after 30 minutes with no run in `starting`, `running` or `waiting` and no open connection. It stops listening before it exits, and the CLI treats a connection reset during connect the same as no daemon. macOS limits socket paths to 104 bytes; the daemon refuses to start with a clear error if the path is longer.
 
-The daemon logs to `$FORMAN_DATA_DIR/logs/daemon.jsonl` by default (it has no terminal), and the app server's stderr goes to `$FORMAN_DATA_DIR/logs/app-server.log`. Both are rotated like the CLI log.
+The daemon logs to `$FORMAN_HOME/logs/daemon.jsonl` by default (it has no terminal), and the app server's stderr goes to `$FORMAN_HOME/logs/app-server.log`. Both are rotated like the CLI log.
 
 ### The app server's environment
 
@@ -102,7 +104,7 @@ A run is one Codex thread working in one worktree. Claude names it (`[a-z0-9][a-
 
 `starting`, `running`, `waiting` and `unknown` are active. The rest are inactive and accept a follow-up. Only active runs block anything: a new run may reuse the name or worktree of an inactive run, in which case the old run's directory is moved to `runs/.archive/<name>-<timestamp>/`. A follow-up on an inactive run whose worktree no longer exists is refused.
 
-State lives in `$FORMAN_DATA_DIR/runs/<name>/`:
+State lives in `$FORMAN_HOME/runs/<name>/`:
 
 | File | Contents |
 | --- | --- |
@@ -145,7 +147,7 @@ An outdated daemon stays in service while busy. Before sending these four reques
 
 `steer` and `followup` are separate. umum's single `message` picks steer or a new turn based on whether a turn is active, which turns a race at turn completion into a silently started turn. With two commands, losing that race is an error Claude sees.
 
-Printed `next:` commands use `forman` only when the first executable named `forman` on the invoking CLI's inherited `PATH` resolves to the running binary by real path. Otherwise they use its absolute path, quoted for the shell when needed; source invocations include `FORMAN_DATA_DIR` so continuations from `bun run dev` keep using development state. Wait JSON carries the same command, preserving names, cursor and timeout. `doctor` reports this comparison as `formanOnPath` in JSON and as `forman on PATH is this binary` in text.
+Printed `next:` commands use `forman` only when the first executable named `forman` on the invoking CLI's inherited `PATH` resolves to the running binary by real path. Otherwise they use its absolute path, quoted for the shell when needed; source invocations include `FORMAN_HOME` so continuations from `bun run dev` keep using development state. Wait JSON carries the same command, preserving names, cursor and timeout. `doctor` reports this comparison as `formanOnPath` in JSON and as `forman on PATH is this binary` in text.
 
 `Pong` carries the daemon's build identity. Doctor only probes it; it never replaces an outdated daemon. A running daemon's JSON has `build` and `buildMatches`; both are null when an older daemon omits its build. Text reports unknown for those values. With no daemon, it reports `not running` and starts nothing.
 
@@ -243,7 +245,7 @@ The scaffold logs a `command` record to stderr on every run at the configured le
 
 ```
 run:       unit-a  running  12m04s  (gpt-6.1-sol, high, priority, write)
-dir:       ~/.local/share/forman/runs/unit-a
+dir:       ~/.forman/runs/unit-a
 worktree:  /repo/.claude/worktrees/unit-a
 turn:      2 (followup)
 question:  q2 (blocked) pending 1m10s: lint rejects the CLI-help test's runtime imports under src/

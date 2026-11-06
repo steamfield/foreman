@@ -1,5 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { AppConfig } from "../src/config";
@@ -9,19 +9,53 @@ import { ndjson, runCli, tempDir } from "./helpers/cli";
 
 async function configFile(content: string) {
   const home = await tempDir();
-  const dir = join(home, "config", "test-cli");
+  const dir = join(home, ".forman");
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, "config.json"), content);
   return home;
 }
 
 describe("real config and emitted logging", () => {
+  it.each([undefined, "", " ", "absolute", "relative"])(
+    "uses FORMAN_HOME=%s for configuration and state, ignoring legacy paths",
+    async (setting) => {
+      const home = await tempDir();
+      let override = setting;
+      if (setting === "absolute") override = join(home, "selected");
+      if (setting === "relative") override = relative(process.cwd(), join(home, "selected"));
+      const expected = override?.trim() ? resolve(override) : join(home, ".forman");
+      await mkdir(expected, { recursive: true });
+      await writeFile(join(expected, "config.json"), '{"codexBin":"/missing/home-codex"}');
+      const oldConfig = join(home, "old-config", "test-cli");
+      await mkdir(oldConfig, { recursive: true });
+      await writeFile(join(oldConfig, "config.json"), "broken");
+      const result = await runCli(["doctor", "--json"], {
+        home,
+        env: {
+          CODEX_BIN: undefined,
+          FORMAN_HOME: override,
+          FORMAN_DATA_DIR: join(home, "old-data"),
+          TEST_CLI_DATA_DIR: join(home, "old-test-data"),
+          XDG_CONFIG_HOME: join(home, "old-config"),
+          XDG_DATA_HOME: join(home, "old-xdg-data"),
+        },
+      });
+      expect(result).toMatchObject({ status: 0, stderr: "" });
+      expect(Schema.decodeUnknownSync(DoctorResult)(JSON.parse(result.stdout))).toMatchObject({
+        home: expected,
+        configFile: join(expected, "config.json"),
+        configError: null,
+        codexBin: "/missing/home-codex",
+      });
+    },
+  );
+
   it.each(["./tools/codex", "tools/codex", "codex"])(
     "resolves relative daemon and Codex paths before changing cwd: %s",
     async (bin) => {
       const result = await runCli(["--json"], {
         env: {
-          TEST_CLI_DATA_DIR: "./relative-data",
+          FORMAN_HOME: "./relative-data",
           CODEX_HOME: "./relative-home",
           CODEX_BIN: bin,
         },
@@ -29,7 +63,7 @@ describe("real config and emitted logging", () => {
           const config = yield* AppConfig;
           yield* (yield* Output).result(
             {
-              dataDir: config.dataDir,
+              home: config.home,
               codexHome: config.codexHome,
               codexBin: config.codexBin,
               loadedBin: (yield* config.load).codexBin,
@@ -40,7 +74,7 @@ describe("real config and emitted logging", () => {
       });
       expect(result).toMatchObject({ status: 0, stderr: "" });
       expect(JSON.parse(result.stdout)).toEqual({
-        dataDir: resolve("relative-data"),
+        home: resolve("relative-data"),
         codexHome: resolve("relative-home"),
         codexBin: bin === "codex" ? bin : resolve(bin),
         loadedBin: bin === "codex" ? bin : resolve(bin),

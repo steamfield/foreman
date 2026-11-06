@@ -15,7 +15,7 @@ const stopCommand = Command.make(
   Effect.fn(function* () {
     yield* Effect.flatMap(Invocation, (invocation) => invocation.named("daemon stop"));
     const config = yield* AppConfig;
-    const stopped = yield* shutdown(config.dataDir);
+    const stopped = yield* shutdown(config.home);
     yield* (yield* Output).result(
       { _tag: "Ok" },
       stopped ? "Daemon stopped." : "Daemon: not running.",
@@ -30,7 +30,7 @@ export const withDaemonLogging = Effect.fn("daemon.logging")(function* <A, E, R>
   const path = yield* Path.Path;
   const settings = yield* config.logging;
   const append = yield* makeLogAppender(
-    settings.file || path.join(config.dataDir, "logs/daemon.jsonl"),
+    settings.file || path.join(config.home, "logs/daemon.jsonl"),
   );
   const records = yield* Queue.unbounded<string, Cause.Done>();
   const output = yield* Output;
@@ -95,7 +95,7 @@ export const daemonCommand = Command.make(
           yield* Effect.raceFirst(
             supervisor.failed,
             daemon({
-              dataDir: config.dataDir,
+              dataDir: config.home,
               version: host.version,
               codexBin: config.codexBin,
               codexHome: config.codexHome,

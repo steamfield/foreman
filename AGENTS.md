@@ -15,7 +15,7 @@ Run these from the repo root. They are the only supported way to build, test, an
 | Command | What it does |
 | --- | --- |
 | `bun install` | Install dependencies; `prepare` then installs the lefthook git hooks (outside CI) |
-| `bun run dev <args>` | Run the CLI from source; logs to `logs/cli.jsonl` and `logs/cli.log`, data under `.dev/data` |
+| `bun run dev <args>` | Run the CLI from source; logs to `logs/cli.jsonl` and `logs/cli.log`, data under `.dev/home` |
 | `bun run test` | The Vitest unit suite on Node (`src/**/*.test.ts`, `tests/`) |
 | `bun run test:unit tests/cli.test.ts` | One test file (any path or name filter works) |
 | `bun run coverage` | The unit suite with V8 coverage into `coverage/` |
