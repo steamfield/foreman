@@ -14,6 +14,7 @@ import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
+import { getByRole, getByText } from "@testing-library/dom";
 import { Window } from "happy-dom";
 import { loadEnv } from "vite";
 
@@ -58,6 +59,35 @@ test("the landing page owns the root and links the shared privacy page", () => {
   assert.equal(page.querySelector('nav a[href^="/blog"]'), null);
   assert.ok(read("default-og.svg").includes("<svg"));
 });
+
+for (const path of ["index.html", "blog.html", "404.html"]) {
+  test(`${path} credits Steamfield with a linked logo in the footer`, () => {
+    const page = document(path);
+    const footer = getByRole(page.body, "contentinfo");
+    const link = getByRole(footer, "link", {
+      name: "Steamfield",
+      exact: true,
+    });
+    assert.equal(link.getAttribute("href"), "https://steamfield.io");
+    const credit = getByText(footer, "Made by", { exact: true });
+    assert.ok(
+      credit.compareDocumentPosition(link) &
+        page.defaultView.Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    const logo = link.querySelector("svg");
+    assert.ok(logo);
+    assert.equal(logo.getAttribute("viewBox"), "0 0 145.59 26");
+    assert.equal(logo.getAttribute("height"), "22");
+    const paths = logo.querySelectorAll("path");
+    assert.equal(paths.length, 2);
+    for (const path of paths) {
+      assert.equal(path.getAttribute("fill"), "currentColor");
+    }
+    assert.ok(getByText(footer, "forman is MIT licensed.", { exact: true }));
+    assert.doesNotMatch(footer.textContent, /A Steamfield project\./);
+  });
+}
+
 test("production has an empty blog and RSS, no draft page, and only the landing page in the sitemap", () => {
   assert.equal(existsSync("dist/blog/welcome.html"), false);
   assert.equal(existsSync("dist/welcome.html"), false);
