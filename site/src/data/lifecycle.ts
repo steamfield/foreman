@@ -70,7 +70,7 @@ export function lifecycleModel(
         label: "Contract",
         state: "starting",
         reports:
-          "The contract should give the goal, files the delegate may change, checks to run and the expected hand-off.",
+          "Nothing yet. forman sends the contract to Codex as the first turn's prompt, after a short preamble about working in a worktree and leaving changes uncommitted.",
         claude:
           "Write the goal, a `- May change:` line, the repo’s checks and the hand-off Codex should leave. Keep changes uncommitted for review.",
         command: "--contract <file>",
@@ -80,13 +80,13 @@ export function lifecycleModel(
         label: "Start",
         state: "starting",
         reports:
-          "Creates `.claude/worktrees/<name>` on `forman/<name>`, runs setup, then starts the turn. The recording below is from site-scaffold.",
+          "forman creates `.claude/worktrees/<name>` on branch `forman/<name>`, runs the setup command, then starts the turn. This recording is the delegate that set up this site.",
         claude:
           "Start with the repo’s install command and `--write`. Run `start --wait` in the background so Claude can keep working.",
         command:
           'forman start <name> --new-worktree --setup "<install>" --contract <file> --write --wait',
         excerpt: {
-          source: "Recorded CLI · start-wait.json · start",
+          source: "Recorded: forman start --wait",
           text: lines.slice(0, doneIndex).join("\n"),
         },
       },
@@ -95,7 +95,7 @@ export function lifecycleModel(
         label: "Running",
         state: "running",
         reports:
-          "It starts the turn, then waits with the same 60-minute default and `--timeout` option as `wait`.",
+          "The turn is active. Claude's background wait stays quiet until the run needs it, for up to 60 minutes by default.",
         claude:
           "Codex works while Claude’s background wait is idle. Use `steer` to change the active turn, or `interrupt` to stop it.",
         command:
@@ -106,12 +106,12 @@ export function lifecycleModel(
         label: "Question",
         state: "waiting",
         reports:
-          "Codex called `ask_orchestrator`. forman holds the call; wait returns `question` with an id. This is q1 from fix-supervisor, verbatim.",
+          "Codex called `ask_orchestrator`. forman holds the call open, and the wait returns `question` with an id. This is q1 from fix-supervisor, as Codex wrote it.",
         claude:
           "Answer the question with `--wait` to resume the held call and keep watching. An unanswered question auto-answers after the question timeout (15 minutes by default); Codex proceeds and notes its choice in the hand-off.",
         command: 'forman answer <name> <id> "<text>" --wait',
         excerpt: {
-          source: "Recorded question · fix-supervisor · q1",
+          source: "Recorded: fix-supervisor q1",
           text: question.question,
         },
       },
@@ -125,7 +125,7 @@ export function lifecycleModel(
           "Read the hand-off and diff. Check the result before accepting it; use `followup` if another turn is needed.",
         command: "forman result <name>",
         excerpt: {
-          source: "Recorded CLI · start-wait.json · wait result",
+          source: "Recorded: the wait result",
           text: lines
             .slice(doneIndex, lines.indexOf("files written:", doneIndex))
             .join("\n"),
@@ -136,7 +136,7 @@ export function lifecycleModel(
         label: "Failed",
         state: "failed",
         reports:
-          "A `done`, `failed` or `interrupted` outcome includes that turn's hand-off, or says no hand-off is available.",
+          "The turn ended with an error. The result includes Codex's hand-off if it left one, and its edits stay in the worktree.",
         claude:
           "Read the failure and inspect the edits left in place. Use `followup` to start another turn on the inactive run.",
         command: 'forman followup <name> "<message>" --wait',
@@ -146,7 +146,7 @@ export function lifecycleModel(
         label: "Interrupted",
         state: "interrupted",
         reports:
-          "A `done`, `failed` or `interrupted` outcome includes that turn's hand-off, or says no hand-off is available.",
+          "The turn stopped before it finished, after `forman interrupt` for example. Its edits stay in the worktree.",
         claude:
           "Inspect the edits left in place after the turn stopped. The run accepts `followup` when Claude is ready to continue.",
         command: 'forman followup <name> "<message>" --wait',
@@ -155,7 +155,8 @@ export function lifecycleModel(
         id: "lost",
         label: "Lost",
         state: "lost",
-        reports: "`lost` means the daemon cannot supervise the run.",
+        reports:
+          "`lost` means the daemon can no longer supervise the run, after a crash for example. The edits are still in the worktree.",
         claude:
           "Inspect the run and its worktree before deciding how to recover. Do not treat lost supervision as completed work.",
         command: "forman status <name>\nforman doctor",
@@ -165,7 +166,7 @@ export function lifecycleModel(
         label: "Review and commit",
         state: "done",
         reports:
-          "Review the hand-off and diff before committing; forman does not commit or merge for you.",
+          "Nothing new. The run stays idle, with its edits uncommitted in the worktree until Claude commits them.",
         claude:
           "Read the hand-off with `forman result` and inspect the diff in the worktree. Refactor, run the repo’s checks, then commit and merge useful work. forman never commits.",
         command: "forman result <name>\ngit -C .claude/worktrees/<name> diff",
@@ -175,14 +176,14 @@ export function lifecycleModel(
         label: "Archive",
         state: "done",
         reports:
-          "Archive removes a forman-created worktree and its branch when there are no uncommitted or untracked files and the branch has no new commits, or its tip is merged into the branch it came from.",
+          "forman removes the worktree and branch only when that loses nothing: no uncommitted or untracked files, and a branch that is unchanged or merged. Otherwise it refuses and lists what's left.",
         claude:
           "Archive after review and merging useful work. If cleanup would lose work, forman refuses. Use `--keep-worktree` to archive the run while keeping its worktree and branch.",
         command: "forman archive <name>\nforman archive <name> --keep-worktree",
         ...(recordings.archive
           ? {
               excerpt: {
-                source: `Recorded CLI · ${recordings.archive.command}`,
+                source: `Recorded: ${recordings.archive.command}`,
                 text: recordings.archive.output,
               },
             }

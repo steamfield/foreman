@@ -75,7 +75,12 @@ export interface DataTableProps {
 
 export function DataTable({ caption, head, rows, mono = [] }: DataTableProps) {
   return (
-    <div className="border-line bg-card rounded-frame overflow-x-auto border">
+    <div
+      tabIndex={0}
+      role="region"
+      aria-label={caption}
+      className="border-line bg-card rounded-frame overflow-x-auto border"
+    >
       <table className="w-full border-collapse text-left text-[0.9375rem]">
         <caption className="sr-only">{caption}</caption>
         <thead>
@@ -140,6 +145,8 @@ export function CodeFrame({
         {title}
       </figcaption>
       <pre
+        tabIndex={0}
+        aria-label={title}
         className={`overflow-x-auto p-4 font-mono text-[0.8125rem] leading-relaxed ${consoleSurface ? "text-console-fg" : "text-ink"}`}
       >
         <code>{code}</code>

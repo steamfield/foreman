@@ -37,7 +37,7 @@ const reference = [
   [
     "status-release",
     "status",
-    "Inspect a run's digest or list the current group's runs.",
+    "One line per run in this repository, or the full digest for one run.",
   ],
   [
     "result",
@@ -47,7 +47,7 @@ const reference = [
   [
     "archive",
     "archive",
-    "Archive an inactive run and safely clean its worktree.",
+    "Archive a finished run. The worktree goes only if nothing in it would be lost.",
   ],
   [
     "doctor",

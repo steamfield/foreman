@@ -92,7 +92,7 @@ export function CommandTabs({
                       command={command.command}
                       className="flex min-w-0 items-start gap-3 font-mono text-[0.8125rem]"
                       promptClassName="text-console-muted"
-                      commandClassName="min-w-0 flex-1 overflow-x-auto whitespace-nowrap text-[0.8125rem]"
+                      commandClassName="min-w-0 flex-1 whitespace-pre-wrap break-all text-[0.8125rem]"
                       buttonClassName="rounded-control shrink-0"
                     />
                   ) : (
@@ -104,14 +104,18 @@ export function CommandTabs({
                       </span>
                       <code
                         id={`command-line-${command.name}`}
-                        className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap text-[0.8125rem]"
+                        className="min-w-0 flex-1 whitespace-pre-wrap break-all text-[0.8125rem]"
                       >
                         {command.command}
                       </code>
                     </div>
                   )}
                 </div>
-                <pre className="text-console-fg max-h-96 overflow-auto p-4 font-mono text-[0.8125rem] leading-relaxed">
+                <pre
+                  tabIndex={0}
+                  aria-label={`Output of ${command.label}`}
+                  className="text-console-fg max-h-96 overflow-auto p-4 font-mono text-[0.8125rem] leading-relaxed"
+                >
                   <code className="text-[0.8125rem]">
                     {commandOutputParts(command.output).map((part, index) =>
                       part.tone ? (

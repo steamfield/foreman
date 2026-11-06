@@ -145,7 +145,10 @@ test.describe("without JavaScript", () => {
     );
     await expect(page.locator("[data-hero]")).toContainText(npm.command);
     await expect(
-      page.locator("[data-hero]").getByText(questionText),
+      page
+        .locator("[data-hero]")
+        .getByRole("region", { name: "Claude conversation" })
+        .getByText(questionText),
     ).toBeVisible();
   });
 
