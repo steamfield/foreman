@@ -73,9 +73,9 @@ forman start fix-doctor --worktree .worktrees/fix-doctor --contract /tmp/fix-doc
 forman wait --all
 ```
 
-`start` returns after starting the turn. Claude runs `wait --all` as a background task so it can keep working while the delegate runs. `--all` means all runs belonging to the repo containing the current directory, including its linked worktrees.
+`start` returns after starting the turn and ends with `next: forman wait <name>`. Run that command as a background task so Claude can keep working while the delegate runs. To watch several runs, use `wait --all`: it covers the repo containing the current directory, including its linked worktrees.
 
-When wait returns, read each run's outcome and digest. For a `question`, use the question id it prints; `answer` resumes the held tool call. Use `steer` to change an active turn with no pending question, `followup` to start another turn on an inactive run, and `result` to read the hand-off. For example, these are alternatives at the appropriate run state:
+When wait returns, read each run's outcome and digest. A `done`, `failed` or `interrupted` outcome includes that turn's hand-off, or says no hand-off is available. A `question` includes the full text and question id; `answer` resumes the held tool call. Use `steer` to change an active turn with no pending question, `followup` to start another turn on an inactive run, and `result` to reread the available hand-off. For example, these are alternatives at the appropriate run state:
 
 ```sh
 forman answer fix-doctor q1 "Keep the description to one sentence."
@@ -84,7 +84,7 @@ forman followup fix-doctor "Also check the help output manually."
 forman result fix-doctor
 ```
 
-After handling a wait result, wait again with `forman wait --all --after <cursor>`, replacing `<cursor>` with the cursor from that result. Keep the cursor as a single argument. It prevents repeated attention for events you already handled. Repeat after answering or starting a follow-up. Review the hand-off and diff before committing; forman does not commit or merge for you.
+After handling a wait result, run the command on its final `next:` line. It includes the run names or `--all`, the cursor that prevents repeated attention, and your explicit `--timeout` if given. Repeat after answering or starting a follow-up. Review the hand-off and diff before committing; forman does not commit or merge for you.
 
 After merging a run's work, remove its worktree, then archive the inactive run to remove it from status:
 
@@ -102,7 +102,7 @@ All commands accept `--json` for one schema-encoded result. Messages for `steer`
 | Command | What it does |
 | --- | --- |
 | `forman start <name> --worktree <path> --contract <file>` | Send the contract text and real worktree path; accepts `--write`, `--model`, `--effort`, `--tier`, `--budget`, `--question-timeout`, `--skip-deps-check` |
-| `forman status [<name>]` | Print one run's digest or the current group's digests |
+| `forman status [<name>]` | Print one run's digest or one line per run in the current group |
 | `forman events <name> [--after <n>] [--limit <n>]` | Print normalized events and the next sequence number |
 | `forman steer <name> [<message>] [--file <path>]` | Send a change to the active turn |
 | `forman followup <name> [<message>] [--file <path>] [--budget <dur>] [--effort <e>]` | Start another turn |
@@ -110,22 +110,24 @@ All commands accept `--json` for one schema-encoded result. Messages for `steer`
 | `forman answer <name> <question-id> [<text>] [--file <path>]` | Answer a pending question |
 | `forman result <name>` | Print the digest and available hand-off, naming its turn |
 | `forman archive <name>` | Move an inactive run to the archive, remove it from status and print the archive path |
-| `forman wait [<name>...] [--all] [--after <cursor>] [--timeout <dur>]` | Wait for attention, print summaries and digests, then a cursor for the next wait |
+| `forman wait [<name>...] [--all] [--after <cursor>] [--timeout <dur>]` | Wait for attention, print summaries, digests and turn hand-offs, then the next wait command |
 | `forman doctor` | Inspect local configuration, Codex, repo hook trust and daemon availability |
 | `forman daemon` | Run the daemon in the foreground; normally started automatically |
 | `forman daemon stop` | Stop the daemon when no runs are active; succeeds if none is running |
 
 ## Wait outcomes and exit codes
 
-Wait defaults to 9 minutes. Durations are nonnegative whole numbers with `ms`, `s`, `m` or `h`, such as `90s` and `45m`.
+Wait defaults to 60 minutes for background tasks. Pass `--timeout 9m` when running it in the foreground, below Claude Code's 10-minute foreground cap. Durations are nonnegative whole numbers with `ms`, `s`, `m` or `h`, such as `90s` and `45m`.
 
 | Wait outcome | Meaning |
 | --- | --- |
 | `events` | A run needs attention: `question`, `done`, `failed`, `interrupted` or `lost`; each includes a digest |
-| `timeout` | Nothing needed attention within the timeout; wait again with the returned cursor |
+| `timeout` | Nothing needed attention within the timeout; run the printed next command |
 | `none` | `--all` has no active runs or unseen attention in this repo |
 
-All three outcomes exit 0. `done` means the turn ended; assess its hand-off and checks before accepting the work. `lost` means the daemon cannot supervise the run. Every wait returns a cursor, including timeout and none. `wait` needs run names or `--all`.
+All three outcomes exit 0. `done` means the turn ended; assess its hand-off and checks before accepting the work. `lost` means the daemon cannot supervise the run. Every wait returns a cursor and ends with `next: forman wait ...`, including timeout and none; JSON includes the same command in `next`. `wait` needs run names or `--all`.
+
+Unnamed status lists each run's name, state, turn number and kind, elapsed time, pending question ids (`q2 pending`) and a `worktree removed` marker when applicable. Named status keeps the full digest; both JSON forms return `Digests`. Elapsed time runs from creation to now for active runs, and to the last state change for inactive runs.
 
 | Exit code | Meaning |
 | --- | --- |

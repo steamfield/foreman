@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { AppConfig } from "../config";
 import { call } from "../daemon/client";
 import type { DaemonRequestBody, QuestionId, RunName } from "../schemas/daemon";
-import { type MessageInput, messageText, readText, realPath } from "./command-input";
+import { durationMs, type MessageInput, messageText, readText, realPath } from "./command-input";
 
 const request = Effect.fn("commands.request")(function* (body: DaemonRequestBody) {
   const config = yield* AppConfig;
@@ -93,14 +93,19 @@ export const result = (name: RunName) => request({ _tag: "Result", name });
 export const archive = (name: RunName) => request({ _tag: "Archive", name });
 
 export const wait = Effect.fn("commands.wait")(function* (
-  input: Omit<Extract<DaemonRequestBody, { _tag: "Wait" }>, "_tag" | "cwd">,
+  input: Omit<Extract<DaemonRequestBody, { _tag: "Wait" }>, "_tag" | "cwd" | "timeoutMs"> & {
+    timeout: string | undefined;
+  },
 ) {
-  return yield* request({
+  const result = yield* request({
     _tag: "Wait",
     names: input.names,
     all: input.all,
-    timeoutMs: input.timeoutMs,
+    timeoutMs: input.timeout === undefined ? 60 * 60_000 : yield* durationMs(input.timeout),
     ...(input.after === undefined ? {} : { after: input.after }),
     cwd: yield* realPath("."),
   });
+  return result._tag === "Waited" && input.timeout !== undefined
+    ? { ...result, next: `${result.next} --timeout ${input.timeout}` }
+    : result;
 });

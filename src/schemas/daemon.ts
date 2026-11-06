@@ -249,6 +249,7 @@ export const WaitOutcome = Schema.Struct({
   // The one-line text after the run name, for example "q2 (blocked): <question>" or "turn 1".
   summary: Schema.String,
   digest: Digest,
+  handoff: Schema.NullOr(Handoff),
 });
 
 export const DaemonResult = Schema.TaggedUnion({
@@ -268,6 +269,7 @@ export const DaemonResult = Schema.TaggedUnion({
     outcome: Schema.Literals(["events", "timeout", "none"]),
     runs: Schema.Array(WaitOutcome),
     cursor: Cursor,
+    next: Schema.String,
   },
 });
 export type DaemonResult = typeof DaemonResult.Type;

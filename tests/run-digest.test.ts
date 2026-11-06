@@ -87,6 +87,30 @@ function fullDigest(): Digest {
 }
 
 describe("digest data", () => {
+  it.each(["idle", "failed", "interrupted", "lost"] as const)(
+    "freezes elapsed time at the last state change for %s, even after later record updates",
+    (state) => {
+      const stoppedAt = DateTime.makeUnsafe(DateTime.toEpochMillis(at) + 65_000);
+      const digest = buildDigest(
+        { ...run, state, updatedAt: DateTime.makeUnsafe(now) },
+        [{ seq: 1, at: stoppedAt, event: { _tag: "StateChanged", from: "running", to: state } }],
+        [],
+        "/runs/unit-a",
+        now + 3_600_000,
+        null,
+      );
+      expect(digest.elapsedMs).toBe(65_000);
+      expect(renderDigest(digest).split("\n")[0]).toContain(`${state}  1m05s`);
+    },
+  );
+
+  it("uses the record timestamp for an inactive run without state events", () => {
+    expect(
+      buildDigest({ ...run, state: "idle" }, [], [], "/runs/unit-a", now + 3_600_000, null)
+        .elapsedMs,
+    ).toBe(DateTime.toEpochMillis(run.updatedAt) - DateTime.toEpochMillis(run.createdAt));
+  });
+
   it("counts commands, failed status or nonzero exits and hook blocks, selecting the last command", () => {
     const digest = fullDigest();
     expect(digest.commands).toEqual({

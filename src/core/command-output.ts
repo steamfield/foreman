@@ -1,6 +1,6 @@
 import { DateTime } from "effect";
-import type { DaemonResult, RunEventBody } from "../schemas/daemon";
-import { renderDigest } from "./runs/digest";
+import type { DaemonResult, Handoff, RunEventBody } from "../schemas/daemon";
+import { renderDigest, renderStatus } from "./runs/digest";
 
 // Keep multiline event payloads on one line without losing their boundaries.
 const oneLine = (text: string) => text.replace(/\r/g, "\\r").replace(/\n/g, "\\n");
@@ -39,18 +39,24 @@ function eventSummary(event: RunEventBody): string {
   }
 }
 
-export function renderResult(result: DaemonResult): string {
+function renderHandoff(handoff: typeof Handoff.Type | null): string {
+  return handoff === null
+    ? "No hand-off available."
+    : `Hand-off (turn ${handoff.turn}):\n${handoff.text}`;
+}
+
+export function renderResult(result: DaemonResult, compact = false): string {
   switch (result._tag) {
     case "Pong":
       return `running ${result.version} (pid ${result.pid})`;
     case "Started":
-      return `${result.name}\n${result.runDir}`;
+      return `${result.name}\n${result.runDir}\nnext: forman wait ${result.name}`;
     case "Archived":
       return result.archivePath;
     case "Digests":
       return result.digests.length === 0
         ? "no runs"
-        : result.digests.map(renderDigest).join("\n\n");
+        : result.digests.map(compact ? renderStatus : renderDigest).join(compact ? "\n" : "\n\n");
     case "Events":
       return [
         ...(result.gap ? ["gap: true"] : []),
@@ -65,9 +71,7 @@ export function renderResult(result: DaemonResult): string {
     case "Result":
       return [
         renderDigest(result.digest),
-        result.handoff === null
-          ? "No hand-off available."
-          : `Hand-off (turn ${result.handoff.turn}):\n${result.handoff.text}`,
+        renderHandoff(result.handoff),
         ...(result.latestTurnWithoutHandoff
           ? [`Latest turn (${result.digest.turn}) ended without a hand-off.`]
           : []),
@@ -79,9 +83,14 @@ export function renderResult(result: DaemonResult): string {
               ({ kind, name, summary }) => `${kind.padEnd(12)}${name} ${oneLine(summary)}`,
             )
           : [result.outcome]),
-        ...result.runs.flatMap(({ digest }) => ["", renderDigest(digest)]),
+        ...result.runs.flatMap(({ kind, digest, handoff }) => [
+          "",
+          renderDigest(digest),
+          ...(["done", "failed", "interrupted"].includes(kind) ? ["", renderHandoff(handoff)] : []),
+        ]),
         ...(result.runs.length === 0 ? [] : [""]),
         `cursor: ${result.cursor}`,
+        `next: ${result.next}`,
       ].join("\n");
   }
 }
