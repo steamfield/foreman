@@ -188,6 +188,26 @@
     html:not([data-sf-motion="reduce"]) .state-waiting {
       animation: state-pulse 1.6s ease-in-out infinite;
     }
+    /* The edge the lifecycle tour is crossing. */
+    html:not([data-sf-motion="reduce"]) .tour-flow {
+      animation: tour-flow 0.5s linear infinite;
+    }
+    /* A run bar that is still growing in the parallel replay. */
+    html:not([data-sf-motion="reduce"]) .parallel-live {
+      animation: parallel-breathe 1.2s ease-in-out infinite;
+    }
+  }
+}
+
+@keyframes tour-flow {
+  to {
+    stroke-dashoffset: -10;
+  }
+}
+
+@keyframes parallel-breathe {
+  50% {
+    opacity: 0.55;
   }
 }
 

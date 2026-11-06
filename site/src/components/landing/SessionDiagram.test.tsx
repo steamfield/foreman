@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadRun } from "../../data/runs";
 import { buildSession, sceneAt } from "../../data/session";
 import { initAnalytics, resetAnalyticsForTests } from "../../lib/analytics";
-import { SessionDiagram } from "./SessionDiagram";
+import { PLAYBACK_RATE, SessionDiagram } from "./SessionDiagram";
 import { SessionCanvas } from "./session/SessionCanvas";
 
 const session = buildSession(loadRun("site-commands"), {
@@ -22,7 +22,9 @@ const session = buildSession(loadRun("site-commands"), {
   "site-e2e": loadRun("site-e2e"),
 });
 const renderDemo = () => render(<SessionDiagram session={session} />);
-const advance = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms));
+// Tests speak in story time; the clock runs PLAYBACK_RATE times faster.
+const advance = (ms: number) =>
+  act(() => vi.advanceTimersByTimeAsync(ms / PLAYBACK_RATE));
 function reduceMotion(reduced: boolean) {
   vi.spyOn(window, "matchMedia").mockImplementation((query) => ({
     matches: reduced && query.includes("prefers-reduced-motion"),
@@ -133,6 +135,47 @@ describe("SessionDiagram", () => {
     expect(document.querySelectorAll("svg .state-waiting")).toHaveLength(0);
     fireEvent.click(screen.getByRole("button", { name: "Play" }));
     expect(document.querySelectorAll("svg .state-waiting")).toHaveLength(4);
+  });
+
+  it("animates active cards and busy links only during playback", async () => {
+    renderDemo();
+    await advance(12_000);
+    const svg = document.querySelector("svg");
+    expect(svg).toHaveAttribute("data-playing");
+    const activity = (name: string) =>
+      document
+        .querySelector(`.session-wide [data-session-card="${name}"]`)
+        ?.getAttribute("data-activity");
+    expect(session.delegates.map((d) => activity(d.name))).toEqual([
+      "running",
+      "running",
+      "running",
+    ]);
+    expect(activity("claude")).toBe("idle");
+    expect(
+      document.querySelectorAll(".session-wide .session-trace"),
+    ).toHaveLength(3);
+    expect(
+      document.querySelectorAll(".session-wide [data-link-busy]").length,
+    ).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+    expect(svg).not.toHaveAttribute("data-playing");
+    expect(document.querySelectorAll(".session-trace")).toHaveLength(0);
+    expect(document.querySelectorAll("[data-link-busy]")).toHaveLength(0);
+    expect(activity("site-console")).toBe("running");
+  });
+
+  it("marks the question as waiting activity in the still frame without motion", () => {
+    document.body.innerHTML = renderToStaticMarkup(
+      <SessionDiagram session={session} />,
+    );
+    expect(
+      document
+        .querySelector('.session-wide [data-session-card="site-commands"]')
+        ?.getAttribute("data-activity"),
+    ).toBe("waiting");
+    expect(document.querySelector("svg")).not.toHaveAttribute("data-playing");
+    expect(document.querySelectorAll(".session-trace")).toHaveLength(0);
   });
 
   it("server-renders the pending question, both recorded texts and all ten static steps", () => {

@@ -5,13 +5,19 @@ import { Events } from "../../lib/events";
 import { CodeFrame, Inline } from "./primitives";
 import { SessionCanvas } from "./session/SessionCanvas";
 
+/** Story milliseconds per wall-clock millisecond: 54s of story plays in about 22s. */
+export const PLAYBACK_RATE = 2.5;
+
 export function SessionDiagram({ session }: { session: Session }) {
   const playback = usePlayback({
-    duration: session.duration,
+    duration: session.duration / PLAYBACK_RATE,
     reducedPolicy: "hold",
   });
   const still = !playback.ready || playback.reduced;
-  const scene = sceneAt(session, still ? session.stillAt : playback.elapsed);
+  const scene = sceneAt(
+    session,
+    still ? session.stillAt : playback.elapsed * PLAYBACK_RATE,
+  );
   const current = session.steps[scene.step];
   return (
     <div className="min-w-0" data-session-diagram>
@@ -83,7 +89,7 @@ export function SessionDiagram({ session }: { session: Session }) {
                 aria-current={i === scene.step ? "step" : undefined}
                 className={`rounded-control w-full border-l-2 px-3 py-2 text-left font-semibold ${i === scene.step ? "border-ink bg-band text-ink" : "border-line text-ink-2 hover:border-ink"}`}
                 onClick={() => {
-                  playback.seek(step.at);
+                  playback.seek(step.at / PLAYBACK_RATE);
                   playback.pause();
                 }}
               >

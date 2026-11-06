@@ -207,3 +207,58 @@ export function lifecycleModel(
     ],
   };
 }
+
+/** One hop of the lifecycle tour: cross `edge` (if any), then rest on `node`. */
+export interface TourStop {
+  node: LifecycleId;
+  edge?: { from: LifecycleId; to: LifecycleId };
+}
+
+const TOUR_CROSS_MS = 500;
+const TOUR_REST_MS = 700;
+const TOUR_ENDINGS = ["done", "failed", "interrupted", "lost"] as const;
+
+/** Paths through the graph, one per wait ending; the first also asks a question. */
+export function tourRoutes(model: LifecycleModel): LifecycleId[][] {
+  const routes = TOUR_ENDINGS.map((ending, i): LifecycleId[] => [
+    "contract",
+    "start",
+    "running",
+    ...(i === 0 ? (["question", "running"] as const) : []),
+    ending,
+    "review",
+    "archive",
+  ]);
+  for (const route of routes)
+    route.slice(1).forEach((to, i) => {
+      const from = route[i];
+      if (!model.edges.some((e) => e.from === from && e.to === to))
+        throw new Error(`Lifecycle tour crosses a missing edge ${from}→${to}`);
+    });
+  return routes;
+}
+
+export const tourStopMs = TOUR_CROSS_MS + TOUR_REST_MS;
+
+export function tourLength(model: LifecycleModel) {
+  return tourRoutes(model).flat().length * tourStopMs;
+}
+
+/** Where the tour is at `t` ms: the node it rests on and the edge it is crossing. */
+export function tourAt(model: LifecycleModel, t: number) {
+  const stops = tourRoutes(model).flatMap((route) =>
+    route.map((node, i): TourStop => ({
+      node,
+      edge: i > 0 ? { from: route[i - 1] as LifecycleId, to: node } : undefined,
+    })),
+  );
+  const index = Math.min(
+    stops.length - 1,
+    Math.max(0, Math.floor(t / tourStopMs)),
+  );
+  const stop = stops[index] as TourStop;
+  const crossing = t - index * tourStopMs < TOUR_CROSS_MS && stop.edge;
+  return crossing
+    ? { node: stop.edge?.from ?? stop.node, edge: stop.edge }
+    : { node: stop.node, edge: undefined };
+}

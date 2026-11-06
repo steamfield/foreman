@@ -86,6 +86,9 @@ export function questionPairs(run: Run) {
     });
 }
 
+type ParallelActivity =
+  { atMs: number; failed: boolean } | { atMs: number; paths: string[] };
+
 export function runTimelines(runs: readonly Run[]) {
   const first = runs[0];
   if (!first) throw new Error("The parallel timeline needs recorded runs");
@@ -113,7 +116,27 @@ export function runTimelines(runs: readonly Run[]) {
       outputTokens: run.tokens.output,
       questions: run.questions
         .filter((q) => q._tag === "Asked")
-        .map((q) => ({ id: q.id, atMs: startMs + q.t })),
+        .map((q) => ({
+          id: q.id,
+          atMs: startMs + q.t,
+          resolvedMs:
+            startMs +
+            (run.questions.find((r) => r._tag === "Resolved" && r.id === q.id)
+              ?.t ?? run.durationMs),
+        })),
+      // Recorded activity on the shared axis, for replaying the counters.
+      activity: run.events.flatMap((event): ParallelActivity[] =>
+        event.kind === "command"
+          ? [
+              {
+                atMs: startMs + event.t,
+                failed: event.exitCode !== null && event.exitCode !== 0,
+              },
+            ]
+          : event.kind === "files"
+            ? [{ atMs: startMs + event.t, paths: event.paths }]
+            : [],
+      ),
     };
   });
   const tickMs = 10 * 60 * 1000;
@@ -124,4 +147,39 @@ export function runTimelines(runs: readonly Run[]) {
     (_, i) => i * tickMs,
   );
   return { baseCommit: first.baseCommit, rows, extentMs, ticks };
+}
+
+export type RunTimeline = ReturnType<typeof runTimelines>;
+export type ParallelState = "queued" | "running" | "waiting" | "done";
+
+/** The parallel chart at `t` ms on the shared axis; at `extentMs` it is the recorded totals. */
+export function parallelFrame(timeline: RunTimeline, t: number) {
+  return timeline.rows.map((row) => {
+    const seen = row.activity.filter((a) => a.atMs <= t);
+    const commands = seen.filter((a) => "failed" in a);
+    const done = t >= row.endMs;
+    const state: ParallelState =
+      t < row.startMs
+        ? "queued"
+        : done
+          ? "done"
+          : row.questions.some((q) => q.atMs <= t && t < q.resolvedMs)
+            ? "waiting"
+            : "running";
+    const shownMs = Math.max(0, Math.min(t, row.endMs) - row.startMs);
+    return {
+      state,
+      shownMs,
+      commands: done ? row.commands : commands.length,
+      failed: done ? row.failed : commands.filter((a) => a.failed).length,
+      files: done
+        ? row.files
+        : new Set(seen.flatMap((a) => ("paths" in a ? a.paths : []))).size,
+      // Token usage is recorded only as a total, so it climbs with elapsed time.
+      outputTokens: Math.round(
+        row.outputTokens * (row.durationMs ? shownMs / row.durationMs : 1),
+      ),
+      questions: row.questions.filter((q) => q.atMs <= t).map((q) => q.id),
+    };
+  });
 }

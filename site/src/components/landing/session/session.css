@@ -15,3 +15,38 @@
     display: none;
   }
 }
+
+/* Activity: tints breathe, a segment traces each active card's border and
+   busy links march toward the packet's destination. Only while playing. */
+.session-trace {
+  stroke-dasharray: 14 86;
+}
+@media (prefers-reduced-motion: no-preference) {
+  html:not([data-sf-motion="reduce"]) [data-playing] .session-tint {
+    animation: session-breathe 1.8s ease-in-out infinite;
+  }
+  html:not([data-sf-motion="reduce"]) [data-playing] .session-trace {
+    animation: session-trace 2.4s linear infinite;
+  }
+  html:not([data-sf-motion="reduce"]) [data-playing] .session-flow {
+    animation: session-flow 0.6s linear infinite;
+  }
+  html:not([data-sf-motion="reduce"]) [data-playing] .session-flow-back {
+    animation-direction: reverse;
+  }
+}
+@keyframes session-breathe {
+  50% {
+    opacity: 0.4;
+  }
+}
+@keyframes session-trace {
+  to {
+    stroke-dashoffset: -100;
+  }
+}
+@keyframes session-flow {
+  to {
+    stroke-dashoffset: -10;
+  }
+}

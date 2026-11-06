@@ -33,6 +33,7 @@ import {
   waitOutcomes,
   why,
 } from "../data/landing";
+import { runTimelines } from "../data/evidence";
 import { lifecycleModel } from "../data/lifecycle";
 import { loadRun, releaseRuns } from "../data/runs";
 import { buildSession } from "../data/session";
@@ -157,7 +158,7 @@ const [npm] = install.options;
   </Section>
 
   <Section id="parallel" title={parallel.title} lede={parallel.lede}>
-    <ParallelRuns runs={releaseRuns} />
+    <ParallelRuns client:visible timeline={runTimelines(releaseRuns)} />
   </Section>
 
   <Section

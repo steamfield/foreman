@@ -1,12 +1,14 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, cleanup, render, screen, within } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { runTimelines } from "../../data/evidence";
 import { ParallelRuns, QuestionTimeline, WorkOrder } from "./evidence";
 import { loadRun, releaseRuns } from "../../data/runs";
 import { handoff, parallel } from "../../data/landing";
 
 const run = loadRun("fix-supervisor");
 const handoffRun = loadRun("site-console");
+const timeline = runTimelines(releaseRuns);
 
 describe("work order", () => {
   it("renders the contract excerpt, the unmodified digest and the note", () => {
@@ -90,7 +92,7 @@ describe("question timeline", () => {
 
 describe("parallel runs", () => {
   it("provides an accessible table with each run's recorded figures", () => {
-    render(<ParallelRuns runs={releaseRuns} />);
+    render(<ParallelRuns timeline={timeline} />);
     const table = screen.getByRole("table", {
       name: "Parallel release runs, measured from the earliest start",
     });
@@ -149,7 +151,7 @@ describe("parallel runs", () => {
   it("server-renders the chart and accessible figures in their final state", () => {
     const container = document.createElement("div");
     container.innerHTML = renderToStaticMarkup(
-      <ParallelRuns runs={releaseRuns} />,
+      <ParallelRuns timeline={timeline} />,
     );
     expect(
       within(container).getByRole("table").querySelectorAll("tbody tr"),
@@ -157,5 +159,76 @@ describe("parallel runs", () => {
     expect(container.textContent).toContain("70m30s");
     expect(container.textContent).toContain("Codex asked a question");
     expect(container.querySelector("script")).toBeNull();
+  });
+});
+
+describe("parallel runs replay", () => {
+  // The replay compresses the shared axis into 14 seconds of wall clock.
+  const advanceAxis = (ms: number) =>
+    act(() => vi.advanceTimersByTimeAsync((ms / timeline.extentMs) * 14_000));
+  const chart = () =>
+    document.querySelector('[aria-hidden="true"]')?.textContent ?? "";
+  const bars = () =>
+    [...document.querySelectorAll("[data-parallel-bar]")].map((bar) => ({
+      state: bar.getAttribute("data-parallel-bar"),
+      live: bar.classList.contains("parallel-live"),
+    }));
+  function reduceMotion(reduced: boolean) {
+    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({
+      matches: reduced && query.includes("prefers-reduced-motion"),
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => true,
+    }));
+  }
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.stubGlobal("IntersectionObserver", undefined);
+    reduceMotion(false);
+  });
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("grows the bars, ticks the counters and pulses a pending question", async () => {
+    render(<ParallelRuns timeline={timeline} />);
+    await advanceAxis(600_000);
+    expect(bars()).toEqual(
+      Array.from({ length: 4 }, () => ({ state: "running", live: true })),
+    );
+    expect(chart()).not.toContain("70m30s");
+    expect(document.querySelectorAll(".bg-signal.-top-1")).toHaveLength(0);
+    // q2 holds fix-supervisor from about +39:20 to +54:20.
+    await advanceAxis(1_900_000);
+    expect(bars().map((bar) => bar.state)).toEqual([
+      "done",
+      "done",
+      "waiting",
+      "done",
+    ]);
+    expect(document.querySelectorAll(".bg-signal.-top-1")).toHaveLength(2);
+    expect(document.querySelectorAll(".state-waiting")).toHaveLength(1);
+    await advanceAxis(timeline.extentMs);
+    expect(bars()).toEqual(
+      Array.from({ length: 4 }, () => ({ state: "done", live: false })),
+    );
+    expect(chart()).toContain("70m30s");
+    expect(chart()).toContain("299 / 34");
+    expect(document.querySelectorAll(".state-waiting")).toHaveLength(0);
+  });
+
+  it("shows the recorded totals at once under reduced motion", async () => {
+    reduceMotion(true);
+    render(<ParallelRuns timeline={timeline} />);
+    await advanceAxis(600_000);
+    expect(bars().every((bar) => bar.state === "done" && !bar.live)).toBe(true);
+    expect(chart()).toContain("70m30s");
   });
 });

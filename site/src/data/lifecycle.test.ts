@@ -1,7 +1,13 @@
-import { expect, test } from "vitest";
+import { describe, expect, it, test } from "vitest";
 import start from "../../fixtures/cli/start-wait.json";
 import supervisor from "../../fixtures/runs/fix-supervisor.json";
-import { lifecycleModel } from "./lifecycle";
+import {
+  lifecycleModel,
+  tourAt,
+  tourLength,
+  tourRoutes,
+  tourStopMs,
+} from "./lifecycle";
 
 test("the lifecycle includes the question loop and all four wait endings", () => {
   const model = lifecycleModel();
@@ -91,3 +97,48 @@ test.each(Object.values(archives))(
     ).toBe(recording.output);
   },
 );
+
+describe("lifecycle tour", () => {
+  const model = lifecycleModel();
+
+  it("walks real edges, asking once and ending each loop a different way", () => {
+    const routes = tourRoutes(model);
+    expect(routes.map((route) => route.at(-3))).toEqual([
+      "done",
+      "failed",
+      "interrupted",
+      "lost",
+    ]);
+    expect(routes[0]).toContain("question");
+    expect(routes.slice(1).some((route) => route.includes("question"))).toBe(
+      false,
+    );
+    expect(tourLength(model)).toBe(routes.flat().length * tourStopMs);
+  });
+
+  it("crosses an edge before resting on the next stage", () => {
+    expect(tourAt(model, 0)).toEqual({ node: "contract", edge: undefined });
+    expect(tourAt(model, tourStopMs + 100)).toEqual({
+      node: "contract",
+      edge: { from: "contract", to: "start" },
+    });
+    expect(tourAt(model, tourStopMs * 2 - 1)).toEqual({
+      node: "start",
+      edge: undefined,
+    });
+    expect(tourAt(model, tourStopMs * 3 + 600).node).toBe("question");
+    expect(tourAt(model, tourLength(model))).toEqual({
+      node: "archive",
+      edge: undefined,
+    });
+  });
+
+  it("refuses a route over an edge the diagram does not draw", () => {
+    expect(() =>
+      tourRoutes({
+        ...model,
+        edges: model.edges.filter((e) => e.to !== "question"),
+      }),
+    ).toThrow("running→question");
+  });
+});

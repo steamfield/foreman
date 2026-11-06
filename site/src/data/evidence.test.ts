@@ -3,6 +3,7 @@ import {
   contractExcerpt,
   digestBlocks,
   questionPairs,
+  parallelFrame,
   runTimelines,
 } from "./evidence";
 import { loadRun, releaseRuns } from "./runs";
@@ -124,8 +125,8 @@ describe("parallel evidence", () => {
       0, 600000, 1200000, 1800000, 2400000, 3000000, 3600000, 4200000, 4800000,
     ]);
     expect(timeline.rows[2]?.questions).toEqual([
-      { id: "q1", atMs: 1225538 },
-      { id: "q2", atMs: 2359659 },
+      { id: "q1", atMs: 1225538, resolvedMs: 1244497 },
+      { id: "q2", atMs: 2359659, resolvedMs: 3259666 },
     ]);
   });
 
@@ -146,6 +147,68 @@ describe("parallel evidence", () => {
       [4230594, 299, 34, 18, 174784],
       [1741595, 186, 23, 15, 69031],
     ]);
+  });
+
+  it("replays each row from queued to the recorded totals", () => {
+    const timeline = runTimelines(releaseRuns);
+    expect(parallelFrame(timeline, 0).map((row) => row.state)).toEqual([
+      "queued",
+      "running",
+      "queued",
+      "queued",
+    ]);
+    expect(
+      parallelFrame(timeline, 0).every(
+        (row) => row.commands === 0 && row.files === 0 && row.shownMs === 0,
+      ),
+    ).toBe(true);
+    const [, , supervisorRow] = parallelFrame(timeline, 1_230_000);
+    expect(supervisorRow?.state).toBe("waiting");
+    expect(supervisorRow?.questions).toEqual(["q1"]);
+    expect(parallelFrame(timeline, 1_250_000)[2]?.state).toBe("running");
+    expect(parallelFrame(timeline, 2_400_000).map((row) => row.state)).toEqual([
+      "done",
+      "done",
+      "waiting",
+      "done",
+    ]);
+    const mid = parallelFrame(timeline, 600_000);
+    const end = parallelFrame(timeline, timeline.extentMs);
+    mid.forEach((row, i) => {
+      expect(row.commands).toBeLessThan(end[i]?.commands ?? 0);
+      expect(row.outputTokens).toBeLessThan(end[i]?.outputTokens ?? 0);
+    });
+    expect(
+      end.map(
+        ({
+          state,
+          shownMs,
+          commands,
+          failed,
+          files,
+          outputTokens,
+          questions,
+        }) => [
+          state,
+          shownMs,
+          commands,
+          failed,
+          files,
+          outputTokens,
+          questions,
+        ],
+      ),
+    ).toEqual(
+      timeline.rows.map((row) => [
+        "done",
+        row.durationMs,
+        row.commands,
+        row.failed,
+        row.files,
+        row.outputTokens,
+        row.questions.map((q) => q.id),
+      ]),
+    );
   });
 
   it("rejects runs from different base commits", () => {

@@ -51,6 +51,8 @@ export interface Scene {
   step: number;
   held: boolean;
   claude: string;
+  /** Claude is doing something rather than idling on a background wait. */
+  claudeActive: boolean;
   delegates: DelegateScene[];
   packets: (Packet & { progress: number })[];
 }
@@ -353,5 +355,6 @@ export function sceneAt(session: Session, time: number): Scene {
       "Review · commit · merge",
       "Archive merged branches",
     ][step] ?? "";
-  return { step, held, claude, delegates, packets };
+  const claudeActive = step !== 2;
+  return { step, held, claude, claudeActive, delegates, packets };
 }

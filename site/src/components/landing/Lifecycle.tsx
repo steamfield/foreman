@@ -1,9 +1,12 @@
+import { usePlayback } from "@steamfield/ui/react/playback";
 import { Tab, TabList, TabPanel, Tabs } from "@steamfield/ui/react/tabs";
 import { useEffect, useId, useState } from "react";
-import type {
-  LifecycleId,
-  LifecycleModel,
-  LifecycleNode,
+import {
+  type LifecycleId,
+  type LifecycleModel,
+  type LifecycleNode,
+  tourAt,
+  tourLength,
 } from "../../data/lifecycle";
 import { CodeFrame, Inline, StateBadge } from "./primitives";
 
@@ -49,6 +52,25 @@ const panelOrder: Record<LifecycleId, string> = {
   archive: "order-19",
 };
 
+// The tour's ring takes the stage's state color, distinct from the selected style.
+const tourRing: Record<LifecycleNode["state"], string> = {
+  starting: "ring-console-muted",
+  running: "ring-state-running",
+  waiting: "ring-signal",
+  done: "ring-state-done",
+  failed: "ring-state-failed",
+  interrupted: "ring-state-interrupted",
+  lost: "ring-console-muted",
+};
+
+function edgePath(from: LifecycleId, to: LifecycleId) {
+  if (to === "question") return "M465 136 V56";
+  if (from === "question") return "M535 56 V136";
+  const a = positions[from];
+  const b = positions[to];
+  return `M${a.x + 84} ${a.y} H${(a.x + b.x) / 2} V${b.y} H${b.x - 84}`;
+}
+
 function Detail({ node }: { node: LifecycleNode }) {
   return (
     <div className="border-line bg-card rounded-frame min-w-0 border p-4 sm:p-6">
@@ -92,7 +114,13 @@ function Detail({ node }: { node: LifecycleNode }) {
   );
 }
 
-function Connections({ model }: { model: LifecycleModel }) {
+function Connections({
+  model,
+  crossing,
+}: {
+  model: LifecycleModel;
+  crossing?: { from: LifecycleId; to: LifecycleId };
+}) {
   const marker = useId();
   return (
     <svg
@@ -114,25 +142,25 @@ function Connections({ model }: { model: LifecycleModel }) {
           <path d="M0 0 8 4 0 8" className="fill-ink-3" />
         </marker>
       </defs>
-      {model.edges.map((edge) => {
-        const from = positions[edge.from];
-        const to = positions[edge.to];
-        const loop = edge.to === "question" || edge.from === "question";
-        const path = loop
-          ? edge.to === "question"
-            ? "M465 136 V56"
-            : "M535 56 V136"
-          : `M${from.x + 84} ${from.y} H${(from.x + to.x) / 2} V${to.y} H${to.x - 84}`;
-        return (
-          <path
-            key={`${edge.from}-${edge.to}`}
-            d={path}
-            fill="none"
-            className="stroke-ink-3"
-            markerEnd={`url(#${marker})`}
-          />
-        );
-      })}
+      {model.edges.map((edge) => (
+        <path
+          key={`${edge.from}-${edge.to}`}
+          d={edgePath(edge.from, edge.to)}
+          fill="none"
+          className="stroke-ink-3"
+          markerEnd={`url(#${marker})`}
+        />
+      ))}
+      {crossing && (
+        <path
+          data-tour-edge={`${crossing.from}-${crossing.to}`}
+          d={edgePath(crossing.from, crossing.to)}
+          fill="none"
+          strokeWidth={2}
+          strokeDasharray="4 6"
+          className="stroke-ink tour-flow"
+        />
+      )}
       <text
         x="450"
         y="92"
@@ -166,6 +194,23 @@ export function Lifecycle({ model }: { model: LifecycleModel }) {
   const [wide, setWide] = useState(false);
   const [selected, setSelected] = useState("question");
   const [announcement, setAnnouncement] = useState("");
+  // A looping walk through the graph until the reader touches the diagram.
+  // It never changes the selection, moves focus or announces anything.
+  const [touring, setTouring] = useState(true);
+  const playback = usePlayback<HTMLDivElement>({
+    duration: tourLength(model),
+  });
+  const { complete, replay } = playback;
+  useEffect(() => {
+    if (touring && complete) replay();
+  }, [touring, complete, replay]);
+  const tour =
+    touring && playback.playing ? tourAt(model, playback.elapsed) : undefined;
+  const stopTour = () => {
+    if (!touring) return;
+    setTouring(false);
+    playback.pause();
+  };
 
   useEffect(() => {
     const query = window.matchMedia("(min-width: 64rem)");
@@ -197,8 +242,15 @@ export function Lifecycle({ model }: { model: LifecycleModel }) {
         Select a stage to see what happens. The four wait endings are
         alternatives.
       </p>
-      <div className="relative">
-        <Connections model={model} />
+      <div
+        ref={playback.ref}
+        className="relative"
+        data-touring={tour ? true : undefined}
+        onPointerDown={stopTour}
+        onFocus={stopTour}
+        onKeyDown={stopTour}
+      >
+        <Connections model={model} crossing={tour?.edge} />
         <Tabs
           id="lifecycle-stage"
           value={selected}
@@ -217,9 +269,12 @@ export function Lifecycle({ model }: { model: LifecycleModel }) {
               <Tab
                 key={node.id}
                 value={node.id}
-                className={`${positions[node.id].classes} rounded-control relative z-10 min-h-12 min-w-0 border px-2 py-2 text-left lg:mx-4 lg:my-2 lg:min-h-0 lg:text-center ${selected === node.id ? "border-ink bg-band text-ink" : "border-line-strong bg-page text-ink-2 hover:border-ink"}`}
+                className={`${positions[node.id].classes} rounded-control relative z-10 min-h-12 min-w-0 border px-2 py-2 text-left transition-shadow duration-300 lg:mx-4 lg:my-2 lg:min-h-0 lg:text-center ${selected === node.id ? "border-ink bg-band text-ink" : "border-line-strong bg-page text-ink-2 hover:border-ink"} ${tour?.node === node.id ? `ring-offset-page ring-2 ring-offset-2 ${tourRing[node.state]}` : ""}`}
               >
-                <span className="inline-flex items-center gap-2 font-mono text-[0.8125rem] leading-tight">
+                <span
+                  data-tour-active={tour?.node === node.id || undefined}
+                  className="inline-flex items-center gap-2 font-mono text-[0.8125rem] leading-tight"
+                >
                   <span
                     aria-hidden="true"
                     className={`state-square state-${node.state}`}
