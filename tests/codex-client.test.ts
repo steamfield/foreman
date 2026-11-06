@@ -79,6 +79,17 @@ const begin = Effect.fnUntraced(function* (client: Effect.Success<ReturnType<typ
 });
 
 describe("app-server environment", () => {
+  it.each(["OPENAI_API_KEY", "OPENAI_API_BASE", "CODEX_API_KEY"])(
+    "drops %s while preserving unrelated environment",
+    (key) => {
+      expect(
+        appServerEnvironment(
+          { [key]: "must-not-pass", PATH: "/bin", OTHER: "keep" },
+          { alive: false, launchdSocket: undefined },
+        ),
+      ).toEqual({ PATH: "/bin", OTHER: "keep", CODEX_DELEGATE: "1", STACKS_DELEGATE: "1" });
+    },
+  );
   it("drops controlled variables and preserves PATH and unrelated keys", () => {
     expect(
       appServerEnvironment(

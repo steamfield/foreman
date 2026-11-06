@@ -9,7 +9,10 @@ export function appServerEnvironment(
       value === undefined ||
       key.startsWith("CLAUDE_") ||
       key.startsWith("FORMAN_") ||
-      key === "LOG_LEVEL"
+      key === "LOG_LEVEL" ||
+      key === "OPENAI_API_KEY" ||
+      key === "OPENAI_API_BASE" ||
+      key === "CODEX_API_KEY"
     )
       continue;
     env[key] = value;

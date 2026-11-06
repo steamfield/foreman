@@ -2,11 +2,13 @@ import { Effect, FileSystem, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import { checkProtocol, codexVersion } from "../codex/check";
 import { openConnection } from "../codex/client";
+import { appServerEnvironment } from "../codex/environment";
 import { AppConfig } from "../config";
 import { call } from "../daemon/client";
 import { errorTable } from "../errors";
 import type { DoctorResult, RepoHookTrust } from "../schemas/doctor";
 import { Host } from "../services/host";
+import { formanExecutable } from "./command-output";
 import { hasRepoHooks, inspectHookTrust } from "./preflight/hooks";
 
 const probeTimeout = "5 seconds";
@@ -121,10 +123,9 @@ export const doctor = Effect.fn("doctor")(function* (cwd = ".") {
   );
   yield* Effect.logDebug("configuration checked");
   if (settings.configError) yield* Effect.logWarning("configuration unavailable");
-  const env = Object.fromEntries(
-    Object.entries({ ...config.inheritedEnvironment, CODEX_HOME: config.codexHome }).filter(
-      (entry): entry is [string, string] => entry[1] !== undefined,
-    ),
+  const env = appServerEnvironment(
+    { ...config.inheritedEnvironment, CODEX_HOME: config.codexHome },
+    { alive: true, launchdSocket: undefined },
   );
   const version = yield* Effect.scoped(codexVersion(config.codexBin, env)).pipe(
     Effect.timeout(probeTimeout),
@@ -156,6 +157,7 @@ export const doctor = Effect.fn("doctor")(function* (cwd = ".") {
     version: host.version,
     platform: host.platform,
     compiled: host.compiled,
+    formanOnPath: (yield* formanExecutable()).onPath,
     configFile: config.configFile,
     dataDir: config.dataDir,
     codexBin: config.codexBin,

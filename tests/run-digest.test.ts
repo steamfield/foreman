@@ -5,7 +5,7 @@ import { buildDigest, renderDigest } from "../src/core/runs/digest";
 import {
   Digest,
   QuestionLine,
-  type RunEvent,
+  RunEvent,
   type RunEventBody,
   RunRecord,
 } from "../src/schemas/daemon";
@@ -87,6 +87,67 @@ function fullDigest(): Digest {
 }
 
 describe("digest data", () => {
+  it("removes the obsolete resume tool warning from saved runs", () => {
+    const digest = buildDigest(
+      {
+        ...run,
+        warnings: [
+          "Thread resumed: questions may not reach Claude in this turn.",
+          "Protocol mismatch.",
+        ],
+      },
+      [],
+      [],
+      "/runs/unit-a",
+      now,
+      null,
+    );
+    expect(digest.warnings).toEqual(["Protocol mismatch."]);
+  });
+  it.each(["readOnly", "dangerFullAccess", "workspaceWrite"])(
+    "warns only when the resumed sandbox %s differs from the run",
+    (sandbox) => {
+      const resumed = Schema.decodeUnknownSync(RunEvent)({
+        seq: 1,
+        at: "2026-11-05T19:00:00Z",
+        event: { _tag: "Resumed", sandbox, model: run.model },
+      });
+      const digest = buildDigest(run, [resumed], [], "/runs/unit-a", now, null);
+      expect(digest.warnings).toEqual(
+        sandbox === "dangerFullAccess"
+          ? []
+          : [`resumed with sandbox ${sandbox}, run expects dangerFullAccess`],
+      );
+    },
+  );
+
+  it.each(["starting", "running", "waiting", "unknown", "interrupted", "idle"] as const)(
+    "shows the current sandbox for a hand-off in state %s",
+    (state) => {
+      const digest = buildDigest(
+        { ...run, state, turnKind: "handoff", restoreSandbox: true },
+        [],
+        [],
+        "/runs/unit-a",
+        now,
+        null,
+      );
+      const active = ["starting", "running", "waiting", "unknown"].includes(state);
+      expect(digest.sandbox).toBe(active ? "read-only" : "danger-full-access");
+      expect(renderDigest(digest).split("\n")[0]).toContain(
+        active ? "read-only (hand-off turn)" : "priority, write)",
+      );
+      const restored = buildDigest(
+        { ...run, state: "running", turnKind: "followup", restoreSandbox: false },
+        [],
+        [],
+        "/runs/unit-a",
+        now,
+        null,
+      );
+      expect(renderDigest(restored).split("\n")[0]).toContain("priority, write)");
+    },
+  );
   it.each(["idle", "failed", "interrupted", "lost"] as const)(
     "freezes elapsed time at the last state change for %s, even after later record updates",
     (state) => {
@@ -228,7 +289,7 @@ describe("digest data", () => {
 
   it("passes through warnings and clamps negative question ages and elapsed time", () => {
     const digest = buildDigest(
-      { ...run, warnings: ["Questions may not reach Claude in this turn."] },
+      { ...run, warnings: ["Protocol mismatch."] },
       [],
       questions,
       "/runs/unit-a",
@@ -237,10 +298,8 @@ describe("digest data", () => {
     );
     expect(digest.elapsedMs).toBe(0);
     expect(digest.questions[0]?.pendingMs).toBe(0);
-    expect(digest.warnings).toEqual(["Questions may not reach Claude in this turn."]);
-    expect(renderDigest(digest)).toContain(
-      "warning:   Questions may not reach Claude in this turn.",
-    );
+    expect(digest.warnings).toEqual(["Protocol mismatch."]);
+    expect(renderDigest(digest)).toContain("warning:   Protocol mismatch.");
   });
 });
 

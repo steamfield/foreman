@@ -92,6 +92,7 @@ export type RunRecord = typeof RunRecord.Type;
 
 // runs/<name>/events.jsonl: one RunEvent per line.
 export const RunEventBody = Schema.TaggedUnion({
+  Resumed: { sandbox: Schema.String, model: Schema.String },
   TurnStarted: { turn: Schema.Int, kind: TurnKind },
   TurnCompleted: {
     turn: Schema.Int,
