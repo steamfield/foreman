@@ -138,7 +138,7 @@ export const install = {
   options: [
     { id: "npm", label: "npm", command: "npm i -g @steamfield/forman" },
     { id: "bun", label: "bun", command: "bun add -g @steamfield/forman" },
-    { id: "npx", label: "npx", command: "npx @steamfield/forman doctor" },
+    { id: "npx", label: "npx", command: "npx @steamfield/forman" },
   ],
   requirements: [
     "macOS or Linux, on arm64 or x64",
