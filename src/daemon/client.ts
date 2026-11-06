@@ -34,7 +34,7 @@ const socketFailure = (socketPath: string, error: Socket.SocketError) => {
       detail: `Cannot connect to daemon socket ${socketPath}. Check the socket and directory permissions, then retry.`,
     });
   return new DaemonUnavailable({
-    detail: `Could not connect to daemon socket ${socketPath} (${Predicate.hasProperty(cause, "code") && typeof cause.code === "string" ? cause.code : error.reason._tag}). Check the socket, daemon process and FORMAN_HOME/logs/daemon.jsonl, then retry.`,
+    detail: `Could not connect to daemon socket ${socketPath} (${Predicate.hasProperty(cause, "code") && typeof cause.code === "string" ? cause.code : error.reason._tag}). Check the socket, daemon process and FOREMAN_HOME/logs/daemon.jsonl, then retry.`,
   });
 };
 
@@ -50,7 +50,7 @@ const spawn = Effect.fn("daemon.spawn")(
     const [executable, ...args] = host.executable;
     if (executable === undefined) {
       return yield* new DaemonUnavailable({
-        detail: "No executable configured to start the daemon; reinstall forman and retry.",
+        detail: "No executable configured to start the daemon; reinstall foreman and retry.",
       });
     }
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -61,7 +61,7 @@ const spawn = Effect.fn("daemon.spawn")(
             ChildProcess.make(executable, [...args, "daemon"], {
               cwd: dataDir,
               env: {
-                FORMAN_HOME: dataDir,
+                FOREMAN_HOME: dataDir,
                 ...(options.codexBin === undefined ? {} : { CODEX_BIN: options.codexBin }),
                 ...(options.codexHome === undefined ? {} : { CODEX_HOME: options.codexHome }),
                 ...(options.logFile === undefined
@@ -79,7 +79,7 @@ const spawn = Effect.fn("daemon.spawn")(
             Effect.mapError(
               () =>
                 new DaemonUnavailable({
-                  detail: `Could not spawn daemon executable ${JSON.stringify(executable)}. Check that it is executable or reinstall forman, then retry.`,
+                  detail: `Could not spawn daemon executable ${JSON.stringify(executable)}. Check that it is executable or reinstall foreman, then retry.`,
                 }),
             ),
           );
@@ -111,7 +111,7 @@ const validateSocketPath = (socketPath: string) =>
   new TextEncoder().encode(socketPath).length > 104
     ? Effect.fail(
         new DaemonUnavailable({
-          detail: `Socket path exceeds 104 bytes: ${socketPath}. Set FORMAN_HOME to a shorter absolute path.`,
+          detail: `Socket path exceeds 104 bytes: ${socketPath}. Set FOREMAN_HOME to a shorter absolute path.`,
         }),
       )
     : Effect.void;
@@ -140,7 +140,7 @@ const connect = Effect.fn("daemon.connect")(
         orElse: () =>
           Effect.fail(
             new DaemonUnavailable({
-              detail: `Daemon did not connect or start within ${options.startupTimeoutMs ?? 10_000} ms: ${socketPath}. Inspect FORMAN_HOME/logs/daemon.jsonl and the daemon process; the command was not sent.`,
+              detail: `Daemon did not connect or start within ${options.startupTimeoutMs ?? 10_000} ms: ${socketPath}. Inspect FOREMAN_HOME/logs/daemon.jsonl and the daemon process; the command was not sent.`,
             }),
           ),
       }),
@@ -150,13 +150,13 @@ const connect = Effect.fn("daemon.connect")(
 const connectionClosed = "Daemon connection closed during the request.";
 const closedRequest = (body: DaemonRequestBody) =>
   new DaemonUnavailable({
-    detail: `${connectionClosed} ${body._tag}${"name" in body && body.name !== undefined ? ` for run ${body.name}` : ""}: ${body._tag === "Ping" ? "the command was not sent" : "the request may have been accepted; confirm its state before retrying"}. Run forman doctor and inspect the daemon log.`,
+    detail: `${connectionClosed} ${body._tag}${"name" in body && body.name !== undefined ? ` for run ${body.name}` : ""}: ${body._tag === "Ping" ? "the command was not sent" : "the request may have been accepted; confirm its state before retrying"}. Run foreman doctor and inspect the daemon log.`,
   });
 
 // Diagnostics never launch or replace a daemon; only a missing/refused socket is absence.
 export const probe = Effect.fn("daemon.probe")(function* (dataDir: string) {
   const path = yield* Path.Path;
-  const socketPath = path.join(dataDir, "forman.sock");
+  const socketPath = path.join(dataDir, "foreman.sock");
   yield* validateSocketPath(socketPath);
   const opened = yield* open(socketPath).pipe(Effect.result);
   if (opened._tag === "Failure") {
@@ -181,7 +181,7 @@ const exchange = Effect.fn("daemon.exchange")(
         return Effect.fail(
           known ??
             new DaemonUnavailable({
-              detail: `Daemon returned an unrecognized error to ${body._tag}${"name" in body && body.name !== undefined ? ` for run ${body.name}` : ""}. ${body._tag === "Ping" ? "The command was not sent." : "The request may have been accepted; confirm its state before retrying."} Run forman doctor and inspect the daemon log.`,
+              detail: `Daemon returned an unrecognized error to ${body._tag}${"name" in body && body.name !== undefined ? ` for run ${body.name}` : ""}. ${body._tag === "Ping" ? "The command was not sent." : "The request may have been accepted; confirm its state before retrying."} Run foreman doctor and inspect the daemon log.`,
             }),
         );
       }),
@@ -199,7 +199,7 @@ const exchange = Effect.fn("daemon.exchange")(
       Effect.catchTag("SchemaError", () =>
         Effect.fail(
           new DaemonUnavailable({
-            detail: `Could not decode daemon reply to ${body._tag}${"name" in body && body.name !== undefined ? ` for run ${body.name}` : ""}. ${body._tag === "Ping" ? "The command was not sent." : "The request may have been accepted; confirm its state before retrying."} Run forman doctor and inspect the daemon log.`,
+            detail: `Could not decode daemon reply to ${body._tag}${"name" in body && body.name !== undefined ? ` for run ${body.name}` : ""}. ${body._tag === "Ping" ? "The command was not sent." : "The request may have been accepted; confirm its state before retrying."} Run foreman doctor and inspect the daemon log.`,
           }),
         ),
       ),
@@ -212,7 +212,7 @@ const exchange = Effect.fn("daemon.exchange")(
             orElse: () =>
               Effect.fail(
                 new DaemonUnavailable({
-                  detail: `${body._tag} reply timed out after 10 seconds. Inspect FORMAN_HOME/logs/daemon.jsonl and the daemon process; ${body._tag === "Shutdown" ? "shutdown may have been accepted. Confirm daemon state before retrying." : "the command was not sent."}`,
+                  detail: `${body._tag} reply timed out after 10 seconds. Inspect FOREMAN_HOME/logs/daemon.jsonl and the daemon process; ${body._tag === "Shutdown" ? "shutdown may have been accepted. Confirm daemon state before retrying." : "the command was not sent."}`,
                 }),
               ),
           }),
@@ -288,14 +288,14 @@ export const call = Effect.fn("daemon.call")(function* (
 ) {
   const path = yield* Path.Path;
   const host = yield* Host;
-  const socketPath = path.join(options.dataDir, "forman.sock");
+  const socketPath = path.join(options.dataDir, "foreman.sock");
   yield* validateSocketPath(socketPath);
   let connection = yield* connect(socketPath, options);
   const check = Effect.gen(function* () {
     const pong = yield* exchange({ _tag: "Ping" }, connection.socket, connection.reader);
     if (pong._tag !== "Pong")
       return yield* new DaemonUnavailable({
-        detail: `Daemon returned ${pong._tag} to Ping at ${socketPath}; the command was not sent. Run forman doctor and inspect the daemon log before retrying.`,
+        detail: `Daemon returned ${pong._tag} to Ping at ${socketPath}; the command was not sent. Run foreman doctor and inspect the daemon log before retrying.`,
       });
     // Diagnostics must inspect an old daemon without replacing or launching one.
     if (body._tag === "Ping" && options.connectOnly) return pong;
@@ -352,7 +352,7 @@ const stopConnected = Effect.fn("daemon.stopConnected")(
     const result = yield* exchange({ _tag: "Shutdown" }, socket, reader);
     if (result._tag !== "Ok")
       return yield* new DaemonUnavailable({
-        detail: `Daemon returned ${result._tag} to Shutdown at ${path.join(dataDir, "forman.sock")}; shutdown may have been accepted. Run forman doctor and inspect the daemon log before retrying.`,
+        detail: `Daemon returned ${result._tag} to Shutdown at ${path.join(dataDir, "foreman.sock")}; shutdown may have been accepted. Run foreman doctor and inspect the daemon log before retrying.`,
       });
     yield* Effect.gen(function* () {
       while (true) {
@@ -361,7 +361,7 @@ const stopConnected = Effect.fn("daemon.stopConnected")(
           .pipe(Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(null)));
         if (
           current === null &&
-          !(yield* fs.exists(path.join(dataDir, "forman.sock"))) &&
+          !(yield* fs.exists(path.join(dataDir, "foreman.sock"))) &&
           (yield* Effect.scoped(takeLock(dataDir)))
         )
           return;
@@ -382,7 +382,7 @@ const stopConnected = Effect.fn("daemon.stopConnected")(
         orElse: () =>
           Effect.fail(
             new DaemonUnavailable({
-              detail: `Daemon accepted shutdown but did not finish cleanup within 10 seconds in ${dataDir}. Run forman doctor and inspect the daemon process and ${path.join(dataDir, "logs/daemon.jsonl")} before retrying.`,
+              detail: `Daemon accepted shutdown but did not finish cleanup within 10 seconds in ${dataDir}. Run foreman doctor and inspect the daemon process and ${path.join(dataDir, "logs/daemon.jsonl")} before retrying.`,
             }),
           ),
       }),
@@ -394,7 +394,7 @@ const stopConnected = Effect.fn("daemon.stopConnected")(
       Effect.catchTag("PlatformError", (error) =>
         Effect.fail(
           new DaemonUnavailable({
-            detail: `Could not confirm daemon shutdown cleanup in ${dataDir}: ${error.reason.method} (${error.reason._tag})${"pathOrDescriptor" in error.reason ? `: ${error.reason.pathOrDescriptor}` : ""}. Run forman doctor and inspect the daemon process before retrying.`,
+            detail: `Could not confirm daemon shutdown cleanup in ${dataDir}: ${error.reason.method} (${error.reason._tag})${"pathOrDescriptor" in error.reason ? `: ${error.reason.pathOrDescriptor}` : ""}. Run foreman doctor and inspect the daemon process before retrying.`,
           }),
         ),
       ),
@@ -404,21 +404,21 @@ const stopConnected = Effect.fn("daemon.stopConnected")(
 // Only a missing/refused socket means there is no daemon. Other failures remain visible.
 export const shutdown = Effect.fn("daemon.shutdown")(function* (dataDir: string) {
   const path = yield* Path.Path;
-  yield* validateSocketPath(path.join(dataDir, "forman.sock"));
-  const opened = yield* Effect.result(open(path.join(dataDir, "forman.sock"))).pipe(
+  yield* validateSocketPath(path.join(dataDir, "foreman.sock"));
+  const opened = yield* Effect.result(open(path.join(dataDir, "foreman.sock"))).pipe(
     Effect.timeoutOrElse({
       duration: "10 seconds",
       orElse: () =>
         Effect.fail(
           new DaemonUnavailable({
-            detail: `Could not connect to daemon within 10 seconds: ${path.join(dataDir, "forman.sock")}. Inspect the daemon process and ${path.join(dataDir, "logs/daemon.jsonl")}; no Shutdown request was sent.`,
+            detail: `Could not connect to daemon within 10 seconds: ${path.join(dataDir, "foreman.sock")}. Inspect the daemon process and ${path.join(dataDir, "logs/daemon.jsonl")}; no Shutdown request was sent.`,
           }),
         ),
     }),
   );
   if (opened._tag === "Failure") {
     if (absent(opened.failure)) return false;
-    return yield* socketFailure(path.join(dataDir, "forman.sock"), opened.failure);
+    return yield* socketFailure(path.join(dataDir, "foreman.sock"), opened.failure);
   }
   return yield* stopConnected(dataDir, opened.success.socket, opened.success.reader);
 }, Effect.scoped);

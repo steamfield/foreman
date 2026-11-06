@@ -6,13 +6,13 @@ import { QuestionId, QuestionLine } from "../src/schemas/daemon";
 import { DoctorResult } from "../src/schemas/doctor";
 import { type Fixture, fixture } from "./helpers";
 
-const enabled = process.env.FORMAN_SMOKE === "1";
-const short = process.env.FORMAN_SMOKE_SHORT === "1";
-const long = process.env.FORMAN_SMOKE_LONG === "1";
-if (!enabled) console.log("Smoke tests skipped: enable with FORMAN_SMOKE=1 bun run smoke");
+const enabled = process.env.FOREMAN_SMOKE === "1";
+const short = process.env.FOREMAN_SMOKE_SHORT === "1";
+const long = process.env.FOREMAN_SMOKE_LONG === "1";
+if (!enabled) console.log("Smoke tests skipped: enable with FOREMAN_SMOKE=1 bun run smoke");
 if (!long && !short)
   console.log(
-    "Long question hold skipped: enable with FORMAN_SMOKE=1 FORMAN_SMOKE_LONG=1 bun run smoke",
+    "Long question hold skipped: enable with FOREMAN_SMOKE=1 FOREMAN_SMOKE_LONG=1 bun run smoke",
   );
 
 function smoke(name: string, body: (f: Fixture) => Promise<void>, hold = false) {
@@ -58,7 +58,7 @@ smoke("1 delegation wakes with hand-off, digest, result and archive", async (f) 
   expect(done).toContain("done        smoke turn 1");
   expect(done).toContain("DELEGATION-OK");
   expect(done).toContain("result.txt");
-  expect(done).toContain(`branch: forman/smoke`);
+  expect(done).toContain(`branch: foreman/smoke`);
   expect(await readFile(join(f.repo, ".claude/worktrees/smoke/result.txt"), "utf8")).toBe(
     "SMOKE-WRITE\n",
   );
@@ -235,7 +235,7 @@ smoke("6 budget expiry collects a read-only hand-off and restores write on follo
   ).toMatchObject({ sandboxPolicy: { type: "dangerFullAccess" } });
 });
 
-smoke("7 codex exec self-review runs inside a forman thread", async (f) => {
+smoke("7 codex exec self-review runs inside a foreman thread", async (f) => {
   const command =
     'codex exec --ephemeral --sandbox read-only -m gpt-6.1-sol -c model_reasoning_effort=low "Reply with exactly: REVIEW-OK"';
   const done = await f.until(

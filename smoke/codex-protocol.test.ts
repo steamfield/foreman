@@ -4,7 +4,7 @@ import { Effect } from "effect";
 import { checkProtocol, codexVersion } from "../src/codex/check";
 import { supportedCodex } from "../src/codex/protocol";
 
-test.skipIf(process.env.FORMAN_SMOKE !== "1")(
+test.skipIf(process.env.FOREMAN_SMOKE !== "1")(
   "matches the installed Codex protocol and version",
   async () => {
     const env = Object.fromEntries(

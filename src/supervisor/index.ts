@@ -42,16 +42,16 @@ const requestFailure = (
   if (error instanceof CodexUnavailable && "name" in body && body.name !== undefined) {
     const detail = error.detail ?? "Codex is unavailable";
     return new CodexUnavailable({
-      detail: `Run ${body.name}, Codex ${JSON.stringify(codexBin)}: ${detail}${detail.includes("forman doctor") ? "" : ". Run forman doctor and inspect the app-server log before retrying."}`,
+      detail: `Run ${body.name}, Codex ${JSON.stringify(codexBin)}: ${detail}${detail.includes("foreman doctor") ? "" : ". Run foreman doctor and inspect the app-server log before retrying."}`,
     });
   }
   if (error instanceof CodexRequestTimeout)
     return new CodexUnavailable({
-      detail: `${error.method} timed out after ${error.timeoutMs} ms${"name" in body && body.name !== undefined ? ` for run ${body.name}` : ""}. Run forman status and forman doctor before retrying.`,
+      detail: `${error.method} timed out after ${error.timeoutMs} ms${"name" in body && body.name !== undefined ? ` for run ${body.name}` : ""}. Run foreman status and foreman doctor before retrying.`,
     });
   if (error instanceof CodexRpcError)
     return new RunConflict({
-      detail: `Codex refused ${body._tag}${"name" in body && body.name !== undefined ? ` for run ${body.name}` : ""}; check the requested model and settings, then run forman status before retrying.`,
+      detail: `Codex refused ${body._tag}${"name" in body && body.name !== undefined ? ` for run ${body.name}` : ""}; check the requested model and settings, then run foreman status before retrying.`,
     });
   if (PlatformError.isPlatformError(error) && error.reason._tag === "PermissionDenied")
     return new PermissionDenied({
@@ -63,7 +63,7 @@ const requestFailure = (
     });
   if (Schema.isSchemaError(error))
     return new RunConflict({
-      detail: `Cannot decode ${run}; the records may be damaged or from a newer version. Preserve and inspect the run directory, and use a compatible forman version before retrying.`,
+      detail: `Cannot decode ${run}; the records may be damaged or from a newer version. Preserve and inspect the run directory, and use a compatible foreman version before retrying.`,
     });
   return failure(Cause.fail(error));
 };
@@ -231,7 +231,7 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
         const question = yield* questions.inspect(run, body.question);
         if (!question.open && question.pending[0])
           return yield* new RunConflict({
-            detail: `Cannot answer ${body.question} in run ${body.name} while ${question.pending[0].id} is pending. Use forman answer ${body.name} ${question.pending[0].id} "<answer>"; it can include this change.`,
+            detail: `Cannot answer ${body.question} in run ${body.name} while ${question.pending[0].id} is pending. Use foreman answer ${body.name} ${question.pending[0].id} "<answer>"; it can include this change.`,
           });
         if (question.open) {
           const accepted = yield* acceptedCursor(run);
@@ -303,7 +303,7 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
             const starting = [...registry.reservations.values()];
             if (active.length > 0 || starting.length > 0)
               return yield* new RunConflict({
-                detail: `Active runs: ${[...new Set([...active, ...starting])].join(", ")}. Wait for them to finish or interrupt their active turns, then retry forman daemon stop.`,
+                detail: `Active runs: ${[...new Set([...active, ...starting])].join(", ")}. Wait for them to finish or interrupt their active turns, then retry foreman daemon stop.`,
               });
             stopping = true;
             return { _tag: "Ok" as const };
@@ -392,7 +392,7 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
                 const question = yield* questions.inspect(run, body.question);
                 if (!question.open)
                   return yield* new RunConflict({
-                    detail: `${body.question} in run ${body.name} is ${question.state}; only a pending question can be deferred. Run forman status ${body.name} to see its questions.`,
+                    detail: `${body.question} in run ${body.name} is ${question.state}; only a pending question can be deferred. Run foreman status ${body.name} to see its questions.`,
                   });
                 yield* questions.resolve(
                   run,

@@ -21,7 +21,7 @@ const platform = Layer.mergeAll(
     listen: (path) => NodeSocketServer.make({ path }),
   }),
   Host.layer({
-    name: "forman",
+    name: "foreman",
     version: "test",
     build: "test",
     platform: "node",
@@ -46,7 +46,7 @@ describe("daemon file logging", () => {
       yield* fs.makeDirectory(`${home}/daemon.guard.sqlite`);
       const result = yield* Effect.promise(() =>
         runCli(["daemon", "--json"], {
-          env: { FORMAN_HOME: home, TEST_CLI_LOG_FILE: file },
+          env: { FOREMAN_HOME: home, TEST_CLI_LOG_FILE: file },
         }),
       );
       expect(result.status).toBe(4);
@@ -72,8 +72,8 @@ describe("daemon file logging", () => {
           AppLayer(
             {
               HOME: root,
-              FORMAN_HOME: `${root}/home`,
-              FORMAN_LOG_FILE: log,
+              FOREMAN_HOME: `${root}/home`,
+              FOREMAN_LOG_FILE: log,
             },
             false,
             async () => {},
@@ -102,7 +102,7 @@ describe("daemon file logging", () => {
         const fs = yield* FileSystem.FileSystem;
         const root = yield* fs.makeTempDirectoryScoped({ directory: "/tmp", prefix: "fm-fatal-" });
         const app = AppLayer(
-          { HOME: root, FORMAN_HOME: root },
+          { HOME: root, FOREMAN_HOME: root },
           false,
           async () => {},
           async () => {},
@@ -161,7 +161,7 @@ describe("daemon file logging", () => {
         if (kind === "platform") yield* fs.makeDirectory(questions);
         else yield* fs.writeFileString(questions, "PRIVATE_SECRET=do-not-record\n");
         const app = AppLayer(
-          { HOME: root, FORMAN_HOME: root },
+          { HOME: root, FOREMAN_HOME: root },
           false,
           async () => {},
           async () => {},
@@ -206,7 +206,7 @@ describe("daemon file logging", () => {
       yield* fs.makeDirectory(`${root}/runs/broken`, { recursive: true });
       yield* fs.writeFileString(`${root}/runs/broken/run.json`, "corrupt\n");
       const app = AppLayer(
-        { HOME: root, FORMAN_HOME: root },
+        { HOME: root, FOREMAN_HOME: root },
         false,
         async () => {},
         async () => {},
@@ -251,7 +251,7 @@ describe("daemon file logging", () => {
         const fs = yield* FileSystem.FileSystem;
         const root = yield* fs.makeTempDirectoryScoped({ directory: "/tmp", prefix: "fm-log-" });
         const app = AppLayer(
-          { HOME: root, FORMAN_HOME: root },
+          { HOME: root, FOREMAN_HOME: root },
           false,
           async () => {},
           async () => {},
@@ -306,7 +306,7 @@ describe("daemon file logging", () => {
       const fs = yield* FileSystem.FileSystem;
       const root = yield* fs.makeTempDirectoryScoped({ directory: "/tmp", prefix: "fm-log-" });
       const app = AppLayer(
-        { HOME: root, FORMAN_HOME: root },
+        { HOME: root, FOREMAN_HOME: root },
         false,
         async () => {},
         async () => {},

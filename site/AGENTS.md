@@ -1,9 +1,9 @@
-# forman site
+# foreman site
 
 ## Overview
 
-This separate Astro project serves forman's landing page at https://forman.steamfield.io.
-It is one page whose demos replay real forman recordings, plus the stack's MDX blog
+This separate Astro project serves foreman's landing page at https://foreman.steamfield.io.
+It is one page whose demos replay real foreman recordings, plus the stack's MDX blog
 pipeline under `/blog` (no published posts). Why the page is shaped this way:
 [docs/PRODUCT.md](docs/PRODUCT.md); the visual contract: [DESIGN.md](DESIGN.md).
 Use this directory's Makefile and Bun dependencies, independently of the CLI above it.
@@ -48,14 +48,14 @@ src/data/*.ts            pure build-time shaping per section: supervision (hero 
 src/components/landing/  primitives.tsx (Section, DataTable, CodeFrame, StateBadge) and
                          one component per section; console/ and session/ hold subparts
 src/components/Logo.astro the mark (also public/favicon.svg)
-src/lib/                 format.ts (forman's elapsed and token formats), analytics, events,
+src/lib/                 format.ts (foreman's elapsed and token formats), analytics, events,
                          blog publication rules
 src/scripts/site.ts      copy buttons, section_viewed tracking, scroll reveals
 src/styles/              global.css (tokens, DESIGN.md), sf-theme.css (--sf-* mapping)
 src/pages/blog/, src/content/  the stack's blog pipeline, unlinked
-fixtures/runs/           scrubbed forman run records (events, questions, contract, digest)
+fixtures/runs/           scrubbed foreman run records (events, questions, contract, digest)
 fixtures/cli/            scrubbed CLI transcripts: { command, output, exitCode }
-scripts/capture-*.mjs    write the fixtures from ~/.forman; review output before committing
+scripts/capture-*.mjs    write the fixtures from ~/.foreman; review output before committing
 tests/                   build, deploy, drift and llms.txt assertions
 e2e/                     Playwright and axe against the production build
 .stacks/                 recorded verification manifest (do not edit)
@@ -68,10 +68,10 @@ uses files. `/blog/` redirects to `/blog` on Pages.
 
 ### Recordings
 
-Demos replay recordings; never hand-write forman output or Codex events. Capture a run
+Demos replay recordings; never hand-write foreman output or Codex events. Capture a run
 with `node scripts/capture-runs.mjs <name>` (or `<name>:<transcript>` to take the digest
 from a saved `start --wait` transcript, which also works for archived runs) and CLI output
-with `node scripts/capture-cli.mjs <name> -- forman <args>`. Both scrub home paths, the
+with `node scripts/capture-cli.mjs <name> -- foreman <args>`. Both scrub home paths, the
 username, temp directories and the paths inside wait cursors. Capture a run's digest before
 committing its worktree: the digest's scope check reads the worktree's uncommitted files.
 Prose written for the page beside recorded output is labeled as written for the page.
@@ -128,7 +128,7 @@ build; empty host uses US cloud (`https://us.i.posthog.com`).
 
 `createConsentStore({ domain: "steamfield.io" })` and `mountConsentBanner` from
 `@steamfield/ui/consent` share one `sf-consent` cookie across the family of sites.
-The shared Steamfield PostHog project receives `site: "forman"` on every event
+The shared Steamfield PostHog project receives `site: "foreman"` on every event
 through `before_send`, including opt-in and pageview events. Consent uses
 `cookieless_mode: "on_reject"`: pending or declined means no PostHog persistence;
 Accept enables cookies, session recording and heatmaps. Withdrawal removes
@@ -146,7 +146,7 @@ send typed free text, emails or tokens. Queued calls are capped at 50.
 
 ## Deploy
 
-Cloudflare Pages project: `forman`, git integration mode, production branch `main`.
+Cloudflare Pages project: `foreman`, git integration mode, production branch `main`.
 Set root directory `site`, build command `make build`, output `dist`, and Bun as
 the package manager. Set `BUN_VERSION=1.4.2` and `NODE_VERSION=26.13.0` in Pages.
 Production follows `main`; enable branch previews in the Pages dashboard.
@@ -180,8 +180,8 @@ static social image. Generated per-post Open Graph images are off.
 
 ## Pending user actions
 
-- Connect the GitHub repository to the `forman` Pages project with the settings
-  above and attach `forman.steamfield.io`; confirm a preview and production deploy.
+- Connect the GitHub repository to the `foreman` Pages project with the settings
+  above and attach `foreman.steamfield.io`; confirm a preview and production deploy.
 - Set the shared Steamfield PostHog project key in Pages build environments and
   enable cookieless tracking in that project's settings.
 - For optional manual uploads, provide a Pages-edit API token scoped to the

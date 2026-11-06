@@ -25,7 +25,7 @@ describe("stdout and error contracts", () => {
     try {
       const result = await runCli(["status", "--json"], {
         home,
-        env: { FORMAN_HOME: join(parent, "data"), LOG_LEVEL: "none" },
+        env: { FOREMAN_HOME: join(parent, "data"), LOG_LEVEL: "none" },
       });
       expect(result.status).toBe(6);
       expect(result.stdout).toBe("");
@@ -55,7 +55,7 @@ describe("stdout and error contracts", () => {
   it.each([
     new CliError.DuplicateOption({
       option: "json",
-      parentCommand: "forman",
+      parentCommand: "foreman",
       childCommand: "status",
     }),
     new CliError.UserError({
@@ -88,7 +88,7 @@ describe("stdout and error contracts", () => {
     await writeFile(data, "file");
     const result = await runCli(["daemon", "stop", "--json"], {
       home,
-      env: { FORMAN_HOME: data, LOG_LEVEL: "none" },
+      env: { FOREMAN_HOME: data, LOG_LEVEL: "none" },
     });
     expect(result.status).toBe(4);
     expect(result.stdout).toBe("");
@@ -103,7 +103,7 @@ describe("stdout and error contracts", () => {
     await mkdir(file, { recursive: true });
     const result = await runCli(["status", "--json"], {
       home,
-      env: { FORMAN_HOME: data, LOG_LEVEL: "none" },
+      env: { FOREMAN_HOME: data, LOG_LEVEL: "none" },
     });
     expect(result.status).toBe(3);
     expect(result.stdout).toBe("");
@@ -118,7 +118,7 @@ describe("stdout and error contracts", () => {
     await mkdir(lock, { recursive: true });
     const result = await runCli(["daemon", "--json"], {
       home,
-      env: { FORMAN_HOME: data, LOG_LEVEL: "none" },
+      env: { FOREMAN_HOME: data, LOG_LEVEL: "none" },
     });
     expect(result.status).toBe(4);
     expect(result.stdout).toBe("");
@@ -130,21 +130,21 @@ describe("stdout and error contracts", () => {
     const data = join(home, "é".repeat(55));
     const result = await runCli(["daemon", "--json"], {
       home,
-      env: { FORMAN_HOME: data, LOG_LEVEL: "none" },
+      env: { FOREMAN_HOME: data, LOG_LEVEL: "none" },
     });
     expect(result.status).toBe(4);
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain(data);
     expect(result.stderr).toContain("shorter");
-    expect(result.stderr).toContain("FORMAN_HOME");
+    expect(result.stderr).toContain("FOREMAN_HOME");
   });
   it("names the daemon executable when spawning it fails", async () => {
     const home = await tempDir();
-    const executable = join(home, "missing-forman");
+    const executable = join(home, "missing-foreman");
     const result = await runCli(["status", "--json"], {
       home,
       executable: [executable],
-      env: { FORMAN_HOME: join(home, "data"), LOG_LEVEL: "none" },
+      env: { FOREMAN_HOME: join(home, "data"), LOG_LEVEL: "none" },
     });
     expect(result.status).toBe(4);
     expect(result.stdout).toBe("");
@@ -156,7 +156,7 @@ describe("stdout and error contracts", () => {
     const result = await runCli(["status", "--json"], {
       home,
       executable: [],
-      env: { FORMAN_HOME: join(home, "data"), LOG_LEVEL: "none" },
+      env: { FOREMAN_HOME: join(home, "data"), LOG_LEVEL: "none" },
     });
     expect(result.status).toBe(4);
     expect(result.stdout).toBe("");
@@ -168,11 +168,11 @@ describe("stdout and error contracts", () => {
     const data = join(home, "data");
     const result = await runCli(["status", "--json"], {
       home,
-      env: { FORMAN_HOME: data, LOG_LEVEL: "none" },
+      env: { FOREMAN_HOME: data, LOG_LEVEL: "none" },
     });
     expect(result.status).toBe(4);
     expect(result.stdout).toBe("");
-    expect(result.stderr).toContain(join(data, "forman.sock"));
+    expect(result.stderr).toContain(join(data, "foreman.sock"));
     expect(result.stderr).toContain("logs/daemon.jsonl");
     expect(result.stderr).toContain("not sent");
   }, 20000);
@@ -358,7 +358,7 @@ describe("stdout and error contracts", () => {
     })),
   )("help and version survive broken config %j", async ({ args }) => {
     const home = await tempDir();
-    const dir = join(home, ".forman");
+    const dir = join(home, ".foreman");
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, "config.json"), "broken");
     const result = await runCli(args, { home, env: { LOG_LEVEL: "none" } });

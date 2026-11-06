@@ -1,5 +1,5 @@
 ---
-// The forman mark: an ink tile, the lead (orange bar) over the delegate (paper square).
+// The foreman mark: an ink tile, the lead (orange bar) over the delegate (paper square).
 // Colors are literal so the same SVG works as the favicon (public/favicon.svg).
 interface Props {
   size?: number;
@@ -16,7 +16,7 @@ const { size = 24, class: className, wordmark = false } = Astro.props;
     viewBox="0 0 24 24"
     aria-hidden={wordmark ? "true" : undefined}
     role={wordmark ? undefined : "img"}
-    aria-label={wordmark ? undefined : "forman"}
+    aria-label={wordmark ? undefined : "foreman"}
   >
     <rect width="24" height="24" rx="4" fill="#111311"></rect>
     <rect x="5" y="5" width="14" height="3.5" rx="0.75" fill="#FF5B14"></rect>
@@ -31,7 +31,7 @@ const { size = 24, class: className, wordmark = false } = Astro.props;
   </svg>
   {wordmark && (
     <span class="font-display text-ink text-[1.15rem] leading-none">
-      forman
+      foreman
     </span>
   )}
 </span>

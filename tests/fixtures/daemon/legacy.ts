@@ -33,7 +33,7 @@ const server = createServer((socket) => {
     }
   });
 });
-server.listen(`${dataDir}/forman.sock`, () => {
+server.listen(`${dataDir}/foreman.sock`, () => {
   writeFile(`${dataDir}/ready`, "").catch((error: unknown) => {
     process.stderr.write(String(error));
     process.exitCode = 1;

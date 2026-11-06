@@ -1,7 +1,7 @@
 import { Effect, Option, Schema } from "effect";
 import { Argument, CliError, Command, Flag } from "effect/cli";
 import { durationMs } from "../core/command-input";
-import { formanExecutable, renderResult } from "../core/command-output";
+import { foremanExecutable, renderResult } from "../core/command-output";
 import * as programs from "../core/commands";
 import { redactDiagnosticText } from "../logging";
 import { EventLimit, EventSequence } from "../schemas/commands";
@@ -64,8 +64,8 @@ export const print = Effect.fnUntraced(function* <E, R>(
   const encoded = yield* Schema.encodeEffect(DaemonResult)(result).pipe(Effect.orDie);
   const executable =
     result._tag === "Started" || result._tag === "Events"
-      ? (yield* formanExecutable()).command
-      : "forman";
+      ? (yield* foremanExecutable()).command
+      : "foreman";
   yield* (yield* Output).result(
     encoded,
     renderResult(result, compact, executable, eventsName, verbose),

@@ -85,7 +85,7 @@ it.live.each([untrustedHooks, modifiedHooks])(
       );
       expect(
         error.detail?.endsWith(
-          `Open Codex in ${f.main}, run /hooks and approve these hooks (and trust the project if Codex asks). Then run forman doctor to check.`,
+          `Open Codex in ${f.main}, run /hooks and approve these hooks (and trust the project if Codex asks). Then run foreman doctor to check.`,
         ),
       ).toBe(true);
     }).pipe(Effect.provide(NodeServices.layer)),

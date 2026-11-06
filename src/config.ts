@@ -83,13 +83,13 @@ export class AppConfig extends Context.Service<
         const text = (key: string, fallback = "") =>
           read(Config.String(key).pipe(Config.withDefault(fallback))).pipe(Effect.orDie);
         const userHome = yield* text("HOME", ".");
-        const defaultHome = absolute(path.join(userHome, ".forman"));
-        const home = absolute(yield* text("FORMAN_HOME", defaultHome));
+        const defaultHome = absolute(path.join(userHome, ".foreman"));
+        const home = absolute(yield* text("FOREMAN_HOME", defaultHome));
         const configFile = path.join(home, "config.json");
         const environmentCodexBin = yield* text("CODEX_BIN");
         const codexHome = absolute(yield* text("CODEX_HOME", path.join(userHome, ".codex")));
         const launcherSetting = yield* read(
-          Config.schema(CodexBin, "FORMAN_LAUNCHER").pipe(Config.withDefault("")),
+          Config.schema(CodexBin, "FOREMAN_LAUNCHER").pipe(Config.withDefault("")),
         ).pipe(Effect.orDie);
         const launcher = launcherSetting === "" ? null : absolute(launcherSetting);
         const file = yield* Effect.cached(

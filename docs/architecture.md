@@ -1,8 +1,8 @@
-# forman 0.1.0 architecture
+# foreman 0.1.0 architecture
 
-forman keeps supervision in a local daemon so a coding turn can outlive the CLI call that started it. The daemon owns run state and one shared Codex app-server child. The CLI resolves inputs and renders results; it does not own the lifetime of a turn.
+foreman keeps supervision in a local daemon so a coding turn can outlive the CLI call that started it. The daemon owns run state and one shared Codex app-server child. The CLI resolves inputs and renders results; it does not own the lifetime of a turn.
 
-The [RFC](rfcs/0001-forman.md) records the original plan and build history. Contributor commands and area-specific rules live in [AGENTS.md](../AGENTS.md).
+The [RFC](rfcs/0001-foreman.md) records the original plan and build history. Contributor commands and area-specific rules live in [AGENTS.md](../AGENTS.md).
 
 ## Processes and request flow
 
@@ -12,7 +12,7 @@ sequenceDiagram
     participant D as Daemon
     participant S as Codex app-server
     participant R as Run directory
-    C->>D: Connect on FORMAN_HOME/forman.sock
+    C->>D: Connect on FOREMAN_HOME/foreman.sock
     C->>D: Ping, compare build
     C->>D: Start or supervision request
     D->>R: Validate, reserve, persist
@@ -24,7 +24,7 @@ sequenceDiagram
     D-->>C: Attention, digest, next command
 ```
 
-The socket protocol is newline-delimited JSON with request ids. `src/schemas/daemon.ts` defines requests, results and persisted run shapes. `src/schemas/codex.ts` describes the app-server messages forman consumes. Schema decoding at these boundaries keeps transport details out of command programs.
+The socket protocol is newline-delimited JSON with request ids. `src/schemas/daemon.ts` defines requests, results and persisted run shapes. `src/schemas/codex.ts` describes the app-server messages foreman consumes. Schema decoding at these boundaries keeps transport details out of command programs.
 
 `bin.ts` supplies Bun platform services and process writers. `main.ts` runs the command tree in `cli.ts`, maps errors to exit codes and renders output once. Handlers in `commands/` call `core/commands.ts`, which resolves paths and message files before calling the daemon client. Results go through Output; stdout contains one result, and diagnostics go to stderr. The same programs run under Node services in tests.
 
@@ -108,17 +108,17 @@ Hand-offs use the final-answer agent message, falling back to the last agent mes
 
 `ask_orchestrator` is a dynamic Codex tool. The supervisor stores the question, assigns `q1`, `q2`, and so on across the run, retains its originating connection and RPC id, and marks the run waiting. A pending answer responds on that same connection and records delivery before releasing the run lock. It cannot respond to an old RPC on a replacement connection.
 
-After the per-run question timeout (default 15 minutes), the tool receives deferral instructions. `defer` does this early, with an optional note. The instructions allow independent work and safe reversible defaults within the contract, require the decision under Open, and forbid an irreversible step on that decision. This is guidance to Codex; forman does not inspect the reasoning or enforce that choice. Deferred questions stay in `unansweredQuestions` until answered or superseded.
+After the per-run question timeout (default 15 minutes), the tool receives deferral instructions. `defer` does this early, with an optional note. The instructions allow independent work and safe reversible defaults within the contract, require the decision under Open, and forbid an irreversible step on that decision. This is guidance to Codex; foreman does not inspect the reasoning or enforce that choice. Deferred questions stay in `unansweredQuestions` until answered or superseded.
 
 `answer` inspects history to frame the message as a late answer or correction with the original question text. On a running turn it steers; a refused steer falls back to waiting for inactivity and starting a follow-up. During a budget hand-off it acknowledges queued delivery. Further answers join behind earlier ones, preserving order. An inactive answer starts a follow-up. If another question is pending, it must be answered first. Normal followup and steer supersede deferred questions; cancelled and superseded questions remain addressable by id.
 
 ### Repo hooks and execution limits
 
-Start checks the main checkout's `.codex/hooks.json`. When present, `hooks/list` for the linked worktree must return project hooks that are all trusted or managed, with no loading errors. Missing hooks fail closed too. forman relies on Codex's trust decision and never approves hooks itself.
+Start checks the main checkout's `.codex/hooks.json`. When present, `hooks/list` for the linked worktree must return project hooks that are all trusted or managed, with no loading errors. Missing hooks fail closed too. foreman relies on Codex's trust decision and never approves hooks itself.
 
 For each turn, the supervisor records whether a project hook has started. If required hooks have not run when any `item/started` identifies a `commandExecution`, it interrupts and records `repo hooks did not run`. This minimal check precedes full item decoding, so changed or missing command fields cannot bypass it. It confirms a project hook ran in the turn, not that every command ran every hook. Repo hooks still own their individual command policies.
 
-Read-only runs request a read-only sandbox with network disabled. Write runs request `dangerFullAccess`, with approval policy `never`. The app-server environment drops `CLAUDE_*`, `FORMAN_*`, `LOG_LEVEL`, `OPENAI_API_KEY`, `OPENAI_API_BASE` and `CODEX_API_KEY`, adds delegate markers, and probes SSH agent availability. Setup uses that same environment. Worktree isolation separates Git edits; it does not restrict a write run's access to the host.
+Read-only runs request a read-only sandbox with network disabled. Write runs request `dangerFullAccess`, with approval policy `never`. The app-server environment drops `CLAUDE_*`, `FOREMAN_*`, `LOG_LEVEL`, `OPENAI_API_KEY`, `OPENAI_API_BASE` and `CODEX_API_KEY`, adds delegate markers, and probes SSH agent availability. Setup uses that same environment. Worktree isolation separates Git edits; it does not restrict a write run's access to the host.
 
 ## Wait cursors and event pages
 
@@ -126,23 +126,23 @@ Wait reads normalized events for questions, completions and failed/lost transiti
 
 Cursors carry run identities and sequence positions, plus the group identity for continuations across repos. They are opaque to callers. Mutations capture their named-run cursor before dispatch so immediate outcomes remain visible. A queued answer cursor also tracks its continuation id and delivered turn, so `answer --wait` cannot mistake an earlier hand-off for the answer's completion. Explicit `wait --all` remains available for group supervision.
 
-Printed `next:` commands invoke the current executable and set `FORMAN_HOME` when it differs from the default. Question outcomes suggest answer, and offer defer only while pending. Ordinary continuations preserve the cursor and an explicit wait timeout.
+Printed `next:` commands invoke the current executable and set `FOREMAN_HOME` when it differs from the default. Question outcomes suggest answer, and offer defer only while pending. Ordinary continuations preserve the cursor and an explicit wait timeout.
 
 Event pages use numeric sequence positions, separate from wait cursors. The page limit counts stored events before text filtering. Default text omits Other and TokenUsage events; verbose text includes them. JSON always includes the full selected page. Raw traffic and normalized events serve different debugging needs; delta notifications are not all normalized into events.
 
 ## Worktrees and cleanup
 
-Managed starts create `<main>/.claude/worktrees/<name>` and `forman/<name>` at the caller's HEAD, or `--from`. They add a local Git exclude rule when needed. The branch is reserved before checkout, and rollback tracks directory and Git administration identities so it cannot remove a replacement worktree it did not create.
+Managed starts create `<main>/.claude/worktrees/<name>` and `foreman/<name>` at the caller's HEAD, or `--from`. They add a local Git exclude rule when needed. The branch is reserved before checkout, and rollback tracks directory and Git administration identities so it cannot remove a replacement worktree it did not create.
 
 Setup runs `/bin/sh -c` before validation and before a Codex request. Its default timeout is 10 minutes; an explicit start budget replaces that setup timeout and separately sets the first turn's budget. Setup failure reports its code and output tail. Rollback removes only owned, unchanged resources. It retains a worktree that holds work or whose turn start is unconfirmed, and reports the path and branch for inspection.
 
-Prepared worktrees must be their git root, inside and distinct from the main checkout. A `package.json` requires `node_modules/` or `.pnp.cjs` unless dependency checking is skipped. These checks catch a common delegation mistake, but do not verify that dependencies are current or that setup is correct for every language. Passed worktrees and branches are never removed by forman.
+Prepared worktrees must be their git root, inside and distinct from the main checkout. A `package.json` requires `node_modules/` or `.pnp.cjs` unless dependency checking is skipped. These checks catch a common delegation mistake, but do not verify that dependencies are current or that setup is correct for every language. Passed worktrees and branches are never removed by foreman.
 
 The digest scans files newer than `start-mark`, pruning build/cache directories, to report files written. It separately compares porcelain Git status to `baseline.txt` and checks dirty paths against backticked May change entries. Directory entries use prefixes, star entries use Effect globs, and literal paths accept suffix matches. These are review aids; scope reporting does not prevent out-of-scope writes and modification times are not an audit trail.
 
 Archive refuses active or queued-answer runs. For managed cleanup it requires the expected checked-out branch, no dirty or untracked files, and either no new commits or a tip merged into the recorded source ref. Git performs its own final dirty check; branch deletion uses an expected commit id to protect concurrent commits. `--keep-worktree` archives records while retaining work. Archive directories live under `runs/.archive/`; there is no command to delete them.
 
-Removed worktrees leave records readable with a warning and the last cached file fields, or uncomputed fields after daemon restart. Status and doctor report existing worktrees under `<main>/.claude/worktrees/` on `forman/*` branches when no current run record refers to them. This includes retained managed worktrees; worktrees elsewhere are not reported as orphans. Neither command automatically removes them.
+Removed worktrees leave records readable with a warning and the last cached file fields, or uncomputed fields after daemon restart. Status and doctor report existing worktrees under `<main>/.claude/worktrees/` on `foreman/*` branches when no current run record refers to them. This includes retained managed worktrees; worktrees elsewhere are not reported as orphans. Neither command automatically removes them.
 
 ## Verification boundaries
 

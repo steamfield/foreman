@@ -1,10 +1,10 @@
-# DESIGN.md: forman.steamfield.io
+# DESIGN.md: foreman.steamfield.io
 
 The visual contract for the site. Every value here is a token in `src/styles/global.css`; components use the tokens through Tailwind utilities, never raw hex. A new value goes here first.
 
 ## Direction
 
-A site office. forman's job is supervision: Claude writes a work order, a delegate does the work, and Claude signs it off. The page looks like the paperwork and the monitors of that office: pale drafting-paper surfaces, black ink, dark console screens showing what the delegate is doing, and one hi-vis orange that only appears where something needs a person (Claude or you).
+A site office. foreman's job is supervision: Claude writes a work order, a delegate does the work, and Claude signs it off. The page looks like the paperwork and the monitors of that office: pale drafting-paper surfaces, black ink, dark console screens showing what the delegate is doing, and one hi-vis orange that only appears where something needs a person (Claude or you).
 
 Precision and density over decoration. The page assumes a reader who lives in a terminal.
 
@@ -71,7 +71,7 @@ Radius 2px for chips and state badges, 4px for buttons and command boxes, 6px fo
 
 - The work order: the contract in the hand-off section is set on `card` with a perforated top edge (a dashed `line-strong` rule with two punched notches) and a stamped `May change` line. This motif appears once.
 - State badges: a 2px-radius chip, mono 12px uppercase-free, with a 6px square (not a dot) in the state color. `waiting` badges pulse their square once per 1.6s unless motion is off.
-- The mark: an ink tile with an orange bar across the top (the lead) over a paper square offset to the lower left (the delegate). Wordmark "forman" in Archivo 700, width 112, lowercase.
+- The mark: an ink tile with an orange bar across the top (the lead) over a paper square offset to the lower left (the delegate). Wordmark "foreman" in Archivo 700, width 112, lowercase.
 
 ## Motion
 

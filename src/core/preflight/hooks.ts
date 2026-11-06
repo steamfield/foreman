@@ -27,7 +27,7 @@ export const hasRepoHooks = Effect.fn("preflight.hasRepoHooks")(function* (mainC
 });
 
 export const hookTrustFix = (mainCheckout: string) =>
-  `Open Codex in ${mainCheckout}, run /hooks and approve these hooks (and trust the project if Codex asks). Then run forman doctor to check.`;
+  `Open Codex in ${mainCheckout}, run /hooks and approve these hooks (and trust the project if Codex asks). Then run foreman doctor to check.`;
 
 export const inspectHookTrust = Effect.fn("preflight.inspectHookTrust")(function* (
   connection: Connection,

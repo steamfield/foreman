@@ -115,7 +115,7 @@ export const createWorktree = Effect.fn("worktrees.create")(function* (
   const main = yield* mainCheckout(cwd);
   if (main === null) return yield* notGitRepository(cwd);
   const worktree = path.join(main, ".claude/worktrees", name);
-  const branch = `forman/${name}`;
+  const branch = `foreman/${name}`;
   if (yield* fs.exists(worktree))
     return yield* new WorktreeInvalid({
       detail: `Worktree path already exists: ${worktree}; leave it in place and choose another name.`,
@@ -127,11 +127,15 @@ export const createWorktree = Effect.fn("worktrees.create")(function* (
       ? source.stdout.trim()
       : baseCommit;
   // Check a child path because directory-only ignore patterns need the trailing slash.
-  const ignored = yield* gitResult(main, ["check-ignore", "-q", ".claude/worktrees/.forman-probe"]);
+  const ignored = yield* gitResult(main, [
+    "check-ignore",
+    "-q",
+    ".claude/worktrees/.foreman-probe",
+  ]);
   if (ignored.code !== 0 && ignored.code !== 1)
     return yield* gitError(
       main,
-      ["check-ignore", "-q", ".claude/worktrees/.forman-probe"],
+      ["check-ignore", "-q", ".claude/worktrees/.foreman-probe"],
       ignored,
     );
   if (ignored.code === 1) {
@@ -233,7 +237,7 @@ export const archiveWorktree = Effect.fn("worktrees.archive")(function* (record:
   const fs = yield* FileSystem.FileSystem;
   const conflict = (reason: string) =>
     new RunConflict({
-      detail: `${record.worktree} (${managed.branch}) holds ${reason}; keep it with: forman archive ${record.name} --keep-worktree`,
+      detail: `${record.worktree} (${managed.branch}) holds ${reason}; keep it with: foreman archive ${record.name} --keep-worktree`,
     });
   if (!(yield* fs.exists(record.worktree)))
     return yield* conflict("a missing worktree; inspect its branch before cleanup");
@@ -283,7 +287,9 @@ export const orphanWorktrees = Effect.fn("worktrees.orphans")(function* (
   for (const entry of listing.split("\0\0")) {
     const fields = entry.split("\0");
     const worktree = fields.find((field) => field.startsWith("worktree "))?.slice(9);
-    const branch = fields.find((field) => field.startsWith("branch refs/heads/forman/"))?.slice(18);
+    const branch = fields
+      .find((field) => field.startsWith("branch refs/heads/foreman/"))
+      ?.slice(18);
     if (!worktree || !branch || records.some((record) => record.worktree === worktree)) continue;
     const relative = path.relative(path.join(main, ".claude/worktrees"), worktree);
     if (

@@ -56,7 +56,7 @@ describe("daemon ownership regressions", () => {
     Effect.gen(function* () {
       const dataDir = yield* temp;
       const entered = yield* Deferred.make<void>();
-      const server = yield* NodeSocketServer.make({ path: `${dataDir}/forman.sock` });
+      const server = yield* NodeSocketServer.make({ path: `${dataDir}/foreman.sock` });
       yield* Effect.forkScoped(server.run(() => Effect.never));
       const observed = DaemonSockets.layer({
         connect: (path) =>
@@ -125,7 +125,7 @@ describe("daemon ownership regressions", () => {
             .exists(path)
             .pipe(
               Effect.tap((exists) =>
-                path === `${dataDir}/forman.sock` && !exists
+                path === `${dataDir}/foreman.sock` && !exists
                   ? Deferred.succeed(checked, undefined)
                   : Effect.void,
               ),
@@ -211,7 +211,7 @@ describe("daemon ownership regressions", () => {
       };
       const env = {
         HOME: root,
-        FORMAN_HOME: dataDir,
+        FOREMAN_HOME: dataDir,
         PATH: process.env.PATH ?? "",
         CODEX_BIN: new URL("./fixtures/fake-app-server/main.mjs", import.meta.url).pathname,
         FAKE_APP_SERVER_SCENARIO: `${root}/scenario.json`,
@@ -345,7 +345,7 @@ describe("daemon ownership regressions", () => {
       assert.isTrue(yield* fs.exists(`${dataDir}/daemon.lock`));
       const connection = yield* Effect.scoped(
         Effect.gen(function* () {
-          return yield* (yield* NodeSocket.makeNet({ path: `${dataDir}/forman.sock` })).reader;
+          return yield* (yield* NodeSocket.makeNet({ path: `${dataDir}/foreman.sock` })).reader;
         }),
       ).pipe(Effect.result);
       assert.strictEqual(connection._tag, "Failure");
@@ -366,7 +366,7 @@ describe("daemon ownership regressions", () => {
         const dataDir = yield* temp;
         const received = yield* Deferred.make<void>();
         const requests: string[] = [];
-        const server = yield* NodeSocketServer.make({ path: `${dataDir}/forman.sock` });
+        const server = yield* NodeSocketServer.make({ path: `${dataDir}/foreman.sock` });
         yield* Effect.forkScoped(
           server.run((socket) =>
             Effect.scoped(

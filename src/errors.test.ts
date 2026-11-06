@@ -29,7 +29,7 @@ it("maps every declared tag to its stable code and safe envelope", () => {
     expect(failure(Cause.fail(error))).toBeInstanceOf(Class);
   }
 });
-it("carries forman's own detail in both renderings", () => {
+it("carries foreman's own detail in both renderings", () => {
   const error = new WorktreeInvalid({
     detail: "/repo is the main checkout, not a linked worktree",
   });

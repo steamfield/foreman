@@ -73,7 +73,7 @@ const decodeCursor = Effect.fnUntraced(function* (cursor: Cursor | undefined) {
     catch: () =>
       new Usage({
         detail:
-          "Invalid --after cursor. Use a cursor from a previous forman command, or omit --after to start again.",
+          "Invalid --after cursor. Use a cursor from a previous foreman command, or omit --after to start again.",
       }),
   });
   const parsed = yield* Schema.decodeUnknownEffect(CursorJson)(text).pipe(
@@ -81,7 +81,7 @@ const decodeCursor = Effect.fnUntraced(function* (cursor: Cursor | undefined) {
       () =>
         new Usage({
           detail:
-            "Invalid --after cursor. Use a cursor from a previous forman command, or omit --after to start again.",
+            "Invalid --after cursor. Use a cursor from a previous foreman command, or omit --after to start again.",
         }),
     ),
   );
@@ -221,10 +221,10 @@ export const wait = Effect.fn("supervisor.wait")(function* (
       ...(skipped.length > 0 ? { skipped } : {}),
       cursor,
       next: target
-        ? `forman answer ${target.name} ${target.question.id} "<answer>"`
-        : `forman wait ${body.all ? "--all" : body.names.join(" ")} --after ${cursor}`,
+        ? `foreman answer ${target.name} ${target.question.id} "<answer>"`
+        : `foreman wait ${body.all ? "--all" : body.names.join(" ")} --after ${cursor}`,
       ...(target?.pending
-        ? { alternative: `forman defer ${target.name} ${target.question.id}` }
+        ? { alternative: `foreman defer ${target.name} ${target.question.id}` }
         : {}),
     };
   };

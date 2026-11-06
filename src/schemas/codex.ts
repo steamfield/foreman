@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 
-// The `codex app-server` messages forman sends and reads, for Codex 0.166.0 with the
-// experimental API. Only the fields forman uses are declared. Decoding ignores fields Codex
+// The `codex app-server` messages foreman sends and reads, for Codex 0.166.0 with the
+// experimental API. Only the fields foreman uses are declared. Decoding ignores fields Codex
 // adds; a field it removes fails decoding. src/codex/protocol.ts records the Codex version
 // and protocol schema these were written from.
 
@@ -36,7 +36,7 @@ export const Method = {
 } as const;
 
 // JSON-RPC 2.0 over JSON lines. A line with `method` and `id` is a server request, with
-// `method` alone a notification, with `id` alone a response to one of forman's requests.
+// `method` alone a notification, with `id` alone a response to one of foreman's requests.
 export const RpcId = Schema.Union([Schema.Number, Schema.String]);
 export type RpcId = typeof RpcId.Type;
 export const RpcError = Schema.Struct({
@@ -59,7 +59,7 @@ export const RpcServerRequest = Schema.Struct({
   params: Schema.optionalKey(Schema.Unknown),
 });
 
-// Requests forman sends.
+// Requests foreman sends.
 
 export const InitializeParams = Schema.Struct({
   clientInfo: Schema.Struct({ name: Schema.String, title: Schema.String, version: Schema.String }),
@@ -274,7 +274,7 @@ export const McpStartupNotification = Schema.Struct({
   error: Schema.NullOr(Schema.String),
 });
 
-// Server requests: item/tool/call is the only one forman answers successfully.
+// Server requests: item/tool/call is the only one foreman answers successfully.
 
 export const ToolCallParams = Schema.Struct({
   threadId: CodexThreadId,

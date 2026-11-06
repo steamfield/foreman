@@ -166,7 +166,7 @@ export function renderDigest(digest: Digest): string {
     `worktree:  ${digest.worktree}`,
     ...(digest.managedWorktree
       ? [
-          `branch:    ${digest.managedWorktree.branch} (forman-created, base ${digest.managedWorktree.baseCommit})`,
+          `branch:    ${digest.managedWorktree.branch} (foreman-created, base ${digest.managedWorktree.baseCommit})`,
         ]
       : []),
     `turn:      ${digest.turn}${digest.turnKind === null ? "" : ` (${digest.turnKind})`}`,

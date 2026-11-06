@@ -120,7 +120,7 @@ describe("actionable CLI diagnostics", () => {
     { content: '"PRIVATE_CONFIG_CONTENT"', diagnosis: "object" },
   ])("names the invalid config location safely: $diagnosis", async ({ content, diagnosis }) => {
     const home = await tempDir();
-    const directory = join(home, ".forman");
+    const directory = join(home, ".foreman");
     const file = join(directory, "config.json");
     await mkdir(directory);
     await writeFile(file, content);

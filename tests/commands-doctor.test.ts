@@ -26,7 +26,7 @@ const platform = Layer.mergeAll(
     listen: (path) => NodeSocketServer.make({ path }),
   }),
   Host.layer({
-    name: "forman",
+    name: "foreman",
     version: "test",
     build: "test",
     platform: "node",
@@ -37,7 +37,7 @@ const platform = Layer.mergeAll(
 );
 
 const settings = (home: string, codexBin: string) =>
-  AppConfig.layer({ HOME: home, FORMAN_HOME: home, CODEX_BIN: codexBin }).pipe(
+  AppConfig.layer({ HOME: home, FOREMAN_HOME: home, CODEX_BIN: codexBin }).pipe(
     Layer.provideMerge(platform),
   );
 
@@ -75,7 +75,13 @@ it.live("doctor lists clean and dirty managed orphan worktrees but excludes regi
       "initial",
     ]);
     for (const name of ["clean", "dirty", "registered"])
-      yield* git(["worktree", "add", "-qb", `forman/${name}`, `${repo}/.claude/worktrees/${name}`]);
+      yield* git([
+        "worktree",
+        "add",
+        "-qb",
+        `foreman/${name}`,
+        `${repo}/.claude/worktrees/${name}`,
+      ]);
     yield* fs.writeFileString(`${repo}/.claude/worktrees/dirty/result.txt`, "work");
     yield* fs.makeDirectory(`${root}/runs/registered`, { recursive: true });
     const record: unknown = JSON.parse(
@@ -94,8 +100,8 @@ it.live("doctor lists clean and dirty managed orphan worktrees but excludes regi
     const result = yield* doctor(repo).pipe(Effect.provide(settings(root, `${root}/missing`)));
     expect(result).toMatchObject({
       orphans: [
-        { path: `${repo}/.claude/worktrees/clean`, branch: "forman/clean", holdsWork: false },
-        { path: `${repo}/.claude/worktrees/dirty`, branch: "forman/dirty", holdsWork: true },
+        { path: `${repo}/.claude/worktrees/clean`, branch: "foreman/clean", holdsWork: false },
+        { path: `${repo}/.claude/worktrees/dirty`, branch: "foreman/dirty", holdsWork: true },
       ],
     });
   }).pipe(Effect.provide(platform)),
@@ -106,7 +112,7 @@ describe("bounded doctor diagnostics", () => {
     Effect.gen(function* () {
       const home = yield* temp();
       let connections = 0;
-      const server = yield* NodeSocketServer.make({ path: `${home}/forman.sock` });
+      const server = yield* NodeSocketServer.make({ path: `${home}/foreman.sock` });
       yield* Effect.forkScoped(
         server.run((socket) =>
           Effect.scoped(
@@ -156,7 +162,7 @@ describe("bounded doctor diagnostics", () => {
           const result = yield* Effect.promise(() =>
             runCli(["doctor", ...(json ? ["--json"] : [])], {
               home,
-              env: { FORMAN_HOME: home, LOG_LEVEL: "none" },
+              env: { FOREMAN_HOME: home, LOG_LEVEL: "none" },
             }),
           );
           expect(result).toMatchObject({ status: 0, stderr: "" });
@@ -186,7 +192,7 @@ describe("bounded doctor diagnostics", () => {
             );
           }
         }
-        if (mode === "absent") expect(yield* fs.exists(`${home}/forman.sock`)).toBe(false);
+        if (mode === "absent") expect(yield* fs.exists(`${home}/foreman.sock`)).toBe(false);
       }).pipe(Effect.provide(platform)),
   );
   it.live("never passes API credentials to doctor Codex probes", () =>
@@ -208,7 +214,7 @@ if (process.argv[2] === "app-server") fs.writeFileSync(process.argv.at(-1) + "/s
         Effect.provide(
           AppConfig.layer({
             HOME: home,
-            FORMAN_HOME: home,
+            FOREMAN_HOME: home,
             CODEX_BIN: bin,
             OPENAI_API_KEY: "must-not-pass",
             OPENAI_API_BASE: "must-not-pass",
@@ -224,12 +230,12 @@ if (process.argv[2] === "app-server") fs.writeFileSync(process.argv.at(-1) + "/s
     }).pipe(Effect.provide(platform)),
   );
   it.each(["same", "different", "absent"] as const)(
-    "reports whether forman on PATH is this executable: %s",
+    "reports whether foreman on PATH is this executable: %s",
     async (target) => {
       const home = await tempDir();
-      if (target === "same") await symlink(process.execPath, `${home}/forman`);
+      if (target === "same") await symlink(process.execPath, `${home}/foreman`);
       if (target === "different")
-        await writeFile(`${home}/forman`, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+        await writeFile(`${home}/foreman`, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
       for (const json of [false, true]) {
         const result = await runCli(["doctor", ...(json ? ["--json"] : [])], {
           home,
@@ -238,8 +244,9 @@ if (process.argv[2] === "app-server") fs.writeFileSync(process.argv.at(-1) + "/s
         expect(result.status).toBe(0);
         expect(result.stderr).toBe("");
         if (json)
-          expect(JSON.parse(result.stdout)).toMatchObject({ formanOnPath: target === "same" });
-        else expect(result.stdout).toContain(`forman on PATH is this binary: ${target === "same"}`);
+          expect(JSON.parse(result.stdout)).toMatchObject({ foremanOnPath: target === "same" });
+        else
+          expect(result.stdout).toContain(`foreman on PATH is this binary: ${target === "same"}`);
       }
     },
   );
@@ -261,7 +268,7 @@ if (process.env.CODEX_HOME !== ${JSON.stringify(`${home}/configured`)}) process.
         Effect.provide(
           AppConfig.layer({
             HOME: home,
-            FORMAN_HOME: home,
+            FOREMAN_HOME: home,
             CODEX_BIN: "fixture-codex",
             CODEX_HOME: `${home}/configured`,
             PATH: home,
@@ -320,7 +327,7 @@ if (probe === ${JSON.stringify(stalled)}) {
     Effect.gen(function* () {
       const home = yield* temp();
       const received = yield* Deferred.make<void>();
-      const server = yield* NodeSocketServer.make({ path: `${home}/forman.sock` });
+      const server = yield* NodeSocketServer.make({ path: `${home}/foreman.sock` });
       yield* Effect.forkScoped(
         server.run((socket) =>
           Effect.scoped(
@@ -358,7 +365,7 @@ it("reports a writable home owned by another user", async () => {
   expect((await stat(home)).uid).not.toBe(process.getuid?.());
   const result = await runCli(["doctor", "--json"], {
     home: root,
-    env: { FORMAN_HOME: home, LOG_LEVEL: "none" },
+    env: { FOREMAN_HOME: home, LOG_LEVEL: "none" },
   });
   expect(result.status).toBe(0);
   expect(JSON.parse(result.stdout)).toMatchObject({
@@ -373,13 +380,13 @@ it.live("reports an unreadable daemon socket as unavailable", () =>
   Effect.gen(function* () {
     const home = yield* temp();
     const fs = yield* FileSystem.FileSystem;
-    yield* NodeSocketServer.make({ path: `${home}/forman.sock` });
-    yield* fs.chmod(`${home}/forman.sock`, 0);
-    yield* Effect.addFinalizer(() => fs.chmod(`${home}/forman.sock`, 0o600).pipe(Effect.orDie));
+    yield* NodeSocketServer.make({ path: `${home}/foreman.sock` });
+    yield* fs.chmod(`${home}/foreman.sock`, 0);
+    yield* Effect.addFinalizer(() => fs.chmod(`${home}/foreman.sock`, 0o600).pipe(Effect.orDie));
     const result = yield* doctor(home).pipe(Effect.provide(settings(home, `${home}/missing`)));
     expect(result.daemon).toEqual({
       state: "unavailable",
-      detail: `Cannot connect to daemon socket ${home}/forman.sock. Check the socket and directory permissions, then retry.`,
+      detail: `Cannot connect to daemon socket ${home}/foreman.sock. Check the socket and directory permissions, then retry.`,
     });
   }).pipe(Effect.provide(platform)),
 );
@@ -399,7 +406,7 @@ it.each(["private", "public", "unwritable", "file", "missing", "blocked-parent"]
       for (const json of [false, true]) {
         const result = await runCli(["doctor", ...(json ? ["--json"] : [])], {
           home: root,
-          env: { FORMAN_HOME: home, LOG_LEVEL: "none" },
+          env: { FOREMAN_HOME: home, LOG_LEVEL: "none" },
         });
         expect(result).toMatchObject({ status: 0, stderr: "" });
         const state = {
@@ -437,7 +444,7 @@ it.each(["private", "public", "unwritable", "file", "missing", "blocked-parent"]
 it.live("reports a malformed daemon reply as unavailable in text and JSON", () =>
   Effect.gen(function* () {
     const home = yield* temp();
-    const server = yield* NodeSocketServer.make({ path: `${home}/forman.sock` });
+    const server = yield* NodeSocketServer.make({ path: `${home}/foreman.sock` });
     yield* Effect.forkScoped(
       server.run((socket) =>
         Effect.scoped(
@@ -455,7 +462,7 @@ it.live("reports a malformed daemon reply as unavailable in text and JSON", () =
       const result = yield* Effect.promise(() =>
         runCli(["doctor", ...(json ? ["--json"] : [])], {
           home,
-          env: { FORMAN_HOME: home, LOG_LEVEL: "none" },
+          env: { FOREMAN_HOME: home, LOG_LEVEL: "none" },
         }),
       );
       expect(result.status).toBe(0);
@@ -471,7 +478,7 @@ it.live("reports a malformed daemon reply as unavailable in text and JSON", () =
 it.live("reports an invalid daemon handshake and that the command was not sent", () =>
   Effect.gen(function* () {
     const home = yield* temp();
-    const server = yield* NodeSocketServer.make({ path: `${home}/forman.sock` });
+    const server = yield* NodeSocketServer.make({ path: `${home}/foreman.sock` });
     yield* Effect.forkScoped(
       server.run((socket) =>
         Effect.scoped(
@@ -485,20 +492,23 @@ it.live("reports an invalid daemon handshake and that the command was not sent",
       ),
     );
     const result = yield* Effect.promise(() =>
-      runCli(["status", "unit", "--json"], { home, env: { FORMAN_HOME: home, LOG_LEVEL: "none" } }),
+      runCli(["status", "unit", "--json"], {
+        home,
+        env: { FOREMAN_HOME: home, LOG_LEVEL: "none" },
+      }),
     );
     expect(result.status).toBe(4);
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain("Ping");
     expect(result.stderr).toContain("not sent");
-    expect(result.stderr).toContain("forman doctor");
+    expect(result.stderr).toContain("foreman doctor");
   }).pipe(Effect.provide(platform)),
 );
 
 it.live("reports an unexpected valid daemon handshake without sending the command", () =>
   Effect.gen(function* () {
     const home = yield* temp();
-    const server = yield* NodeSocketServer.make({ path: `${home}/forman.sock` });
+    const server = yield* NodeSocketServer.make({ path: `${home}/foreman.sock` });
     yield* Effect.forkScoped(
       server.run((socket) =>
         Effect.scoped(
@@ -513,21 +523,24 @@ it.live("reports an unexpected valid daemon handshake without sending the comman
       ),
     );
     const result = yield* Effect.promise(() =>
-      runCli(["status", "unit", "--json"], { home, env: { FORMAN_HOME: home, LOG_LEVEL: "none" } }),
+      runCli(["status", "unit", "--json"], {
+        home,
+        env: { FOREMAN_HOME: home, LOG_LEVEL: "none" },
+      }),
     );
     expect(result.status).toBe(4);
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain("Ping");
     expect(result.stderr).toContain("Ok");
     expect(result.stderr).toContain("not sent");
-    expect(result.stderr).toContain("forman doctor");
+    expect(result.stderr).toContain("foreman doctor");
   }).pipe(Effect.provide(platform)),
 );
 
 it.live("reports an unrecognized daemon error without exposing its detail", () =>
   Effect.gen(function* () {
     const home = yield* temp();
-    const server = yield* NodeSocketServer.make({ path: `${home}/forman.sock` });
+    const server = yield* NodeSocketServer.make({ path: `${home}/foreman.sock` });
     yield* Effect.forkScoped(
       server.run((socket) =>
         Effect.scoped(
@@ -542,13 +555,16 @@ it.live("reports an unrecognized daemon error without exposing its detail", () =
       ),
     );
     const result = yield* Effect.promise(() =>
-      runCli(["status", "unit", "--json"], { home, env: { FORMAN_HOME: home, LOG_LEVEL: "none" } }),
+      runCli(["status", "unit", "--json"], {
+        home,
+        env: { FOREMAN_HOME: home, LOG_LEVEL: "none" },
+      }),
     );
     expect(result.status).toBe(4);
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain("Ping");
     expect(result.stderr).toContain("not sent");
-    expect(result.stderr).toContain("forman doctor");
+    expect(result.stderr).toContain("foreman doctor");
     expect(result.stderr).not.toContain("private response");
   }).pipe(Effect.provide(platform)),
 );
@@ -558,7 +574,7 @@ it.live.each(["timeout", "unreadable"] as const)(
   (mode) =>
     Effect.gen(function* () {
       const home = yield* temp();
-      const server = yield* NodeSocketServer.make({ path: `${home}/forman.sock` });
+      const server = yield* NodeSocketServer.make({ path: `${home}/foreman.sock` });
       const fs = yield* FileSystem.FileSystem;
       yield* Effect.forkScoped(
         server.run((socket) =>
@@ -578,13 +594,13 @@ it.live.each(["timeout", "unreadable"] as const)(
       const result = yield* Effect.promise(() =>
         runCli(["daemon", "stop", "--json"], {
           home,
-          env: { FORMAN_HOME: home, LOG_LEVEL: "none" },
+          env: { FOREMAN_HOME: home, LOG_LEVEL: "none" },
         }),
       );
       expect(result.status).toBe(4);
       expect(result.stdout).toBe("");
       expect(result.stderr).toContain(home);
-      expect(result.stderr).toContain("forman doctor");
+      expect(result.stderr).toContain("foreman doctor");
       expect(result.stderr).toContain(mode === "timeout" ? "10 seconds" : "daemon.lock");
     }).pipe(Effect.provide(platform)),
 );
@@ -592,7 +608,7 @@ it.live.each(["timeout", "unreadable"] as const)(
 it.live("reports an unexpected valid shutdown reply and its uncertain state", () =>
   Effect.gen(function* () {
     const home = yield* temp();
-    const server = yield* NodeSocketServer.make({ path: `${home}/forman.sock` });
+    const server = yield* NodeSocketServer.make({ path: `${home}/foreman.sock` });
     yield* Effect.forkScoped(
       server.run((socket) =>
         Effect.scoped(
@@ -607,34 +623,40 @@ it.live("reports an unexpected valid shutdown reply and its uncertain state", ()
       ),
     );
     const result = yield* Effect.promise(() =>
-      runCli(["daemon", "stop", "--json"], { home, env: { FORMAN_HOME: home, LOG_LEVEL: "none" } }),
+      runCli(["daemon", "stop", "--json"], {
+        home,
+        env: { FOREMAN_HOME: home, LOG_LEVEL: "none" },
+      }),
     );
     expect(result.status).toBe(4);
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain("Shutdown");
     expect(result.stderr).toContain("Pong");
     expect(result.stderr).toContain("may have been accepted");
-    expect(result.stderr).toContain("forman doctor");
+    expect(result.stderr).toContain("foreman doctor");
   }).pipe(Effect.provide(platform)),
 );
 
 it.live("identifies a daemon socket permission failure in commands and doctor", () =>
   Effect.gen(function* () {
     const home = yield* temp();
-    const socket = `${home}/forman.sock`;
+    const socket = `${home}/foreman.sock`;
     yield* NodeSocketServer.make({ path: socket });
     const fs = yield* FileSystem.FileSystem;
     yield* fs.chmod(socket, 0);
     yield* Effect.addFinalizer(() => fs.chmod(socket, 0o700).pipe(Effect.orDie));
     const failed = yield* Effect.promise(() =>
-      runCli(["status", "unit", "--json"], { home, env: { FORMAN_HOME: home, LOG_LEVEL: "none" } }),
+      runCli(["status", "unit", "--json"], {
+        home,
+        env: { FOREMAN_HOME: home, LOG_LEVEL: "none" },
+      }),
     );
     expect(failed.status).toBe(6);
     expect(failed.stdout).toBe("");
     expect(failed.stderr).toContain(socket);
     expect(failed.stderr).toContain("permissions");
     const checked = yield* Effect.promise(() =>
-      runCli(["doctor", "--json"], { home, env: { FORMAN_HOME: home, LOG_LEVEL: "none" } }),
+      runCli(["doctor", "--json"], { home, env: { FOREMAN_HOME: home, LOG_LEVEL: "none" } }),
     );
     expect(checked.status).toBe(0);
     expect(checked.stderr).toBe("");
@@ -646,7 +668,7 @@ it.live("identifies a daemon socket permission failure in commands and doctor", 
 it.live("explains an uncertain request after the daemon connection closes", () =>
   Effect.gen(function* () {
     const home = yield* temp();
-    const server = yield* NodeSocketServer.make({ path: `${home}/forman.sock` });
+    const server = yield* NodeSocketServer.make({ path: `${home}/foreman.sock` });
     yield* Effect.forkScoped(
       server.run((socket) =>
         Effect.scoped(
@@ -664,13 +686,16 @@ it.live("explains an uncertain request after the daemon connection closes", () =
       ),
     );
     const result = yield* Effect.promise(() =>
-      runCli(["status", "unit", "--json"], { home, env: { FORMAN_HOME: home, LOG_LEVEL: "none" } }),
+      runCli(["status", "unit", "--json"], {
+        home,
+        env: { FOREMAN_HOME: home, LOG_LEVEL: "none" },
+      }),
     );
     expect(result.status).toBe(4);
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain("unit");
     expect(result.stderr).toContain("may have been accepted");
-    expect(result.stderr).toContain("forman doctor");
+    expect(result.stderr).toContain("foreman doctor");
   }).pipe(Effect.provide(platform)),
 );
 
@@ -678,10 +703,10 @@ it.each(["trusted", "untrusted", "none", "unknown"] as const)(
   "reports %s repo hooks through doctor text and JSON",
   async (trust) => {
     const expected = {
-      trusted: { state: "known", text: "forman start will accept runs here" },
-      untrusted: { state: "known", text: "forman start will refuse runs here" },
+      trusted: { state: "known", text: "foreman start will accept runs here" },
+      untrusted: { state: "known", text: "foreman start will refuse runs here" },
       none: { state: "not applicable", text: "no repo hooks apply" },
-      unknown: { state: "unknown", text: "forman start: unknown" },
+      unknown: { state: "unknown", text: "foreman start: unknown" },
     }[trust];
     const root = await tempDir();
     const repo = `${root}/repo`;
@@ -785,7 +810,7 @@ it.effect("bounds a stalled hooks/list probe and reports unknown", () =>
           AppConfig.layer({
             HOME: home,
             CODEX_BIN: fake,
-            FORMAN_HOME: home,
+            FOREMAN_HOME: home,
             PATH: `${dirname(process.execPath)}:/usr/bin:/bin`,
             FAKE_APP_SERVER_SCENARIO: `${home}/scenario.json`,
             FAKE_APP_SERVER_LOG: log,
@@ -821,7 +846,7 @@ it.each([false, true])("reports failed git discovery as unknown, json=%s", async
       expect(decoded.repoHooks.detail).toContain("exited");
       expect(decoded.repoHooks.detail).toContain("check Git and repository permissions");
     } else {
-      expect(result.stdout).toContain("forman start: unknown");
+      expect(result.stdout).toContain("foreman start: unknown");
       expect(result.stdout).toContain("git worktree list");
       expect(result.stdout).toContain("exited");
       expect(result.stdout).toContain("check Git and repository permissions");

@@ -8,7 +8,7 @@ export function appServerEnvironment(
     if (
       value === undefined ||
       key.startsWith("CLAUDE_") ||
-      key.startsWith("FORMAN_") ||
+      key.startsWith("FOREMAN_") ||
       key === "LOG_LEVEL" ||
       key === "OPENAI_API_KEY" ||
       key === "OPENAI_API_BASE" ||

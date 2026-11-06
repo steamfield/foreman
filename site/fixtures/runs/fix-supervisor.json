@@ -4,7 +4,7 @@
   "effort": "high",
   "tier": "priority",
   "write": true,
-  "branch": "forman/fix-supervisor",
+  "branch": "foreman/fix-supervisor",
   "baseCommit": "39aec16",
   "createdAt": "2026-11-06T03:39:39.491Z",
   "durationMs": 4230594,
@@ -14,7 +14,7 @@
     "output": 174784,
     "reasoningOutput": 121010
   },
-  "contract": "# Contract: release fixes, part B: supervisor state, persistence and recovery\n\n## Goal\n\nforman's first release is blocked on findings from three architecture reviews. This unit fixes the supervisor and the run store: B1, B2 (with C11 and O2, the same Unicode cursor bug), B5, C3, C5, C6, C7, C10, C13, O3, O5, O6, O7 and O8.\n\nNotes on the larger ones:\n\n- B1: an unreadable run directory must never be deleted by a later Start of that name; quarantine it by rename or refuse the name, and keep automatic deletion to identifiable unpublished staging directories.\n- B5: add an explicit storage format version to `run.json` and the JSONL records, decode supported versions, and refuse (without rewriting or appending) a run written by a newer, unsupported format. Version 1 is today's format; no migration code beyond reading version 1 and unversioned records as version 1.\n- C3: never release a worktree reservation while Codex may still be running in it. Reconcile or interrupt the turn; if termination can't be confirmed, retire that app-server connection before releasing.\n- C6 and C7: a pending question remembers the connection (generation) it arrived on and is answered only there; an accepted Answer completes its bookkeeping even if the CLI disconnects.\n- C10: a crash between `run.json` and its event must not lose a `wait` outcome; reconcile on startup.\n- O5 and O6: keep the reason an app-server connection ended and the context of background failures, log them once with run identities, and record a safe loss reason on each affected run. O5 needs the termination reason from `src/codex/client.ts`; you may change that file for this only.\n- O7 and O8: decide and implement a sanitisation policy for what's persisted from Codex (stderr, raw traffic, command output tails), make raw traffic capture bounded, bound the CLI log sink, stream event reads instead of decoding the whole history, and document archive retention and cleanup in the RFC (the docs unit later updates the README).\n\n## Scope\n\n- May change: `src/supervisor/` (except the daemon shutdown entry point in `index.ts`, which part A may touch; coordinate by keeping your changes to `index.ts` away from shutdown), `src/core/runs/`, `src/codex/client.ts` (termination reason only), `src/logging.ts`, `src/schemas/daemon.ts`, `tests/supervisor-*.test.ts`, `tests/run-*.test.ts`, `tests/daemon-logging.test.ts`, `tests/codex-client.test.ts`, `tests/config-logging.test.ts` (log sink bound only), `docs/rfcs/0001-forman.md` (Runs, Failure handling).\n- Owned by other units: `src/daemon/`, `src/commands/`, `src/core/managed-worktree.ts`, `src/core/process.ts`, `src/core/doctor.ts`, `src/core/command-output.ts`, `src/core/commands.ts`, `src/schemas/codex.ts`, `README.md`, `npm/`, `.github/`.\n\n## How to work\n\nThe findings are in `/tmp/scratch` (outside the repo; read it, don't copy it into a tracked file). Each finding has a location, a failure scenario and a proposed fix. The reviewers read the code carefully but could be wrong: confirm each finding against the code before fixing it, and if one is wrong, say so with evidence in the hand-off instead of changing code. If a proposed fix isn't the simplest conventional one, use the better fix and say why.\n\nRead first, in this repo: `AGENTS.md` (all of it, especially Testing and Error handling), `README.md`, `docs/rfcs/0001-forman.md`, the repo rules (`.claude/rules/effect.md`, `.claude/rules/src/cli.md`, `.claude/rules/src/effect-services.md`, `.claude/rules/src/typescript.md`, `.claude/rules/src/testing.md`, `.claude/rules/src/verification.md`) and the docs each one links, and `docs/guidance/effect/api.md`.\n\nThree other delegates fix other findings in parallel from the same `main` commit, each owning different files (see Scope). Stay inside yours; where a finding needs a file another unit owns, do your side, describe the other side precisely in the hand-off, and the orchestrator will reconcile at merge. Don't ask about this through `ask_orchestrator` unless you're actually blocked.\n\n## Acceptance\n\nReal services, processes, sockets and git repos with the fake app server; no real inference in `tests/` or `e2e/` (AGENTS.md \"Testing\"). Every finding you fix starts with a test that fails before the fix and passes after, revert-verified; concurrency findings need tests that force the interleaving deterministically (barriers, `TestClock`, fault injection), never sleeps. Run each new or changed test file at least three times, `bun run lint`, `bun run typecheck`, `bun run e2e`, and `bun run test` once at the end; report the counts. Don't run `bun run check`. If your area has a real-Codex path, run `FORMAN_SMOKE=1 FORMAN_SMOKE_SHORT=1 bun run smoke` once after building (a development check; credits are not a concern).\n\nQA as the first user of what you changed, with the built binary and a temporary `FORMAN_HOME`, reproducing each blocker's failure scenario before and after where you can. Fix the friction you find (a bug gets a regression test first).\n\n## Do not\n\n- commit or push (leave the changes for review)\n- disable a lint rule, weaken a test or add a cast to get green; split an over-complex function into named steps instead\n- add features, options, abstractions or mechanisms the findings don't need\n- remove any worktree, branch or run data that could hold work, in code or in tests outside temp directories\n- add real-Codex tests anywhere `bun run check`, git hooks or CI would run them\n- edit `~/.codex` config, hooks, trust or auth, or touch the real `~/.forman`\n- use `ask_orchestrator` for progress reports; use it only when blocked or when a decision is needed\n- mention any repository outside this one in a tracked file\n\n## Skills to apply\n\nThe `ce` skills and agents come from the Claude Code `claude-essentials` marketplace. Find the newest installed copy with:\n\n```bash\nce=$(ls -d \"$HOME\"/.claude/plugins/cache/*/ce/*/ | sort -V | tail -1)\n```\n\nRead each skill that applies and use it on this task; your hand-off says where it changed what you did.\n\n- `${ce}skills/writing-tests/SKILL.md`: for every test you write, before writing any. Where it and the repo's own testing rules differ, the repo wins. Also read its `references/waiting-typescript.md` for any test that waits on a process, socket, timer or file, and `references/flaky-tests.md` before you call a test done: run each new test file at least three times, and once in the full suite, since this repo has had tests that pass alone and fail under load. The hand-off's Checks section says which tests you wrote, what behaviour each pins down, and which failed before the fix.\n- `${ce}skills/architecting-systems/SKILL.md`, with its `references/structure.md`, `coupling.md`, `boundaries.md` and `concurrency.md`: before adding a module.\n- `${ce}skills/handling-errors/SKILL.md`: for any error handling you add.\n- `${ce}skills/effect/SKILL.md`: for all Effect code.\n- `.claude/skills/effect-development/SKILL.md` in this repo.\n\n## Review before hand-off\n\nOnce the acceptance checks pass, get one independent code review and fix what it finds. The reviewer is the `ce:code-reviewer` agent (`${ce}agents/code-reviewer.md`) extended by the repo's `.claude/agents/code-reviewer.md` when it exists. This repo's command guard refuses compound shell commands, so run the review as separate simple commands:\n\n1. `mktemp -d` and note the directory it prints, below `<review>`.\n2. Write `<review>/prompt.md` with your file-writing tool (not a shell heredoc), containing: the `ce:code-reviewer` agent body without its frontmatter; the repo reviewer's body if that file exists; then these lines: \"Skills: <ce>skills/architecting-systems/SKILL.md, <ce>skills/writing-tests/SKILL.md, <ce>skills/handling-errors/SKILL.md. The base branch is main; review the uncommitted work in <worktree>. Your sandbox is read-only, so don't run the tests; the author already ran the checks. The task's contract:\" followed by this contract's text, from `/tmp/scratch`.\n3. `codex exec --ephemeral --sandbox read-only -m gpt-6.1-sol -c model_reasoning_effort=high -c service_tier=priority -o <review>/review.md - < <review>/prompt.md`\n\nFix every finding in `review.md`, or say in the hand-off why a finding is wrong. A finding that is a bug gets a regression test in the repo before its fix, revert-verified. Then rerun the acceptance checks. One review pass only.\n\n## Hand-off\n\nYou're done when the review's findings are resolved and the acceptance checks pass, or when you're blocked. Leave everything uncommitted and end with this report as your final message; the orchestrator works from it, so be specific and name files and symbols.\n\n1. Summary: what you built, in two or three sentences.\n2. Files: each file created or changed, with one line on why.\n3. Decisions: choices the contract left open and why you made them; any deviation from the design or contract and the reason; where the skills changed your approach. Name every new mechanism you added and the acceptance test or contract line that needed it.\n4. Checks: each command you ran and its result (test counts, not just \"passed\"), and the QA: what you ran, what you judged and what you changed.\n5. Review: the review file's path, each finding in a line, and how you resolved it (fixed, or why not).\n6. Look closer at: the places most likely to be wrong.\n7. Open: what's left undone or blocked, and the questions you'd ask.\n",
+  "contract": "# Contract: release fixes, part B: supervisor state, persistence and recovery\n\n## Goal\n\nforeman's first release is blocked on findings from three architecture reviews. This unit fixes the supervisor and the run store: B1, B2 (with C11 and O2, the same Unicode cursor bug), B5, C3, C5, C6, C7, C10, C13, O3, O5, O6, O7 and O8.\n\nNotes on the larger ones:\n\n- B1: an unreadable run directory must never be deleted by a later Start of that name; quarantine it by rename or refuse the name, and keep automatic deletion to identifiable unpublished staging directories.\n- B5: add an explicit storage format version to `run.json` and the JSONL records, decode supported versions, and refuse (without rewriting or appending) a run written by a newer, unsupported format. Version 1 is today's format; no migration code beyond reading version 1 and unversioned records as version 1.\n- C3: never release a worktree reservation while Codex may still be running in it. Reconcile or interrupt the turn; if termination can't be confirmed, retire that app-server connection before releasing.\n- C6 and C7: a pending question remembers the connection (generation) it arrived on and is answered only there; an accepted Answer completes its bookkeeping even if the CLI disconnects.\n- C10: a crash between `run.json` and its event must not lose a `wait` outcome; reconcile on startup.\n- O5 and O6: keep the reason an app-server connection ended and the context of background failures, log them once with run identities, and record a safe loss reason on each affected run. O5 needs the termination reason from `src/codex/client.ts`; you may change that file for this only.\n- O7 and O8: decide and implement a sanitisation policy for what's persisted from Codex (stderr, raw traffic, command output tails), make raw traffic capture bounded, bound the CLI log sink, stream event reads instead of decoding the whole history, and document archive retention and cleanup in the RFC (the docs unit later updates the README).\n\n## Scope\n\n- May change: `src/supervisor/` (except the daemon shutdown entry point in `index.ts`, which part A may touch; coordinate by keeping your changes to `index.ts` away from shutdown), `src/core/runs/`, `src/codex/client.ts` (termination reason only), `src/logging.ts`, `src/schemas/daemon.ts`, `tests/supervisor-*.test.ts`, `tests/run-*.test.ts`, `tests/daemon-logging.test.ts`, `tests/codex-client.test.ts`, `tests/config-logging.test.ts` (log sink bound only), `docs/rfcs/0001-foreman.md` (Runs, Failure handling).\n- Owned by other units: `src/daemon/`, `src/commands/`, `src/core/managed-worktree.ts`, `src/core/process.ts`, `src/core/doctor.ts`, `src/core/command-output.ts`, `src/core/commands.ts`, `src/schemas/codex.ts`, `README.md`, `npm/`, `.github/`.\n\n## How to work\n\nThe findings are in `/tmp/scratch` (outside the repo; read it, don't copy it into a tracked file). Each finding has a location, a failure scenario and a proposed fix. The reviewers read the code carefully but could be wrong: confirm each finding against the code before fixing it, and if one is wrong, say so with evidence in the hand-off instead of changing code. If a proposed fix isn't the simplest conventional one, use the better fix and say why.\n\nRead first, in this repo: `AGENTS.md` (all of it, especially Testing and Error handling), `README.md`, `docs/rfcs/0001-foreman.md`, the repo rules (`.claude/rules/effect.md`, `.claude/rules/src/cli.md`, `.claude/rules/src/effect-services.md`, `.claude/rules/src/typescript.md`, `.claude/rules/src/testing.md`, `.claude/rules/src/verification.md`) and the docs each one links, and `docs/guidance/effect/api.md`.\n\nThree other delegates fix other findings in parallel from the same `main` commit, each owning different files (see Scope). Stay inside yours; where a finding needs a file another unit owns, do your side, describe the other side precisely in the hand-off, and the orchestrator will reconcile at merge. Don't ask about this through `ask_orchestrator` unless you're actually blocked.\n\n## Acceptance\n\nReal services, processes, sockets and git repos with the fake app server; no real inference in `tests/` or `e2e/` (AGENTS.md \"Testing\"). Every finding you fix starts with a test that fails before the fix and passes after, revert-verified; concurrency findings need tests that force the interleaving deterministically (barriers, `TestClock`, fault injection), never sleeps. Run each new or changed test file at least three times, `bun run lint`, `bun run typecheck`, `bun run e2e`, and `bun run test` once at the end; report the counts. Don't run `bun run check`. If your area has a real-Codex path, run `FOREMAN_SMOKE=1 FOREMAN_SMOKE_SHORT=1 bun run smoke` once after building (a development check; credits are not a concern).\n\nQA as the first user of what you changed, with the built binary and a temporary `FOREMAN_HOME`, reproducing each blocker's failure scenario before and after where you can. Fix the friction you find (a bug gets a regression test first).\n\n## Do not\n\n- commit or push (leave the changes for review)\n- disable a lint rule, weaken a test or add a cast to get green; split an over-complex function into named steps instead\n- add features, options, abstractions or mechanisms the findings don't need\n- remove any worktree, branch or run data that could hold work, in code or in tests outside temp directories\n- add real-Codex tests anywhere `bun run check`, git hooks or CI would run them\n- edit `~/.codex` config, hooks, trust or auth, or touch the real `~/.foreman`\n- use `ask_orchestrator` for progress reports; use it only when blocked or when a decision is needed\n- mention any repository outside this one in a tracked file\n\n## Skills to apply\n\nThe `ce` skills and agents come from the Claude Code `claude-essentials` marketplace. Find the newest installed copy with:\n\n```bash\nce=$(ls -d \"$HOME\"/.claude/plugins/cache/*/ce/*/ | sort -V | tail -1)\n```\n\nRead each skill that applies and use it on this task; your hand-off says where it changed what you did.\n\n- `${ce}skills/writing-tests/SKILL.md`: for every test you write, before writing any. Where it and the repo's own testing rules differ, the repo wins. Also read its `references/waiting-typescript.md` for any test that waits on a process, socket, timer or file, and `references/flaky-tests.md` before you call a test done: run each new test file at least three times, and once in the full suite, since this repo has had tests that pass alone and fail under load. The hand-off's Checks section says which tests you wrote, what behaviour each pins down, and which failed before the fix.\n- `${ce}skills/architecting-systems/SKILL.md`, with its `references/structure.md`, `coupling.md`, `boundaries.md` and `concurrency.md`: before adding a module.\n- `${ce}skills/handling-errors/SKILL.md`: for any error handling you add.\n- `${ce}skills/effect/SKILL.md`: for all Effect code.\n- `.claude/skills/effect-development/SKILL.md` in this repo.\n\n## Review before hand-off\n\nOnce the acceptance checks pass, get one independent code review and fix what it finds. The reviewer is the `ce:code-reviewer` agent (`${ce}agents/code-reviewer.md`) extended by the repo's `.claude/agents/code-reviewer.md` when it exists. This repo's command guard refuses compound shell commands, so run the review as separate simple commands:\n\n1. `mktemp -d` and note the directory it prints, below `<review>`.\n2. Write `<review>/prompt.md` with your file-writing tool (not a shell heredoc), containing: the `ce:code-reviewer` agent body without its frontmatter; the repo reviewer's body if that file exists; then these lines: \"Skills: <ce>skills/architecting-systems/SKILL.md, <ce>skills/writing-tests/SKILL.md, <ce>skills/handling-errors/SKILL.md. The base branch is main; review the uncommitted work in <worktree>. Your sandbox is read-only, so don't run the tests; the author already ran the checks. The task's contract:\" followed by this contract's text, from `/tmp/scratch`.\n3. `codex exec --ephemeral --sandbox read-only -m gpt-6.1-sol -c model_reasoning_effort=high -c service_tier=priority -o <review>/review.md - < <review>/prompt.md`\n\nFix every finding in `review.md`, or say in the hand-off why a finding is wrong. A finding that is a bug gets a regression test in the repo before its fix, revert-verified. Then rerun the acceptance checks. One review pass only.\n\n## Hand-off\n\nYou're done when the review's findings are resolved and the acceptance checks pass, or when you're blocked. Leave everything uncommitted and end with this report as your final message; the orchestrator works from it, so be specific and name files and symbols.\n\n1. Summary: what you built, in two or three sentences.\n2. Files: each file created or changed, with one line on why.\n3. Decisions: choices the contract left open and why you made them; any deviation from the design or contract and the reason; where the skills changed your approach. Name every new mechanism you added and the acceptance test or contract line that needed it.\n4. Checks: each command you ran and its result (test counts, not just \"passed\"), and the QA: what you ran, what you judged and what you changed.\n5. Review: the review file's path, each finding in a line, and how you resolved it (fixed, or why not).\n6. Look closer at: the places most likely to be wrong.\n7. Open: what's left undone or blocked, and the questions you'd ask.\n",
   "events": [
     {
       "seq": 1,
@@ -56,7 +56,7 @@
       "seq": 8,
       "t": 9789,
       "kind": "command",
-      "command": "cat AGENTS.md README.md docs/rfcs/0001-forman.md .claude/rules/effect.md .claude/rules/src/cli.md .claude/rules/src/effect-services.md .claude/rules/src/typescript.md .claude/rules/src/testing.md .claude/rules/src/verification.md docs/guidance/effect/api.md",
+      "command": "cat AGENTS.md README.md docs/rfcs/0001-foreman.md .claude/rules/effect.md .claude/rules/src/cli.md .claude/rules/src/effect-services.md .claude/rules/src/typescript.md .claude/rules/src/testing.md .claude/rules/src/verification.md docs/guidance/effect/api.md",
       "exitCode": 0,
       "output": "…dio({ name, version, protocols, registrations })`, `McpServer.layerHttp`, `registerToolkit`, `registerResource`, `registerPrompt`) and `Tool`/`Toolkit` for the planned MCP server. `effect/rpc` (`RpcGroup`, `RpcServer`, `RpcClient`, `RpcSerialization.jsonRpc`) could carry the daemon protocol. Both are marked unstable; verify against their declarations and add entries here when the code adopts them."
     },
@@ -386,7 +386,7 @@
       "seq": 167,
       "t": 237620,
       "kind": "command",
-      "command": "cat docs/guidance/effect-schema/index.md; sed -n '1,95p' docs/rfcs/0001-forman.md",
+      "command": "cat docs/guidance/effect-schema/index.md; sed -n '1,95p' docs/rfcs/0001-foreman.md",
       "exitCode": 0,
       "output": "\n## Runs\n\nA run is one Codex thread working in one worktree. Claude names it (`[a-z0-9][a-z0-9._-]{0,63}`) and uses the name everywhere; the thread id is recorded for resume."
     },
@@ -564,7 +564,7 @@
       "seq": 500,
       "t": 405379,
       "kind": "command",
-      "command": "sed -n '95,200p' docs/rfcs/0001-forman.md",
+      "command": "sed -n '95,200p' docs/rfcs/0001-foreman.md",
       "exitCode": 0,
       "output": "\nEvery thread registers one dynamic tool:\n\n```json"
     },
@@ -640,7 +640,7 @@
       "seq": 557,
       "t": 447133,
       "kind": "command",
-      "command": "rg -n '\"'^## Failure|''^## '\"' docs/rfcs/0001-forman.md",
+      "command": "rg -n '\"'^## Failure|''^## '\"' docs/rfcs/0001-foreman.md",
       "exitCode": 0,
       "output": "364:## Delegation plan\n376:## Deferred\n380:## Open questions\n385:## Deviations found while building"
     },
@@ -710,7 +710,7 @@
       "seq": 843,
       "t": 559671,
       "kind": "command",
-      "command": "sed -n '1605,1625p' tests/supervisor-integration.test.ts; sed -n '330,360p' tests/run-store.test.ts; sed -n '298,315p' docs/rfcs/0001-forman.md",
+      "command": "sed -n '1605,1625p' tests/supervisor-integration.test.ts; sed -n '330,360p' tests/run-store.test.ts; sed -n '298,315p' docs/rfcs/0001-foreman.md",
       "exitCode": 0,
       "output": "| A message fails to decode | Logged and recorded. `turn/started` and `turn/completed` fall back to a minimal decode of `threadId`, `turn.id` and `turn.status`, so a schema change can't leave a run `running` forever |\n| Unknown notification or item type | Recorded as a generic event |\n\n## Errors"
     },
@@ -752,7 +752,7 @@
       "seq": 856,
       "t": 585857,
       "kind": "files",
-      "paths": ["docs/rfcs/0001-forman.md"]
+      "paths": ["docs/rfcs/0001-foreman.md"]
     },
     {
       "seq": 859,
@@ -892,7 +892,7 @@
       "kind": "command",
       "command": "pgrep -fl vitest",
       "exitCode": 0,
-      "output": "….ts tests/daemon-logging.test.ts\n94357 ~/.local/share/mise/installs/node/26.13.0/bin/node --experimental-import-meta-resolve --require ~/src/forman/.claude/worktrees/fix-daemon/node_modules/vitest/suppress-warnings.cjs --conditions node --conditions development ~/src/forman/.claude/worktrees/fix-daemon/node_modules/vitest/dist/workers/forks.js"
+      "output": "….ts tests/daemon-logging.test.ts\n94357 ~/.local/share/mise/installs/node/26.13.0/bin/node --experimental-import-meta-resolve --require ~/src/foreman/.claude/worktrees/fix-daemon/node_modules/vitest/suppress-warnings.cjs --conditions node --conditions development ~/src/foreman/.claude/worktrees/fix-daemon/node_modules/vitest/dist/workers/forks.js"
     },
     {
       "seq": 996,
@@ -962,7 +962,7 @@
       "seq": 1014,
       "t": 772124,
       "kind": "files",
-      "paths": ["docs/rfcs/0001-forman.md"]
+      "paths": ["docs/rfcs/0001-foreman.md"]
     },
     {
       "seq": 1089,
@@ -1128,15 +1128,15 @@
       "seq": 1203,
       "t": 909979,
       "kind": "command",
-      "command": "python3 -c 'from pathlib import Path; import subprocess,tempfile,shutil,json; root=Path.cwd(); out=Path(tempfile.mkdtemp(prefix=\\\"forman-b-revert-\\\",dir=\\\"/tmp\\\")); files=subprocess.check_output([\\\"git\\\",\\\"diff\\\",\\\"--name-only\\\",\\\"--\\\",\\\"src\\\"],text=True).splitlines(); saved={f:(root/f).read_bytes() for f in files}; (out/\\\"files.json\\\").write_text(json.dumps(files)); print(out,flush=True)\ntry:\n for f in files:\n  target=out/\\\"fixed\\\"/f; target.parent.mkdir(parents=True,exist_ok=True); target.write_bytes(saved[f]); (root/f).write_bytes(subprocess.check_output([\\\"git\\\",\\\"show\\\",f\\\"HEAD:{f}\\\"]))\n with (out/\\\"baseline-build.log\\\").open(\\\"w\\\") as log: result=subprocess.run([\\\"bun\\\",\\\"run\\\",\\\"build\\\"],stdout=log,stderr=subprocess.STDOUT,timeout=120)\n print(\\\"baseline build\\\",result.returncode,flush=True)\n if result.returncode==0: shutil.copy2(root/\\\"dist/forman\\\",out/\\\"forman-before\\\")\n with (out/\\\"regressions-before.log\\\").open(\\\"w\\\") as log: result=subprocess.run([\\\"bun\\\",\\\"run\\\",\\\"test:unit\\\",\\\"tests/run-store.test.ts\\\",\\\"tests/config-logging.test.ts\\\",\\\"tests/codex-client.test.ts\\\",\\\"tests/supervisor-integration.test.ts\\\",\\\"-t\\\",\\\"release|version 1|future .* format|publishes hand|pages committed|omits untrusted|bounds diagnostic|rotates a full|replaces an oversized|preserves a connection exit\\\"],stdout=log,stderr=subprocess.STDOUT,timeout=120)\n print(\\\"baseline regressions\\\",result.returncode,flush=True)\nfinally:\n for f,data in saved.items(): (root/f).write_bytes(data)\n print(\\\"restored all changed source files\\\",flush=True)\n'",
+      "command": "python3 -c 'from pathlib import Path; import subprocess,tempfile,shutil,json; root=Path.cwd(); out=Path(tempfile.mkdtemp(prefix=\\\"foreman-b-revert-\\\",dir=\\\"/tmp\\\")); files=subprocess.check_output([\\\"git\\\",\\\"diff\\\",\\\"--name-only\\\",\\\"--\\\",\\\"src\\\"],text=True).splitlines(); saved={f:(root/f).read_bytes() for f in files}; (out/\\\"files.json\\\").write_text(json.dumps(files)); print(out,flush=True)\ntry:\n for f in files:\n  target=out/\\\"fixed\\\"/f; target.parent.mkdir(parents=True,exist_ok=True); target.write_bytes(saved[f]); (root/f).write_bytes(subprocess.check_output([\\\"git\\\",\\\"show\\\",f\\\"HEAD:{f}\\\"]))\n with (out/\\\"baseline-build.log\\\").open(\\\"w\\\") as log: result=subprocess.run([\\\"bun\\\",\\\"run\\\",\\\"build\\\"],stdout=log,stderr=subprocess.STDOUT,timeout=120)\n print(\\\"baseline build\\\",result.returncode,flush=True)\n if result.returncode==0: shutil.copy2(root/\\\"dist/foreman\\\",out/\\\"foreman-before\\\")\n with (out/\\\"regressions-before.log\\\").open(\\\"w\\\") as log: result=subprocess.run([\\\"bun\\\",\\\"run\\\",\\\"test:unit\\\",\\\"tests/run-store.test.ts\\\",\\\"tests/config-logging.test.ts\\\",\\\"tests/codex-client.test.ts\\\",\\\"tests/supervisor-integration.test.ts\\\",\\\"-t\\\",\\\"release|version 1|future .* format|publishes hand|pages committed|omits untrusted|bounds diagnostic|rotates a full|replaces an oversized|preserves a connection exit\\\"],stdout=log,stderr=subprocess.STDOUT,timeout=120)\n print(\\\"baseline regressions\\\",result.returncode,flush=True)\nfinally:\n for f,data in saved.items(): (root/f).write_bytes(data)\n print(\\\"restored all changed source files\\\",flush=True)\n'",
       "exitCode": 0,
-      "output": "/tmp/forman-b-revert-e7gjxev7\nbaseline build 0\nbaseline regressions 1\nrestored all changed source files"
+      "output": "/tmp/foreman-b-revert-e7gjxev7\nbaseline build 0\nbaseline regressions 1\nrestored all changed source files"
     },
     {
       "seq": 1205,
       "t": 912500,
       "kind": "command",
-      "command": "tail -35 /tmp/forman-b-revert-e7gjxev7/regressions-before.log",
+      "command": "tail -35 /tmp/foreman-b-revert-e7gjxev7/regressions-before.log",
       "exitCode": 0,
       "output": "   Start at  21:54:43\n   Duration  5.80s (tests 79%, import 20%, transform 1%)\n\nerror: script \"test:unit\" exited with code 1"
     },
@@ -1184,7 +1184,7 @@
       "seq": 1239,
       "t": 938555,
       "kind": "command",
-      "command": "bun run e2e > /tmp/forman-b-revert-e7gjxev7/e2e.log 2>&1",
+      "command": "bun run e2e > /tmp/foreman-b-revert-e7gjxev7/e2e.log 2>&1",
       "exitCode": 0,
       "output": ""
     },
@@ -1192,7 +1192,7 @@
       "seq": 1241,
       "t": 957918,
       "kind": "command",
-      "command": "tail -10 /tmp/forman-b-revert-e7gjxev7/e2e.log",
+      "command": "tail -10 /tmp/foreman-b-revert-e7gjxev7/e2e.log",
       "exitCode": 0,
       "output": " 8 pass\n 0 fail\n 169 expect() calls\nRan 8 tests across 1 file. [17.34s]"
     },
@@ -1200,7 +1200,7 @@
       "seq": 1242,
       "t": 958035,
       "kind": "command",
-      "command": "tail -8 /tmp/forman-b-revert-e7gjxev7/repeat1.log",
+      "command": "tail -8 /tmp/foreman-b-revert-e7gjxev7/repeat1.log",
       "exitCode": 0,
       "output": "    failure: { message: 'Supervisor operation failed (PlatformError: open)' }\n  },\n  [cause]: undefined\n}"
     },
@@ -1208,15 +1208,15 @@
       "seq": 1244,
       "t": 958297,
       "kind": "command",
-      "command": "./dist/forman --version",
+      "command": "./dist/foreman --version",
       "exitCode": 0,
-      "output": "forman v0.1.0"
+      "output": "foreman v0.1.0"
     },
     {
       "seq": 1248,
       "t": 966502,
       "kind": "command",
-      "command": "rg -n 'FAIL|failed|Test Files|Tests|Duration' /tmp/forman-b-revert-e7gjxev7/repeat1.log",
+      "command": "rg -n 'FAIL|failed|Test Files|Tests|Duration' /tmp/foreman-b-revert-e7gjxev7/repeat1.log",
       "exitCode": 0,
       "output": "76:    failure: { message: 'Supervisor operation failed (PlatformError: open)' }\n85:[21:55:25.128] ERROR (#52716): supervisor.run.failed {\n113:      message: 'Supervisor operation failed (PlatformError: writeFile)'\n118:    failure: { message: 'Supervisor operation failed (PlatformError: open)' }"
     },
@@ -1230,13 +1230,13 @@
       "seq": 1254,
       "t": 996348,
       "kind": "files",
-      "paths": ["/tmp/forman-b-revert-e7gjxev7/qa.py"]
+      "paths": ["/tmp/foreman-b-revert-e7gjxev7/qa.py"]
     },
     {
       "seq": 1261,
       "t": 997946,
       "kind": "command",
-      "command": "python3 /tmp/forman-b-revert-e7gjxev7/qa.py",
+      "command": "python3 /tmp/foreman-b-revert-e7gjxev7/qa.py",
       "exitCode": 1,
       "output": "  File \"~/.local/share/mise/installs/python/3.13.16/lib/python3.13/pathlib/_local.py\", line 537, in open\n    return io.open(self, mode, buffering, encoding, errors, newline)\n           ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nFileNotFoundError: [Errno 2] No such file or directory: '/tmp/fm-bq-8lj23_ir/d/runs/damaged/last-message.md'"
     },
@@ -1244,7 +1244,7 @@
       "seq": 1262,
       "t": 1004481,
       "kind": "command",
-      "command": "bun run test:unit tests/run-store.test.ts tests/config-logging.test.ts tests/codex-client.test.ts tests/supervisor-integration.test.ts > /tmp/forman-b-revert-e7gjxev7/repeat1.log 2>&1",
+      "command": "bun run test:unit tests/run-store.test.ts tests/config-logging.test.ts tests/codex-client.test.ts tests/supervisor-integration.test.ts > /tmp/foreman-b-revert-e7gjxev7/repeat1.log 2>&1",
       "exitCode": 1,
       "output": ""
     },
@@ -1252,7 +1252,7 @@
       "seq": 1264,
       "t": 1038539,
       "kind": "command",
-      "command": "python3 -c 'from pathlib import Path; p=Path(\\\"/tmp/forman-b-revert-e7gjxev7/qa.py\\\"); s=p.read_text().replace(\\\"def fixture(binary, label):\\\", \\\"def fixture(binary, label, codex=FAKE):\\\").replace(\\\"str(FAKE), \\\\x27PATH\\\\x27\\\", \\\"str(codex), \\\\x27PATH\\\\x27\\\").replace(\\\"text=True, timeout=20\\\", \\\"text=True, timeout=400\\\"); a=s.index(\\\"\\\\nresults = []\\\"); s=s[:a]+\\\"\\\\ndef main():\\\\n\\\"+\\\"\\\\n\\\".join(\\\"    \\\"+line if line else \\\"\\\" for line in s[a+1:].splitlines())+\\\"\\\\n\\\\nif __name__ == \\\\x27__main__\\\\x27:\\\\n    main()\\\\n\\\"; p.write_text(s)'",
+      "command": "python3 -c 'from pathlib import Path; p=Path(\\\"/tmp/foreman-b-revert-e7gjxev7/qa.py\\\"); s=p.read_text().replace(\\\"def fixture(binary, label):\\\", \\\"def fixture(binary, label, codex=FAKE):\\\").replace(\\\"str(FAKE), \\\\x27PATH\\\\x27\\\", \\\"str(codex), \\\\x27PATH\\\\x27\\\").replace(\\\"text=True, timeout=20\\\", \\\"text=True, timeout=400\\\"); a=s.index(\\\"\\\\nresults = []\\\"); s=s[:a]+\\\"\\\\ndef main():\\\\n\\\"+\\\"\\\\n\\\".join(\\\"    \\\"+line if line else \\\"\\\" for line in s[a+1:].splitlines())+\\\"\\\\n\\\\nif __name__ == \\\\x27__main__\\\\x27:\\\\n    main()\\\\n\\\"; p.write_text(s)'",
       "exitCode": 0,
       "output": ""
     },
@@ -1260,13 +1260,13 @@
       "seq": 1265,
       "t": 1038650,
       "kind": "files",
-      "paths": ["/tmp/forman-b-revert-e7gjxev7/qa-unknown.py"]
+      "paths": ["/tmp/foreman-b-revert-e7gjxev7/qa-unknown.py"]
     },
     {
       "seq": 1270,
       "t": 1047298,
       "kind": "command",
-      "command": "python3 -c 'from pathlib import Path; p=Path(\\\"/tmp/forman-b-revert-e7gjxev7/qa.py\\\"); s=p.read_text().replace(\\\"(damaged / \\\\x27last-message.md\\\\x27).read_text() == \\\\x27irreplaceable work\\\\x27\\\", \\\"(damaged / \\\\x27last-message.md\\\\x27).exists() and (damaged / \\\\x27last-message.md\\\\x27).read_text() == \\\\x27irreplaceable work\\\\x27\\\"); p.write_text(s)'",
+      "command": "python3 -c 'from pathlib import Path; p=Path(\\\"/tmp/foreman-b-revert-e7gjxev7/qa.py\\\"); s=p.read_text().replace(\\\"(damaged / \\\\x27last-message.md\\\\x27).read_text() == \\\\x27irreplaceable work\\\\x27\\\", \\\"(damaged / \\\\x27last-message.md\\\\x27).exists() and (damaged / \\\\x27last-message.md\\\\x27).read_text() == \\\\x27irreplaceable work\\\\x27\\\"); p.write_text(s)'",
       "exitCode": 0,
       "output": ""
     },
@@ -1274,7 +1274,7 @@
       "seq": 1271,
       "t": 1048589,
       "kind": "command",
-      "command": "tail -14 /tmp/forman-b-revert-e7gjxev7/repeat1.log",
+      "command": "tail -14 /tmp/foreman-b-revert-e7gjxev7/repeat1.log",
       "exitCode": 0,
       "output": "   Start at  21:55:00\n   Duration  83.19s (tests 98%, import 2%)\n\nerror: script \"test:unit\" exited with code 1"
     },
@@ -1290,7 +1290,7 @@
       "seq": 1275,
       "t": 1050642,
       "kind": "command",
-      "command": "python3 /tmp/forman-b-revert-e7gjxev7/qa.py",
+      "command": "python3 /tmp/foreman-b-revert-e7gjxev7/qa.py",
       "exitCode": 0,
       "output": "    \"wireContainsSentinel\": false,\n    \"eventsContainSentinel\": false\n  }\n]"
     },
@@ -1298,7 +1298,7 @@
       "seq": 1279,
       "t": 1057673,
       "kind": "command",
-      "command": "tail -18 /tmp/forman-b-revert-e7gjxev7/smoke.log",
+      "command": "tail -18 /tmp/foreman-b-revert-e7gjxev7/smoke.log",
       "exitCode": 0,
       "output": "[exit 0]\nDaemon stopped.\n\n10 restart resumes write access and writes a file: 16.7s"
     },
@@ -1306,7 +1306,7 @@
       "seq": 1280,
       "t": 1057759,
       "kind": "command",
-      "command": "tail -8 /tmp/forman-b-revert-e7gjxev7/qa-unknown.log",
+      "command": "tail -8 /tmp/foreman-b-revert-e7gjxev7/qa-unknown.log",
       "exitCode": 0,
       "output": ""
     },
@@ -1368,7 +1368,7 @@
       "seq": 1296,
       "t": 1083258,
       "kind": "command",
-      "command": "tail -8 /tmp/forman-b-revert-e7gjxev7/repeat2.log",
+      "command": "tail -8 /tmp/foreman-b-revert-e7gjxev7/repeat2.log",
       "exitCode": 0,
       "output": "$ node node_modules/vitest/vitest.mjs run tests/run-store.test.ts tests/config-logging.test.ts tests/codex-client.test.ts tests/supervisor-integration.test.ts\n\n RUN  v5.1.0 ."
     },
@@ -1376,7 +1376,7 @@
       "seq": 1297,
       "t": 1083347,
       "kind": "command",
-      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/qa-unknown.log",
+      "command": "tail -6 /tmp/foreman-b-revert-e7gjxev7/qa-unknown.log",
       "exitCode": 0,
       "output": "before start 5 state unknown\nafter start 5 state unknown"
     },
@@ -1390,7 +1390,7 @@
       "seq": 1302,
       "t": 1109112,
       "kind": "command",
-      "command": "tail -12 /tmp/forman-b-revert-e7gjxev7/full-test.log",
+      "command": "tail -12 /tmp/foreman-b-revert-e7gjxev7/full-test.log",
       "exitCode": 0,
       "output": "\n ❯ tests/daemon-logging.test.ts (5 tests | 1 failed) 475ms\n   ❯ daemon file logging (5)\n     × logs one platform request failure with request and run annotations 140ms"
     },
@@ -1398,7 +1398,7 @@
       "seq": 1303,
       "t": 1109202,
       "kind": "command",
-      "command": "tail -8 /tmp/forman-b-revert-e7gjxev7/repeat2.log",
+      "command": "tail -8 /tmp/foreman-b-revert-e7gjxev7/repeat2.log",
       "exitCode": 0,
       "output": "$ node node_modules/vitest/vitest.mjs run tests/run-store.test.ts tests/config-logging.test.ts tests/codex-client.test.ts tests/supervisor-integration.test.ts\n\n RUN  v5.1.0 ."
     },
@@ -1406,7 +1406,7 @@
       "seq": 1304,
       "t": 1109292,
       "kind": "command",
-      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/smoke.log",
+      "command": "tail -6 /tmp/foreman-b-revert-e7gjxev7/smoke.log",
       "exitCode": 0,
       "output": "[exit 0]\nDaemon stopped.\n\n10 restart resumes write access and writes a file: 16.7s"
     },
@@ -1422,7 +1422,7 @@
       "seq": 1309,
       "t": 1118374,
       "kind": "command",
-      "command": "tail -5 /tmp/forman-b-revert-e7gjxev7/qa-unknown.log",
+      "command": "tail -5 /tmp/foreman-b-revert-e7gjxev7/qa-unknown.log",
       "exitCode": 0,
       "output": "before start 5 state unknown\nafter start 5 state unknown"
     },
@@ -1460,7 +1460,7 @@
       "seq": 1329,
       "t": 1127942,
       "kind": "command",
-      "command": "bun run test:unit tests/run-store.test.ts tests/config-logging.test.ts tests/codex-client.test.ts tests/supervisor-integration.test.ts > /tmp/forman-b-revert-e7gjxev7/repeat2.log 2>&1",
+      "command": "bun run test:unit tests/run-store.test.ts tests/config-logging.test.ts tests/codex-client.test.ts tests/supervisor-integration.test.ts > /tmp/foreman-b-revert-e7gjxev7/repeat2.log 2>&1",
       "exitCode": 0,
       "output": ""
     },
@@ -1476,7 +1476,7 @@
       "seq": 1332,
       "t": 1158338,
       "kind": "command",
-      "command": "tail -8 /tmp/forman-b-revert-e7gjxev7/full-test.log; tail -8 /tmp/forman-b-revert-e7gjxev7/repeat2.log; tail -8 /tmp/forman-b-revert-e7gjxev7/repeat3.log",
+      "command": "tail -8 /tmp/foreman-b-revert-e7gjxev7/full-test.log; tail -8 /tmp/foreman-b-revert-e7gjxev7/repeat2.log; tail -8 /tmp/foreman-b-revert-e7gjxev7/repeat3.log",
       "exitCode": 0,
       "output": "\n$ node node_modules/vitest/vitest.mjs run tests/run-store.test.ts tests/config-logging.test.ts tests/codex-client.test.ts tests/supervisor-integration.test.ts\n\n RUN  v5.1.0 ."
     },
@@ -1484,7 +1484,7 @@
       "seq": 1335,
       "t": 1162082,
       "kind": "command",
-      "command": "bun run test > /tmp/forman-b-revert-e7gjxev7/full-test.log 2>&1",
+      "command": "bun run test > /tmp/foreman-b-revert-e7gjxev7/full-test.log 2>&1",
       "exitCode": 1,
       "output": ""
     },
@@ -1492,7 +1492,7 @@
       "seq": 1337,
       "t": 1165129,
       "kind": "command",
-      "command": "tail -12 /tmp/forman-b-revert-e7gjxev7/full-test.log",
+      "command": "tail -12 /tmp/foreman-b-revert-e7gjxev7/full-test.log",
       "exitCode": 0,
       "output": "   Duration  78.47s (tests 93%, import 6%, transform 1%)\n\nerror: script \"test:unit\" exited with code 1\nerror: script \"test\" exited with code 1"
     },
@@ -1500,7 +1500,7 @@
       "seq": 1338,
       "t": 1165220,
       "kind": "command",
-      "command": "tail -5 /tmp/forman-b-revert-e7gjxev7/qa-unknown.log",
+      "command": "tail -5 /tmp/foreman-b-revert-e7gjxev7/qa-unknown.log",
       "exitCode": 0,
       "output": "before start 5 state unknown\nafter start 5 state unknown"
     },
@@ -1508,7 +1508,7 @@
       "seq": 1339,
       "t": 1165308,
       "kind": "command",
-      "command": "tail -8 /tmp/forman-b-revert-e7gjxev7/smoke.log",
+      "command": "tail -8 /tmp/foreman-b-revert-e7gjxev7/smoke.log",
       "exitCode": 0,
       "output": "[exit 0]\nDaemon stopped.\n\n8 unapproved repo hooks refuse start before any turn and doctor explains: 2.7s"
     },
@@ -1516,15 +1516,15 @@
       "seq": 1340,
       "t": 1165411,
       "kind": "command",
-      "command": "rg -n 'fail|pass|real|hold' /tmp/forman-b-revert-e7gjxev7/smoke.log",
+      "command": "rg -n 'fail|pass|real|hold' /tmp/foreman-b-revert-e7gjxev7/smoke.log",
       "exitCode": 0,
-      "output": "…output\":213,\"reasoningOutput\":0},\"failure\":null,\"warnings\":[]}]}\n715:      at <anonymous> (smoke/real-codex.test.ts:242:20)\n716:      at async <anonymous> (smoke/real-codex.test.ts:26:15)\n717:(fail) 7 codex exec self-review runs inside a forman thread [18409.93ms]"
+      "output": "…output\":213,\"reasoningOutput\":0},\"failure\":null,\"warnings\":[]}]}\n715:      at <anonymous> (smoke/real-codex.test.ts:242:20)\n716:      at async <anonymous> (smoke/real-codex.test.ts:26:15)\n717:(fail) 7 codex exec self-review runs inside a foreman thread [18409.93ms]"
     },
     {
       "seq": 1343,
       "t": 1184414,
       "kind": "command",
-      "command": "bun run test:unit tests/run-store.test.ts tests/config-logging.test.ts tests/codex-client.test.ts tests/supervisor-integration.test.ts > /tmp/forman-b-revert-e7gjxev7/repeat3.log 2>&1",
+      "command": "bun run test:unit tests/run-store.test.ts tests/config-logging.test.ts tests/codex-client.test.ts tests/supervisor-integration.test.ts > /tmp/foreman-b-revert-e7gjxev7/repeat3.log 2>&1",
       "exitCode": 0,
       "output": ""
     },
@@ -1532,7 +1532,7 @@
       "seq": 1345,
       "t": 1206410,
       "kind": "command",
-      "command": "tail -8 /tmp/forman-b-revert-e7gjxev7/repeat3.log",
+      "command": "tail -8 /tmp/foreman-b-revert-e7gjxev7/repeat3.log",
       "exitCode": 0,
       "output": " Test Files  4 passed (4)\n      Tests  247 passed (247)\n   Start at  21:58:09\n   Duration  74.85s (tests 98%, import 2%)"
     },
@@ -1568,7 +1568,7 @@
       "seq": 1353,
       "t": 1224997,
       "kind": "command",
-      "command": "bun run e2e > /tmp/forman-b-revert-e7gjxev7/e2e-final.log 2>&1",
+      "command": "bun run e2e > /tmp/foreman-b-revert-e7gjxev7/e2e-final.log 2>&1",
       "exitCode": 0,
       "output": ""
     },
@@ -1590,7 +1590,7 @@
       "seq": 1358,
       "t": 1261298,
       "kind": "command",
-      "command": "FORMAN_SMOKE=1 FORMAN_SMOKE_SHORT=1 bun run smoke > /tmp/forman-b-revert-e7gjxev7/smoke.log 2>&1",
+      "command": "FOREMAN_SMOKE=1 FOREMAN_SMOKE_SHORT=1 bun run smoke > /tmp/foreman-b-revert-e7gjxev7/smoke.log 2>&1",
       "exitCode": 1,
       "output": ""
     },
@@ -1604,7 +1604,7 @@
       "seq": 1360,
       "t": 1301401,
       "kind": "command",
-      "command": "bun run test:unit tests/run-store.test.ts tests/config-logging.test.ts tests/codex-client.test.ts tests/supervisor-integration.test.ts > /tmp/forman-b-revert-e7gjxev7/repeat4.log 2>&1",
+      "command": "bun run test:unit tests/run-store.test.ts tests/config-logging.test.ts tests/codex-client.test.ts tests/supervisor-integration.test.ts > /tmp/foreman-b-revert-e7gjxev7/repeat4.log 2>&1",
       "exitCode": 0,
       "output": ""
     },
@@ -1612,7 +1612,7 @@
       "seq": 1361,
       "t": 1301416,
       "kind": "command",
-      "command": "bun run test > /tmp/forman-b-revert-e7gjxev7/full-final.log 2>&1",
+      "command": "bun run test > /tmp/foreman-b-revert-e7gjxev7/full-final.log 2>&1",
       "exitCode": 0,
       "output": ""
     },
@@ -1692,7 +1692,7 @@
       "seq": 1437,
       "t": 1356730,
       "kind": "command",
-      "command": "python3 -c 'from pathlib import Path; p=Path(\\\"docs/rfcs/0001-forman.md\\\"); s=p.read_text().replace(\\\"bounded diagnostic metadata: method names, with wire bodies omitted\\\", \\\"bounded app-server notifications and requests, with secret-looking keys and values redacted\\\").replace(\\\"command executions (command, exit code, status)\\\", \\\"command executions (command, exit code, status, redacted output tail)\\\").replace(\\\"Persisted command output tails are empty.\\\", \\\"Command output tails retain their last 2 KB with best-effort redaction.\\\"); a=s.index(\\\"Diagnostic capture omits\\\"); b=s.index(\\\"\\\\n\\\\n\"'`codex.jsonl`\",a); s=s[:a]+\"\"\"Diagnostic persistence keeps useful stderr, raw wire bodies and command tails while redacting secret-looking keys using the logger’s secret/password/token/authorization/cookie/API-key/access-key rules. Text redaction also covers sk- and GitHub token shapes, Bearer values, secret KEY=value assignments, private-key blocks and long base64/hex-like blobs. UUID-shaped identifiers remain readable. Redaction is best effort: unknown credential formats can escape it, and ordinary opaque strings can be redacted. Review captures before sharing. The daemon keeps all of this under its private 0700 home, and diagnostic files are created with mode 0600. Existing captures are not rewritten. There is no unrestricted wire-capture mode.\n\nContracts, agent messages, questions, answers and hand-offs remain private run data, even when their diagnostic text has been redacted. Preserve requested hand-offs before cleanup.\"\"\"+s[b:]; p.write_text(s)'\"'",
+      "command": "python3 -c 'from pathlib import Path; p=Path(\\\"docs/rfcs/0001-foreman.md\\\"); s=p.read_text().replace(\\\"bounded diagnostic metadata: method names, with wire bodies omitted\\\", \\\"bounded app-server notifications and requests, with secret-looking keys and values redacted\\\").replace(\\\"command executions (command, exit code, status)\\\", \\\"command executions (command, exit code, status, redacted output tail)\\\").replace(\\\"Persisted command output tails are empty.\\\", \\\"Command output tails retain their last 2 KB with best-effort redaction.\\\"); a=s.index(\\\"Diagnostic capture omits\\\"); b=s.index(\\\"\\\\n\\\\n\"'`codex.jsonl`\",a); s=s[:a]+\"\"\"Diagnostic persistence keeps useful stderr, raw wire bodies and command tails while redacting secret-looking keys using the logger’s secret/password/token/authorization/cookie/API-key/access-key rules. Text redaction also covers sk- and GitHub token shapes, Bearer values, secret KEY=value assignments, private-key blocks and long base64/hex-like blobs. UUID-shaped identifiers remain readable. Redaction is best effort: unknown credential formats can escape it, and ordinary opaque strings can be redacted. Review captures before sharing. The daemon keeps all of this under its private 0700 home, and diagnostic files are created with mode 0600. Existing captures are not rewritten. There is no unrestricted wire-capture mode.\n\nContracts, agent messages, questions, answers and hand-offs remain private run data, even when their diagnostic text has been redacted. Preserve requested hand-offs before cleanup.\"\"\"+s[b:]; p.write_text(s)'\"'",
       "exitCode": 0,
       "output": ""
     },
@@ -1724,7 +1724,7 @@
       "seq": 1453,
       "t": 1369970,
       "kind": "command",
-      "command": "python3 /tmp/forman-b-revert-e7gjxev7/qa-unknown.py > /tmp/forman-b-revert-e7gjxev7/qa-unknown.log 2>&1",
+      "command": "python3 /tmp/foreman-b-revert-e7gjxev7/qa-unknown.py > /tmp/foreman-b-revert-e7gjxev7/qa-unknown.log 2>&1",
       "exitCode": 1,
       "output": ""
     },
@@ -1732,7 +1732,7 @@
       "seq": 1455,
       "t": 1376910,
       "kind": "command",
-      "command": "tail -8 /tmp/forman-b-revert-e7gjxev7/smoke.log",
+      "command": "tail -8 /tmp/foreman-b-revert-e7gjxev7/smoke.log",
       "exitCode": 0,
       "output": " 1 fail\n 238 expect() calls\nRan 16 tests across 3 files. [294.56s]\nerror: script \"smoke\" exited with code 1"
     },
@@ -1740,15 +1740,15 @@
       "seq": 1456,
       "t": 1377004,
       "kind": "command",
-      "command": "cat /tmp/forman-b-revert-e7gjxev7/qa-unknown-results.json",
+      "command": "cat /tmp/foreman-b-revert-e7gjxev7/qa-unknown-results.json",
       "exitCode": 1,
-      "output": "cat: /tmp/forman-b-revert-e7gjxev7/qa-unknown-results.json: No such file or directory"
+      "output": "cat: /tmp/foreman-b-revert-e7gjxev7/qa-unknown-results.json: No such file or directory"
     },
     {
       "seq": 1457,
       "t": 1377098,
       "kind": "command",
-      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/full-final.log",
+      "command": "tail -6 /tmp/foreman-b-revert-e7gjxev7/full-final.log",
       "exitCode": 0,
       "output": " Test Files  32 passed (32)\n      Tests  802 passed (802)\n   Start at  21:59:44\n   Duration  96.09s (tests 92%, import 7%, transform 1%)"
     },
@@ -1756,7 +1756,7 @@
       "seq": 1458,
       "t": 1377190,
       "kind": "command",
-      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/repeat4.log",
+      "command": "tail -6 /tmp/foreman-b-revert-e7gjxev7/repeat4.log",
       "exitCode": 0,
       "output": " Test Files  4 passed (4)\n      Tests  247 passed (247)\n   Start at  21:59:44\n   Duration  96.09s (tests 96%, import 4%)"
     },
@@ -1764,7 +1764,7 @@
       "seq": 1462,
       "t": 1383288,
       "kind": "command",
-      "command": "cat /tmp/forman-b-revert-e7gjxev7/qa-unknown.log",
+      "command": "cat /tmp/foreman-b-revert-e7gjxev7/qa-unknown.log",
       "exitCode": 0,
       "output": "               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^\n  File \"~/.local/share/mise/installs/python/3.13.16/lib/python3.13/json/decoder.py\", line 363, in raw_decode\n    raise JSONDecodeError(\"Expecting value\", s, err.value) from None\njson.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)"
     },
@@ -1772,7 +1772,7 @@
       "seq": 1466,
       "t": 1385930,
       "kind": "command",
-      "command": "python3 -c 'from pathlib import Path; import subprocess; root=Path.cwd(); out=Path(\\\"/tmp/forman-b-revert-e7gjxev7\\\"); files=subprocess.check_output([\\\"git\\\",\\\"diff\\\",\\\"--name-only\\\",\\\"--\\\",\\\"src\\\"],text=True).splitlines(); saved={f:(root/f).read_bytes() for f in files}\ntry:\n for f in files: (root/f).write_bytes(subprocess.check_output([\\\"git\\\",\\\"show\\\",f\\\"HEAD:{f}\\\"]))\n with (out/\\\"redaction-before.log\\\").open(\\\"w\\\") as log: result=subprocess.run([\\\"bun\\\",\\\"run\\\",\\\"test:unit\\\",\\\"tests/run-store.test.ts\\\",\\\"tests/supervisor-integration.test.ts\\\",\\\"-t\\\",\\\"secret-looking|release O7\\\"],stdout=log,stderr=subprocess.STDOUT,timeout=45)\n print(\\\"redaction baseline\\\",result.returncode)\nfinally:\n for f,data in saved.items(): (root/f).write_bytes(data)\n print(\\\"restored all fixed source\\\")\n'",
+      "command": "python3 -c 'from pathlib import Path; import subprocess; root=Path.cwd(); out=Path(\\\"/tmp/foreman-b-revert-e7gjxev7\\\"); files=subprocess.check_output([\\\"git\\\",\\\"diff\\\",\\\"--name-only\\\",\\\"--\\\",\\\"src\\\"],text=True).splitlines(); saved={f:(root/f).read_bytes() for f in files}\ntry:\n for f in files: (root/f).write_bytes(subprocess.check_output([\\\"git\\\",\\\"show\\\",f\\\"HEAD:{f}\\\"]))\n with (out/\\\"redaction-before.log\\\").open(\\\"w\\\") as log: result=subprocess.run([\\\"bun\\\",\\\"run\\\",\\\"test:unit\\\",\\\"tests/run-store.test.ts\\\",\\\"tests/supervisor-integration.test.ts\\\",\\\"-t\\\",\\\"secret-looking|release O7\\\"],stdout=log,stderr=subprocess.STDOUT,timeout=45)\n print(\\\"redaction baseline\\\",result.returncode)\nfinally:\n for f,data in saved.items(): (root/f).write_bytes(data)\n print(\\\"restored all fixed source\\\")\n'",
       "exitCode": 0,
       "output": "redaction baseline 1\nrestored all fixed source"
     },
@@ -1780,15 +1780,15 @@
       "seq": 1468,
       "t": 1402964,
       "kind": "command",
-      "command": "python3 -c 'from pathlib import Path; import json,os,subprocess; report=Path(\\\"/tmp/forman-b-revert-e7gjxev7\\\"); pid=int((report/\\\"qa-before-app.pid\\\").read_text()); os.kill(pid,0); records=[]\nfor f in Path(\\\"/tmp\\\").glob(\\\"fm-bq-*/d/runs/uncertain/run.json\\\"):\n data=json.loads(f.read_text()); root=f.parents[4]\n if str(root)==\\\"/tmp/fm-bq-50m8y60e\\\": continue\n result={\\\"binary\\\":\\\"before\\\",\\\"root\\\":str(root),\\\"state\\\":data[\\\"state\\\"],\\\"codexAliveAfterLoss\\\":True,\\\"pid\\\":pid}; records.append(result); print(json.dumps(result)); env={\\\"PATH\\\":os.environ[\\\"PATH\\\"],\\\"HOME\\\":str(root),\\\"FORMAN_HOME\\\":str(root/\\\"d\\\")}; stopped=subprocess.run([str(report/\\\"forman-before\\\"),\\\"daemon\\\",\\\"stop\\\",\\\"--json\\\"],env=env,capture_output=True,text=True); print(stopped.returncode,stopped.stdout,stopped.stderr)\n(report/\\\"qa-unknown-before-observed.json\\\").write_text(json.dumps(records,indent=2))'",
+      "command": "python3 -c 'from pathlib import Path; import json,os,subprocess; report=Path(\\\"/tmp/foreman-b-revert-e7gjxev7\\\"); pid=int((report/\\\"qa-before-app.pid\\\").read_text()); os.kill(pid,0); records=[]\nfor f in Path(\\\"/tmp\\\").glob(\\\"fm-bq-*/d/runs/uncertain/run.json\\\"):\n data=json.loads(f.read_text()); root=f.parents[4]\n if str(root)==\\\"/tmp/fm-bq-50m8y60e\\\": continue\n result={\\\"binary\\\":\\\"before\\\",\\\"root\\\":str(root),\\\"state\\\":data[\\\"state\\\"],\\\"codexAliveAfterLoss\\\":True,\\\"pid\\\":pid}; records.append(result); print(json.dumps(result)); env={\\\"PATH\\\":os.environ[\\\"PATH\\\"],\\\"HOME\\\":str(root),\\\"FOREMAN_HOME\\\":str(root/\\\"d\\\")}; stopped=subprocess.run([str(report/\\\"foreman-before\\\"),\\\"daemon\\\",\\\"stop\\\",\\\"--json\\\"],env=env,capture_output=True,text=True); print(stopped.returncode,stopped.stdout,stopped.stderr)\n(report/\\\"qa-unknown-before-observed.json\\\").write_text(json.dumps(records,indent=2))'",
       "exitCode": 1,
-      "output": "…ule>\n    from pathlib import Path; import json,os,subprocess; report=Path(\"/tmp/forman-b-revert-e7gjxev7\"); pid=int((report/\"qa-before-app.pid\").read_text()); os.kill(pid,0); records=[]\n                                                                                                                                                          ~~~~~~~^^^^^^^\nProcessLookupError: [Errno 3] No such process"
+      "output": "…ule>\n    from pathlib import Path; import json,os,subprocess; report=Path(\"/tmp/foreman-b-revert-e7gjxev7\"); pid=int((report/\"qa-before-app.pid\").read_text()); os.kill(pid,0); records=[]\n                                                                                                                                                          ~~~~~~~^^^^^^^\nProcessLookupError: [Errno 3] No such process"
     },
     {
       "seq": 1469,
       "t": 1403053,
       "kind": "command",
-      "command": "tail -7 /tmp/forman-b-revert-e7gjxev7/redaction-before.log",
+      "command": "tail -7 /tmp/foreman-b-revert-e7gjxev7/redaction-before.log",
       "exitCode": 0,
       "output": "   Start at  22:02:44\n   Duration  1.13s (import 57%, tests 39%, transform 3%)\n\nerror: script \"test:unit\" exited with code 1"
     },
@@ -1796,7 +1796,7 @@
       "seq": 1473,
       "t": 1426542,
       "kind": "command",
-      "command": "python3 -c 'from pathlib import Path; p=Path(\\\"/tmp/forman-b-revert-e7gjxev7/qa.py\\\"); s=p.read_text().replace(\\\"def fixture(binary, label, codex=FAKE):\\\", \\\"def fixture(binary, label, codex=FAKE, repo_name=\\\\x27项目\\\\x27):\\\").replace(\\\"repo = root / \\\\x27项目\\\\x27\\\", \\\"repo = root / repo_name\\\"); p.write_text(s); p=Path(\\\"/tmp/forman-b-revert-e7gjxev7/qa-unknown.py\\\"); s=p.read_text().replace(\\\"fixture(binary, label, wrapper)\\\", \\\"fixture(binary, label, wrapper, repo_name=\\\\x27repo\\\\x27)\\\").replace(\\\"[(\\\\x27before\\\\x27, REPORT / \\\\x27forman-before\\\\x27), (\\\\x27after\\\\x27, SOURCE / \\\\x27dist/forman\\\\x27)]\\\", \\\"[(\\\\x27before\\\\x27, REPORT / \\\\x27forman-before\\\\x27)]\\\"); p.write_text(s)'",
+      "command": "python3 -c 'from pathlib import Path; p=Path(\\\"/tmp/foreman-b-revert-e7gjxev7/qa.py\\\"); s=p.read_text().replace(\\\"def fixture(binary, label, codex=FAKE):\\\", \\\"def fixture(binary, label, codex=FAKE, repo_name=\\\\x27项目\\\\x27):\\\").replace(\\\"repo = root / \\\\x27项目\\\\x27\\\", \\\"repo = root / repo_name\\\"); p.write_text(s); p=Path(\\\"/tmp/foreman-b-revert-e7gjxev7/qa-unknown.py\\\"); s=p.read_text().replace(\\\"fixture(binary, label, wrapper)\\\", \\\"fixture(binary, label, wrapper, repo_name=\\\\x27repo\\\\x27)\\\").replace(\\\"[(\\\\x27before\\\\x27, REPORT / \\\\x27foreman-before\\\\x27), (\\\\x27after\\\\x27, SOURCE / \\\\x27dist/foreman\\\\x27)]\\\", \\\"[(\\\\x27before\\\\x27, REPORT / \\\\x27foreman-before\\\\x27)]\\\"); p.write_text(s)'",
       "exitCode": 0,
       "output": ""
     },
@@ -1804,7 +1804,7 @@
       "seq": 1476,
       "t": 1447163,
       "kind": "command",
-      "command": "bun run e2e > /tmp/forman-b-revert-e7gjxev7/e2e-redacted.log 2>&1",
+      "command": "bun run e2e > /tmp/foreman-b-revert-e7gjxev7/e2e-redacted.log 2>&1",
       "exitCode": 0,
       "output": ""
     },
@@ -1826,7 +1826,7 @@
       "seq": 1503,
       "t": 1470562,
       "kind": "command",
-      "command": "tail -8 /tmp/forman-b-revert-e7gjxev7/e2e-redacted.log",
+      "command": "tail -8 /tmp/foreman-b-revert-e7gjxev7/e2e-redacted.log",
       "exitCode": 0,
       "output": " 8 pass\n 0 fail\n 169 expect() calls\nRan 8 tests across 1 file. [20.21s]"
     },
@@ -1834,7 +1834,7 @@
       "seq": 1504,
       "t": 1470604,
       "kind": "command",
-      "command": "tail -5 /tmp/forman-b-revert-e7gjxev7/redacted1.log",
+      "command": "tail -5 /tmp/foreman-b-revert-e7gjxev7/redacted1.log",
       "exitCode": 0,
       "output": "$ node node_modules/vitest/vitest.mjs run tests/run-store.test.ts tests/config-logging.test.ts tests/codex-client.test.ts tests/supervisor-integration.test.ts\n\n RUN  v5.1.0 ."
     },
@@ -1874,7 +1874,7 @@
       "kind": "command",
       "command": "bun run build",
       "exitCode": 0,
-      "output": "$ bun scripts/build.ts\n  [14ms]  minify  -5.87 MB (estimate)\n   [8ms]  bundle  359 modules\n  [80ms] compile  dist/forman"
+      "output": "$ bun scripts/build.ts\n  [14ms]  minify  -5.87 MB (estimate)\n   [8ms]  bundle  359 modules\n  [80ms] compile  dist/foreman"
     },
     {
       "seq": 1532,
@@ -1896,7 +1896,7 @@
       "seq": 1534,
       "t": 1502920,
       "kind": "command",
-      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/redacted1.log",
+      "command": "tail -6 /tmp/foreman-b-revert-e7gjxev7/redacted1.log",
       "exitCode": 0,
       "output": "$ node node_modules/vitest/vitest.mjs run tests/run-store.test.ts tests/config-logging.test.ts tests/codex-client.test.ts tests/supervisor-integration.test.ts\n\n RUN  v5.1.0 ."
     },
@@ -1904,7 +1904,7 @@
       "seq": 1535,
       "t": 1503019,
       "kind": "command",
-      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/full-redacted.log",
+      "command": "tail -6 /tmp/foreman-b-revert-e7gjxev7/full-redacted.log",
       "exitCode": 0,
       "output": "$ bun run test:unit\n$ node node_modules/vitest/vitest.mjs run\n\n RUN  v5.1.0 ."
     },
@@ -1912,7 +1912,7 @@
       "seq": 1538,
       "t": 1517178,
       "kind": "command",
-      "command": "bun run test:unit tests/run-store.test.ts tests/config-logging.test.ts tests/codex-client.test.ts tests/supervisor-integration.test.ts > /tmp/forman-b-revert-e7gjxev7/redacted1.log 2>&1",
+      "command": "bun run test:unit tests/run-store.test.ts tests/config-logging.test.ts tests/codex-client.test.ts tests/supervisor-integration.test.ts > /tmp/foreman-b-revert-e7gjxev7/redacted1.log 2>&1",
       "exitCode": 0,
       "output": ""
     },
@@ -1920,7 +1920,7 @@
       "seq": 1539,
       "t": 1517184,
       "kind": "command",
-      "command": "bun run test > /tmp/forman-b-revert-e7gjxev7/full-redacted.log 2>&1",
+      "command": "bun run test > /tmp/foreman-b-revert-e7gjxev7/full-redacted.log 2>&1",
       "exitCode": 0,
       "output": ""
     },
@@ -1936,7 +1936,7 @@
       "seq": 1542,
       "t": 1535902,
       "kind": "command",
-      "command": "tail -10 /tmp/forman-b-revert-e7gjxev7/redacted1.log",
+      "command": "tail -10 /tmp/foreman-b-revert-e7gjxev7/redacted1.log",
       "exitCode": 0,
       "output": " Test Files  4 passed (4)\n      Tests  252 passed (252)\n   Start at  22:03:26\n   Duration  90.18s (tests 96%, import 4%, transform 1%)"
     },
@@ -1944,7 +1944,7 @@
       "seq": 1543,
       "t": 1535998,
       "kind": "command",
-      "command": "tail -10 /tmp/forman-b-revert-e7gjxev7/full-redacted.log",
+      "command": "tail -10 /tmp/foreman-b-revert-e7gjxev7/full-redacted.log",
       "exitCode": 0,
       "output": " Test Files  32 passed (32)\n      Tests  807 passed (807)\n   Start at  22:03:26\n   Duration  90.19s (tests 91%, import 8%, transform 1%)"
     },
@@ -1952,7 +1952,7 @@
       "seq": 1544,
       "t": 1536092,
       "kind": "command",
-      "command": "cat /tmp/forman-b-revert-e7gjxev7/qa-unknown-before.log",
+      "command": "cat /tmp/foreman-b-revert-e7gjxev7/qa-unknown-before.log",
       "exitCode": 0,
       "output": "before start 5 state unknown"
     },
@@ -1960,7 +1960,7 @@
       "seq": 1548,
       "t": 1555592,
       "kind": "command",
-      "command": "python3 -c 'from pathlib import Path; p=Path(\\\"docs/rfcs/0001-forman.md\\\"); s=p.read_text().replace(\\\"diagnostic files are created with mode 0600\\\", \\\"stderr and raw capture files are created with mode 0600\\\"); p.write_text(s); p=Path(\\\"/tmp/forman-b-revert-e7gjxev7/qa.py\\\"); s=p.read_text().replace(\\\"PRIVATE_SENTINEL\\\", \\\"sk-testPrivateSentinel\\\"); p.write_text(s)'",
+      "command": "python3 -c 'from pathlib import Path; p=Path(\\\"docs/rfcs/0001-foreman.md\\\"); s=p.read_text().replace(\\\"diagnostic files are created with mode 0600\\\", \\\"stderr and raw capture files are created with mode 0600\\\"); p.write_text(s); p=Path(\\\"/tmp/foreman-b-revert-e7gjxev7/qa.py\\\"); s=p.read_text().replace(\\\"PRIVATE_SENTINEL\\\", \\\"sk-testPrivateSentinel\\\"); p.write_text(s)'",
       "exitCode": 0,
       "output": ""
     },
@@ -1968,7 +1968,7 @@
       "seq": 1551,
       "t": 1560901,
       "kind": "command",
-      "command": "python3 /tmp/forman-b-revert-e7gjxev7/qa.py > /tmp/forman-b-revert-e7gjxev7/qa-redacted.log 2>&1",
+      "command": "python3 /tmp/foreman-b-revert-e7gjxev7/qa.py > /tmp/foreman-b-revert-e7gjxev7/qa-redacted.log 2>&1",
       "exitCode": 0,
       "output": ""
     },
@@ -1982,7 +1982,7 @@
       "seq": 1553,
       "t": 1579417,
       "kind": "command",
-      "command": "bun run e2e > /tmp/forman-b-revert-e7gjxev7/e2e-redacted-final.log 2>&1",
+      "command": "bun run e2e > /tmp/foreman-b-revert-e7gjxev7/e2e-redacted-final.log 2>&1",
       "exitCode": 0,
       "output": ""
     },
@@ -1990,7 +1990,7 @@
       "seq": 1554,
       "t": 1589716,
       "kind": "command",
-      "command": "bun run test:unit tests/run-store.test.ts tests/config-logging.test.ts tests/codex-client.test.ts tests/supervisor-integration.test.ts > /tmp/forman-b-revert-e7gjxev7/redacted2.log 2>&1",
+      "command": "bun run test:unit tests/run-store.test.ts tests/config-logging.test.ts tests/codex-client.test.ts tests/supervisor-integration.test.ts > /tmp/foreman-b-revert-e7gjxev7/redacted2.log 2>&1",
       "exitCode": 0,
       "output": ""
     },
@@ -1998,7 +1998,7 @@
       "seq": 1556,
       "t": 1607134,
       "kind": "command",
-      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/redacted2.log",
+      "command": "tail -6 /tmp/foreman-b-revert-e7gjxev7/redacted2.log",
       "exitCode": 0,
       "output": " Test Files  4 passed (4)\n      Tests  253 passed (253)\n   Start at  22:04:39\n   Duration  89.24s (tests 98%, import 2%)"
     },
@@ -2006,7 +2006,7 @@
       "seq": 1557,
       "t": 1607225,
       "kind": "command",
-      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/redacted3.log",
+      "command": "tail -6 /tmp/foreman-b-revert-e7gjxev7/redacted3.log",
       "exitCode": 0,
       "output": "$ node node_modules/vitest/vitest.mjs run tests/run-store.test.ts tests/config-logging.test.ts tests/codex-client.test.ts tests/supervisor-integration.test.ts\n\n RUN  v5.1.0 ."
     },
@@ -2014,7 +2014,7 @@
       "seq": 1558,
       "t": 1607318,
       "kind": "command",
-      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/full-redacted-final.log",
+      "command": "tail -6 /tmp/foreman-b-revert-e7gjxev7/full-redacted-final.log",
       "exitCode": 0,
       "output": "$ bun run test:unit\n$ node node_modules/vitest/vitest.mjs run\n\n RUN  v5.1.0 ."
     },
@@ -2022,7 +2022,7 @@
       "seq": 1559,
       "t": 1607399,
       "kind": "command",
-      "command": "cat /tmp/forman-b-revert-e7gjxev7/qa-unknown-before.log",
+      "command": "cat /tmp/foreman-b-revert-e7gjxev7/qa-unknown-before.log",
       "exitCode": 0,
       "output": "before start 5 state unknown"
     },
@@ -2030,7 +2030,7 @@
       "seq": 1560,
       "t": 1607499,
       "kind": "command",
-      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/smoke-redacted.log",
+      "command": "tail -6 /tmp/foreman-b-revert-e7gjxev7/smoke-redacted.log",
       "exitCode": 0,
       "output": "[exit 0]\nDaemon stopped.\n\n10 restart resumes write access and writes a file: 12.7s"
     },
@@ -2046,7 +2046,7 @@
       "seq": 1565,
       "t": 1651044,
       "kind": "command",
-      "command": "bun run test:unit tests/run-store.test.ts tests/config-logging.test.ts tests/codex-client.test.ts tests/supervisor-integration.test.ts > /tmp/forman-b-revert-e7gjxev7/redacted3.log 2>&1",
+      "command": "bun run test:unit tests/run-store.test.ts tests/config-logging.test.ts tests/codex-client.test.ts tests/supervisor-integration.test.ts > /tmp/foreman-b-revert-e7gjxev7/redacted3.log 2>&1",
       "exitCode": 0,
       "output": ""
     },
@@ -2054,7 +2054,7 @@
       "seq": 1566,
       "t": 1651946,
       "kind": "command",
-      "command": "bun run test > /tmp/forman-b-revert-e7gjxev7/full-redacted-final.log 2>&1",
+      "command": "bun run test > /tmp/foreman-b-revert-e7gjxev7/full-redacted-final.log 2>&1",
       "exitCode": 0,
       "output": ""
     },
@@ -2076,7 +2076,7 @@
       "seq": 1580,
       "t": 1661586,
       "kind": "command",
-      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/full-redacted-final.log",
+      "command": "tail -6 /tmp/foreman-b-revert-e7gjxev7/full-redacted-final.log",
       "exitCode": 0,
       "output": " Test Files  32 passed (32)\n      Tests  808 passed (808)\n   Start at  22:05:37\n   Duration  93.66s (tests 91%, import 8%, transform 1%)"
     },
@@ -2084,7 +2084,7 @@
       "seq": 1581,
       "t": 1661674,
       "kind": "command",
-      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/redacted3.log",
+      "command": "tail -6 /tmp/foreman-b-revert-e7gjxev7/redacted3.log",
       "exitCode": 0,
       "output": " Test Files  4 passed (4)\n      Tests  253 passed (253)\n   Start at  22:05:36\n   Duration  93.94s (tests 98%, import 2%)"
     },
@@ -2092,7 +2092,7 @@
       "seq": 1582,
       "t": 1661765,
       "kind": "command",
-      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/qa-unknown-before.log",
+      "command": "tail -6 /tmp/foreman-b-revert-e7gjxev7/qa-unknown-before.log",
       "exitCode": 0,
       "output": "before start 5 state unknown"
     },
@@ -2100,7 +2100,7 @@
       "seq": 1583,
       "t": 1661855,
       "kind": "command",
-      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/smoke-redacted.log",
+      "command": "tail -6 /tmp/foreman-b-revert-e7gjxev7/smoke-redacted.log",
       "exitCode": 0,
       "output": "[exit 0]\nDaemon stopped.\n\n6 budget expiry collects a read-only hand-off and restores write on followup: 58.0s"
     },
@@ -2114,7 +2114,7 @@
       "seq": 1588,
       "t": 1672557,
       "kind": "command",
-      "command": "cat /tmp/forman-b-revert-e7gjxev7/qa-redacted.log",
+      "command": "cat /tmp/foreman-b-revert-e7gjxev7/qa-redacted.log",
       "exitCode": 0,
       "output": "    \"wireContainsSentinel\": false,\n    \"eventsContainSentinel\": false\n  }\n]"
     },
@@ -2122,7 +2122,7 @@
       "seq": 1589,
       "t": 1672646,
       "kind": "command",
-      "command": "tail -7 /tmp/forman-b-revert-e7gjxev7/e2e-redacted-final.log",
+      "command": "tail -7 /tmp/foreman-b-revert-e7gjxev7/e2e-redacted-final.log",
       "exitCode": 0,
       "output": " 8 pass\n 0 fail\n 169 expect() calls\nRan 8 tests across 1 file. [19.52s]"
     },
@@ -2154,7 +2154,7 @@
       "seq": 1597,
       "t": 1720280,
       "kind": "command",
-      "command": "cat /tmp/forman-b-revert-e7gjxev7/qa-unknown-before.log",
+      "command": "cat /tmp/foreman-b-revert-e7gjxev7/qa-unknown-before.log",
       "exitCode": 0,
       "output": "before start 5 state unknown"
     },
@@ -2162,7 +2162,7 @@
       "seq": 1598,
       "t": 1720363,
       "kind": "command",
-      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/smoke-redacted.log",
+      "command": "tail -6 /tmp/foreman-b-revert-e7gjxev7/smoke-redacted.log",
       "exitCode": 0,
       "output": "[exit 0]\nDaemon stopped.\n\n8 unapproved repo hooks refuse start before any turn and doctor explains: 2.8s"
     },
@@ -2170,7 +2170,7 @@
       "seq": 1599,
       "t": 1720458,
       "kind": "command",
-      "command": "rg -n '\\\\(fail\\\\)|expect\\\\(|AssertionError' /tmp/forman-b-revert-e7gjxev7/smoke-redacted.log",
+      "command": "rg -n '\\\\(fail\\\\)|expect\\\\(|AssertionError' /tmp/foreman-b-revert-e7gjxev7/smoke-redacted.log",
       "exitCode": 1,
       "output": ""
     },
@@ -2178,7 +2178,7 @@
       "seq": 1603,
       "t": 1746860,
       "kind": "command",
-      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/qa-unknown-before.log",
+      "command": "tail -6 /tmp/foreman-b-revert-e7gjxev7/qa-unknown-before.log",
       "exitCode": 0,
       "output": "before start 5 state unknown"
     },
@@ -2186,7 +2186,7 @@
       "seq": 1604,
       "t": 1746941,
       "kind": "command",
-      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/smoke-redacted.log",
+      "command": "tail -6 /tmp/foreman-b-revert-e7gjxev7/smoke-redacted.log",
       "exitCode": 0,
       "output": "[exit 0]\nDaemon stopped.\n\n8 unapproved repo hooks refuse start before any turn and doctor explains: 2.8s"
     },
@@ -2208,7 +2208,7 @@
       "seq": 1615,
       "t": 1758637,
       "kind": "command",
-      "command": "python3 /tmp/forman-b-revert-e7gjxev7/qa-unknown.py > /tmp/forman-b-revert-e7gjxev7/qa-unknown-before.log 2>&1",
+      "command": "python3 /tmp/foreman-b-revert-e7gjxev7/qa-unknown.py > /tmp/foreman-b-revert-e7gjxev7/qa-unknown-before.log 2>&1",
       "exitCode": 0,
       "output": ""
     },
@@ -2216,7 +2216,7 @@
       "seq": 1617,
       "t": 1780450,
       "kind": "command",
-      "command": "tail -8 /tmp/forman-b-revert-e7gjxev7/qa-unknown-before.log",
+      "command": "tail -8 /tmp/foreman-b-revert-e7gjxev7/qa-unknown-before.log",
       "exitCode": 0,
       "output": "before start 5 state unknown\n{\"binary\": \"before\", \"root\": \"/tmp/fm-bq-38dr9a0m\", \"waitStatus\": 0, \"outcome\": \"lost\", \"codexAliveAfterLoss\": true}"
     },
@@ -2224,7 +2224,7 @@
       "seq": 1618,
       "t": 1781491,
       "kind": "command",
-      "command": "tail -8 /tmp/forman-b-revert-e7gjxev7/smoke-redacted.log",
+      "command": "tail -8 /tmp/foreman-b-revert-e7gjxev7/smoke-redacted.log",
       "exitCode": 0,
       "output": "[exit 0]\nDaemon stopped.\n\n8 unapproved repo hooks refuse start before any turn and doctor explains: 2.8s"
     },
@@ -2232,7 +2232,7 @@
       "seq": 1621,
       "t": 1798846,
       "kind": "command",
-      "command": "FORMAN_SMOKE=1 FORMAN_SMOKE_SHORT=1 bun run smoke > /tmp/forman-b-revert-e7gjxev7/smoke-redacted.log 2>&1",
+      "command": "FOREMAN_SMOKE=1 FOREMAN_SMOKE_SHORT=1 bun run smoke > /tmp/foreman-b-revert-e7gjxev7/smoke-redacted.log 2>&1",
       "exitCode": 0,
       "output": ""
     },
@@ -2240,7 +2240,7 @@
       "seq": 1623,
       "t": 1836208,
       "kind": "command",
-      "command": "tail -7 /tmp/forman-b-revert-e7gjxev7/smoke-redacted.log",
+      "command": "tail -7 /tmp/foreman-b-revert-e7gjxev7/smoke-redacted.log",
       "exitCode": 0,
       "output": " 16 pass\n 0 fail\n 238 expect() calls\nRan 16 tests across 3 files. [299.76s]"
     },
@@ -2248,7 +2248,7 @@
       "seq": 1624,
       "t": 1837246,
       "kind": "command",
-      "command": "cat /tmp/forman-b-revert-e7gjxev7/qa-unknown-results.json",
+      "command": "cat /tmp/foreman-b-revert-e7gjxev7/qa-unknown-results.json",
       "exitCode": 0,
       "output": "    \"outcome\": \"lost\",\n    \"codexAliveAfterLoss\": true\n  }\n]"
     },
@@ -2262,7 +2262,7 @@
       "seq": 1632,
       "t": 1894491,
       "kind": "command",
-      "command": "tail -12 /tmp/forman-b-revert-e7gjxev7/review-exec.log",
+      "command": "tail -12 /tmp/foreman-b-revert-e7gjxev7/review-exec.log",
       "exitCode": 0,
       "output": "      return { handoff: { turn, text }, latestTurnWithoutHandoff: turn < latestTurn };\n  }\n  return { handoff: null, latestTurnWithoutHandoff: latestTurn > 0 };\n});"
     },
@@ -2278,7 +2278,7 @@
       "seq": 1635,
       "t": 1897550,
       "kind": "command",
-      "command": "cat /tmp/forman-b-revert-e7gjxev7/qa-after-unknown.json",
+      "command": "cat /tmp/foreman-b-revert-e7gjxev7/qa-after-unknown.json",
       "exitCode": 0,
       "output": "      \"stderr\": \"\"\n    }\n  ]\n}"
     },
@@ -2286,7 +2286,7 @@
       "seq": 1639,
       "t": 1941158,
       "kind": "command",
-      "command": "tail -14 /tmp/forman-b-revert-e7gjxev7/review-exec.log",
+      "command": "tail -14 /tmp/foreman-b-revert-e7gjxev7/review-exec.log",
       "exitCode": 0,
       "output": "…md:84), `src/core/runs/worktree.ts:58`. The example’s `May change:` line lacks the required leading bullet and backticked paths. **Failure scenario:** copying the first-run example produces no parsed scope, so the digest cannot report out-of-scope changes. **Fix:** use ``- May change: `src/commands/doctor.ts`.`` and explain the required format beside the example.\n\nRelease verdict: **NEEDS FIXES**."
     },
@@ -2300,7 +2300,7 @@
       "seq": 1644,
       "t": 2040382,
       "kind": "command",
-      "command": "tail -16 /tmp/forman-b-revert-e7gjxev7/review-exec.log",
+      "command": "tail -16 /tmp/foreman-b-revert-e7gjxev7/review-exec.log",
       "exitCode": 0,
       "output": "   433\t      return { handoff: { turn, text }, latestTurnWithoutHandoff: turn < latestTurn };\n   434\t  }\n   435\t  return { handoff: null, latestTurnWithoutHandoff: latestTurn > 0 };\n   436\t});"
     },
@@ -2328,7 +2328,7 @@
       "seq": 1682,
       "t": 2114514,
       "kind": "command",
-      "command": "tail -10 /tmp/forman-b-revert-e7gjxev7/review-exec.log",
+      "command": "tail -10 /tmp/foreman-b-revert-e7gjxev7/review-exec.log",
       "exitCode": 0,
       "output": "   *\n   * await Effect.runPromise(program)\n   * ```\n   *"
     },
@@ -2366,7 +2366,7 @@
       "seq": 1703,
       "t": 2137111,
       "kind": "command",
-      "command": "codex exec --ephemeral --sandbox read-only -m gpt-6.1-sol -c model_reasoning_effort=high -c service_tier=priority -o /tmp/scratch - < /tmp/scratch > /tmp/forman-b-revert-e7gjxev7/review-exec.log 2>&1",
+      "command": "codex exec --ephemeral --sandbox read-only -m gpt-6.1-sol -c model_reasoning_effort=high -c service_tier=priority -o /tmp/scratch - < /tmp/scratch > /tmp/foreman-b-revert-e7gjxev7/review-exec.log 2>&1",
       "exitCode": 0,
       "output": ""
     },
@@ -2374,7 +2374,7 @@
       "seq": 1705,
       "t": 2146863,
       "kind": "command",
-      "command": "tail -12 /tmp/forman-b-revert-e7gjxev7/review-exec.log",
+      "command": "tail -12 /tmp/foreman-b-revert-e7gjxev7/review-exec.log",
       "exitCode": 0,
       "output": "\n## Verdict\n\n**NEEDS FIXES** - Retirement can still release worktree ownership prematurely, and persistence, sanitization and regression-test defects remain."
     },
@@ -2486,7 +2486,7 @@
       "seq": 1761,
       "t": 2668515,
       "kind": "command",
-      "command": "bun run test:unit tests/run-store.test.ts tests/supervisor-integration.test.ts -t 'versions the bounded|checks existing formats once|concurrent retirement joins|journal reconciliation stops' > /tmp/forman-b-revert-e7gjxev7/review-before.log 2>&1",
+      "command": "bun run test:unit tests/run-store.test.ts tests/supervisor-integration.test.ts -t 'versions the bounded|checks existing formats once|concurrent retirement joins|journal reconciliation stops' > /tmp/foreman-b-revert-e7gjxev7/review-before.log 2>&1",
       "exitCode": 1,
       "output": ""
     },
@@ -2500,7 +2500,7 @@
       "seq": 1765,
       "t": 2690922,
       "kind": "command",
-      "command": "tail -14 /tmp/forman-b-revert-e7gjxev7/review-before.log",
+      "command": "tail -14 /tmp/foreman-b-revert-e7gjxev7/review-before.log",
       "exitCode": 0,
       "output": "   Start at  22:24:06\n   Duration  1.43s (tests 49%, import 42%, transform 9%)\n\nerror: script \"test:unit\" exited with code 1"
     },
@@ -2622,13 +2622,13 @@
       "seq": 1858,
       "t": 2902350,
       "kind": "files",
-      "paths": ["docs/rfcs/0001-forman.md"]
+      "paths": ["docs/rfcs/0001-foreman.md"]
     },
     {
       "seq": 1863,
       "t": 2902995,
       "kind": "command",
-      "command": "python3 -c 'from pathlib import Path; import subprocess; root=Path.cwd(); files=[\\\"src/core/runs/store.ts\\\",\\\"src/supervisor/app-server.ts\\\",\\\"src/supervisor/registry.ts\\\"]; saved={f:(root/f).read_text() for f in files}; out=Path(\\\"/tmp/forman-b-revert-e7gjxev7/review-revert.log\\\")\ntry:\n p=root/files[0]; s=saved[files[0]].replace(\\\"if (\"'!fresh && checks.get(fullPath) === stamp) continue;\", \"if (!fresh && false && checks.get(fullPath) === stamp) continue;\").replace(\"makeLogAppender(path.join(runDir, '\"\\\\\\\"codex.jsonl\\\\\\\"), 1)\\\", \\\"makeLogAppender(path.join(runDir, \\\\\\\"codex.jsonl\\\\\\\"))\\\"); p.write_text(s)\n p=root/files[1]; p.write_text(saved[files[1]].replace(\\\"if (completed) yield* completed;\\\", \\\"if (completed) yield* Effect.void;\\\"))\n p=root/files[2]; p.write_text(saved[files[2]].replace(\\\"if (\"'!(yield* Store.hasTransition(run.dir, pending.id)))\", \"if (!(yield* Store.readEvents(run.dir, 0, Number.MAX_SAFE_INTEGER)).events.some((entry) => entry.transitionId === pending.id))\"))\n with out.open(\"w\") as log: result=subprocess.run([\"bun\",\"run\",\"test:unit\",\"tests/run-store.test.ts\",\"tests/supervisor-integration.test.ts\",\"-t\",\"versions the bounded|checks existing formats once|concurrent retirement joins|journal reconciliation stops\"],stdout=log,stderr=subprocess.STDOUT,timeout=60)\n print(\"review revert exit\",result.returncode)\nfinally:\n for f,text in saved.items(): (root/f).write_text(text)\n print(\"restored reviewed fixes\")\n'\"'",
+      "command": "python3 -c 'from pathlib import Path; import subprocess; root=Path.cwd(); files=[\\\"src/core/runs/store.ts\\\",\\\"src/supervisor/app-server.ts\\\",\\\"src/supervisor/registry.ts\\\"]; saved={f:(root/f).read_text() for f in files}; out=Path(\\\"/tmp/foreman-b-revert-e7gjxev7/review-revert.log\\\")\ntry:\n p=root/files[0]; s=saved[files[0]].replace(\\\"if (\"'!fresh && checks.get(fullPath) === stamp) continue;\", \"if (!fresh && false && checks.get(fullPath) === stamp) continue;\").replace(\"makeLogAppender(path.join(runDir, '\"\\\\\\\"codex.jsonl\\\\\\\"), 1)\\\", \\\"makeLogAppender(path.join(runDir, \\\\\\\"codex.jsonl\\\\\\\"))\\\"); p.write_text(s)\n p=root/files[1]; p.write_text(saved[files[1]].replace(\\\"if (completed) yield* completed;\\\", \\\"if (completed) yield* Effect.void;\\\"))\n p=root/files[2]; p.write_text(saved[files[2]].replace(\\\"if (\"'!(yield* Store.hasTransition(run.dir, pending.id)))\", \"if (!(yield* Store.readEvents(run.dir, 0, Number.MAX_SAFE_INTEGER)).events.some((entry) => entry.transitionId === pending.id))\"))\n with out.open(\"w\") as log: result=subprocess.run([\"bun\",\"run\",\"test:unit\",\"tests/run-store.test.ts\",\"tests/supervisor-integration.test.ts\",\"-t\",\"versions the bounded|checks existing formats once|concurrent retirement joins|journal reconciliation stops\"],stdout=log,stderr=subprocess.STDOUT,timeout=60)\n print(\"review revert exit\",result.returncode)\nfinally:\n for f,text in saved.items(): (root/f).write_text(text)\n print(\"restored reviewed fixes\")\n'\"'",
       "exitCode": 0,
       "output": "review revert exit 1\nrestored reviewed fixes"
     },
@@ -2642,7 +2642,7 @@
       "seq": 1869,
       "t": 2927484,
       "kind": "command",
-      "command": "tail -7 /tmp/forman-b-revert-e7gjxev7/review-revert.log",
+      "command": "tail -7 /tmp/foreman-b-revert-e7gjxev7/review-revert.log",
       "exitCode": 0,
       "output": "   Start at  22:28:01\n   Duration  1.27s (tests 48%, import 47%, transform 5%)\n\nerror: script \"test:unit\" exited with code 1"
     },
@@ -2650,7 +2650,7 @@
       "seq": 1873,
       "t": 2929472,
       "kind": "command",
-      "command": "python3 -c 'from pathlib import Path; import subprocess; files=[Path(\\\"src/supervisor/turns.ts\\\"),Path(\\\"src/supervisor/registry.ts\\\")]; saved={p:p.read_text() for p in files}\ntry:\n p=files[0]; p.write_text(saved[p].replace(\\\"    run.record = { ...run.record, activeTurnId: response.turn.id };\\\\n\\\", \\\"\\\"))\n p=files[1]; p.write_text(saved[p].replace(\\\"          yield* Store.assertSupported(run.dir);\\\\n\\\", \\\"\\\"))\n with Path(\\\"/tmp/forman-b-revert-e7gjxev7/extra-revert.log\\\").open(\\\"w\\\") as log: result=subprocess.run([\\\"bun\\\",\\\"run\\\",\\\"test:unit\\\",\\\"tests/supervisor-integration.test.ts\\\",\\\"-t\\\",\\\"turn reply followed|future formats refuse archive\\\"],stdout=log,stderr=subprocess.STDOUT,timeout=30)\n print(\\\"additional revert exit\\\",result.returncode)\nfinally:\n for p,text in saved.items(): p.write_text(text)\n print(\\\"restored ownership and archive fixes\\\")\n'",
+      "command": "python3 -c 'from pathlib import Path; import subprocess; files=[Path(\\\"src/supervisor/turns.ts\\\"),Path(\\\"src/supervisor/registry.ts\\\")]; saved={p:p.read_text() for p in files}\ntry:\n p=files[0]; p.write_text(saved[p].replace(\\\"    run.record = { ...run.record, activeTurnId: response.turn.id };\\\\n\\\", \\\"\\\"))\n p=files[1]; p.write_text(saved[p].replace(\\\"          yield* Store.assertSupported(run.dir);\\\\n\\\", \\\"\\\"))\n with Path(\\\"/tmp/foreman-b-revert-e7gjxev7/extra-revert.log\\\").open(\\\"w\\\") as log: result=subprocess.run([\\\"bun\\\",\\\"run\\\",\\\"test:unit\\\",\\\"tests/supervisor-integration.test.ts\\\",\\\"-t\\\",\\\"turn reply followed|future formats refuse archive\\\"],stdout=log,stderr=subprocess.STDOUT,timeout=30)\n print(\\\"additional revert exit\\\",result.returncode)\nfinally:\n for p,text in saved.items(): p.write_text(text)\n print(\\\"restored ownership and archive fixes\\\")\n'",
       "exitCode": 0,
       "output": "additional revert exit 1\nrestored ownership and archive fixes"
     },
@@ -2694,7 +2694,7 @@
       "seq": 1899,
       "t": 3074387,
       "kind": "command",
-      "command": "bun run e2e > /tmp/forman-b-revert-e7gjxev7/post-review-e2e.log 2>&1",
+      "command": "bun run e2e > /tmp/foreman-b-revert-e7gjxev7/post-review-e2e.log 2>&1",
       "exitCode": 0,
       "output": ""
     },
@@ -2702,7 +2702,7 @@
       "seq": 1901,
       "t": 3115360,
       "kind": "command",
-      "command": "tail -8 /tmp/forman-b-revert-e7gjxev7/post-review-e2e.log",
+      "command": "tail -8 /tmp/foreman-b-revert-e7gjxev7/post-review-e2e.log",
       "exitCode": 0,
       "output": " 8 pass\n 0 fail\n 169 expect() calls\nRan 8 tests across 1 file. [18.56s]"
     },
@@ -2710,7 +2710,7 @@
       "seq": 1902,
       "t": 3115447,
       "kind": "command",
-      "command": "tail -8 /tmp/forman-b-revert-e7gjxev7/post-review-full.log",
+      "command": "tail -8 /tmp/foreman-b-revert-e7gjxev7/post-review-full.log",
       "exitCode": 0,
       "output": "$ bun run test:unit\n$ node node_modules/vitest/vitest.mjs run\n\n RUN  v5.1.0 ."
     },
@@ -2718,7 +2718,7 @@
       "seq": 1903,
       "t": 3115537,
       "kind": "command",
-      "command": "tail -8 /tmp/forman-b-revert-e7gjxev7/post-review-repeat1.log",
+      "command": "tail -8 /tmp/foreman-b-revert-e7gjxev7/post-review-repeat1.log",
       "exitCode": 0,
       "output": "$ node node_modules/vitest/vitest.mjs run tests/run-store.test.ts tests/config-logging.test.ts tests/codex-client.test.ts tests/supervisor-integration.test.ts\n\n RUN  v5.1.0 ."
     },
@@ -2756,7 +2756,7 @@
       "seq": 1912,
       "t": 3124316,
       "kind": "command",
-      "command": "python3 -c 'from pathlib import Path; p=Path(\\\"docs/rfcs/0001-forman.md\\\"); s=p.read_text().replace(\\\"private-key blocks and long base64/hex-like blobs\\\", \\\"complete private-key blocks within a record and long base64/hex-like blobs\\\"); p.write_text(s)'",
+      "command": "python3 -c 'from pathlib import Path; p=Path(\\\"docs/rfcs/0001-foreman.md\\\"); s=p.read_text().replace(\\\"private-key blocks and long base64/hex-like blobs\\\", \\\"complete private-key blocks within a record and long base64/hex-like blobs\\\"); p.write_text(s)'",
       "exitCode": 0,
       "output": ""
     },
@@ -2764,7 +2764,7 @@
       "seq": 1915,
       "t": 3138280,
       "kind": "command",
-      "command": "bun run test > /tmp/forman-b-revert-e7gjxev7/post-review-full.log 2>&1",
+      "command": "bun run test > /tmp/foreman-b-revert-e7gjxev7/post-review-full.log 2>&1",
       "exitCode": 0,
       "output": ""
     },
@@ -2772,7 +2772,7 @@
       "seq": 1918,
       "t": 3186641,
       "kind": "command",
-      "command": "tail -7 /tmp/forman-b-revert-e7gjxev7/post-review-full.log",
+      "command": "tail -7 /tmp/foreman-b-revert-e7gjxev7/post-review-full.log",
       "exitCode": 0,
       "output": " Test Files  32 passed (32)\n      Tests  814 passed (814)\n   Start at  22:30:33\n   Duration  84.10s (tests 93%, import 7%)"
     },
@@ -2780,7 +2780,7 @@
       "seq": 1919,
       "t": 3186736,
       "kind": "command",
-      "command": "tail -7 /tmp/forman-b-revert-e7gjxev7/post-review-repeat1.log",
+      "command": "tail -7 /tmp/foreman-b-revert-e7gjxev7/post-review-repeat1.log",
       "exitCode": 0,
       "output": " Test Files  4 passed (4)\n      Tests  259 passed (259)\n   Start at  22:30:36\n   Duration  82.59s (tests 96%, import 4%, transform 1%)"
     },
@@ -2788,7 +2788,7 @@
       "seq": 1920,
       "t": 3186827,
       "kind": "command",
-      "command": "tail -7 /tmp/forman-b-revert-e7gjxev7/post-review-repeat2.log",
+      "command": "tail -7 /tmp/foreman-b-revert-e7gjxev7/post-review-repeat2.log",
       "exitCode": 0,
       "output": "$ node node_modules/vitest/vitest.mjs run tests/run-store.test.ts tests/config-logging.test.ts tests/codex-client.test.ts tests/supervisor-integration.test.ts\n\n RUN  v5.1.0 ."
     },
@@ -2796,7 +2796,7 @@
       "seq": 1921,
       "t": 3186918,
       "kind": "command",
-      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/post-review-smoke.log",
+      "command": "tail -6 /tmp/foreman-b-revert-e7gjxev7/post-review-smoke.log",
       "exitCode": 0,
       "output": "[exit 0]\nDaemon stopped.\n\n4 interrupt cancels a question, refuses its answer and permits followup: 7.6s"
     },
@@ -2818,7 +2818,7 @@
       "seq": 1928,
       "t": 3291561,
       "kind": "command",
-      "command": "python3 -c 'from pathlib import Path; import subprocess; out=Path(\\\"/tmp/forman-b-revert-e7gjxev7\\\"); args=[\\\"bun\\\",\\\"run\\\",\\\"test:unit\\\",\\\"tests/run-store.test.ts\\\",\\\"tests/config-logging.test.ts\\\",\\\"tests/codex-client.test.ts\\\",\\\"tests/supervisor-integration.test.ts\\\"]\nfor n in range(1,4):\n with (out/f\\\"post-review-repeat{n}.log\\\").open(\\\"w\\\") as log: result=subprocess.run(args,stdout=log,stderr=subprocess.STDOUT,timeout=200)\n print(\\\"post-review repetition\\\",n,\\\"exit\\\",result.returncode,flush=True)\n if result.returncode: break\n'",
+      "command": "python3 -c 'from pathlib import Path; import subprocess; out=Path(\\\"/tmp/foreman-b-revert-e7gjxev7\\\"); args=[\\\"bun\\\",\\\"run\\\",\\\"test:unit\\\",\\\"tests/run-store.test.ts\\\",\\\"tests/config-logging.test.ts\\\",\\\"tests/codex-client.test.ts\\\",\\\"tests/supervisor-integration.test.ts\\\"]\nfor n in range(1,4):\n with (out/f\\\"post-review-repeat{n}.log\\\").open(\\\"w\\\") as log: result=subprocess.run(args,stdout=log,stderr=subprocess.STDOUT,timeout=200)\n print(\\\"post-review repetition\\\",n,\\\"exit\\\",result.returncode,flush=True)\n if result.returncode: break\n'",
       "exitCode": 0,
       "output": "post-review repetition 1 exit 0\npost-review repetition 2 exit 0\npost-review repetition 3 exit 0"
     },
@@ -2826,7 +2826,7 @@
       "seq": 1930,
       "t": 3335800,
       "kind": "command",
-      "command": "tail -7 /tmp/forman-b-revert-e7gjxev7/post-review-repeat2.log",
+      "command": "tail -7 /tmp/foreman-b-revert-e7gjxev7/post-review-repeat2.log",
       "exitCode": 0,
       "output": " Test Files  4 passed (4)\n      Tests  259 passed (259)\n   Start at  22:31:59\n   Duration  75.93s (tests 98%, import 2%)"
     },
@@ -2834,7 +2834,7 @@
       "seq": 1931,
       "t": 3335889,
       "kind": "command",
-      "command": "tail -7 /tmp/forman-b-revert-e7gjxev7/post-review-repeat3.log",
+      "command": "tail -7 /tmp/foreman-b-revert-e7gjxev7/post-review-repeat3.log",
       "exitCode": 0,
       "output": " Test Files  4 passed (4)\n      Tests  259 passed (259)\n   Start at  22:33:15\n   Duration  75.74s (tests 98%, import 2%)"
     },
@@ -2842,7 +2842,7 @@
       "seq": 1932,
       "t": 3335975,
       "kind": "command",
-      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/post-review-smoke.log",
+      "command": "tail -6 /tmp/foreman-b-revert-e7gjxev7/post-review-smoke.log",
       "exitCode": 0,
       "output": "[exit 0]\nDaemon stopped.\n\n8 unapproved repo hooks refuse start before any turn and doctor explains: 2.8s"
     },
@@ -2850,7 +2850,7 @@
       "seq": 1938,
       "t": 3420745,
       "kind": "command",
-      "command": "FORMAN_SMOKE=1 FORMAN_SMOKE_SHORT=1 bun run smoke > /tmp/forman-b-revert-e7gjxev7/post-review-smoke.log 2>&1",
+      "command": "FOREMAN_SMOKE=1 FOREMAN_SMOKE_SHORT=1 bun run smoke > /tmp/foreman-b-revert-e7gjxev7/post-review-smoke.log 2>&1",
       "exitCode": 0,
       "output": ""
     },
@@ -2884,7 +2884,7 @@
       "seq": 1976,
       "t": 3456226,
       "kind": "command",
-      "command": "python3 -c 'from pathlib import Path; p=Path(\\\"docs/rfcs/0001-forman.md\\\"); s=p.read_text().replace(\\\"UUID-shaped identifiers remain readable.\\\", \\\"UUID-shaped identifiers remain readable. Normalized file-change paths remain exact because scope reporting uses them as identities.\\\"); p.write_text(s)'",
+      "command": "python3 -c 'from pathlib import Path; p=Path(\\\"docs/rfcs/0001-foreman.md\\\"); s=p.read_text().replace(\\\"UUID-shaped identifiers remain readable.\\\", \\\"UUID-shaped identifiers remain readable. Normalized file-change paths remain exact because scope reporting uses them as identities.\\\"); p.write_text(s)'",
       "exitCode": 0,
       "output": ""
     },
@@ -2908,7 +2908,7 @@
       "seq": 1989,
       "t": 3457772,
       "kind": "command",
-      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/post-review-smoke.log",
+      "command": "tail -6 /tmp/foreman-b-revert-e7gjxev7/post-review-smoke.log",
       "exitCode": 0,
       "output": " 16 pass\n 0 fail\n 238 expect() calls\nRan 16 tests across 3 files. [297.67s]"
     },
@@ -2940,7 +2940,7 @@
       "seq": 2002,
       "t": 3512960,
       "kind": "command",
-      "command": "python3 -c 'from pathlib import Path; import subprocess; out=Path(\\\"/tmp/forman-b-revert-e7gjxev7\\\")\nfor n in range(1,4):\n with (out/f\\\"final-run-store{n}.log\\\").open(\\\"w\\\") as log: result=subprocess.run([\\\"bun\\\",\\\"run\\\",\\\"test:unit\\\",\\\"tests/run-store.test.ts\\\"],stdout=log,stderr=subprocess.STDOUT,timeout=60)\n print(\\\"final store repetition\\\",n,\\\"exit\\\",result.returncode,flush=True)\n if result.returncode: break\n'",
+      "command": "python3 -c 'from pathlib import Path; import subprocess; out=Path(\\\"/tmp/foreman-b-revert-e7gjxev7\\\")\nfor n in range(1,4):\n with (out/f\\\"final-run-store{n}.log\\\").open(\\\"w\\\") as log: result=subprocess.run([\\\"bun\\\",\\\"run\\\",\\\"test:unit\\\",\\\"tests/run-store.test.ts\\\"],stdout=log,stderr=subprocess.STDOUT,timeout=60)\n print(\\\"final store repetition\\\",n,\\\"exit\\\",result.returncode,flush=True)\n if result.returncode: break\n'",
       "exitCode": 0,
       "output": "final store repetition 1 exit 0\nfinal store repetition 2 exit 0\nfinal store repetition 3 exit 0"
     },
@@ -2948,7 +2948,7 @@
       "seq": 2003,
       "t": 3523388,
       "kind": "command",
-      "command": "bun run e2e > /tmp/forman-b-revert-e7gjxev7/final-e2e.log 2>&1",
+      "command": "bun run e2e > /tmp/foreman-b-revert-e7gjxev7/final-e2e.log 2>&1",
       "exitCode": 0,
       "output": ""
     },
@@ -2956,7 +2956,7 @@
       "seq": 2004,
       "t": 3584032,
       "kind": "command",
-      "command": "bun run test > /tmp/forman-b-revert-e7gjxev7/final-unit.log 2>&1",
+      "command": "bun run test > /tmp/foreman-b-revert-e7gjxev7/final-unit.log 2>&1",
       "exitCode": 0,
       "output": ""
     },
@@ -2964,7 +2964,7 @@
       "seq": 2006,
       "t": 3597672,
       "kind": "command",
-      "command": "tail -7 /tmp/forman-b-revert-e7gjxev7/final-unit.log",
+      "command": "tail -7 /tmp/foreman-b-revert-e7gjxev7/final-unit.log",
       "exitCode": 0,
       "output": " Test Files  32 passed (32)\n      Tests  815 passed (815)\n   Start at  22:38:03\n   Duration  79.85s (tests 92%, import 7%, transform 1%)"
     },
@@ -2972,7 +2972,7 @@
       "seq": 2007,
       "t": 3597762,
       "kind": "command",
-      "command": "tail -7 /tmp/forman-b-revert-e7gjxev7/final-e2e.log",
+      "command": "tail -7 /tmp/foreman-b-revert-e7gjxev7/final-e2e.log",
       "exitCode": 0,
       "output": " 8 pass\n 0 fail\n 169 expect() calls\nRan 8 tests across 1 file. [19.52s]"
     },
@@ -2980,7 +2980,7 @@
       "seq": 2008,
       "t": 3597852,
       "kind": "command",
-      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/final-run-store3.log",
+      "command": "tail -6 /tmp/foreman-b-revert-e7gjxev7/final-run-store3.log",
       "exitCode": 0,
       "output": " Test Files  1 passed (1)\n      Tests  35 passed (35)\n   Start at  22:38:10\n   Duration  1.60s (tests 79%, import 19%, transform 1%)"
     },
@@ -2994,7 +2994,7 @@
       "seq": 2014,
       "t": 3730749,
       "kind": "command",
-      "command": "python3 -c 'from pathlib import Path; import subprocess; p=Path(\\\"src/core/runs/store.ts\\\"); saved=p.read_text()\ntry:\n p.write_text(saved.replace(\\\"entry, event._tag \"'!== '\"\\\\\\\"FileChange\\\\\\\"\\\", \\\"entry, true\\\"))\n with Path(\\\"/tmp/forman-b-revert-e7gjxev7/path-revert.log\\\").open(\\\"w\\\") as log: result=subprocess.run([\\\"bun\\\",\\\"run\\\",\\\"test:unit\\\",\\\"tests/run-store.test.ts\\\",\\\"-t\\\",\\\"file-change identities\\\"],stdout=log,stderr=subprocess.STDOUT,timeout=30)\n print(\\\"path identity revert exit\\\",result.returncode)\nfinally:\n p.write_text(saved)\n print(\\\"restored path identity fix\\\")\n'",
+      "command": "python3 -c 'from pathlib import Path; import subprocess; p=Path(\\\"src/core/runs/store.ts\\\"); saved=p.read_text()\ntry:\n p.write_text(saved.replace(\\\"entry, event._tag \"'!== '\"\\\\\\\"FileChange\\\\\\\"\\\", \\\"entry, true\\\"))\n with Path(\\\"/tmp/foreman-b-revert-e7gjxev7/path-revert.log\\\").open(\\\"w\\\") as log: result=subprocess.run([\\\"bun\\\",\\\"run\\\",\\\"test:unit\\\",\\\"tests/run-store.test.ts\\\",\\\"-t\\\",\\\"file-change identities\\\"],stdout=log,stderr=subprocess.STDOUT,timeout=30)\n print(\\\"path identity revert exit\\\",result.returncode)\nfinally:\n p.write_text(saved)\n print(\\\"restored path identity fix\\\")\n'",
       "exitCode": 0,
       "output": "path identity revert exit 1\nrestored path identity fix"
     },
@@ -3010,7 +3010,7 @@
       "seq": 2020,
       "t": 3794562,
       "kind": "command",
-      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/final-smoke.log",
+      "command": "tail -6 /tmp/foreman-b-revert-e7gjxev7/final-smoke.log",
       "exitCode": 0,
       "output": "[exit 0]\nDaemon stopped.\n\n4 interrupt cancels a question, refuses its answer and permits followup: 8.2s"
     },
@@ -3026,7 +3026,7 @@
       "seq": 2026,
       "t": 3956933,
       "kind": "command",
-      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/final-smoke.log",
+      "command": "tail -6 /tmp/foreman-b-revert-e7gjxev7/final-smoke.log",
       "exitCode": 0,
       "output": "[exit 0]\nDaemon stopped.\n\n8 unapproved repo hooks refuse start before any turn and doctor explains: 2.6s"
     },
@@ -3034,7 +3034,7 @@
       "seq": 2027,
       "t": 3957020,
       "kind": "command",
-      "command": "tail -7 /tmp/forman-b-revert-e7gjxev7/path-revert.log",
+      "command": "tail -7 /tmp/foreman-b-revert-e7gjxev7/path-revert.log",
       "exitCode": 0,
       "output": "   Start at  22:41:49\n   Duration  512ms (import 82%, tests 10%, transform 7%, setup 1%)\n\nerror: script \"test:unit\" exited with code 1"
     },
@@ -3050,7 +3050,7 @@
       "seq": 2031,
       "t": 4011205,
       "kind": "command",
-      "command": "FORMAN_SMOKE=1 FORMAN_SMOKE_SHORT=1 bun run smoke > /tmp/forman-b-revert-e7gjxev7/final-smoke.log 2>&1",
+      "command": "FOREMAN_SMOKE=1 FOREMAN_SMOKE_SHORT=1 bun run smoke > /tmp/foreman-b-revert-e7gjxev7/final-smoke.log 2>&1",
       "exitCode": 0,
       "output": ""
     },
@@ -3064,7 +3064,7 @@
       "seq": 2034,
       "t": 4033660,
       "kind": "command",
-      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/final-smoke.log",
+      "command": "tail -6 /tmp/foreman-b-revert-e7gjxev7/final-smoke.log",
       "exitCode": 0,
       "output": " 16 pass\n 0 fail\n 238 expect() calls\nRan 16 tests across 3 files. [282.61s]"
     },
@@ -3112,7 +3112,7 @@
       "seq": 2048,
       "t": 4229411,
       "kind": "message",
-      "text": "**1. Summary**\n\nImplemented the supervisor state, persistence, recovery and diagnostic changes, with 38 new regression cases. Everything is uncommitted; nothing was pushed.\n\n**Part B remains blocked on review finding 3:** multiline PEM redaction needs a synthetic fixture that the repository’s secret-write hook refused without approval.\n\n**2. Files**\n\n| File | Change |\n|---|---|\n| `src/core/runs/store.ts` | Version fences, cached format validation, streamed reads, atomic hand-offs, bounded redacted capture and validated archive ordering. |\n| `src/supervisor/registry.ts` | Recoverable state journal, streamed reconciliation, safe background diagnostics and archive cleanup ordering. |\n| `src/supervisor/turns.ts` | Preserve unreadable names, retain acknowledged turn IDs across write failures and keep ownership until termination. |\n| `src/supervisor/app-server.ts` | Preserve disconnect reasons and join shared resource cleanup before retirement completes. |\n| `src/supervisor/questions.ts` | Bind questions to their originating connection; finish Answer bookkeeping despite caller interruption; prevent resending delivered answers. |\n| `src/supervisor/index.ts` | Cover follow-up cursor failures with recovery and give Answer a daemon-owned lifetime. |\n| `src/supervisor/wait.ts` | UTF-8 cursors with legacy decoding; preserve Git discovery failures. |\n| `src/codex/client.ts` | Expose the connection’s termination cause. |\n| `src/logging.ts` | Safe cause fields, diagnostic redaction and bounded rotating sinks. |\n| `src/schemas/daemon.ts` | Storage header, pending state transition and transition identifier schemas. |\n| `tests/run-store.test.ts` | Storage, compatibility, redaction, bounds, streaming, atomic publication and path-identity regressions. |\n| `tests/supervisor-integration.test.ts` | Ownership, recovery, cursor, connection, Answer and archive interleavings. |\n| `tests/codex-client.test.ts` | Preserve exit reason without pending RPCs. |\n| `tests/config-logging.test.ts` | CLI rotation and oversized-record bounds. |\n| `docs/rfcs/0001-forman.md` | Runs and Failure handling: formats, recovery, privacy, retention and cleanup. |\n\n**3. Decisions**\n\n- Storage writes use version 1; unversioned records remain readable. Unsupported versions fence mutations and archive cleanup.\n- `pendingStateEvent` and `transitionId` make state publication recoverable without duplicate attention.\n- Unknown expiry retires the connection and waits for its resource-cleanup completion. This can also end peer runs on that connection.\n- Questions retain their originating server. Accepted Answers use daemon-owned execution and an uninterruptible delivery/bookkeeping section.\n- New cursors use `u1.` plus UTF-8 encoding. Unprefixed cursors retain Latin-1 semantics, avoiding ambiguous legacy paths.\n- Per orchestrator direction, command tails, stderr and bounded raw capture are retained with best-effort redaction. Normalized file-change paths remain exact for scope reporting.\n- Format validation caches checked file metadata and records owned appends; opening a run still validates its complete history.\n- Archive cleanup runs only after storage compatibility checks. Archives have documented manual retention and cleanup.\n\nThe testing skills drove real-service tests with Deferred, TestClock, FIFO and transport barriers. Error-handling guidance shaped message-free defect traces and safe platform context. Effect guidance informed scoped ownership; architecture and writing guidance kept changes in existing modules and the RFC focused on concrete policy.\n\n**4. Checks**\n\n| Check | Result |\n|---|---|\n| `bun run lint` | Passed: 121 files. |\n| `bun run typecheck` | Passed. |\n| `bun run format` | Passed; latest run required no changes. |\n| `bun run test` | Final: **815 passed across 32 files**. |\n| Four changed test files | Three post-review runs: **259 passed each**. |\n| `bun run test:unit tests/run-store.test.ts` | After the final path fix: **35 passed, three times**. |\n| `bun run test:unit tests/daemon-logging.test.ts` | **5 passed**. |\n| `bun run e2e` | Final: **8 passed, 0 failed**. |\n| `FORMAN_SMOKE=1 FORMAN_SMOKE_SHORT=1 bun run smoke` | Final: **16 passed, 0 failed**. |\n| `bun run build` | Passed; binary reports `forman v0.1.0`. |\n| `git diff --check` | Passed. |\n\nRevert verification produced the expected failures: 24 in the original regression batch, 7 in the redaction batch, 4 review regressions, 2 additional ownership/archive regressions and the path-identity regression. Fixes were restored afterward. Legacy compatibility intentionally passes against the baseline.\n\nEarlier failures were corrected, including diagnostic path context, raw-capture assertions and the discarded tail-omission policy. The initial smoke run had one tail assertion failure; subsequent smoke runs passed all 16 cases. `bun run check` was not run.\n\nBuilt-binary QA with temporary homes confirmed:\n\n- Baseline Start deleted damaged history; the fix refuses reuse and preserves it.\n- Baseline Unicode waits failed; the fix completes waits and continuations.\n- Token-shaped diagnostic values persisted before and are redacted afterward.\n- After the real five-minute deadline, baseline state was `lost` while Codex remained alive. The fixed build reported `lost` after Codex exited.\n\nEvidence is under `/tmp/forman-b-revert-e7gjxev7/`.\n\n**5. Review**\n\nReview: [review.md](/tmp/scratch)\n\n1. Repeated full-log version scans: **fixed** with validated metadata caching.\n2. Unversioned oversized-capture marker: **fixed**.\n3. Multiline PEM leakage through stderr: **blocked**, described below.\n4. Concurrent retirement returning before cleanup: **fixed** with shared resource completion.\n5. Journal reconciliation collecting all history: **fixed** with a streaming search.\n6. Stderr test observing file creation before content: **fixed** by waiting for committed contents.\n\nOne independent review pass was performed, as requested.\n\n**6. Look closer at**\n\n- Format-cache invalidation and its serialized-writer assumption.\n- Resource-finalizer ordering in `makeAppServer.close`, especially when merging Part A’s shutdown changes.\n- `archiveRun`’s `beforeArchive` effect, which keeps compatibility validation ahead of worktree removal.\n\n**7. Open**\n\nApproval is needed for the synthetic PEM fixture with a `pragma: allowlist secret` comment. The pending fix belongs in the stderr handler at `src/supervisor/app-server.ts:127`: track private-key-block state across lines and suppress short payload lines until the END marker. Its regression must exercise the actual stderr transport.\n\nThe PreToolUse secret-write hook explicitly rejected the synthetic PEM markers and required approval plus the pragma. The orchestrator request timed out without an answer. I left that fixture and fix unwritten; short PEM payload lines can still persist, so this unit is not complete."
+      "text": "**1. Summary**\n\nImplemented the supervisor state, persistence, recovery and diagnostic changes, with 38 new regression cases. Everything is uncommitted; nothing was pushed.\n\n**Part B remains blocked on review finding 3:** multiline PEM redaction needs a synthetic fixture that the repository’s secret-write hook refused without approval.\n\n**2. Files**\n\n| File | Change |\n|---|---|\n| `src/core/runs/store.ts` | Version fences, cached format validation, streamed reads, atomic hand-offs, bounded redacted capture and validated archive ordering. |\n| `src/supervisor/registry.ts` | Recoverable state journal, streamed reconciliation, safe background diagnostics and archive cleanup ordering. |\n| `src/supervisor/turns.ts` | Preserve unreadable names, retain acknowledged turn IDs across write failures and keep ownership until termination. |\n| `src/supervisor/app-server.ts` | Preserve disconnect reasons and join shared resource cleanup before retirement completes. |\n| `src/supervisor/questions.ts` | Bind questions to their originating connection; finish Answer bookkeeping despite caller interruption; prevent resending delivered answers. |\n| `src/supervisor/index.ts` | Cover follow-up cursor failures with recovery and give Answer a daemon-owned lifetime. |\n| `src/supervisor/wait.ts` | UTF-8 cursors with legacy decoding; preserve Git discovery failures. |\n| `src/codex/client.ts` | Expose the connection’s termination cause. |\n| `src/logging.ts` | Safe cause fields, diagnostic redaction and bounded rotating sinks. |\n| `src/schemas/daemon.ts` | Storage header, pending state transition and transition identifier schemas. |\n| `tests/run-store.test.ts` | Storage, compatibility, redaction, bounds, streaming, atomic publication and path-identity regressions. |\n| `tests/supervisor-integration.test.ts` | Ownership, recovery, cursor, connection, Answer and archive interleavings. |\n| `tests/codex-client.test.ts` | Preserve exit reason without pending RPCs. |\n| `tests/config-logging.test.ts` | CLI rotation and oversized-record bounds. |\n| `docs/rfcs/0001-foreman.md` | Runs and Failure handling: formats, recovery, privacy, retention and cleanup. |\n\n**3. Decisions**\n\n- Storage writes use version 1; unversioned records remain readable. Unsupported versions fence mutations and archive cleanup.\n- `pendingStateEvent` and `transitionId` make state publication recoverable without duplicate attention.\n- Unknown expiry retires the connection and waits for its resource-cleanup completion. This can also end peer runs on that connection.\n- Questions retain their originating server. Accepted Answers use daemon-owned execution and an uninterruptible delivery/bookkeeping section.\n- New cursors use `u1.` plus UTF-8 encoding. Unprefixed cursors retain Latin-1 semantics, avoiding ambiguous legacy paths.\n- Per orchestrator direction, command tails, stderr and bounded raw capture are retained with best-effort redaction. Normalized file-change paths remain exact for scope reporting.\n- Format validation caches checked file metadata and records owned appends; opening a run still validates its complete history.\n- Archive cleanup runs only after storage compatibility checks. Archives have documented manual retention and cleanup.\n\nThe testing skills drove real-service tests with Deferred, TestClock, FIFO and transport barriers. Error-handling guidance shaped message-free defect traces and safe platform context. Effect guidance informed scoped ownership; architecture and writing guidance kept changes in existing modules and the RFC focused on concrete policy.\n\n**4. Checks**\n\n| Check | Result |\n|---|---|\n| `bun run lint` | Passed: 121 files. |\n| `bun run typecheck` | Passed. |\n| `bun run format` | Passed; latest run required no changes. |\n| `bun run test` | Final: **815 passed across 32 files**. |\n| Four changed test files | Three post-review runs: **259 passed each**. |\n| `bun run test:unit tests/run-store.test.ts` | After the final path fix: **35 passed, three times**. |\n| `bun run test:unit tests/daemon-logging.test.ts` | **5 passed**. |\n| `bun run e2e` | Final: **8 passed, 0 failed**. |\n| `FOREMAN_SMOKE=1 FOREMAN_SMOKE_SHORT=1 bun run smoke` | Final: **16 passed, 0 failed**. |\n| `bun run build` | Passed; binary reports `foreman v0.1.0`. |\n| `git diff --check` | Passed. |\n\nRevert verification produced the expected failures: 24 in the original regression batch, 7 in the redaction batch, 4 review regressions, 2 additional ownership/archive regressions and the path-identity regression. Fixes were restored afterward. Legacy compatibility intentionally passes against the baseline.\n\nEarlier failures were corrected, including diagnostic path context, raw-capture assertions and the discarded tail-omission policy. The initial smoke run had one tail assertion failure; subsequent smoke runs passed all 16 cases. `bun run check` was not run.\n\nBuilt-binary QA with temporary homes confirmed:\n\n- Baseline Start deleted damaged history; the fix refuses reuse and preserves it.\n- Baseline Unicode waits failed; the fix completes waits and continuations.\n- Token-shaped diagnostic values persisted before and are redacted afterward.\n- After the real five-minute deadline, baseline state was `lost` while Codex remained alive. The fixed build reported `lost` after Codex exited.\n\nEvidence is under `/tmp/foreman-b-revert-e7gjxev7/`.\n\n**5. Review**\n\nReview: [review.md](/tmp/scratch)\n\n1. Repeated full-log version scans: **fixed** with validated metadata caching.\n2. Unversioned oversized-capture marker: **fixed**.\n3. Multiline PEM leakage through stderr: **blocked**, described below.\n4. Concurrent retirement returning before cleanup: **fixed** with shared resource completion.\n5. Journal reconciliation collecting all history: **fixed** with a streaming search.\n6. Stderr test observing file creation before content: **fixed** by waiting for committed contents.\n\nOne independent review pass was performed, as requested.\n\n**6. Look closer at**\n\n- Format-cache invalidation and its serialized-writer assumption.\n- Resource-finalizer ordering in `makeAppServer.close`, especially when merging Part A’s shutdown changes.\n- `archiveRun`’s `beforeArchive` effect, which keeps compatibility validation ahead of worktree removal.\n\n**7. Open**\n\nApproval is needed for the synthetic PEM fixture with a `pragma: allowlist secret` comment. The pending fix belongs in the stderr handler at `src/supervisor/app-server.ts:127`: track private-key-block state across lines and suppress short payload lines until the END marker. Its regression must exercise the actual stderr transport.\n\nThe PreToolUse secret-write hook explicitly rejected the synthetic PEM markers and required approval plus the pragma. The orchestrator request timed out without an answer. I left that fixture and fix unwritten; short PEM payload lines can still persist, so this unit is not complete."
     },
     {
       "seq": 2053,
@@ -3143,7 +3143,7 @@
       "_tag": "Resolved",
       "id": "q1",
       "resolution": "answered",
-      "text": "No: don't drop command output tails. Losing them makes forman events useless exactly when a command fails. Use the conventional policy instead: keep the tails (and the stderr and raw capture you bound), but pass them through redaction of secret-looking values (reuse logging.ts's redaction rules: secret-like keys and token-shaped values such as sk-..., ghp_..., Bearer ..., long base64/hex blobs, KEY=value pairs whose key looks secret), and keep everything under the private 0700 home. Document the policy and its limits (redaction is best effort) in the RFC. Then the smoke assertion stays as it is. Add tests that a token-shaped value in command output is redacted in events.jsonl and codex.jsonl.",
+      "text": "No: don't drop command output tails. Losing them makes foreman events useless exactly when a command fails. Use the conventional policy instead: keep the tails (and the stderr and raw capture you bound), but pass them through redaction of secret-looking values (reuse logging.ts's redaction rules: secret-like keys and token-shaped values such as sk-..., ghp_..., Bearer ..., long base64/hex blobs, KEY=value pairs whose key looks secret), and keep everything under the private 0700 home. Document the policy and its limits (redaction is best effort) in the RFC. Then the smoke assertion stays as it is. Add tests that a token-shaped value in command output is redacted in events.jsonl and codex.jsonl.",
       "at": "2026-11-06T04:00:20.440Z",
       "t": 1240949
     },
@@ -3165,6 +3165,6 @@
       "t": 3256118
     }
   ],
-  "handoff": "**1. Summary**\n\nImplemented the supervisor state, persistence, recovery and diagnostic changes, with 38 new regression cases. Everything is uncommitted; nothing was pushed.\n\n**Part B remains blocked on review finding 3:** multiline PEM redaction needs a synthetic fixture that the repository’s secret-write hook refused without approval.\n\n**2. Files**\n\n| File | Change |\n|---|---|\n| `src/core/runs/store.ts` | Version fences, cached format validation, streamed reads, atomic hand-offs, bounded redacted capture and validated archive ordering. |\n| `src/supervisor/registry.ts` | Recoverable state journal, streamed reconciliation, safe background diagnostics and archive cleanup ordering. |\n| `src/supervisor/turns.ts` | Preserve unreadable names, retain acknowledged turn IDs across write failures and keep ownership until termination. |\n| `src/supervisor/app-server.ts` | Preserve disconnect reasons and join shared resource cleanup before retirement completes. |\n| `src/supervisor/questions.ts` | Bind questions to their originating connection; finish Answer bookkeeping despite caller interruption; prevent resending delivered answers. |\n| `src/supervisor/index.ts` | Cover follow-up cursor failures with recovery and give Answer a daemon-owned lifetime. |\n| `src/supervisor/wait.ts` | UTF-8 cursors with legacy decoding; preserve Git discovery failures. |\n| `src/codex/client.ts` | Expose the connection’s termination cause. |\n| `src/logging.ts` | Safe cause fields, diagnostic redaction and bounded rotating sinks. |\n| `src/schemas/daemon.ts` | Storage header, pending state transition and transition identifier schemas. |\n| `tests/run-store.test.ts` | Storage, compatibility, redaction, bounds, streaming, atomic publication and path-identity regressions. |\n| `tests/supervisor-integration.test.ts` | Ownership, recovery, cursor, connection, Answer and archive interleavings. |\n| `tests/codex-client.test.ts` | Preserve exit reason without pending RPCs. |\n| `tests/config-logging.test.ts` | CLI rotation and oversized-record bounds. |\n| `docs/rfcs/0001-forman.md` | Runs and Failure handling: formats, recovery, privacy, retention and cleanup. |\n\n**3. Decisions**\n\n- Storage writes use version 1; unversioned records remain readable. Unsupported versions fence mutations and archive cleanup.\n- `pendingStateEvent` and `transitionId` make state publication recoverable without duplicate attention.\n- Unknown expiry retires the connection and waits for its resource-cleanup completion. This can also end peer runs on that connection.\n- Questions retain their originating server. Accepted Answers use daemon-owned execution and an uninterruptible delivery/bookkeeping section.\n- New cursors use `u1.` plus UTF-8 encoding. Unprefixed cursors retain Latin-1 semantics, avoiding ambiguous legacy paths.\n- Per orchestrator direction, command tails, stderr and bounded raw capture are retained with best-effort redaction. Normalized file-change paths remain exact for scope reporting.\n- Format validation caches checked file metadata and records owned appends; opening a run still validates its complete history.\n- Archive cleanup runs only after storage compatibility checks. Archives have documented manual retention and cleanup.\n\nThe testing skills drove real-service tests with Deferred, TestClock, FIFO and transport barriers. Error-handling guidance shaped message-free defect traces and safe platform context. Effect guidance informed scoped ownership; architecture and writing guidance kept changes in existing modules and the RFC focused on concrete policy.\n\n**4. Checks**\n\n| Check | Result |\n|---|---|\n| `bun run lint` | Passed: 121 files. |\n| `bun run typecheck` | Passed. |\n| `bun run format` | Passed; latest run required no changes. |\n| `bun run test` | Final: **815 passed across 32 files**. |\n| Four changed test files | Three post-review runs: **259 passed each**. |\n| `bun run test:unit tests/run-store.test.ts` | After the final path fix: **35 passed, three times**. |\n| `bun run test:unit tests/daemon-logging.test.ts` | **5 passed**. |\n| `bun run e2e` | Final: **8 passed, 0 failed**. |\n| `FORMAN_SMOKE=1 FORMAN_SMOKE_SHORT=1 bun run smoke` | Final: **16 passed, 0 failed**. |\n| `bun run build` | Passed; binary reports `forman v0.1.0`. |\n| `git diff --check` | Passed. |\n\nRevert verification produced the expected failures: 24 in the original regression batch, 7 in the redaction batch, 4 review regressions, 2 additional ownership/archive regressions and the path-identity regression. Fixes were restored afterward. Legacy compatibility intentionally passes against the baseline.\n\nEarlier failures were corrected, including diagnostic path context, raw-capture assertions and the discarded tail-omission policy. The initial smoke run had one tail assertion failure; subsequent smoke runs passed all 16 cases. `bun run check` was not run.\n\nBuilt-binary QA with temporary homes confirmed:\n\n- Baseline Start deleted damaged history; the fix refuses reuse and preserves it.\n- Baseline Unicode waits failed; the fix completes waits and continuations.\n- Token-shaped diagnostic values persisted before and are redacted afterward.\n- After the real five-minute deadline, baseline state was `lost` while Codex remained alive. The fixed build reported `lost` after Codex exited.\n\nEvidence is under `/tmp/forman-b-revert-e7gjxev7/`.\n\n**5. Review**\n\nReview: [review.md](/tmp/scratch)\n\n1. Repeated full-log version scans: **fixed** with validated metadata caching.\n2. Unversioned oversized-capture marker: **fixed**.\n3. Multiline PEM leakage through stderr: **blocked**, described below.\n4. Concurrent retirement returning before cleanup: **fixed** with shared resource completion.\n5. Journal reconciliation collecting all history: **fixed** with a streaming search.\n6. Stderr test observing file creation before content: **fixed** by waiting for committed contents.\n\nOne independent review pass was performed, as requested.\n\n**6. Look closer at**\n\n- Format-cache invalidation and its serialized-writer assumption.\n- Resource-finalizer ordering in `makeAppServer.close`, especially when merging Part A’s shutdown changes.\n- `archiveRun`’s `beforeArchive` effect, which keeps compatibility validation ahead of worktree removal.\n\n**7. Open**\n\nApproval is needed for the synthetic PEM fixture with a `pragma: allowlist secret` comment. The pending fix belongs in the stderr handler at `src/supervisor/app-server.ts:127`: track private-key-block state across lines and suppress short payload lines until the END marker. Its regression must exercise the actual stderr transport.\n\nThe PreToolUse secret-write hook explicitly rejected the synthetic PEM markers and required approval plus the pragma. The orchestrator request timed out without an answer. I left that fixture and fix unwritten; short PEM payload lines can still persist, so this unit is not complete.",
-  "digest": "run:       fix-supervisor  idle  70m30s  (gpt-6.1-sol, high, priority, write)\ndir:       ~/.forman/runs/fix-supervisor\nworktree:  ~/src/forman/.claude/worktrees/fix-supervisor\nbranch:    forman/fix-supervisor (forman-created, base 39aec1625582d74b66751460b5fb66b6b1b27add)\nturn:      1 (start)\nquestion:  (none)\ncommands:  299 (34 failed, 1 blocked by repo hooks)\n  last:    /bin/zsh -lc 'git diff --check'  exit=0\nfiles written:\n  docs/rfcs/0001-forman.md\n  src/codex/client.ts\n  src/core/runs/store.ts\n  src/logging.ts\n  src/schemas/daemon.ts\n  src/supervisor/app-server.ts\n  src/supervisor/index.ts\n  src/supervisor/questions.ts\n  src/supervisor/registry.ts\n  src/supervisor/turns.ts\n  src/supervisor/wait.ts\n  tests/codex-client.test.ts\n  tests/config-logging.test.ts\n  tests/run-store.test.ts\n  tests/supervisor-integration.test.ts\noutside May change:\n  tests/run-store.test.ts\n  tests/supervisor-integration.test.ts\nnew in git status since start:\n  M  docs/rfcs/0001-forman.md\n  M  src/codex/client.ts\n  M  src/core/runs/store.ts\n  M  src/logging.ts\n  M  src/schemas/daemon.ts\n  M  src/supervisor/app-server.ts\n  M  src/supervisor/index.ts\n  M  src/supervisor/questions.ts\n  M  src/supervisor/registry.ts\n  M  src/supervisor/turns.ts\n  M  src/supervisor/wait.ts\n  M  tests/codex-client.test.ts\n  M  tests/config-logging.test.ts\n  M  tests/run-store.test.ts\n  M  tests/supervisor-integration.test.ts\ntokens:    37.4M in (99% cached), 174.8K out\n"
+  "handoff": "**1. Summary**\n\nImplemented the supervisor state, persistence, recovery and diagnostic changes, with 38 new regression cases. Everything is uncommitted; nothing was pushed.\n\n**Part B remains blocked on review finding 3:** multiline PEM redaction needs a synthetic fixture that the repository’s secret-write hook refused without approval.\n\n**2. Files**\n\n| File | Change |\n|---|---|\n| `src/core/runs/store.ts` | Version fences, cached format validation, streamed reads, atomic hand-offs, bounded redacted capture and validated archive ordering. |\n| `src/supervisor/registry.ts` | Recoverable state journal, streamed reconciliation, safe background diagnostics and archive cleanup ordering. |\n| `src/supervisor/turns.ts` | Preserve unreadable names, retain acknowledged turn IDs across write failures and keep ownership until termination. |\n| `src/supervisor/app-server.ts` | Preserve disconnect reasons and join shared resource cleanup before retirement completes. |\n| `src/supervisor/questions.ts` | Bind questions to their originating connection; finish Answer bookkeeping despite caller interruption; prevent resending delivered answers. |\n| `src/supervisor/index.ts` | Cover follow-up cursor failures with recovery and give Answer a daemon-owned lifetime. |\n| `src/supervisor/wait.ts` | UTF-8 cursors with legacy decoding; preserve Git discovery failures. |\n| `src/codex/client.ts` | Expose the connection’s termination cause. |\n| `src/logging.ts` | Safe cause fields, diagnostic redaction and bounded rotating sinks. |\n| `src/schemas/daemon.ts` | Storage header, pending state transition and transition identifier schemas. |\n| `tests/run-store.test.ts` | Storage, compatibility, redaction, bounds, streaming, atomic publication and path-identity regressions. |\n| `tests/supervisor-integration.test.ts` | Ownership, recovery, cursor, connection, Answer and archive interleavings. |\n| `tests/codex-client.test.ts` | Preserve exit reason without pending RPCs. |\n| `tests/config-logging.test.ts` | CLI rotation and oversized-record bounds. |\n| `docs/rfcs/0001-foreman.md` | Runs and Failure handling: formats, recovery, privacy, retention and cleanup. |\n\n**3. Decisions**\n\n- Storage writes use version 1; unversioned records remain readable. Unsupported versions fence mutations and archive cleanup.\n- `pendingStateEvent` and `transitionId` make state publication recoverable without duplicate attention.\n- Unknown expiry retires the connection and waits for its resource-cleanup completion. This can also end peer runs on that connection.\n- Questions retain their originating server. Accepted Answers use daemon-owned execution and an uninterruptible delivery/bookkeeping section.\n- New cursors use `u1.` plus UTF-8 encoding. Unprefixed cursors retain Latin-1 semantics, avoiding ambiguous legacy paths.\n- Per orchestrator direction, command tails, stderr and bounded raw capture are retained with best-effort redaction. Normalized file-change paths remain exact for scope reporting.\n- Format validation caches checked file metadata and records owned appends; opening a run still validates its complete history.\n- Archive cleanup runs only after storage compatibility checks. Archives have documented manual retention and cleanup.\n\nThe testing skills drove real-service tests with Deferred, TestClock, FIFO and transport barriers. Error-handling guidance shaped message-free defect traces and safe platform context. Effect guidance informed scoped ownership; architecture and writing guidance kept changes in existing modules and the RFC focused on concrete policy.\n\n**4. Checks**\n\n| Check | Result |\n|---|---|\n| `bun run lint` | Passed: 121 files. |\n| `bun run typecheck` | Passed. |\n| `bun run format` | Passed; latest run required no changes. |\n| `bun run test` | Final: **815 passed across 32 files**. |\n| Four changed test files | Three post-review runs: **259 passed each**. |\n| `bun run test:unit tests/run-store.test.ts` | After the final path fix: **35 passed, three times**. |\n| `bun run test:unit tests/daemon-logging.test.ts` | **5 passed**. |\n| `bun run e2e` | Final: **8 passed, 0 failed**. |\n| `FOREMAN_SMOKE=1 FOREMAN_SMOKE_SHORT=1 bun run smoke` | Final: **16 passed, 0 failed**. |\n| `bun run build` | Passed; binary reports `foreman v0.1.0`. |\n| `git diff --check` | Passed. |\n\nRevert verification produced the expected failures: 24 in the original regression batch, 7 in the redaction batch, 4 review regressions, 2 additional ownership/archive regressions and the path-identity regression. Fixes were restored afterward. Legacy compatibility intentionally passes against the baseline.\n\nEarlier failures were corrected, including diagnostic path context, raw-capture assertions and the discarded tail-omission policy. The initial smoke run had one tail assertion failure; subsequent smoke runs passed all 16 cases. `bun run check` was not run.\n\nBuilt-binary QA with temporary homes confirmed:\n\n- Baseline Start deleted damaged history; the fix refuses reuse and preserves it.\n- Baseline Unicode waits failed; the fix completes waits and continuations.\n- Token-shaped diagnostic values persisted before and are redacted afterward.\n- After the real five-minute deadline, baseline state was `lost` while Codex remained alive. The fixed build reported `lost` after Codex exited.\n\nEvidence is under `/tmp/foreman-b-revert-e7gjxev7/`.\n\n**5. Review**\n\nReview: [review.md](/tmp/scratch)\n\n1. Repeated full-log version scans: **fixed** with validated metadata caching.\n2. Unversioned oversized-capture marker: **fixed**.\n3. Multiline PEM leakage through stderr: **blocked**, described below.\n4. Concurrent retirement returning before cleanup: **fixed** with shared resource completion.\n5. Journal reconciliation collecting all history: **fixed** with a streaming search.\n6. Stderr test observing file creation before content: **fixed** by waiting for committed contents.\n\nOne independent review pass was performed, as requested.\n\n**6. Look closer at**\n\n- Format-cache invalidation and its serialized-writer assumption.\n- Resource-finalizer ordering in `makeAppServer.close`, especially when merging Part A’s shutdown changes.\n- `archiveRun`’s `beforeArchive` effect, which keeps compatibility validation ahead of worktree removal.\n\n**7. Open**\n\nApproval is needed for the synthetic PEM fixture with a `pragma: allowlist secret` comment. The pending fix belongs in the stderr handler at `src/supervisor/app-server.ts:127`: track private-key-block state across lines and suppress short payload lines until the END marker. Its regression must exercise the actual stderr transport.\n\nThe PreToolUse secret-write hook explicitly rejected the synthetic PEM markers and required approval plus the pragma. The orchestrator request timed out without an answer. I left that fixture and fix unwritten; short PEM payload lines can still persist, so this unit is not complete.",
+  "digest": "run:       fix-supervisor  idle  70m30s  (gpt-6.1-sol, high, priority, write)\ndir:       ~/.foreman/runs/fix-supervisor\nworktree:  ~/src/foreman/.claude/worktrees/fix-supervisor\nbranch:    foreman/fix-supervisor (foreman-created, base 39aec1625582d74b66751460b5fb66b6b1b27add)\nturn:      1 (start)\nquestion:  (none)\ncommands:  299 (34 failed, 1 blocked by repo hooks)\n  last:    /bin/zsh -lc 'git diff --check'  exit=0\nfiles written:\n  docs/rfcs/0001-foreman.md\n  src/codex/client.ts\n  src/core/runs/store.ts\n  src/logging.ts\n  src/schemas/daemon.ts\n  src/supervisor/app-server.ts\n  src/supervisor/index.ts\n  src/supervisor/questions.ts\n  src/supervisor/registry.ts\n  src/supervisor/turns.ts\n  src/supervisor/wait.ts\n  tests/codex-client.test.ts\n  tests/config-logging.test.ts\n  tests/run-store.test.ts\n  tests/supervisor-integration.test.ts\noutside May change:\n  tests/run-store.test.ts\n  tests/supervisor-integration.test.ts\nnew in git status since start:\n  M  docs/rfcs/0001-foreman.md\n  M  src/codex/client.ts\n  M  src/core/runs/store.ts\n  M  src/logging.ts\n  M  src/schemas/daemon.ts\n  M  src/supervisor/app-server.ts\n  M  src/supervisor/index.ts\n  M  src/supervisor/questions.ts\n  M  src/supervisor/registry.ts\n  M  src/supervisor/turns.ts\n  M  src/supervisor/wait.ts\n  M  tests/codex-client.test.ts\n  M  tests/config-logging.test.ts\n  M  tests/run-store.test.ts\n  M  tests/supervisor-integration.test.ts\ntokens:    37.4M in (99% cached), 174.8K out\n"
 }

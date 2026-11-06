@@ -38,7 +38,7 @@ async function compile(outfile: string, target?: string) {
 }
 
 if (args.length === 0) {
-  await compile("dist/forman");
+  await compile("dist/foreman");
 } else {
   if (!metadata.version) throw new Error("npm builds require a package version");
   const targets = ["darwin-arm64", "darwin-x64", "linux-x64", "linux-arm64"];
@@ -46,15 +46,15 @@ if (args.length === 0) {
   for (const target of selected) {
     if (!targets.includes(target)) throw new Error(`Unsupported npm build target: ${target}`);
     const [os, cpu] = target.split("-");
-    const name = `@steamfield/forman-${target}`;
+    const name = `@steamfield/foreman-${target}`;
     const optional = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.String))(
       manifest.optionalDependencies,
     );
     if (optional[name] !== metadata.version)
       throw new Error(`${name} must use the main package version ${metadata.version}`);
-    const directory = `dist/npm/forman-${target}`;
+    const directory = `dist/npm/foreman-${target}`;
     await mkdir(`${directory}/bin`, { recursive: true });
-    await compile(`${directory}/bin/forman`, target);
+    await compile(`${directory}/bin/foreman`, target);
     await copyFile("LICENSE", `${directory}/LICENSE`);
     await writeFile(
       `${directory}/package.json`,
@@ -62,21 +62,21 @@ if (args.length === 0) {
         {
           name,
           version: metadata.version,
-          description: `forman native binary for ${target}`,
+          description: `foreman native binary for ${target}`,
           license: manifest.license,
           repository: manifest.repository,
           os: [os],
           cpu: [cpu],
-          files: ["bin/forman", "LICENSE"],
+          files: ["bin/foreman", "LICENSE"],
         },
         null,
         2,
       )}\n`,
     );
   }
-  const main = "dist/npm/forman";
+  const main = "dist/npm/foreman";
   await mkdir(`${main}/npm`, { recursive: true });
-  for (const file of ["LICENSE", "README.md", "npm/forman.cjs"])
+  for (const file of ["LICENSE", "README.md", "npm/foreman.cjs"])
     await copyFile(file, `${main}/${file}`);
   await writeFile(
     `${main}/package.json`,

@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "@steamfield/forman",
+      "name": "@steamfield/foreman",
       "devDependencies": {
         "@biomejs/biome": "^2.6.5",
         "@effect/platform-bun": "^4.1.2",
@@ -17,10 +17,10 @@
         "vitest": "^5.1.0",
       },
       "optionalDependencies": {
-        "@steamfield/forman-darwin-arm64": "0.1.0",
-        "@steamfield/forman-darwin-x64": "0.1.0",
-        "@steamfield/forman-linux-arm64": "0.1.0",
-        "@steamfield/forman-linux-x64": "0.1.0",
+        "@steamfield/foreman-darwin-arm64": "0.1.0",
+        "@steamfield/foreman-darwin-x64": "0.1.0",
+        "@steamfield/foreman-linux-arm64": "0.1.0",
+        "@steamfield/foreman-linux-x64": "0.1.0",
       },
     },
   },

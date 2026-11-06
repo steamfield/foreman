@@ -1,10 +1,10 @@
-# forman
+# foreman
 
 Instructions for coding agents working in this repository. Keep this file under 200 lines: it is loaded at the start of every session. Put area-specific detail in a doc and link it from Deeper context.
 
 ## Overview
 
-forman 0.1.0 lets Claude Code delegate coding tasks to OpenAI's Codex in git worktrees and supervise them through a local daemon. It drives `codex app-server` over JSON-RPC with the Codex CLI's ChatGPT login. The TypeScript CLI uses Effect 4 and compiles to one binary with Bun. The command is `forman`; npm installs use `@steamfield/forman`.
+foreman 0.1.0 lets Claude Code delegate coding tasks to OpenAI's Codex in git worktrees and supervise them through a local daemon. It drives `codex app-server` over JSON-RPC with the Codex CLI's ChatGPT login. The TypeScript CLI uses Effect 4 and compiles to one binary with Bun. The command is `foreman`; npm installs use `@steamfield/foreman`.
 
 The daemon owns turns, question deferral and late answers, budgets and repo hook enforcement. Mutation continuations wait on the named run; explicit `wait --all` supervises a repo group. Read [repo setup](README.md#one-time-repo-setup) before delegating into another repo and [architecture](docs/architecture.md) before changing supervision or storage.
 
@@ -20,11 +20,11 @@ Run these from the repo root. They are the only supported way to build, test, an
 | `bun run test:unit tests/cli.test.ts` | One test file (any path or name filter works) |
 | `bun run coverage` | The unit suite with V8 coverage into `coverage/` |
 | `bun run e2e` | Build, then run `e2e/` against the compiled binary with Bun's runner |
-| `bun run smoke` | Development only: real Codex suite; build first, then set `FORMAN_SMOKE=1` (uses your login and plan) |
+| `bun run smoke` | Development only: real Codex suite; build first, then set `FOREMAN_SMOKE=1` (uses your login and plan) |
 | `bun run lint` | Biome checks, including the `biome-plugins/` Grit rules |
 | `bun run format` | Biome formatting and safe fixes |
 | `bun run typecheck` | `tsc --noEmit` |
-| `bun run build` | Compile `dist/forman` for this host |
+| `bun run build` | Compile `dist/foreman` for this host |
 | `bun run build:npm` | Build the main and four platform npm packages under `dist/npm/` |
 | `bun run build --npm-host` | Build the main and host platform npm packages for packaging tests |
 | `bun run check` | lint, typecheck, test and e2e: the gate before a commit |
@@ -80,7 +80,7 @@ Codex does not load `.claude/rules/` automatically: it reads the rules covering 
 
 - Commands follow `src/commands/doctor.ts`: a thin handler calling a program in `core/`, schemas in `schemas/`, results through Output. Register new commands in `cli.ts`.
 - Services are namespaced `Context.Service` classes with static layers. Only `bin.ts` supplies Bun services; tests supply Node services. Core code stays platform-free (enforced by `guard-boundaries.ts` and `biome-plugins/boundaries.grit`).
-- Only `config.ts` reads the environment. Project variables use the `FORMAN_` prefix. A new setting gets schema validation, a precedence test, and entries in `.env.example` and README.
+- Only `config.ts` reads the environment. Project variables use the `FOREMAN_` prefix. A new setting gets schema validation, a precedence test, and entries in `.env.example` and README.
 - stdout carries results only; `--json` prints one JSON value. Failures leave stdout empty and render once on stderr.
 - Schema comes from `effect`; never add `@effect/schema` or zod.
 - Prefer the project's existing patterns and dependencies over new ones. Add a dependency only when nothing in the project already covers the need.
@@ -122,7 +122,7 @@ Errors are `Schema.TaggedError` classes in `src/errors.ts`, each with a row in t
 - If a fix hasn't worked after two attempts with no new diagnostic step in between, stop. Write down what you learned, list two or three other root-cause hypotheses, and ask which to pursue. Running a new diagnostic between attempts resets the count.
 - Read logs and error output before guessing.
 
-`bun run dev` appends JSON records to `logs/cli.jsonl` and copies stderr to `logs/cli.log` (rotated past 5 MB). Set `LOG_LEVEL=debug` for more; `FORMAN_LOG_FORMAT=json` switches stderr to JSON. Each run emits one `command` record (command, exit code, error tag, duration): debug on success, error on failure, filtered by the configured level.
+`bun run dev` appends JSON records to `logs/cli.jsonl` and copies stderr to `logs/cli.log` (rotated past 5 MB). Set `LOG_LEVEL=debug` for more; `FOREMAN_LOG_FORMAT=json` switches stderr to JSON. Each run emits one `command` record (command, exit code, error tag, duration): debug on success, error on failure, filtered by the configured level.
 
 ## Git hooks
 
@@ -144,7 +144,7 @@ The MCP server wrapper, Channels push, launchd installation and an archive-delet
 
 ## Pending user actions
 
-Verify that the repository branch ruleset requires `ci-ok`; repository files do not establish the hosted setting. Configure `NPM_TOKEN` for release publishing if it is not already set. Confirm local repo trust and hook approval with `forman doctor`; follow [README repo setup](README.md#one-time-repo-setup) for this repo and others.
+Verify that the repository branch ruleset requires `ci-ok`; repository files do not establish the hosted setting. Configure `NPM_TOKEN` for release publishing if it is not already set. Confirm local repo trust and hook approval with `foreman doctor`; follow [README repo setup](README.md#one-time-repo-setup) for this repo and others.
 
 ## Deeper context
 

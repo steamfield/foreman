@@ -122,9 +122,9 @@ describe("the simulated session", () => {
       sceneAt(session, 11_000).delegates.every((d) => d.state === "running"),
     ).toBe(true);
     session.delegates.forEach((d) => {
-      expect(d.branch).toBe(`forman/${d.name}`);
+      expect(d.branch).toBe(`foreman/${d.name}`);
       expect(session.steps[1]?.commands).toContain(
-        `forman start ${d.name} --new-worktree --setup "bun install" --contract ${d.contract} --write --model ${d.model}`,
+        `foreman start ${d.name} --new-worktree --setup "bun install" --contract ${d.contract} --write --model ${d.model}`,
       );
     });
   });

@@ -155,7 +155,7 @@ export function CodeFrame({
   );
 }
 
-/** Display states: forman's run states, with idle split by how the turn ended. */
+/** Display states: foreman's run states, with idle split by how the turn ended. */
 export type BadgeState =
   | "starting"
   | "running"

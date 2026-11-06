@@ -37,7 +37,7 @@ const sockets = DaemonSockets.layer({
 });
 const host = (executable: ReadonlyArray<string> = [process.execPath]) =>
   Host.layer({
-    name: "forman-test",
+    name: "foreman-test",
     version: "test",
     build: "test",
     platform: "node",
@@ -85,7 +85,7 @@ const start = Effect.fnUntraced(function* (config: DaemonOptions) {
   return fiber;
 });
 const peer = Effect.fnUntraced(function* (dataDir: string) {
-  const socket = yield* NodeSocket.makeNet({ path: `${dataDir}/forman.sock` });
+  const socket = yield* NodeSocket.makeNet({ path: `${dataDir}/foreman.sock` });
   const reader = yield* socket.reader;
   const writer = yield* socket.writer;
   const responses =
@@ -127,7 +127,7 @@ describe("daemon lifecycle and protocol", () => {
           ),
         );
         yield* ready(dataDir).pipe(Effect.timeout("3 seconds"));
-        yield* fs.remove(`${dataDir}/forman.sock`);
+        yield* fs.remove(`${dataDir}/foreman.sock`);
         yield* fs.writeFileString(`${dataDir}/daemon.lock`, JSON.stringify({ pid: process.pid }));
         // Neither a missing socket nor an old diagnostic record can displace a live owner.
         yield* fs.utimes(`${dataDir}/daemon.lock`, 0, 0);
@@ -147,7 +147,7 @@ describe("daemon lifecycle and protocol", () => {
       const fs = yield* FileSystem.FileSystem;
       assert.isTrue(yield* takeLock(dataDir));
       yield* daemon(options(dataDir));
-      assert.isFalse(yield* fs.exists(`${dataDir}/forman.sock`));
+      assert.isFalse(yield* fs.exists(`${dataDir}/foreman.sock`));
     }).pipe(Effect.provide(platform)),
   );
   it.live("reclaims a fresh lock immediately after its recorded owner exits", () =>
@@ -416,7 +416,7 @@ describe("daemon lifecycle and protocol", () => {
   it.live("reports an undecodable daemon reply and recovery", () =>
     Effect.gen(function* () {
       const dataDir = yield* temp();
-      const server = yield* NodeSocketServer.make({ path: `${dataDir}/forman.sock` });
+      const server = yield* NodeSocketServer.make({ path: `${dataDir}/foreman.sock` });
       yield* Effect.forkScoped(
         server.run((socket) =>
           Effect.scoped(
@@ -435,7 +435,7 @@ describe("daemon lifecycle and protocol", () => {
       assert.instanceOf(error, DaemonUnavailable);
       assert.include(detailFor(error), "decode daemon reply to Ping");
       assert.include(detailFor(error), "command was not sent");
-      assert.include(detailFor(error), "forman doctor");
+      assert.include(detailFor(error), "foreman doctor");
     }).pipe(Effect.provide(platform)),
   );
 
@@ -584,7 +584,7 @@ describe("daemon lifecycle and protocol", () => {
       const result = yield* Effect.promise(() =>
         runCli(["daemon", "stop"], {
           home: dataDir,
-          env: { FORMAN_HOME: dataDir },
+          env: { FOREMAN_HOME: dataDir },
         }),
       );
       assert.deepStrictEqual(result, { status: 0, stdout: "Daemon stopped.\n", stderr: "" });
@@ -620,7 +620,7 @@ describe("daemon lifecycle and protocol", () => {
       });
       yield* Fiber.join(running).pipe(Effect.timeout("2 seconds"));
       const fs = yield* FileSystem.FileSystem;
-      assert.isFalse(yield* fs.exists(`${dataDir}/forman.sock`));
+      assert.isFalse(yield* fs.exists(`${dataDir}/foreman.sock`));
       assert.isFalse(yield* fs.exists(`${dataDir}/daemon.lock`));
     }).pipe(Effect.provide(platform)),
   );
@@ -644,7 +644,7 @@ describe("daemon lifecycle and protocol", () => {
       assert.isTrue(yield* shutdown(dataDir));
       yield* Fiber.join(running).pipe(Effect.timeout("1 second"));
       const fs = yield* FileSystem.FileSystem;
-      assert.isFalse(yield* fs.exists(`${dataDir}/forman.sock`));
+      assert.isFalse(yield* fs.exists(`${dataDir}/foreman.sock`));
       assert.isFalse(yield* fs.exists(`${dataDir}/daemon.lock`));
     }).pipe(Effect.provide(platform)),
   );
@@ -728,7 +728,7 @@ describe("daemon lifecycle and protocol", () => {
               : Effect.succeed({ _tag: "Ok" }),
         }),
       );
-      const socket = yield* NodeSocket.makeNet({ path: `${dataDir}/forman.sock` });
+      const socket = yield* NodeSocket.makeNet({ path: `${dataDir}/foreman.sock` });
       yield* socket.reader;
       const writer = yield* socket.writer;
       yield* writer.write('{"id":2,"body":{"_tag":"Status","cwd":"/tmp"}}\n');
@@ -736,7 +736,7 @@ describe("daemon lifecycle and protocol", () => {
       yield* call({ _tag: "Shutdown" }, { dataDir, connectOnly: true });
       yield* Fiber.join(running).pipe(Effect.timeout("1 second"));
       const fs = yield* FileSystem.FileSystem;
-      assert.isFalse(yield* fs.exists(`${dataDir}/forman.sock`));
+      assert.isFalse(yield* fs.exists(`${dataDir}/foreman.sock`));
       assert.isFalse(yield* fs.exists(`${dataDir}/daemon.lock`));
     }).pipe(Effect.provide(platform)),
   );
@@ -755,7 +755,7 @@ describe("daemon lifecycle and protocol", () => {
         yield* shutdown(dataDir).pipe(Effect.provide(host([process.execPath, launcher]))),
       );
       assert.isFalse(yield* fs.exists(marker));
-      assert.isFalse(yield* fs.exists(`${dataDir}/forman.sock`));
+      assert.isFalse(yield* fs.exists(`${dataDir}/foreman.sock`));
       assert.isFalse(yield* fs.exists(`${dataDir}/daemon.lock`));
     }).pipe(Effect.provide(platform)),
   );
@@ -875,7 +875,7 @@ describe("daemon lifecycle and protocol", () => {
           yield* Deferred.await(stopping);
           const connection = yield* Effect.scoped(
             Effect.gen(function* () {
-              return yield* (yield* NodeSocket.makeNet({ path: `${dataDir}/forman.sock` })).reader;
+              return yield* (yield* NodeSocket.makeNet({ path: `${dataDir}/foreman.sock` })).reader;
             }),
           ).pipe(Effect.result);
           yield* Deferred.succeed(release, undefined);
@@ -895,7 +895,7 @@ describe("daemon lifecycle and protocol", () => {
       const fs = yield* FileSystem.FileSystem;
       yield* fs.writeFileString(`${dataDir}/daemon.lock`, "");
       yield* fs.utimes(`${dataDir}/daemon.lock`, 0, 0);
-      yield* fs.writeFileString(`${dataDir}/forman.sock`, "leftover");
+      yield* fs.writeFileString(`${dataDir}/foreman.sock`, "leftover");
       yield* start(options(dataDir));
       assert.strictEqual((yield* ping(dataDir))._tag, "Pong");
     }).pipe(Effect.provide(platform)),
@@ -968,7 +968,7 @@ describe("daemon lifecycle and protocol", () => {
   it.live("reports an unknown response error tag without exposing its detail", () =>
     Effect.gen(function* () {
       const dataDir = yield* temp();
-      const server = yield* NodeSocketServer.make({ path: `${dataDir}/forman.sock` });
+      const server = yield* NodeSocketServer.make({ path: `${dataDir}/foreman.sock` });
       yield* Effect.forkScoped(
         server.run((socket) =>
           Effect.scoped(
@@ -1009,7 +1009,7 @@ describe("daemon lifecycle and protocol", () => {
           error: {
             tag: "DaemonUnavailable",
             detail:
-              "Request not understood; daemon build test. The command was not accepted. Run forman doctor, finish any active runs, then run forman daemon stop and retry with the same forman build for all clients.",
+              "Request not understood; daemon build test. The command was not accepted. Run foreman doctor, finish any active runs, then run foreman daemon stop and retry with the same foreman build for all clients.",
           },
         },
       );
@@ -1020,7 +1020,7 @@ describe("daemon lifecycle and protocol", () => {
           error: {
             tag: "DaemonUnavailable",
             detail:
-              "Request not understood; daemon build test. The command was not accepted. Run forman doctor, finish any active runs, then run forman daemon stop and retry with the same forman build for all clients.",
+              "Request not understood; daemon build test. The command was not accepted. Run foreman doctor, finish any active runs, then run foreman daemon stop and retry with the same foreman build for all clients.",
           },
         },
       );
@@ -1041,7 +1041,7 @@ describe("daemon lifecycle and protocol", () => {
         yield* TestClock.adjust(2000);
         yield* Fiber.join(running);
         const fs = yield* FileSystem.FileSystem;
-        assert.isFalse(yield* fs.exists(`${dataDir}/forman.sock`));
+        assert.isFalse(yield* fs.exists(`${dataDir}/foreman.sock`));
         assert.isFalse(yield* fs.exists(`${dataDir}/daemon.lock`));
       }).pipe(
         Effect.provide(observation.layer),
@@ -1247,7 +1247,7 @@ describe("daemon lifecycle and protocol", () => {
   it.effect("bounds a pending connection acquisition within the startup deadline", () =>
     Effect.gen(function* () {
       const dataDir = yield* temp();
-      yield* NodeSocketServer.make({ path: `${dataDir}/forman.sock` });
+      yield* NodeSocketServer.make({ path: `${dataDir}/foreman.sock` });
       const entered = yield* Deferred.make<void>();
       const release = yield* Deferred.make<void>();
       const delayed = DaemonSockets.layer({

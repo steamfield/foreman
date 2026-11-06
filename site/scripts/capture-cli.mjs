@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// Record forman CLI output as a scrubbed fixture.
+// Record foreman CLI output as a scrubbed fixture.
 //
-//   node scripts/capture-cli.mjs <fixture-name> -- forman status
-//   node scripts/capture-cli.mjs <fixture-name> --from <file> --command "forman start ..."
+//   node scripts/capture-cli.mjs <fixture-name> -- foreman status
+//   node scripts/capture-cli.mjs <fixture-name> --from <file> --command "foreman start ..."
 //
 // Writes fixtures/cli/<fixture-name>.json: { command, output, exitCode }.
 // The first form runs the command from the repository root; the second records a
@@ -20,7 +20,7 @@ const outDir = new URL("../fixtures/cli/", import.meta.url);
 
 function scrubPaths(text) {
   return text
-    .replaceAll(repo, "~/src/forman")
+    .replaceAll(repo, "~/src/foreman")
     .replace(/\/private\/tmp\/claude-[^\s'"`)]*/g, "/tmp/scratch")
     .replace(/\/var\/folders\/[^\s'"`)]*/g, "/tmp/scratch")
     .replaceAll(homedir(), "~")

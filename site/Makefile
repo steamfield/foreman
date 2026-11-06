@@ -1,4 +1,4 @@
-# forman development commands.
+# foreman development commands.
 #
 # A starting point: adapt the recipes, but keep the target names.
 # `stacks verify` calls install, lint, check, test, build and dev, and CI

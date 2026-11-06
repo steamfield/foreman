@@ -74,7 +74,7 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
     const reserved = reservations.get(worktree);
     if (reserved !== undefined && reserved !== name)
       return yield* new RunConflict({
-        detail: `${reserved} is starting in ${worktree}; ${runs.has(reserved) ? `run forman wait ${reserved}` : "wait for the start to finish"} before reusing this worktree.`,
+        detail: `${reserved} is starting in ${worktree}; ${runs.has(reserved) ? `run foreman wait ${reserved}` : "wait for the start to finish"} before reusing this worktree.`,
       });
     for (const other of runs.values()) {
       if (
@@ -85,8 +85,8 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
         return yield* new RunConflict({
           detail:
             other.queuedAnswers > 0
-              ? `${other.record.name} has queued answers in ${worktree}; use the cursor returned by the answer with forman wait ${other.record.name} --after "<cursor>" before reusing this worktree.`
-              : `${other.record.name} is ${other.record.state} in ${worktree}; run forman wait ${other.record.name} before reusing this worktree.`,
+              ? `${other.record.name} has queued answers in ${worktree}; use the cursor returned by the answer with foreman wait ${other.record.name} --after "<cursor>" before reusing this worktree.`
+              : `${other.record.name} is ${other.record.state} in ${worktree}; run foreman wait ${other.record.name} before reusing this worktree.`,
         });
     }
   });
@@ -99,8 +99,8 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
           return yield* new RunConflict({
             detail:
               previous.queuedAnswers > 0
-                ? `${name} has queued answers; use the cursor returned by the answer with forman wait ${name} --after "<cursor>" before starting another run with this name.`
-                : `${name} is ${previous.record.state}; run forman wait ${name} before starting another run with this name.`,
+                ? `${name} has queued answers; use the cursor returned by the answer with foreman wait ${name} --after "<cursor>" before starting another run with this name.`
+                : `${name} is ${previous.record.state}; run foreman wait ${name} before starting another run with this name.`,
           });
         reservations.set(worktree, name);
       }),
@@ -223,7 +223,7 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
     yield* save(run, {
       activeTurnId: null,
       failure: {
-        message: `${reason}. Inspect ${run.record.worktree} and ${run.dir}, then run forman doctor before starting or resuming work.`,
+        message: `${reason}. Inspect ${run.record.worktree} and ${run.dir}, then run foreman doctor before starting or resuming work.`,
         codexErrorInfo: null,
       },
     });
@@ -308,7 +308,7 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
       ...(infrastructure || !uncertain
         ? {
             failure: {
-              message: `Supervisor operation failed (${diagnostic.reasonTag}${diagnostic.method ? `: ${diagnostic.method}` : ""}${diagnostic.reason ? `, ${diagnostic.reason}` : ""}) for run ${run.record.name}${diagnostic.path ? ` at ${diagnostic.path}` : ""}. Run forman doctor and inspect ${run.dir} before retrying.`,
+              message: `Supervisor operation failed (${diagnostic.reasonTag}${diagnostic.method ? `: ${diagnostic.method}` : ""}${diagnostic.reason ? `, ${diagnostic.reason}` : ""}) for run ${run.record.name}${diagnostic.path ? ` at ${diagnostic.path}` : ""}. Run foreman doctor and inspect ${run.dir} before retrying.`,
               codexErrorInfo: null,
             },
           }
@@ -476,7 +476,7 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
         path: directory,
         reason: skipped.reason,
         action:
-          "Preserve and inspect this directory; restore readable data with a compatible forman version, then restart the daemon.",
+          "Preserve and inspect this directory; restore readable data with a compatible foreman version, then restart the daemon.",
       });
     }
     return entries;
@@ -489,7 +489,7 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
           yield* requireCurrent(run);
           if (activeStates.has(run.record.state) || run.queuedAnswers > 0)
             return yield* new RunConflict({
-              detail: `${name} ${run.queuedAnswers > 0 ? "has queued answers" : `is ${run.record.state}`}; run forman status ${name} and wait until the run is inactive and its answers are delivered before archiving.`,
+              detail: `${name} ${run.queuedAnswers > 0 ? "has queued answers" : `is ${run.record.state}`}; run foreman status ${name} and wait until the run is inactive and its answers are delivered before archiving.`,
             });
           const cleanup = Effect.gen(function* () {
             if (!keepWorktree && run.record.managedWorktree) {

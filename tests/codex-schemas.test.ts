@@ -1,5 +1,5 @@
-// forman's Codex schemas against real app-server traffic: tests/fixtures/codex-0.166.0.jsonl
-// holds one recorded message of each shape forman reads, from Codex 0.166.0, with local paths
+// foreman's Codex schemas against real app-server traffic: tests/fixtures/codex-0.166.0.jsonl
+// holds one recorded message of each shape foreman reads, from Codex 0.166.0, with local paths
 // replaced. A Codex upgrade that changes a shape fails here first.
 import { readFileSync } from "node:fs";
 import { Exit, Schema } from "effect";

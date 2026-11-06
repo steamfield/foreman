@@ -95,8 +95,8 @@ describe("app-server environment", () => {
         {
           CLAUDE_A: "a",
           CLAUDE_B: "b",
-          FORMAN_A: "a",
-          FORMAN_B: "b",
+          FOREMAN_A: "a",
+          FOREMAN_B: "b",
           LOG_LEVEL: "debug",
           PATH: "/bin",
           HOME: "/home",
@@ -312,7 +312,7 @@ describe("real Node app-server client", () => {
         "test",
       ]);
       expect(log[0]?.params).toEqual({
-        clientInfo: { name: "forman", title: "forman", version: "test-version" },
+        clientInfo: { name: "foreman", title: "foreman", version: "test-version" },
         capabilities: { experimentalApi: true },
       });
       expect(

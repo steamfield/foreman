@@ -1,5 +1,5 @@
 {
-  "command": "forman archive site-scaffold",
-  "output": "~/.forman/runs/.archive/site-scaffold-1793956815386\n",
+  "command": "foreman archive site-scaffold",
+  "output": "~/.foreman/runs/.archive/site-scaffold-1793956815386\n",
   "exitCode": 0
 }

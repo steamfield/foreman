@@ -211,6 +211,15 @@ test("keyboard reaches the skip link, header and main controls with visible focu
   page,
 }) => {
   await page.goto("/");
+  // Hydration adds transcript controls; wait before marking the tab order.
+  const supervision = page.getByRole("figure", { name: "Supervision console" });
+  await supervision.scrollIntoViewIfNeeded();
+  await expect(
+    supervision.getByRole("button", {
+      name: "Show all recorded answer",
+      exact: true,
+    }),
+  ).toBeVisible();
   for (const id of ids) {
     await page.locator(`#${id}`).scrollIntoViewIfNeeded();
   }

@@ -28,7 +28,7 @@ export const doctorCommand = Command.make(
       result,
       [
         `${result.name} ${result.version} (${result.platform}, compiled: ${result.compiled})`,
-        `forman on PATH is this binary: ${result.formanOnPath}`,
+        `foreman on PATH is this binary: ${result.foremanOnPath}`,
         `Codex executable: ${result.codexBin}`,
         `Config: ${result.configError ?? "ok"}`,
         `Config file: ${result.configFile}`,
@@ -49,8 +49,8 @@ export const doctorCommand = Command.make(
                 (hook) => `  ${hook.key.split(":").slice(-3).join(":")}  ${hook.status}`,
               ),
               result.repoHooks.acceptsStart === null
-                ? "  forman start: unknown (hook trust could not be checked)."
-                : `  forman start will ${result.repoHooks.acceptsStart ? "accept" : "refuse"} runs here (hook trust).`,
+                ? "  foreman start: unknown (hook trust could not be checked)."
+                : `  foreman start will ${result.repoHooks.acceptsStart ? "accept" : "refuse"} runs here (hook trust).`,
               ...(result.repoHooks.state === "known" && result.repoHooks.detail !== null
                 ? [result.repoHooks.detail]
                 : []),

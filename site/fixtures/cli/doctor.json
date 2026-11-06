@@ -1,5 +1,5 @@
 {
-  "command": "forman doctor",
-  "output": "forman 0.1.0 (darwin, compiled: true)\nforman on PATH is this binary: true\nCodex executable: codex\nConfig: ok\nConfig file: ~/.forman/config.json\nHome: ~/.forman\nCodex: 0.166.0\nProtocol matches: true\nLogged in: true\nRepo hooks:\n  pre_tool_use:0:0  trusted\n  pre_tool_use:1:0  trusted\n  forman start will accept runs here (hook trust).\nDaemon: running 0.1.0 (pid 80808)\nDaemon build: 3f15d9857eb70c7211b0d6273ad35cfcdaf7f85b1180de0b8d5d57b6c7c6ce57\nDaemon build matches this CLI: true\n",
+  "command": "foreman doctor",
+  "output": "foreman 0.1.0 (darwin, compiled: true)\nforeman on PATH is this binary: true\nCodex executable: codex\nConfig: ok\nConfig file: ~/.foreman/config.json\nHome: ~/.foreman\nCodex: 0.166.0\nProtocol matches: true\nLogged in: true\nRepo hooks:\n  pre_tool_use:0:0  trusted\n  pre_tool_use:1:0  trusted\n  foreman start will accept runs here (hook trust).\nDaemon: running 0.1.0 (pid 80808)\nDaemon build: 3f15d9857eb70c7211b0d6273ad35cfcdaf7f85b1180de0b8d5d57b6c7c6ce57\nDaemon build matches this CLI: true\n",
   "exitCode": 0
 }

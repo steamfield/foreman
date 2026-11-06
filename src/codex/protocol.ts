@@ -1,4 +1,4 @@
-// The Codex app-server protocol forman was built against. src/schemas/codex.ts was written
+// The Codex app-server protocol foreman was built against. src/schemas/codex.ts was written
 // from `codex app-server generate-ts --experimental` output for this version; regenerate it
 // into a scratch directory to read the full types.
 //

@@ -1,11 +1,11 @@
 #!/usr/bin/env bun
-// `bun run dev -- <args>`: forman from source, the way a person or agent runs it while working
+// `bun run dev -- <args>`: foreman from source, the way a person or agent runs it while working
 // here. Adds what the installed binary doesn't do:
 //   - LOG_LEVEL defaults to info (the binary's default is warn), so each run logs its
 //     command records.
-//   - JSON log lines go to logs/cli.jsonl (FORMAN_LOG_FILE), appended across runs.
+//   - JSON log lines go to logs/cli.jsonl (FOREMAN_LOG_FILE), appended across runs.
 //   - stderr is copied to logs/cli.log. Both files move to *.prev.* past 5 MB.
-//   - Development config and data are saved in .dev/home (FORMAN_HOME).
+//   - Development config and data are saved in .dev/home (FOREMAN_HOME).
 // Everything else (stdin, stdout, the exit code, Ctrl+C) passes straight through.
 import { appendFileSync, existsSync, mkdirSync, renameSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -23,8 +23,8 @@ rotate(join(logs, "cli.log"), join(logs, "cli.prev.log"));
 const args = process.argv.slice(2);
 // Preserve terminal capabilities for interactive invocations; structured logs remain on disk.
 const interactive = process.stdin.isTTY && process.stdout.isTTY;
-const logFileKey = "FORMAN_LOG_FILE";
-const homeKey = "FORMAN_HOME";
+const logFileKey = "FOREMAN_LOG_FILE";
+const homeKey = "FOREMAN_HOME";
 
 const child = Bun.spawn([process.execPath, join(root, "src/bin.ts"), ...args], {
   env: {

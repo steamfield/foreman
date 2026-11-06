@@ -85,7 +85,7 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
   ) {
     if (!run.record.threadId || !run.record.activeTurnId)
       return yield* new RunConflict({
-        detail: `No turn is in progress for run ${run.record.name}; run forman status ${run.record.name} before choosing the next action.`,
+        detail: `No turn is in progress for run ${run.record.name}; run foreman status ${run.record.name} before choosing the next action.`,
       });
     yield* server.connection.request(
       Codex.Method.turnInterrupt,
@@ -165,7 +165,7 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
                 yield* registry.save(run, {
                   warnings: [
                     ...run.record.warnings,
-                    `Budget expired for run ${run.record.name}, but Codex did not confirm the interrupt. Run forman wait ${run.record.name}; execution remains unconfirmed until the run becomes inactive.`,
+                    `Budget expired for run ${run.record.name}, but Codex did not confirm the interrupt. Run foreman wait ${run.record.name}; execution remains unconfirmed until the run becomes inactive.`,
                   ],
                 });
                 return;
@@ -196,7 +196,7 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
           (run.record.name === body.name || run.record.worktree === destination)
         )
           return yield* new RunConflict({
-            detail: `${run.record.name} is ${run.record.state}; run forman wait ${run.record.name} before starting another run here.`,
+            detail: `${run.record.name} is ${run.record.state}; run foreman wait ${run.record.name} before starting another run here.`,
           });
       }
     });
@@ -333,7 +333,7 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
                 turnRequested &&
                 (run.record.state === "unknown" || (yield* createdWorktreeHasWork(created)))
               ) {
-                const warning = `Start refused; retained ${created.worktree} (${created.managed.branch}) because execution is unconfirmed or it holds work. Run forman status ${body.name}${activeStates.has(run.record.state) ? " and wait until the run is inactive" : ""}, then use forman archive ${body.name} --keep-worktree to retain it.`;
+                const warning = `Start refused; retained ${created.worktree} (${created.managed.branch}) because execution is unconfirmed or it holds work. Run foreman status ${body.name}${activeStates.has(run.record.state) ? " and wait until the run is inactive" : ""}, then use foreman archive ${body.name} --keep-worktree to retain it.`;
                 const retained = yield* registry
                   .save(run, { warnings: [...run.record.warnings, warning] })
                   .pipe(Effect.exit);
@@ -419,7 +419,7 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
     }
     if (activeStates.has(run.record.state))
       return yield* new RunConflict({
-        detail: `${run.record.name} is ${run.record.state}; run forman wait ${run.record.name} before sending a followup.`,
+        detail: `${run.record.name} is ${run.record.state}; run foreman wait ${run.record.name} before sending a followup.`,
       });
     yield* registry.requireWorktreeAvailable(run.record.name, run.record.worktree);
     if (!(yield* fs.exists(run.record.worktree)))
@@ -428,7 +428,7 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
       });
     if (!run.record.threadId)
       return yield* new RunConflict({
-        detail: `${run.record.name} has no Codex thread because its start did not create one. Start a new run with a different name; see forman start --help.`,
+        detail: `${run.record.name} has no Codex thread because its start did not create one. Start a new run with a different name; see foreman start --help.`,
       });
     yield* registry
       .state(run, "starting")
@@ -464,11 +464,11 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
     const pending = Store.pendingQuestions(yield* Store.readQuestions(run.dir))[0];
     if (pending)
       return yield* new RunConflict({
-        detail: `${run.record.name} is waiting on ${pending.id}; use forman answer ${run.record.name} ${pending.id} "<answer>" and include the change.`,
+        detail: `${run.record.name} is waiting on ${pending.id}; use foreman answer ${run.record.name} ${pending.id} "<answer>" and include the change.`,
       });
     if (run.record.state !== "running" || !run.record.activeTurnId)
       return yield* new RunConflict({
-        detail: `No steerable turn is in progress for run ${run.record.name}; run forman status ${run.record.name} before choosing the next action.`,
+        detail: `No steerable turn is in progress for run ${run.record.name}; run foreman status ${run.record.name} before choosing the next action.`,
       });
     const server = yield* servers.get;
     yield* server.connection
@@ -487,7 +487,7 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
           const detail =
             error instanceof CodexRpcError && error.message === "activeTurnNotSteerable"
               ? `activeTurnNotSteerable for run ${run.record.name}; wait for this turn, then send a followup.`
-              : `Codex refused the steer for run ${run.record.name}; run forman status ${run.record.name}, then wait for the active turn before sending a followup.`;
+              : `Codex refused the steer for run ${run.record.name}; run foreman status ${run.record.name}, then wait for the active turn before sending a followup.`;
           return Effect.fail(new RunConflict({ detail }));
         }),
       );

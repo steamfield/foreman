@@ -8,7 +8,7 @@ import { activeStates, DaemonResult, RunRecord } from "../src/schemas/daemon";
 import { DoctorResult } from "../src/schemas/doctor";
 import { cleanupFixture } from "./cleanup";
 
-const binary = resolve(import.meta.dir, "../dist/forman");
+const binary = resolve(import.meta.dir, "../dist/foreman");
 const proxy = resolve(import.meta.dir, "codex-proxy.ts");
 const Rpc = Schema.Struct({
   id: Schema.optionalKey(Schema.Union([Schema.String, Schema.Number])),
@@ -27,8 +27,8 @@ export function nextCommand(text: string, executable: string) {
     { encoding: "utf8" },
   ).split("\0");
   tokens.pop();
-  if (tokens[0]?.startsWith("FORMAN_HOME=")) tokens.shift();
-  expect(["forman", executable]).toContain(tokens.shift() ?? "");
+  if (tokens[0]?.startsWith("FOREMAN_HOME=")) tokens.shift();
+  expect(["foreman", executable]).toContain(tokens.shift() ?? "");
   expect(["wait", "answer", "defer"]).toContain(tokens[0] ?? "");
   if (tokens[0] !== "wait") {
     const cursor = lines
@@ -54,7 +54,7 @@ export async function fixture(inherited: NodeJS.ProcessEnv = process.env) {
     Object.entries(inherited).filter(
       (entry): entry is [string, string] =>
         entry[1] !== undefined &&
-        !/^(FORMAN_|GIT_|LOG_LEVEL$|OPENAI_API_KEY$|OPENAI_API_BASE$|CODEX_API_KEY$)/.test(
+        !/^(FOREMAN_|GIT_|LOG_LEVEL$|OPENAI_API_KEY$|OPENAI_API_BASE$|CODEX_API_KEY$)/.test(
           entry[0],
         ),
     ),
@@ -64,7 +64,7 @@ export async function fixture(inherited: NodeJS.ProcessEnv = process.env) {
     CODEX_BIN: proxy,
     SMOKE_CODEX_BIN: realCodex,
     SMOKE_WIRE: join(root, "wire"),
-    FORMAN_HOME: data,
+    FOREMAN_HOME: data,
     LOG_LEVEL: "none",
     NO_COLOR: "1",
     GIT_CONFIG_NOSYSTEM: "1",
@@ -86,7 +86,7 @@ export async function fixture(inherited: NodeJS.ProcessEnv = process.env) {
       new Response(child.stderr).text(),
       child.exited,
     ]);
-    transcript.push(`$ forman ${args.join(" ")}\n[exit ${status}]\n${stdout}${stderr}`);
+    transcript.push(`$ foreman ${args.join(" ")}\n[exit ${status}]\n${stdout}${stderr}`);
     return { stdout, stderr, status };
   };
   const run = async (args: string[]) => {

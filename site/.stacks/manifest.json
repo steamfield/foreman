@@ -4,7 +4,7 @@
   "createdAt": "2026-11-06T08:53:15.398Z",
   "cli": "0.7.0",
   "mode": "new",
-  "name": "forman",
+  "name": "foreman",
   "preset": "default",
   "agents": [
     "claude"

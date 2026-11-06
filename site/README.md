@@ -1,9 +1,9 @@
-# forman site
+# foreman site
 
-The landing site for forman, a CLI for delegating coding tasks to Codex from
-Claude Code, at https://forman.steamfield.io.
+The landing site for foreman, a CLI for delegating coding tasks to Codex from
+Claude Code, at https://foreman.steamfield.io.
 
-This directory is a separate Astro project. The landing page replays real forman
+This directory is a separate Astro project. The landing page replays real foreman
 recordings from `fixtures/`; an MDX publishing pipeline sits under `/blog` with no
 published posts yet. `docs/PRODUCT.md` explains the page and `DESIGN.md` its look.
 
@@ -56,7 +56,7 @@ uses US PostHog and the shared Steamfield consent cookie. Visits stay cookieless
 until Accept; recordings and heatmaps require Accept. Both the banner and footer
 link the [shared privacy page](https://steamfield.io/privacy).
 
-Cloudflare Pages builds from GitHub: project `forman`, root `site`, command
+Cloudflare Pages builds from GitHub: project `foreman`, root `site`, command
 `make build`, output `dist`, package manager Bun. Set public build variables in
 Pages, including the shared PostHog key when analytics is ready.
 See [AGENTS.md](AGENTS.md) for deployment settings, manual upload commands,

@@ -7,23 +7,23 @@ import { Schema } from "effect";
 import { cleanupFixture } from "./cleanup";
 import { fixture, nextCommand } from "./helpers";
 
-const enabled = process.env.FORMAN_SMOKE === "1";
+const enabled = process.env.FOREMAN_SMOKE === "1";
 const regression = test.skipIf(!enabled);
-if (!enabled) console.log("Harness regressions skipped: enable with FORMAN_SMOKE=1 bun run smoke");
+if (!enabled) console.log("Harness regressions skipped: enable with FOREMAN_SMOKE=1 bun run smoke");
 const proxy = resolve(import.meta.dir, "codex-proxy.ts");
 regression("continuations accept shell-quoted executable paths", () => {
   expect(
     nextCommand(
-      "next: '/tmp/build path'\\''s/forman' wait smoke --after cursor",
-      "/tmp/build path's/forman",
+      "next: '/tmp/build path'\\''s/foreman' wait smoke --after cursor",
+      "/tmp/build path's/foreman",
     ),
   ).toEqual(["wait", "smoke", "--after", "cursor"]);
 });
 regression("continuations accept a quoted home assignment before the executable", () => {
   expect(
     nextCommand(
-      "next: FORMAN_HOME='/tmp/home path' '/tmp/build path/forman' wait smoke --after cursor",
-      "/tmp/build path/forman",
+      "next: FOREMAN_HOME='/tmp/home path' '/tmp/build path/foreman' wait smoke --after cursor",
+      "/tmp/build path/foreman",
     ),
   ).toEqual(["wait", "smoke", "--after", "cursor"]);
 });
@@ -32,14 +32,14 @@ regression.each(["answer smoke q1 '<answer>'", "defer smoke q1"])(
   (command) => {
     expect(
       nextCommand(
-        `question smoke q1\ncursor: cursor\nnext: FORMAN_HOME='/tmp/home path' forman ${command}\nor: forman defer smoke q1\n`,
-        "/tmp/forman",
+        `question smoke q1\ncursor: cursor\nnext: FOREMAN_HOME='/tmp/home path' foreman ${command}\nor: foreman defer smoke q1\n`,
+        "/tmp/foreman",
       ),
     ).toEqual(["wait", "smoke", "--after", "cursor"]);
   },
 );
 regression("question continuations refuse polling without a printed cursor", () => {
-  expect(() => nextCommand("next: forman answer smoke q1 '<answer>'", "/tmp/forman")).toThrow(
+  expect(() => nextCommand("next: foreman answer smoke q1 '<answer>'", "/tmp/foreman")).toThrow(
     "Missing printed cursor",
   );
 });

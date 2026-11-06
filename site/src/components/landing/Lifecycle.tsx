@@ -55,7 +55,7 @@ function Detail({ node }: { node: LifecycleNode }) {
       <h3 className="text-ink mb-4 text-lg font-semibold">{node.label}</h3>
       <div className="grid min-w-0 gap-6 lg:grid-cols-2">
         <div className="min-w-0">
-          <h4 className="text-ink mb-2 font-semibold">forman reports</h4>
+          <h4 className="text-ink mb-2 font-semibold">foreman reports</h4>
           <p className="text-ink-2 text-sm leading-relaxed">
             <Inline text={node.reports} />
           </p>

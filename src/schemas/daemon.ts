@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 
-// Shapes shared by the forman CLI, the daemon and the run store: run state on disk, the
-// normalized event log, the digest, and the socket protocol. docs/rfcs/0001-forman.md is the
+// Shapes shared by the foreman CLI, the daemon and the run store: run state on disk, the
+// normalized event log, the digest, and the socket protocol. docs/rfcs/0001-foreman.md is the
 // design these implement.
 
 export const RunName = Schema.String.check(Schema.isPattern(/^[a-z0-9][a-z0-9._-]{0,63}$/)).pipe(

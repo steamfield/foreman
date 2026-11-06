@@ -10,7 +10,7 @@ const oneLine = (text: string) => text.replace(/\r/g, "\\r").replace(/\n/g, "\\n
 const shellQuote = (text: string) =>
   /^[a-zA-Z0-9_./:-]+$/.test(text) ? text : `'${text.replaceAll("'", "'\\''")}'`;
 
-export const formanExecutable = Effect.fn("output.formanExecutable")(function* () {
+export const foremanExecutable = Effect.fn("output.foremanExecutable")(function* () {
   const host = yield* Host;
   const config = yield* AppConfig;
   const fs = yield* FileSystem.FileSystem;
@@ -23,7 +23,7 @@ export const formanExecutable = Effect.fn("output.formanExecutable")(function* (
   let onPath = false;
   for (const directory of config.inheritedEnvironment.PATH?.split(path.sep === "\\" ? ";" : ":") ??
     []) {
-    const candidate = path.resolve(directory, "forman");
+    const candidate = path.resolve(directory, "foreman");
     const info = yield* fs.stat(candidate).pipe(Effect.result);
     if (
       info._tag === "Failure" ||
@@ -39,13 +39,13 @@ export const formanExecutable = Effect.fn("output.formanExecutable")(function* (
       resolved.success === running.success;
     break;
   }
-  const command = onPath ? "forman" : executable.map(shellQuote).join(" ");
+  const command = onPath ? "foreman" : executable.map(shellQuote).join(" ");
   return {
     onPath,
     command:
       config.home === config.defaultHome
         ? command
-        : `FORMAN_HOME=${shellQuote(config.home)} ${command}`,
+        : `FOREMAN_HOME=${shellQuote(config.home)} ${command}`,
   };
 });
 
@@ -103,7 +103,7 @@ const worktreeLines = (started: { worktree?: string; branch?: string }) =>
 export function renderResult(
   result: DaemonResult,
   compact = false,
-  executable = "forman",
+  executable = "foreman",
   eventsName?: string,
   verbose = false,
 ): string {

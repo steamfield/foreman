@@ -38,7 +38,7 @@ async function exited(pid: number) {
 
 it("seeded stress: concurrent delegations recover from daemon SIGKILL and app-server exits", async () => {
   const seed = 210021;
-  console.log(`forman stress seed=${seed}`);
+  console.log(`foreman stress seed=${seed}`);
   let random = seed;
   const next = () => {
     random = (Math.imul(random, 1664525) + 1013904223) >>> 0;
@@ -55,7 +55,7 @@ it("seeded stress: concurrent delegations recover from daemon SIGKILL and app-se
     PATH: `${dirname(bun)}:${dirname(process.execPath)}:/usr/bin:/bin`,
     CODEX_HOME: `${root}/codex`,
     CODEX_BIN: `${root}/codex-wrapper`,
-    FORMAN_HOME: data,
+    FOREMAN_HOME: data,
     LOG_LEVEL: "none",
     FAKE_APP_SERVER_SCENARIO: `${root}/scenario.json`,
     GIT_CONFIG_NOSYSTEM: "1",

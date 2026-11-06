@@ -133,7 +133,7 @@ export const handleNotification = Effect.fn("supervisor.notification")(function*
     ),
   );
   if (issue !== undefined) {
-    const warning = `Codex ${message.method} notification ${issue === "minimal" ? "used a partial reply" : "could not be decoded"}; run forman doctor to check compatibility.`;
+    const warning = `Codex ${message.method} notification ${issue === "minimal" ? "used a partial reply" : "could not be decoded"}; run foreman doctor to check compatibility.`;
     if (!run.record.warnings.includes(warning))
       yield* registry.save(run, { warnings: [...run.record.warnings, warning] });
   }

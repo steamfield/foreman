@@ -61,7 +61,7 @@ const platform = Layer.mergeAll(
     listen: (path) => NodeSocketServer.make({ path }),
   }),
   Host.layer({
-    name: "forman",
+    name: "foreman",
     version: "test",
     build: "test",
     platform: "node",
@@ -144,7 +144,7 @@ const fixture = Effect.fnUntraced(function* (script: Scenario, legacy = false, r
   const log = `${root}/received.jsonl`;
   const scenarioFile = `${root}/scenario.json`;
   yield* fs.makeDirectory(repo);
-  yield* fs.symlink(process.execPath, `${root}/forman`);
+  yield* fs.symlink(process.execPath, `${root}/foreman`);
   const git = (cwd: string, args: string[]) =>
     commandResult(ChildProcess.make("git", args, { cwd, stderr: "ignore" })).pipe(
       Effect.tap(({ code }) => Effect.sync(() => expect(code).toBe(0))),
@@ -171,7 +171,7 @@ const fixture = Effect.fnUntraced(function* (script: Scenario, legacy = false, r
     PATH: `${root}:${dirname(process.execPath)}:/usr/bin:/bin`,
     CODEX_HOME: `${root}/codex`,
     CODEX_BIN: fake,
-    FORMAN_HOME: dataDir,
+    FOREMAN_HOME: dataDir,
     FAKE_APP_SERVER_SCENARIO: scenarioFile,
     FAKE_APP_SERVER_LOG: log,
   };
@@ -203,7 +203,7 @@ const fixture = Effect.fnUntraced(function* (script: Scenario, legacy = false, r
     return stdout;
   });
   const nextArgs = (command: string) => {
-    const prefix = `FORMAN_HOME=${dataDir} forman `;
+    const prefix = `FOREMAN_HOME=${dataDir} foreman `;
     expect(command.startsWith(prefix)).toBe(true);
     return command.slice(prefix.length).split(" ");
   };
@@ -461,7 +461,7 @@ describe("supervisor over the real daemon socket", () => {
       expect(result.stdout).toContain(f.env.CODEX_BIN);
       expect(result.stdout).toContain("schema generation exited with code 1");
       expect(result.stdout).toContain("Install Codex 0.166.0");
-      expect(result.stdout).toContain("forman doctor");
+      expect(result.stdout).toContain("foreman doctor");
     }).pipe(Effect.provide(platform)),
   );
   it.live.each(["permission", "symlink", "reuse"] as const)(
@@ -1009,7 +1009,7 @@ describe("supervisor over the real daemon socket", () => {
       expect(result.status).toBe(8);
       expect(result.stdout).toBe("");
       expect(result.stderr).toContain("unit");
-      expect(result.stderr).toContain("forman wait unit");
+      expect(result.stderr).toContain("foreman wait unit");
       expect(result.stderr).not.toContain("interrupt");
       yield* TestClock.adjust("30 seconds");
       yield* f.untilState("unknown");
@@ -1020,7 +1020,7 @@ describe("supervisor over the real daemon socket", () => {
       );
       expect(followup.status).toBe(8);
       expect(followup.stdout).toBe("");
-      expect(followup.stderr).toContain("forman wait unit");
+      expect(followup.stderr).toContain("foreman wait unit");
       expect(followup.stderr).not.toContain("interrupt");
     }).pipe(Effect.provide(platform)),
   );
@@ -1045,7 +1045,7 @@ describe("supervisor over the real daemon socket", () => {
         expect(result.stdout).toBe("");
         expect(result.stderr).toContain("unit");
         expect(result.stderr).toContain("wait for the start to finish");
-        expect(result.stderr).not.toContain("forman wait unit");
+        expect(result.stderr).not.toContain("foreman wait unit");
         expect(result.stderr).not.toContain("interrupt");
       }).pipe(Effect.provide(platform)),
   );
@@ -1109,7 +1109,7 @@ describe("supervisor over the real daemon socket", () => {
       expect(result.stderr).toContain("unit");
       expect(result.stderr).toContain(Codex.Method.threadStart);
       expect(result.stderr).toContain("180000");
-      expect(result.stderr).toContain("forman doctor");
+      expect(result.stderr).toContain("foreman doctor");
     }).pipe(Effect.provide(platform)),
   );
   it.live("diagnostics: inaccessible repo hook configuration names its path", () =>
@@ -1258,7 +1258,7 @@ describe("supervisor over the real daemon socket", () => {
         expect(result.stdout).toBe("");
         expect(result.stderr).toContain(f.env.CODEX_BIN);
         expect(result.stderr).toContain("Install Codex or set CODEX_BIN");
-        expect(result.stderr).toContain("forman doctor");
+        expect(result.stderr).toContain("foreman doctor");
         expect(result.stderr).not.toContain("PRIVATE_CONTRACT_CONTENT");
         if (json) Schema.decodeUnknownSync(ErrorEnvelope)(JSON.parse(result.stderr));
       }
@@ -1718,7 +1718,7 @@ describe("supervisor over the real daemon socket", () => {
       ).toMatchObject({
         _tag: "RunConflict",
         detail:
-          'Cannot answer q1 in run unit while q2 is pending. Use forman answer unit q2 "<answer>"; it can include this change.',
+          'Cannot answer q1 in run unit while q2 is pending. Use foreman answer unit q2 "<answer>"; it can include this change.',
       });
       const answer = yield* Effect.promise(() =>
         runCli(["answer", "unit", "q1", "A", "--json"], { env: { ...f.env, LOG_LEVEL: "none" } }),
@@ -1727,20 +1727,20 @@ describe("supervisor over the real daemon socket", () => {
       expect(answer.stdout).toBe("");
       expect.soft(answer.stderr).toContain("unit");
       expect.soft(answer.stderr).toContain("q1");
-      expect.soft(answer.stderr).toContain("forman answer unit q2");
+      expect.soft(answer.stderr).toContain("foreman answer unit q2");
       const steer = yield* Effect.promise(() =>
         runCli(["steer", "unit", "change", "--json"], { env: { ...f.env, LOG_LEVEL: "none" } }),
       );
       expect(steer.status).toBe(8);
       expect(steer.stdout).toBe("");
       expect.soft(steer.stderr).toContain("unit");
-      expect.soft(steer.stderr).toContain("forman answer unit q2");
+      expect.soft(steer.stderr).toContain("foreman answer unit q2");
       expect(
         yield* f.request({ _tag: "Defer", name, question: q1 }).pipe(Effect.flip),
       ).toMatchObject({
         _tag: "RunConflict",
         detail:
-          "q1 in run unit is deferred; only a pending question can be deferred. Run forman status unit to see its questions.",
+          "q1 in run unit is deferred; only a pending question can be deferred. Run foreman status unit to see its questions.",
       });
     }).pipe(Effect.provide(platform)),
   );
@@ -1765,13 +1765,13 @@ describe("supervisor over the real daemon socket", () => {
       expect(missing.stdout).toBe("");
       expect.soft(missing.stderr).toContain("unit");
       expect.soft(missing.stderr).toContain("q99");
-      expect.soft(missing.stderr).toContain("forman status unit");
+      expect.soft(missing.stderr).toContain("foreman status unit");
       expect(
         yield* f.request({ _tag: "Defer", name, question: q1 }).pipe(Effect.flip),
       ).toMatchObject({
         _tag: "RunConflict",
         detail:
-          "q1 in run unit is answered; only a pending question can be deferred. Run forman status unit to see its questions.",
+          "q1 in run unit is answered; only a pending question can be deferred. Run foreman status unit to see its questions.",
       });
       const closed = yield* Effect.promise(() =>
         runCli(["defer", "unit", "q1", "--json"], { env: { ...f.env, LOG_LEVEL: "none" } }),
@@ -1780,7 +1780,7 @@ describe("supervisor over the real daemon socket", () => {
       expect(closed.stdout).toBe("");
       expect.soft(closed.stderr).toContain("unit");
       expect.soft(closed.stderr).toContain("q1");
-      expect.soft(closed.stderr).toContain("forman status unit");
+      expect.soft(closed.stderr).toContain("foreman status unit");
     }).pipe(Effect.provide(platform)),
   );
 
@@ -1862,16 +1862,16 @@ describe("supervisor over the real daemon socket", () => {
         yield* f.start();
         yield* f.untilState("waiting");
         const asked = yield* f.cli(["wait", "unit", "--timeout", "0ms"]);
-        expect(asked).toContain('forman answer unit q1 "<answer>"');
+        expect(asked).toContain('foreman answer unit q1 "<answer>"');
         expect(asked).toContain("or: ");
-        expect(asked).toContain("forman defer unit q1");
+        expect(asked).toContain("foreman defer unit q1");
         yield* f.cli(["defer", "unit", "q1"]);
         yield* f.untilState("idle");
         const done = yield* f.cli(["wait", "unit", "--timeout", "0ms"]);
         expect(done).toContain(
           kind === "blocked" ? "blocked on q1" : "done, 1 unanswered question",
         );
-        expect(done).toContain('forman answer unit q1 "<answer>"');
+        expect(done).toContain('foreman answer unit q1 "<answer>"');
       }).pipe(Effect.provide(platform)),
   );
 
@@ -2180,7 +2180,7 @@ exec '${realGit}' "$@"
       expect(yield* Fiber.join(cancelled)).toBe(true);
       expect((yield* Fiber.join(pending))._tag).toBe("Failure");
       expect(yield* f.fs.exists(`${f.repo}/.claude/worktrees/unit`)).toBe(false);
-      expect((yield* f.git(f.repo, ["branch", "--list", "forman/unit"])).stdout).toBe("");
+      expect((yield* f.git(f.repo, ["branch", "--list", "foreman/unit"])).stdout).toBe("");
     }).pipe(Effect.provide(platform)),
   );
 
@@ -2218,8 +2218,8 @@ exec '${realGit}' "$@"
       expect(yield* f.fs.readFileString(`${f.repo}/.claude/worktrees/unit/result.txt`)).toBe(
         "keep",
       );
-      expect((yield* f.git(f.repo, ["branch", "--list", "forman/unit"])).stdout).toContain(
-        "forman/unit",
+      expect((yield* f.git(f.repo, ["branch", "--list", "foreman/unit"])).stdout).toContain(
+        "foreman/unit",
       );
       expect(yield* f.request({ _tag: "Shutdown" })).toMatchObject({ _tag: "Ok" });
     }).pipe(Effect.provide(platform)),
@@ -2313,7 +2313,7 @@ exec '${realGit}' "$@"
         });
         expect(yield* f.fs.readFileString(`${f.root}/stopped`)).toBe("stopped");
         expect(yield* f.fs.exists(`${f.repo}/.claude/worktrees/unit`)).toBe(false);
-        expect((yield* f.git(f.repo, ["branch", "--list", "forman/unit"])).stdout).toBe("");
+        expect((yield* f.git(f.repo, ["branch", "--list", "foreman/unit"])).stdout).toBe("");
         expect(yield* f.readLog).toEqual([]);
         expect(yield* f.start({ worktree: f.repo, newWorktree: true })).toMatchObject({
           _tag: "Started",
@@ -2626,7 +2626,7 @@ exec '${realGit}' "$@"
       expect(result.status).toBe(0);
       expect(result.stderr).toBe("");
       expect(result.stdout).toContain(f.worktree);
-      expect(result.stdout).toContain("forman doctor");
+      expect(result.stdout).toContain("foreman doctor");
       expect(records.filter(({ msg }) => msg === "supervisor.appServer.ended")).toMatchObject([
         { names: "unit", lossReason: "app server exited with code 17" },
       ]);
@@ -2677,7 +2677,7 @@ exec '${realGit}' "$@"
       expect(result.stderr).toBe("");
       expect(result.stdout).toContain("unit");
       expect(result.stdout).toContain(`${f.runDir}/codex.jsonl`);
-      expect(result.stdout).toContain("forman doctor");
+      expect(result.stdout).toContain("foreman doctor");
     }).pipe(Effect.provide(platform), Effect.provide(Logger.layer([logger])));
   });
 
@@ -2899,7 +2899,7 @@ child.on("exit", code => process.exit(code ?? 1));
           worktree: `${f.repo}/.claude/worktrees/unit`,
           newWorktree: true,
         }),
-      ).toMatchObject({ _tag: "Started", branch: "forman/child" });
+      ).toMatchObject({ _tag: "Started", branch: "foreman/child" });
     }).pipe(Effect.provide(platform)),
   );
   it.live("review: archive preserves a managed worktree reserved by another active run", () =>
@@ -2973,7 +2973,7 @@ child.on("exit", code => process.exit(code ?? 1));
         detail: expect.stringContaining("detached HEAD"),
       });
       expect(yield* f.request({ _tag: "Archive", name }).pipe(Effect.flip)).toMatchObject({
-        detail: expect.stringContaining("forman archive unit --keep-worktree"),
+        detail: expect.stringContaining("foreman archive unit --keep-worktree"),
       });
       expect(yield* f.fs.exists(worktree)).toBe(true);
     }).pipe(Effect.provide(platform)),
@@ -3024,7 +3024,7 @@ child.on("exit", code => process.exit(code ?? 1));
             expect(result.stderr).toContain("timed out");
             expect(result.stderr).toContain("wait until");
             expect(result.stderr).toContain("inactive");
-            expect(result.stderr).toContain("forman archive unit --keep-worktree");
+            expect(result.stderr).toContain("foreman archive unit --keep-worktree");
             expect(
               yield* f.request({ _tag: "Archive", name, keepWorktree: true }).pipe(Effect.flip),
             ).toMatchObject({ _tag: "RunConflict" });
@@ -3063,7 +3063,7 @@ child.on("exit", code => process.exit(code ?? 1));
       const realGit = (yield* commandResult(ChildProcess.make("which", ["git"]))).stdout.trim();
       yield* f.fs.writeFileString(
         `${f.root}/git`,
-        `#!/bin/sh\nif [ "$1" = worktree ] && [ "$2" = remove ]; then '${realGit}' -C '${f.repo}' update-ref refs/heads/forman/unit '${advanced}'; fi\nexec '${realGit}' "$@"\n`,
+        `#!/bin/sh\nif [ "$1" = worktree ] && [ "$2" = remove ]; then '${realGit}' -C '${f.repo}' update-ref refs/heads/foreman/unit '${advanced}'; fi\nexec '${realGit}' "$@"\n`,
         { mode: 0o755 },
       );
       const previous = process.env.PATH;
@@ -3075,9 +3075,9 @@ child.on("exit", code => process.exit(code ?? 1));
           Effect.gen(function* () {
             expect(yield* f.request({ _tag: "Archive", name }).pipe(Effect.flip)).toMatchObject({
               _tag: "RunConflict",
-              detail: expect.stringContaining("forman/unit"),
+              detail: expect.stringContaining("foreman/unit"),
             });
-            expect((yield* f.git(f.repo, ["rev-parse", "forman/unit"])).stdout.trim()).toBe(
+            expect((yield* f.git(f.repo, ["rev-parse", "foreman/unit"])).stdout.trim()).toBe(
               advanced,
             );
           }),
@@ -3189,7 +3189,7 @@ child.on("exit", code => process.exit(code ?? 1));
     Effect.gen(function* () {
       const f = yield* fixture(scenario(turnRule([complete()])));
       const orphan = `${f.repo}/.claude/worktrees/gone`;
-      yield* f.git(f.repo, ["worktree", "add", "-qb", "forman/gone", orphan]);
+      yield* f.git(f.repo, ["worktree", "add", "-qb", "foreman/gone", orphan]);
       yield* f.fs.remove(orphan, { recursive: true });
       yield* f.launch();
       yield* f.start();
@@ -3254,20 +3254,20 @@ child.on("exit", code => process.exit(code ?? 1));
         yield* f.start({ worktree: f.repo, newWorktree: true }).pipe(Effect.flip),
       ).toMatchObject({ _tag: "WorktreeInvalid" });
       expect(yield* f.fs.readFileString(`${worktree}/existing.txt`)).toBe("keep");
-      expect((yield* f.git(f.repo, ["branch", "--list", "forman/unit"])).stdout).toBe("");
+      expect((yield* f.git(f.repo, ["branch", "--list", "foreman/unit"])).stdout).toBe("");
     }).pipe(Effect.provide(platform)),
   );
   it.live("review: managed creation preserves an existing branch with an absent destination", () =>
     Effect.gen(function* () {
       const f = yield* fixture(scenario());
-      yield* f.git(f.repo, ["branch", "forman/unit"]);
-      const tip = (yield* f.git(f.repo, ["rev-parse", "forman/unit"])).stdout;
+      yield* f.git(f.repo, ["branch", "foreman/unit"]);
+      const tip = (yield* f.git(f.repo, ["rev-parse", "foreman/unit"])).stdout;
       yield* f.launch();
       expect(
         yield* f.start({ worktree: f.repo, newWorktree: true }).pipe(Effect.flip),
       ).toMatchObject({ _tag: "WorktreeInvalid" });
       expect(yield* f.fs.exists(`${f.repo}/.claude/worktrees/unit`)).toBe(false);
-      expect((yield* f.git(f.repo, ["rev-parse", "forman/unit"])).stdout).toBe(tip);
+      expect((yield* f.git(f.repo, ["rev-parse", "foreman/unit"])).stdout).toBe(tip);
     }).pipe(Effect.provide(platform)),
   );
   it.live("review: successful managed creation preserves an existing ignore rule", () =>
@@ -3299,7 +3299,7 @@ child.on("exit", code => process.exit(code ?? 1));
         yield* f.start({ worktree: f.repo, newWorktree: true }).pipe(Effect.flip),
       ).toMatchObject({ _tag: "RepoHooksUntrusted" });
       expect(yield* f.fs.exists(`${f.repo}/.claude/worktrees/unit`)).toBe(false);
-      expect((yield* f.git(f.repo, ["branch", "--list", "forman/unit"])).stdout).toBe("");
+      expect((yield* f.git(f.repo, ["branch", "--list", "foreman/unit"])).stdout).toBe("");
       expect((yield* f.readLog).some((entry) => entry.method === Codex.Method.threadStart)).toBe(
         false,
       );
@@ -3441,7 +3441,7 @@ child.on("exit", code => process.exit(code ?? 1));
             ...(from ? { from: base } : {}),
             setup: "mkdir node_modules; printf ready > node_modules/setup",
           }),
-        ).toMatchObject({ _tag: "Started", worktree, branch: "forman/unit" });
+        ).toMatchObject({ _tag: "Started", worktree, branch: "foreman/unit" });
         yield* f.wait();
         expect((yield* f.git(worktree, ["rev-parse", "HEAD"])).stdout.trim()).toBe(
           from ? base : caller,
@@ -3451,7 +3451,7 @@ child.on("exit", code => process.exit(code ?? 1));
           ".claude/worktrees/",
         );
         expect(yield* Store.readRun(f.runDir)).toMatchObject({
-          managedWorktree: { branch: "forman/unit", baseCommit: from ? base : caller },
+          managedWorktree: { branch: "foreman/unit", baseCommit: from ? base : caller },
         });
       }).pipe(Effect.provide(platform)),
   );
@@ -3501,7 +3501,7 @@ child.on("exit", code => process.exit(code ?? 1));
             detail: expect.stringMatching(/exit(?:ed)? 23[\s\S]*setup tail/),
           });
         expect(yield* f.fs.exists(`${f.repo}/.claude/worktrees/unit`)).toBe(false);
-        expect((yield* f.git(f.repo, ["branch", "--list", "forman/unit"])).stdout).toBe("");
+        expect((yield* f.git(f.repo, ["branch", "--list", "foreman/unit"])).stdout).toBe("");
         expect(yield* f.fs.exists(f.worktree)).toBe(true);
         if (stage !== "thread") expect(yield* f.readLog).toEqual([]);
       }).pipe(Effect.provide(platform)),
@@ -3529,30 +3529,30 @@ child.on("exit", code => process.exit(code ?? 1));
             "work",
           ]);
         }
-        if (kind === "merged") yield* f.git(f.repo, ["merge", "--ff-only", "forman/unit"]);
+        if (kind === "merged") yield* f.git(f.repo, ["merge", "--ff-only", "foreman/unit"]);
         if (kind === "dirty" || kind === "committed") {
           const error = yield* f.request({ _tag: "Archive", name }).pipe(Effect.flip);
           expect(error).toMatchObject({
             _tag: "RunConflict",
             detail: expect.stringContaining(worktree),
           });
-          expect(error).toMatchObject({ detail: expect.stringContaining("forman/unit") });
+          expect(error).toMatchObject({ detail: expect.stringContaining("foreman/unit") });
           expect(error).toMatchObject({
             detail: expect.stringContaining(kind === "dirty" ? "uncommitted" : "unmerged commits"),
           });
           expect(error).toMatchObject({
-            detail: expect.stringContaining("forman archive unit --keep-worktree"),
+            detail: expect.stringContaining("foreman archive unit --keep-worktree"),
           });
           yield* f.request({ _tag: "Archive", name, keepWorktree: true });
           expect(yield* f.fs.exists(worktree)).toBe(true);
           const status = yield* f.request({ _tag: "Status", cwd: f.repo });
           expect(status).toMatchObject({
-            orphans: [{ path: worktree, branch: "forman/unit", holdsWork: true }],
+            orphans: [{ path: worktree, branch: "foreman/unit", holdsWork: true }],
           });
         } else {
           yield* f.request({ _tag: "Archive", name });
           expect(yield* f.fs.exists(worktree)).toBe(false);
-          expect((yield* f.git(f.repo, ["branch", "--list", "forman/unit"])).stdout).toBe("");
+          expect((yield* f.git(f.repo, ["branch", "--list", "foreman/unit"])).stdout).toBe("");
         }
       }).pipe(Effect.provide(platform)),
   );
@@ -3708,7 +3708,7 @@ child.on("exit", code => process.exit(code ?? 1));
           state: "unknown",
           failure: {
             message: expect.stringMatching(
-              /^Supervisor operation failed \(PlatformError: [^)]+\) for run unit at .+\. Run forman doctor and inspect .+ before retrying\.$/,
+              /^Supervisor operation failed \(PlatformError: [^)]+\) for run unit at .+\. Run foreman doctor and inspect .+ before retrying\.$/,
             ),
           },
         });
@@ -4296,13 +4296,13 @@ child.on("exit", code => process.exit(code ?? 1));
               expect(result).toMatchObject({ runs: [{ handoff: { text: "Finished work." } }] });
           } else {
             expect(stdout).toContain(`unit\n${f.runDir}\n${kind.padEnd(12)}unit`);
-            expect(stdout).not.toContain("next: forman wait unit\n");
+            expect(stdout).not.toContain("next: foreman wait unit\n");
             if (kind === "done") expect(stdout).toContain("Hand-off (turn 1):\nFinished work.");
           }
           if (kind === "done") expect(stdout).toContain(" --timeout 2s");
           else {
-            expect(stdout).toContain(`forman answer unit q1`);
-            expect(stdout).toContain(`forman defer unit q1`);
+            expect(stdout).toContain(`foreman answer unit q1`);
+            expect(stdout).toContain(`foreman defer unit q1`);
             expect(stdout).not.toContain(" --timeout 2s");
           }
         }).pipe(Effect.provide(platform)),
@@ -4418,8 +4418,8 @@ child.on("exit", code => process.exit(code ?? 1));
       yield* f.start({ name: otherName, worktree: otherWorktree });
       yield* f.wait({ names: [otherName] });
       const first = yield* f.cli(["wait", "unit", "other"]);
-      expect(first).toContain(`next: FORMAN_HOME=${f.dataDir} forman answer other q1 "<answer>"`);
-      expect(first).toContain(`or: FORMAN_HOME=${f.dataDir} forman defer other q1`);
+      expect(first).toContain(`next: FOREMAN_HOME=${f.dataDir} foreman answer other q1 "<answer>"`);
+      expect(first).toContain(`or: FOREMAN_HOME=${f.dataDir} foreman defer other q1`);
       const cursor = first
         .split("\n")
         .find((line) => line.startsWith("cursor: "))
@@ -4440,7 +4440,7 @@ child.on("exit", code => process.exit(code ?? 1));
       expect(result).toMatchObject({
         outcome: "timeout",
         runs: [],
-        next: `FORMAN_HOME=${f.dataDir} forman wait unit other --after ${result.cursor} --timeout 0ms`,
+        next: `FOREMAN_HOME=${f.dataDir} foreman wait unit other --after ${result.cursor} --timeout 0ms`,
       });
     }).pipe(Effect.provide(platform)),
   );
@@ -4471,8 +4471,10 @@ child.on("exit", code => process.exit(code ?? 1));
           );
           return f.nextArgs((line ?? "").slice("next: ".length));
         };
-        expect(first).toContain(`next: FORMAN_HOME=${f.dataDir} forman answer unit q1 "<answer>"`);
-        expect(first).toContain(`or: FORMAN_HOME=${f.dataDir} forman defer unit q1`);
+        expect(first).toContain(
+          `next: FOREMAN_HOME=${f.dataDir} foreman answer unit q1 "<answer>"`,
+        );
+        expect(first).toContain(`or: FOREMAN_HOME=${f.dataDir} foreman defer unit q1`);
         const cursor = first
           .split("\n")
           .find((line) => line.startsWith("cursor: "))
@@ -4494,7 +4496,7 @@ child.on("exit", code => process.exit(code ?? 1));
         expect(result).toMatchObject({
           outcome: "timeout",
           runs: [],
-          next: `FORMAN_HOME=${f.dataDir} forman wait unit --after ${result.cursor} --timeout 0ms`,
+          next: `FOREMAN_HOME=${f.dataDir} foreman wait unit --after ${result.cursor} --timeout 0ms`,
         });
       }).pipe(Effect.provide(platform)),
   );
@@ -4843,7 +4845,7 @@ child.on("exit", code => process.exit(code ?? 1));
       expect(result.status).toBe(8);
       expect(result.stdout).toBe("");
       expect(result.stderr).toContain("unit");
-      expect(result.stderr).toContain("forman start --help");
+      expect(result.stderr).toContain("foreman start --help");
     }).pipe(Effect.provide(platform)),
   );
 
@@ -4885,7 +4887,7 @@ child.on("exit", code => process.exit(code ?? 1));
       expect(result.stdout).toBe("");
       expect(result.stderr).toContain("unit");
       expect(result.stderr).toContain(f.env.CODEX_BIN);
-      expect(result.stderr).toContain("forman doctor");
+      expect(result.stderr).toContain("foreman doctor");
     }).pipe(Effect.provide(platform)),
   );
 
@@ -4904,7 +4906,7 @@ child.on("exit", code => process.exit(code ?? 1));
       expect(result.stdout).toBe("");
       expect(result.stderr).toContain("unit");
       expect(result.stderr).toContain("17");
-      expect(result.stderr).toContain("forman doctor");
+      expect(result.stderr).toContain("foreman doctor");
     }).pipe(Effect.provide(platform)),
   );
 
@@ -5021,7 +5023,7 @@ else {
     Effect.gen(function* () {
       const f = yield* fixture(scenario());
       const app = AppLayer(
-        { ...f.env, FORMAN_LOG_FILE: `${f.scenarioFile}/blocked/log`, LOG_LEVEL: "debug" },
+        { ...f.env, FOREMAN_LOG_FILE: `${f.scenarioFile}/blocked/log`, LOG_LEVEL: "debug" },
         false,
         async () => {},
         async () => {},
@@ -5210,7 +5212,7 @@ else { require("node:child_process").spawn(process.execPath, [${JSON.stringify(f
       expect(result.status).toBe(0);
       expect(result.stderr).toBe("");
       expect(result.stdout).toContain("Budget expired for run unit");
-      expect(result.stdout).toContain("forman wait unit");
+      expect(result.stdout).toContain("foreman wait unit");
     }).pipe(Effect.provide(platform)),
   );
 
@@ -5451,7 +5453,7 @@ if (process.argv.includes("generate-json-schema")) {
         expect.soft(refused.status).toBe(8);
         expect.soft(refused.stdout).toBe("");
         expect.soft(refused.stderr).toContain("unit");
-        expect.soft(refused.stderr).toContain("forman status unit");
+        expect.soft(refused.stderr).toContain("foreman status unit");
         expect.soft(refused.stderr).not.toContain("send a followup");
       }
     }).pipe(Effect.provide(platform)),
@@ -5728,7 +5730,7 @@ if (process.argv.includes("generate-json-schema")) {
           outcome: "timeout",
           runs: [],
           cursor: asked.cursor,
-          next: `forman wait unit --after ${asked.cursor}`,
+          next: `foreman wait unit --after ${asked.cursor}`,
         });
         expect(
           yield* f
@@ -5860,7 +5862,7 @@ if (process.argv.includes("generate-json-schema")) {
         expect(result.stderr).toBe("");
         expect(result.stdout).toContain(Codex.Method.tokenUsageUpdated);
         expect(result.stdout).toContain(Codex.Method.turnCompleted);
-        expect(result.stdout).toContain("forman doctor");
+        expect(result.stdout).toContain("foreman doctor");
         expect(result.stdout).not.toContain("changed upstream");
       }).pipe(Effect.provide(platform)),
   );
@@ -5895,7 +5897,7 @@ if (process.argv.includes("generate-json-schema")) {
           ? `${f.root}/custom-daemon.jsonl`
           : `${f.dataDir}/logs/daemon.jsonl`;
         const app = AppLayer(
-          { ...f.env, ...(override ? { FORMAN_LOG_FILE: logFile } : {}), LOG_LEVEL: "debug" },
+          { ...f.env, ...(override ? { FOREMAN_LOG_FILE: logFile } : {}), LOG_LEVEL: "debug" },
           false,
           async () => {},
           async () => {},
@@ -5908,7 +5910,7 @@ if (process.argv.includes("generate-json-schema")) {
           yield* Effect.yieldNow;
         expect(yield* f.fs.readFileString(logFile)).toContain("daemon.connection.closed");
         yield* Fiber.interrupt(pending);
-        expect(yield* f.fs.exists(`${f.dataDir}/forman.sock`)).toBe(false);
+        expect(yield* f.fs.exists(`${f.dataDir}/foreman.sock`)).toBe(false);
       }).pipe(Effect.provide(platform)),
   );
   it.live(
@@ -5943,7 +5945,7 @@ if (process.argv.includes("generate-json-schema")) {
           outcome: "none",
           runs: [],
           cursor: waited.cursor,
-          next: `forman wait --all --after ${waited.cursor}`,
+          next: `foreman wait --all --after ${waited.cursor}`,
         });
         const log = yield* f.readLog;
         const thread = Schema.decodeUnknownSync(Codex.ThreadStartParams)(
@@ -6095,7 +6097,7 @@ if (process.argv.includes("generate-json-schema")) {
       yield* f.untilState("interrupted");
       expect(yield* f.request({ _tag: "Shutdown" })).toEqual({ _tag: "Ok" });
       yield* Fiber.join(fiber).pipe(Effect.timeout("2 seconds"));
-      expect(yield* f.fs.exists(`${f.dataDir}/forman.sock`)).toBe(false);
+      expect(yield* f.fs.exists(`${f.dataDir}/foreman.sock`)).toBe(false);
       expect(yield* f.fs.exists(`${f.dataDir}/daemon.lock`)).toBe(false);
     }).pipe(Effect.provide(platform)),
   );
@@ -6120,7 +6122,7 @@ if (process.argv.includes("generate-json-schema")) {
       });
       const error = yield* f.request({ _tag: "Steer", name, message: "late" }).pipe(Effect.flip);
       expect(error).toMatchObject({ _tag: "RunConflict", detail: expect.stringContaining("unit") });
-      expect(error).toMatchObject({ detail: expect.stringContaining("forman status unit") });
+      expect(error).toMatchObject({ detail: expect.stringContaining("foreman status unit") });
     }).pipe(Effect.provide(platform)),
   );
 
@@ -6253,7 +6255,7 @@ if (process.argv.includes("generate-json-schema")) {
       ).toMatchObject({
         _tag: "RunConflict",
         detail:
-          'unit is waiting on q1; use forman answer unit q1 "<answer>" and include the change.',
+          'unit is waiting on q1; use foreman answer unit q1 "<answer>" and include the change.',
       });
       yield* f.request({ _tag: "Answer", name, question: q1, text: "Take path A" });
       expect((yield* f.status()).state).toBe("running");

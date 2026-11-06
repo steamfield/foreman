@@ -9,18 +9,18 @@ import { ndjson, runCli, tempDir } from "./helpers/cli";
 
 async function configFile(content: string) {
   const home = await tempDir();
-  const dir = join(home, ".forman");
+  const dir = join(home, ".foreman");
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, "config.json"), content);
   return home;
 }
 
 describe("real config and emitted logging", () => {
-  it.each([undefined, "", " \t ", "./npm/forman.cjs"])(
-    "resolves launcher identity only from FORMAN_LAUNCHER=%j",
+  it.each([undefined, "", " \t ", "./npm/foreman.cjs"])(
+    "resolves launcher identity only from FOREMAN_LAUNCHER=%j",
     async (launcher) => {
       const result = await runCli(["--json"], {
-        env: { FORMAN_LAUNCHER: launcher },
+        env: { FOREMAN_LAUNCHER: launcher },
         program: Effect.gen(function* () {
           yield* (yield* Output).result((yield* AppConfig).launcher, "launcher");
         }),
@@ -54,13 +54,13 @@ describe("real config and emitted logging", () => {
     );
   });
   it.each([undefined, "", " ", "absolute", "relative"])(
-    "uses FORMAN_HOME=%s for configuration and state, ignoring legacy paths",
+    "uses FOREMAN_HOME=%s for configuration and state, ignoring legacy paths",
     async (setting) => {
       const home = await tempDir();
       let override = setting;
       if (setting === "absolute") override = join(home, "selected");
       if (setting === "relative") override = relative(process.cwd(), join(home, "selected"));
-      const expected = override?.trim() ? resolve(override) : join(home, ".forman");
+      const expected = override?.trim() ? resolve(override) : join(home, ".foreman");
       await mkdir(expected, { recursive: true });
       await writeFile(join(expected, "config.json"), '{"codexBin":"/missing/home-codex"}');
       const oldConfig = join(home, "old-config", "test-cli");
@@ -70,8 +70,8 @@ describe("real config and emitted logging", () => {
         home,
         env: {
           CODEX_BIN: undefined,
-          FORMAN_HOME: override,
-          FORMAN_DATA_DIR: join(home, "old-data"),
+          FOREMAN_HOME: override,
+          FOREMAN_DATA_DIR: join(home, "old-data"),
           TEST_CLI_DATA_DIR: join(home, "old-test-data"),
           XDG_CONFIG_HOME: join(home, "old-config"),
           XDG_DATA_HOME: join(home, "old-xdg-data"),
@@ -92,7 +92,7 @@ describe("real config and emitted logging", () => {
     async (bin) => {
       const result = await runCli(["--json"], {
         env: {
-          FORMAN_HOME: "./relative-data",
+          FOREMAN_HOME: "./relative-data",
           CODEX_HOME: "./relative-home",
           CODEX_BIN: bin,
         },
@@ -177,8 +177,8 @@ describe("real config and emitted logging", () => {
       env: {
         CODEX_BIN: "/tools/codex",
         CODEX_HOME: "/codex-state",
-        FORMAN_CODEX_BIN: "ignored",
-        FORMAN_CODEX_HOME: "ignored",
+        FOREMAN_CODEX_BIN: "ignored",
+        FOREMAN_CODEX_HOME: "ignored",
       },
       bin: "/tools/codex",
       home: "/codex-state",

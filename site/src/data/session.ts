@@ -162,7 +162,7 @@ export function buildSession(
             ),
           ]
         : activityFor(owned, spec.start + 2000, spec.done);
-    return { ...spec, branch: `forman/${spec.name}`, activity };
+    return { ...spec, branch: `foreman/${spec.name}`, activity };
   });
   const quote = (s: string) => `"${s.replace(/[\\"$`]/g, "\\$&")}"`;
   const next = answerCapture.output
@@ -180,17 +180,17 @@ export function buildSession(
     {
       at: 4000,
       title: "Start three worktrees",
-      text: "The daemon creates each .claude/worktrees/<name> directory on forman/<name>, runs bun install, then starts a Codex turn. The starts are staggered.",
+      text: "The daemon creates each .claude/worktrees/<name> directory on foreman/<name>, runs bun install, then starts a Codex turn. The starts are staggered.",
       commands: delegates.map(
         (d) =>
-          `forman start ${d.name} --new-worktree --setup "bun install" --contract ${d.contract} --write --model ${d.model}`,
+          `foreman start ${d.name} --new-worktree --setup "bun install" --contract ${d.contract} --write --model ${d.model}`,
       ),
     },
     {
       at: 11_000,
       title: "Wait while all three work",
       text: "Claude runs one wait in the background and goes idle. Commands and file writes stream from the delegates to the dispatch board.",
-      commands: ["forman wait --all"],
+      commands: ["foreman wait --all"],
     },
     {
       at: QUESTION,
@@ -207,7 +207,7 @@ export function buildSession(
       title: "Answer and resume waiting",
       text: "Claude answers; the held call releases and site-commands keeps working. Claude runs the next wait command printed with the answer, including its cursor.",
       commands: [
-        `forman answer site-commands ${asked.id} ${quote(resolved.text)}`,
+        `foreman answer site-commands ${asked.id} ${quote(resolved.text)}`,
         next.slice(6),
       ],
       recorded: { title: "Recorded answer", text: resolved.text },
@@ -217,13 +217,13 @@ export function buildSession(
       at: 27_500,
       title: "Steer the active test turn",
       text: "Claude adds the 375px check while site-e2e is running, with no question pending. Steer changes the current turn's instructions.",
-      commands: ['forman steer site-e2e "Also check 375px widths."'],
+      commands: ['foreman steer site-e2e "Also check 375px widths."'],
     },
     {
       at: 32_500,
       title: "Review the first result",
       text: "The wait returns done for site-console with its digest. Claude reads the result and diff, runs the site's checks, and commits the reviewed work.",
-      commands: ["forman result site-console"],
+      commands: ["foreman result site-console"],
       recorded: {
         title: "Recorded digest · site-console",
         text: consoleRun.digest,
@@ -234,20 +234,20 @@ export function buildSession(
       title: "Follow up on the same thread",
       text: "Claude starts turn 2 in site-console's existing thread and worktree. The small correction finishes, and Claude reviews and commits it.",
       commands: [
-        'forman followup site-console "Drop the false scope flags from the final step."',
+        'foreman followup site-console "Drop the false scope flags from the final step."',
       ],
     },
     {
       at: 43_500,
       title: "Land the remaining work",
       text: "site-commands finishes, then site-e2e. Claude reviews each diff, runs the checks, commits the work and merges all three branches.",
-      commands: ["forman result site-commands", "forman result site-e2e"],
+      commands: ["foreman result site-commands", "foreman result site-e2e"],
     },
     {
       at: ARCHIVE,
       title: "Archive the merged runs",
       text: "Claude archives all three runs after their branches are merged and worktrees are clean. The worktrees and branches are removed; their records stay on the board.",
-      commands: delegates.map((d) => `forman archive ${d.name}`),
+      commands: delegates.map((d) => `foreman archive ${d.name}`),
     },
   ];
   const packets: Packet[] = [];

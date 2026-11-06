@@ -114,7 +114,7 @@ export async function initAnalytics(
           return null;
         return {
           ...event,
-          properties: { ...event.properties, site: "forman" },
+          properties: { ...event.properties, site: "foreman" },
         };
       },
       loaded: (instance) => {

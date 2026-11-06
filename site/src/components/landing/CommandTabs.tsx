@@ -56,7 +56,7 @@ export function CommandTabs({
         className="grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-[18rem_minmax(0,1fr)]"
       >
         <TabList
-          aria-label="forman commands"
+          aria-label="foreman commands"
           className="flex min-w-0 flex-row gap-1 overflow-x-auto p-1 lg:flex-col"
         >
           {commands.map((command) => (

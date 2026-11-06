@@ -4,7 +4,7 @@ import { call } from "../daemon/client";
 import type { DaemonRequestBody, DaemonResult, QuestionId, RunName } from "../schemas/daemon";
 import { Output } from "../services/output";
 import { durationMs, type MessageInput, messageText, readText, realPath } from "./command-input";
-import { formanExecutable } from "./command-output";
+import { foremanExecutable } from "./command-output";
 import { validateStartMode } from "./start-mode";
 
 const request = Effect.fn("commands.request")(function* (body: DaemonRequestBody) {
@@ -47,7 +47,7 @@ const afterAccepted = Effect.fnUntraced(function* (
       after: result.cursor,
       timeout: options.timeout,
     });
-  const executable = yield* formanExecutable();
+  const executable = yield* foremanExecutable();
   return {
     ...result,
     next: `${executable.command} wait ${name} --after ${result.cursor}`,
@@ -194,16 +194,16 @@ export const wait = Effect.fn("commands.wait")(function* (
     cwd: yield* realPath("."),
   });
   if (result._tag !== "Waited") return result;
-  const executable = yield* formanExecutable();
+  const executable = yield* foremanExecutable();
   return {
     ...result,
     next:
-      result.next.replace(/^forman(?= )/, () => executable.command) +
-      (input.timeout === undefined || !result.next.startsWith("forman wait ")
+      result.next.replace(/^foreman(?= )/, () => executable.command) +
+      (input.timeout === undefined || !result.next.startsWith("foreman wait ")
         ? ""
         : ` --timeout ${input.timeout}`),
     ...(result.alternative === undefined
       ? {}
-      : { alternative: result.alternative.replace(/^forman(?= )/, () => executable.command) }),
+      : { alternative: result.alternative.replace(/^foreman(?= )/, () => executable.command) }),
   };
 });

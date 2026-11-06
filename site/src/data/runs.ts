@@ -1,4 +1,4 @@
-// Build-time access to the recorded forman runs in fixtures/runs/.
+// Build-time access to the recorded foreman runs in fixtures/runs/.
 // scripts/capture-runs.mjs writes them; see that script for how they are scrubbed.
 import fixCli from "../../fixtures/runs/fix-cli.json";
 import fixDaemon from "../../fixtures/runs/fix-daemon.json";
@@ -9,7 +9,7 @@ import siteConsole from "../../fixtures/runs/site-console.json";
 import siteE2e from "../../fixtures/runs/site-e2e.json";
 import siteSession from "../../fixtures/runs/site-session.json";
 
-/** forman's run states, as `StateChanged` events report them. */
+/** foreman's run states, as `StateChanged` events report them. */
 export type RunState =
   "starting" | "running" | "waiting" | "idle" | "failed" | "lost";
 
@@ -94,11 +94,11 @@ export interface Run {
   questions: QuestionRecord[];
   /** Codex's hand-off for turn 1 (Markdown), or null when the turn left none. */
   handoff: string | null;
-  /** `forman status <name>` output, captured after the run. */
+  /** `foreman status <name>` output, captured after the run. */
   digest: string;
 }
 
-/** The four delegates that fixed forman's release blockers in parallel, from one commit. */
+/** The four delegates that fixed foreman's release blockers in parallel, from one commit. */
 export const releaseRuns = [
   fixCli,
   fixDaemon,

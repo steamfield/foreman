@@ -75,7 +75,7 @@ export const respond = Effect.fn("daemon.respond")(function* (
     return errorResponse(
       Option.isSome(partial) ? partial.value.id : 0,
       new DaemonUnavailable({
-        detail: `Request not understood; daemon build ${host.build}. The command was not accepted. Run forman doctor, finish any active runs, then run forman daemon stop and retry with the same forman build for all clients.`,
+        detail: `Request not understood; daemon build ${host.build}. The command was not accepted. Run foreman doctor, finish any active runs, then run foreman daemon stop and retry with the same foreman build for all clients.`,
       }),
     );
   }

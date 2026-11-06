@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-// Export forman run records into scrubbed fixtures the page replays.
+// Export foreman run records into scrubbed fixtures the page replays.
 //
 //   node scripts/capture-runs.mjs <run-name>[:<transcript>]...
 //
-// Reads $FORMAN_HOME/runs/<name>/ (default ~/.forman) and writes
-// fixtures/runs/<name>.json. It also captures `forman status <name>` as the
+// Reads $FOREMAN_HOME/runs/<name>/ (default ~/.foreman) and writes
+// fixtures/runs/<name>.json. It also captures `foreman status <name>` as the
 // digest, or reads it from a saved `start --wait` transcript (needed once the run is
 // archived, and to keep the scope check from before the work was committed). Home paths, the worktree prefix and temp directories are scrubbed;
 // the output is reviewed by hand before committing.
@@ -19,7 +19,7 @@ import {
 import { homedir, userInfo } from "node:os";
 import { join } from "node:path";
 
-const home = process.env.FORMAN_HOME ?? join(homedir(), ".forman");
+const home = process.env.FOREMAN_HOME ?? join(homedir(), ".foreman");
 const outDir = new URL("../fixtures/runs/", import.meta.url);
 mkdirSync(outDir, { recursive: true });
 
@@ -27,7 +27,7 @@ const TAIL_LINES = 4;
 const TAIL_CHARS = 400;
 
 // Event paths are shown relative to the delegate's worktree; the digest keeps
-// full paths, with the repository shown as ~/src/forman.
+// full paths, with the repository shown as ~/src/foreman.
 function scrubber(run, { relative = true } = {}) {
   const worktree = run.worktree.endsWith("/")
     ? run.worktree
@@ -38,7 +38,7 @@ function scrubber(run, { relative = true } = {}) {
     if (relative)
       out = out.replaceAll(worktree, "").replaceAll(run.worktree, ".");
     return out
-      .replaceAll(run.group, "~/src/forman")
+      .replaceAll(run.group, "~/src/foreman")
       .replace(/\/private\/tmp\/claude-[^\s'"`)]*/g, "/tmp/scratch")
       .replace(/\/var\/folders\/[^\s'"`)]*/g, "/tmp/scratch")
       .replaceAll(user, "~")
@@ -76,7 +76,7 @@ function readJsonl(path) {
     .map((line) => JSON.parse(line));
 }
 
-// A run archived by `forman archive` lives in runs/.archive/<name>-<timestamp>/.
+// A run archived by `foreman archive` lives in runs/.archive/<name>-<timestamp>/.
 function runDir(name) {
   const live = join(home, "runs", name);
   if (existsSync(live)) return live;
@@ -201,7 +201,7 @@ function exportRun(arg) {
   const handoffPath = join(dir, "turns", "1.md");
   const digest = transcript
     ? digestFromTranscript(name, transcript)
-    : execFileSync("forman", ["status", name], { encoding: "utf8" });
+    : execFileSync("foreman", ["status", name], { encoding: "utf8" });
 
   const fixture = {
     name,

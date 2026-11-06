@@ -14,11 +14,11 @@ it("packs all five release tarballs and records their exact artifact integrity",
   const packages = `${root}/packages`;
   const artifacts = `${root}/artifacts`;
   const names = [
-    "forman-darwin-arm64",
-    "forman-darwin-x64",
-    "forman-linux-x64",
-    "forman-linux-arm64",
-    "forman",
+    "foreman-darwin-arm64",
+    "foreman-darwin-x64",
+    "foreman-linux-x64",
+    "foreman-linux-arm64",
+    "foreman",
   ];
   for (const name of names) {
     await mkdir(`${packages}/${name}`, { recursive: true });
@@ -65,7 +65,7 @@ it.each(["partial", "complete", "mismatch", "registry-error", "publish-fails", "
     await symlink(resolve("npm"), `${root}/npm`);
     const packages = ["darwin-arm64", "darwin-x64", "linux-x64", "linux-arm64", "main"].map(
       (target) => ({
-        name: target === "main" ? "@steamfield/forman" : `@steamfield/forman-${target}`,
+        name: target === "main" ? "@steamfield/foreman" : `@steamfield/foreman-${target}`,
         version: "1.2.3",
         filename: `${target}.tgz`,
         integrity: `sha512-${target}`,

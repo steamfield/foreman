@@ -68,7 +68,7 @@ export function WorkOrder({ run, note }: { run: Run; note: string }) {
         style={{ position: "relative", ...scopePosition }}
       >
         <CodeFrame
-          title={`forman status ${run.name}`}
+          title={`foreman status ${run.name}`}
           code={run.digest}
           surface="console"
           className="[&_code]:relative [&_code]:block [&_code]:before:absolute [&_code]:before:top-(--scope-start) [&_code]:before:-left-2 [&_code]:before:h-(--scope-height) [&_code]:before:border-l-2 [&_code]:before:border-signal"
@@ -122,7 +122,7 @@ export function QuestionTimeline({ run }: { run: Run }) {
               {formatOffset(resolved.t)} · {resolved.resolution} by{" "}
               {resolved.resolution === "answered"
                 ? "Claude"
-                : "forman after the timeout"}{" "}
+                : "foreman after the timeout"}{" "}
               · {formatElapsed(elapsedMs)} later
             </p>
             <blockquote className="text-ink-2 max-w-[40rem] whitespace-pre-wrap leading-relaxed wrap-anywhere">
@@ -239,7 +239,7 @@ export function ParallelRuns({ runs }: { runs: readonly Run[] }) {
       </p>
       <p className="text-ink-3 mt-3 text-sm wrap-anywhere">
         <Inline
-          text={`Base commit \`${timeline.baseCommit}\` · \`forman wait --all\``}
+          text={`Base commit \`${timeline.baseCommit}\` · \`foreman wait --all\``}
         />
       </p>
     </div>

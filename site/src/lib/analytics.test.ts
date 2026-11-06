@@ -81,7 +81,7 @@ describe("analytics", () => {
         .filter((event) => !event.event.startsWith("$"))
         .map((event) => event.event),
     ).toEqual(["section_viewed", "command_tab", "demo_replayed"]);
-    expect(seen.every((event) => event.properties.site === "forman")).toBe(
+    expect(seen.every((event) => event.properties.site === "foreman")).toBe(
       true,
     );
     expect(
@@ -155,7 +155,7 @@ describe("analytics", () => {
     expect(sdk.config.capture_heatmaps).toBe(true);
     sdk.capture("$$heatmap");
     expect(seen.some((event) => event.event === "$$heatmap")).toBe(true);
-    expect(seen.every((event) => event.properties.site === "forman")).toBe(
+    expect(seen.every((event) => event.properties.site === "foreman")).toBe(
       true,
     );
 
@@ -183,7 +183,7 @@ describe("analytics", () => {
     expect(sdk.get_explicit_consent_status()).toBe("granted");
     expect(sdk.config.capture_heatmaps).toBe(true);
     expect(seen.some((event) => event.event === "$pageview")).toBe(true);
-    expect(seen.every((event) => event.properties.site === "forman")).toBe(
+    expect(seen.every((event) => event.properties.site === "foreman")).toBe(
       true,
     );
   });
@@ -234,7 +234,7 @@ it("withdraws recording and heatmaps when a cached page returns after a sibling 
     seen.every(
       (event) =>
         event.properties.$cookieless_mode === true &&
-        event.properties.site === "forman",
+        event.properties.site === "foreman",
     ),
   ).toBe(true);
 });

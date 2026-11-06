@@ -2,7 +2,7 @@ import { Cause, Schema } from "effect";
 import { CliError } from "effect/cli";
 import { redactDiagnosticText } from "./diagnostic-redaction";
 
-// `detail` is text forman writes (which check failed, which run), never text from Codex.
+// `detail` is text foreman writes (which check failed, which run), never text from Codex.
 const detail = { detail: Schema.optional(Schema.String) };
 export class Usage extends Schema.TaggedError<Usage>()("Usage", detail) {}
 export class InvalidConfig extends Schema.TaggedError<InvalidConfig>()("InvalidConfig", detail) {}
@@ -72,7 +72,7 @@ export const errorTable = {
   },
   CodexUnavailable: {
     code: 5,
-    message: "Codex is unavailable or not the version forman was built for.",
+    message: "Codex is unavailable or not the version foreman was built for.",
     retryable: true,
   },
   RunNotFound: { code: 7, message: "No such run or question.", retryable: false },
@@ -89,7 +89,7 @@ export const errorTable = {
   RepoHooksUntrusted: {
     code: 10,
     message:
-      "Codex has not confirmed the repo's hooks are trusted. Open Codex in the main checkout, trust the project if asked, approve its hooks in /hooks, then run forman doctor.",
+      "Codex has not confirmed the repo's hooks are trusted. Open Codex in the main checkout, trust the project if asked, approve its hooks in /hooks, then run foreman doctor.",
     retryable: false,
   },
   InputError: { code: 2, message: "The input file can't be read.", retryable: false },

@@ -65,7 +65,7 @@ export const makeAppServer = Effect.fn("supervisor.appServer")(function* (
         Effect.timeout("5 seconds"),
         Effect.result,
       );
-      const action = `Install Codex ${supportedCodex.version} or correct CODEX_BIN, then run forman doctor to check compatibility.`;
+      const action = `Install Codex ${supportedCodex.version} or correct CODEX_BIN, then run foreman doctor to check compatibility.`;
       if (result._tag === "Failure")
         return `Could not check the Codex protocol for ${JSON.stringify(config.codexBin)}: ${result.failure instanceof CodexUnavailable ? result.failure.detail : "probe timed out after 5 seconds"}. ${action}`;
       return result.success.matches
@@ -172,7 +172,7 @@ export const makeAppServer = Effect.fn("supervisor.appServer")(function* (
           Effect.catchTag("SchemaError", () =>
             Effect.fail(
               new CodexUnavailable({
-                detail: `Codex reply to ${method} did not match the supported protocol; run forman doctor and check the Codex version.`,
+                detail: `Codex reply to ${method} did not match the supported protocol; run foreman doctor and check the Codex version.`,
               }),
             ),
           ),

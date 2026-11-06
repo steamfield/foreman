@@ -4,7 +4,7 @@
   "effort": "high",
   "tier": "priority",
   "write": true,
-  "branch": "forman/fix-cli",
+  "branch": "foreman/fix-cli",
   "baseCommit": "39aec16",
   "createdAt": "2026-11-06T03:39:53.185Z",
   "durationMs": 1486067,
@@ -14,7 +14,7 @@
     "output": 65229,
     "reasoningOutput": 33970
   },
-  "contract": "# Contract: release fixes, part D: CLI contract, doctor, Codex schemas and the release path\n\n## Goal\n\nforman's first release is blocked on findings from three architecture reviews. This unit fixes the user-facing edges: B4, B6, O9, O10, O11, O12, O13, O14, O15 and O16.\n\n- O9 and O10 together: `next:` lines must run as printed in every install mode (compiled binary on `PATH`, the npm launcher `npm/forman.cjs`, source via `bun run dev`) and keep the invocation's `FORMAN_HOME`. The npm launcher should tell the binary how it was invoked (the conventional way is an environment variable the launcher sets and `src/config.ts` reads), so `doctor` reports the launcher on `PATH` correctly and `next:` prints `forman`. Extend the packed-install test in `tests/npm.test.ts` to assert both. You may change `src/config.ts` for that one setting (with its precedence test and `.env.example` entry).\n- O11: make the release workflow resumable: publish each platform package only if that exact version isn't already published (verify, then skip), and publish the main package only after all four are confirmed.\n- O12, O13 and O15: `doctor` distinguishes a missing daemon from an unresponsive or unreadable one, checks the home directory's ownership and permissions without changing them, and shows hook-refusal details whenever they exist.\n- O14: with `--json`, the outdated-daemon notice on stderr is a JSON line.\n- B4 and B6: in `src/schemas/codex.ts`, `OtherItem` stops swallowing malformed known item types (allow unfamiliar values where Codex's protocol is open, such as `phase`), and the `ask_orchestrator` input schema is generated from `AskOrchestratorArguments`. Normalisation in `src/core/runs/normalize.ts` belongs to part B; describe any change it needs.\n- O16: fix the README example's scope line (``- May change: `src/commands/doctor.ts` ``) and say beside it that scope lines need a leading bullet and backticked paths. Leave the rest of the README to the docs unit that follows.\n\n## Scope\n\n- May change: `src/core/command-output.ts`, `src/core/commands.ts`, `src/commands/runs.ts` (output only; part C owns start flags), `src/core/doctor.ts`, `src/commands/doctor.ts`, `src/schemas/doctor.ts`, `src/schemas/codex.ts`, `src/config.ts` (the launcher setting only), `.env.example`, `npm/`, `scripts/build.ts`, `.github/workflows/release.yml`, `README.md` (the example's scope line only), `tests/commands-*.test.ts`, `tests/npm.test.ts`, `tests/codex-schemas.test.ts`, `tests/config-logging.test.ts` (launcher setting only), `e2e/binary.test.ts` (output and install cases).\n- Owned by other units: `src/daemon/`, `src/supervisor/`, `src/core/runs/`, `src/core/managed-worktree.ts`, `src/core/process.ts`, `src/schemas/daemon.ts`.\n\n## How to work\n\nThe findings are in `/tmp/scratch` (outside the repo; read it, don't copy it into a tracked file). Each finding has a location, a failure scenario and a proposed fix. The reviewers read the code carefully but could be wrong: confirm each finding against the code before fixing it, and if one is wrong, say so with evidence in the hand-off instead of changing code. If a proposed fix isn't the simplest conventional one, use the better fix and say why.\n\nRead first, in this repo: `AGENTS.md` (all of it, especially Testing and Error handling), `README.md`, `docs/rfcs/0001-forman.md`, the repo rules (`.claude/rules/effect.md`, `.claude/rules/src/cli.md`, `.claude/rules/src/effect-services.md`, `.claude/rules/src/typescript.md`, `.claude/rules/src/testing.md`, `.claude/rules/src/verification.md`) and the docs each one links, and `docs/guidance/effect/api.md`.\n\nThree other delegates fix other findings in parallel from the same `main` commit, each owning different files (see Scope). Stay inside yours; where a finding needs a file another unit owns, do your side, describe the other side precisely in the hand-off, and the orchestrator will reconcile at merge. Don't ask about this through `ask_orchestrator` unless you're actually blocked.\n\n## Acceptance\n\nReal services, processes, sockets and git repos with the fake app server; no real inference in `tests/` or `e2e/` (AGENTS.md \"Testing\"). Every finding you fix starts with a test that fails before the fix and passes after, revert-verified; concurrency findings need tests that force the interleaving deterministically (barriers, `TestClock`, fault injection), never sleeps. Run each new or changed test file at least three times, `bun run lint`, `bun run typecheck`, `bun run e2e`, and `bun run test` once at the end; report the counts. Don't run `bun run check`. If your area has a real-Codex path, run `FORMAN_SMOKE=1 FORMAN_SMOKE_SHORT=1 bun run smoke` once after building (a development check; credits are not a concern).\n\nQA as the first user of what you changed, with the built binary and a temporary `FORMAN_HOME`, reproducing each blocker's failure scenario before and after where you can. Fix the friction you find (a bug gets a regression test first).\n\n## Do not\n\n- commit or push (leave the changes for review)\n- disable a lint rule, weaken a test or add a cast to get green; split an over-complex function into named steps instead\n- add features, options, abstractions or mechanisms the findings don't need\n- remove any worktree, branch or run data that could hold work, in code or in tests outside temp directories\n- add real-Codex tests anywhere `bun run check`, git hooks or CI would run them\n- edit `~/.codex` config, hooks, trust or auth, or touch the real `~/.forman`\n- use `ask_orchestrator` for progress reports; use it only when blocked or when a decision is needed\n- mention any repository outside this one in a tracked file\n\n## Skills to apply\n\nThe `ce` skills and agents come from the Claude Code `claude-essentials` marketplace. Find the newest installed copy with:\n\n```bash\nce=$(ls -d \"$HOME\"/.claude/plugins/cache/*/ce/*/ | sort -V | tail -1)\n```\n\nRead each skill that applies and use it on this task; your hand-off says where it changed what you did.\n\n- `${ce}skills/writing-tests/SKILL.md`: for every test you write, before writing any. Where it and the repo's own testing rules differ, the repo wins. Also read its `references/waiting-typescript.md` for any test that waits on a process, socket, timer or file, and `references/flaky-tests.md` before you call a test done: run each new test file at least three times, and once in the full suite, since this repo has had tests that pass alone and fail under load. The hand-off's Checks section says which tests you wrote, what behaviour each pins down, and which failed before the fix.\n- `${ce}skills/architecting-systems/SKILL.md`, with its `references/structure.md`, `coupling.md`, `boundaries.md` and `concurrency.md`: before adding a module.\n- `${ce}skills/handling-errors/SKILL.md`: for any error handling you add.\n- `${ce}skills/effect/SKILL.md`: for all Effect code.\n- `.claude/skills/effect-development/SKILL.md` in this repo.\n\n## Review before hand-off\n\nOnce the acceptance checks pass, get one independent code review and fix what it finds. The reviewer is the `ce:code-reviewer` agent (`${ce}agents/code-reviewer.md`) extended by the repo's `.claude/agents/code-reviewer.md` when it exists. This repo's command guard refuses compound shell commands, so run the review as separate simple commands:\n\n1. `mktemp -d` and note the directory it prints, below `<review>`.\n2. Write `<review>/prompt.md` with your file-writing tool (not a shell heredoc), containing: the `ce:code-reviewer` agent body without its frontmatter; the repo reviewer's body if that file exists; then these lines: \"Skills: <ce>skills/architecting-systems/SKILL.md, <ce>skills/writing-tests/SKILL.md, <ce>skills/handling-errors/SKILL.md. The base branch is main; review the uncommitted work in <worktree>. Your sandbox is read-only, so don't run the tests; the author already ran the checks. The task's contract:\" followed by this contract's text, from `/tmp/scratch`.\n3. `codex exec --ephemeral --sandbox read-only -m gpt-6.1-sol -c model_reasoning_effort=high -c service_tier=priority -o <review>/review.md - < <review>/prompt.md`\n\nFix every finding in `review.md`, or say in the hand-off why a finding is wrong. A finding that is a bug gets a regression test in the repo before its fix, revert-verified. Then rerun the acceptance checks. One review pass only.\n\n## Hand-off\n\nYou're done when the review's findings are resolved and the acceptance checks pass, or when you're blocked. Leave everything uncommitted and end with this report as your final message; the orchestrator works from it, so be specific and name files and symbols.\n\n1. Summary: what you built, in two or three sentences.\n2. Files: each file created or changed, with one line on why.\n3. Decisions: choices the contract left open and why you made them; any deviation from the design or contract and the reason; where the skills changed your approach. Name every new mechanism you added and the acceptance test or contract line that needed it.\n4. Checks: each command you ran and its result (test counts, not just \"passed\"), and the QA: what you ran, what you judged and what you changed.\n5. Review: the review file's path, each finding in a line, and how you resolved it (fixed, or why not).\n6. Look closer at: the places most likely to be wrong.\n7. Open: what's left undone or blocked, and the questions you'd ask.\n",
+  "contract": "# Contract: release fixes, part D: CLI contract, doctor, Codex schemas and the release path\n\n## Goal\n\nforeman's first release is blocked on findings from three architecture reviews. This unit fixes the user-facing edges: B4, B6, O9, O10, O11, O12, O13, O14, O15 and O16.\n\n- O9 and O10 together: `next:` lines must run as printed in every install mode (compiled binary on `PATH`, the npm launcher `npm/foreman.cjs`, source via `bun run dev`) and keep the invocation's `FOREMAN_HOME`. The npm launcher should tell the binary how it was invoked (the conventional way is an environment variable the launcher sets and `src/config.ts` reads), so `doctor` reports the launcher on `PATH` correctly and `next:` prints `foreman`. Extend the packed-install test in `tests/npm.test.ts` to assert both. You may change `src/config.ts` for that one setting (with its precedence test and `.env.example` entry).\n- O11: make the release workflow resumable: publish each platform package only if that exact version isn't already published (verify, then skip), and publish the main package only after all four are confirmed.\n- O12, O13 and O15: `doctor` distinguishes a missing daemon from an unresponsive or unreadable one, checks the home directory's ownership and permissions without changing them, and shows hook-refusal details whenever they exist.\n- O14: with `--json`, the outdated-daemon notice on stderr is a JSON line.\n- B4 and B6: in `src/schemas/codex.ts`, `OtherItem` stops swallowing malformed known item types (allow unfamiliar values where Codex's protocol is open, such as `phase`), and the `ask_orchestrator` input schema is generated from `AskOrchestratorArguments`. Normalisation in `src/core/runs/normalize.ts` belongs to part B; describe any change it needs.\n- O16: fix the README example's scope line (``- May change: `src/commands/doctor.ts` ``) and say beside it that scope lines need a leading bullet and backticked paths. Leave the rest of the README to the docs unit that follows.\n\n## Scope\n\n- May change: `src/core/command-output.ts`, `src/core/commands.ts`, `src/commands/runs.ts` (output only; part C owns start flags), `src/core/doctor.ts`, `src/commands/doctor.ts`, `src/schemas/doctor.ts`, `src/schemas/codex.ts`, `src/config.ts` (the launcher setting only), `.env.example`, `npm/`, `scripts/build.ts`, `.github/workflows/release.yml`, `README.md` (the example's scope line only), `tests/commands-*.test.ts`, `tests/npm.test.ts`, `tests/codex-schemas.test.ts`, `tests/config-logging.test.ts` (launcher setting only), `e2e/binary.test.ts` (output and install cases).\n- Owned by other units: `src/daemon/`, `src/supervisor/`, `src/core/runs/`, `src/core/managed-worktree.ts`, `src/core/process.ts`, `src/schemas/daemon.ts`.\n\n## How to work\n\nThe findings are in `/tmp/scratch` (outside the repo; read it, don't copy it into a tracked file). Each finding has a location, a failure scenario and a proposed fix. The reviewers read the code carefully but could be wrong: confirm each finding against the code before fixing it, and if one is wrong, say so with evidence in the hand-off instead of changing code. If a proposed fix isn't the simplest conventional one, use the better fix and say why.\n\nRead first, in this repo: `AGENTS.md` (all of it, especially Testing and Error handling), `README.md`, `docs/rfcs/0001-foreman.md`, the repo rules (`.claude/rules/effect.md`, `.claude/rules/src/cli.md`, `.claude/rules/src/effect-services.md`, `.claude/rules/src/typescript.md`, `.claude/rules/src/testing.md`, `.claude/rules/src/verification.md`) and the docs each one links, and `docs/guidance/effect/api.md`.\n\nThree other delegates fix other findings in parallel from the same `main` commit, each owning different files (see Scope). Stay inside yours; where a finding needs a file another unit owns, do your side, describe the other side precisely in the hand-off, and the orchestrator will reconcile at merge. Don't ask about this through `ask_orchestrator` unless you're actually blocked.\n\n## Acceptance\n\nReal services, processes, sockets and git repos with the fake app server; no real inference in `tests/` or `e2e/` (AGENTS.md \"Testing\"). Every finding you fix starts with a test that fails before the fix and passes after, revert-verified; concurrency findings need tests that force the interleaving deterministically (barriers, `TestClock`, fault injection), never sleeps. Run each new or changed test file at least three times, `bun run lint`, `bun run typecheck`, `bun run e2e`, and `bun run test` once at the end; report the counts. Don't run `bun run check`. If your area has a real-Codex path, run `FOREMAN_SMOKE=1 FOREMAN_SMOKE_SHORT=1 bun run smoke` once after building (a development check; credits are not a concern).\n\nQA as the first user of what you changed, with the built binary and a temporary `FOREMAN_HOME`, reproducing each blocker's failure scenario before and after where you can. Fix the friction you find (a bug gets a regression test first).\n\n## Do not\n\n- commit or push (leave the changes for review)\n- disable a lint rule, weaken a test or add a cast to get green; split an over-complex function into named steps instead\n- add features, options, abstractions or mechanisms the findings don't need\n- remove any worktree, branch or run data that could hold work, in code or in tests outside temp directories\n- add real-Codex tests anywhere `bun run check`, git hooks or CI would run them\n- edit `~/.codex` config, hooks, trust or auth, or touch the real `~/.foreman`\n- use `ask_orchestrator` for progress reports; use it only when blocked or when a decision is needed\n- mention any repository outside this one in a tracked file\n\n## Skills to apply\n\nThe `ce` skills and agents come from the Claude Code `claude-essentials` marketplace. Find the newest installed copy with:\n\n```bash\nce=$(ls -d \"$HOME\"/.claude/plugins/cache/*/ce/*/ | sort -V | tail -1)\n```\n\nRead each skill that applies and use it on this task; your hand-off says where it changed what you did.\n\n- `${ce}skills/writing-tests/SKILL.md`: for every test you write, before writing any. Where it and the repo's own testing rules differ, the repo wins. Also read its `references/waiting-typescript.md` for any test that waits on a process, socket, timer or file, and `references/flaky-tests.md` before you call a test done: run each new test file at least three times, and once in the full suite, since this repo has had tests that pass alone and fail under load. The hand-off's Checks section says which tests you wrote, what behaviour each pins down, and which failed before the fix.\n- `${ce}skills/architecting-systems/SKILL.md`, with its `references/structure.md`, `coupling.md`, `boundaries.md` and `concurrency.md`: before adding a module.\n- `${ce}skills/handling-errors/SKILL.md`: for any error handling you add.\n- `${ce}skills/effect/SKILL.md`: for all Effect code.\n- `.claude/skills/effect-development/SKILL.md` in this repo.\n\n## Review before hand-off\n\nOnce the acceptance checks pass, get one independent code review and fix what it finds. The reviewer is the `ce:code-reviewer` agent (`${ce}agents/code-reviewer.md`) extended by the repo's `.claude/agents/code-reviewer.md` when it exists. This repo's command guard refuses compound shell commands, so run the review as separate simple commands:\n\n1. `mktemp -d` and note the directory it prints, below `<review>`.\n2. Write `<review>/prompt.md` with your file-writing tool (not a shell heredoc), containing: the `ce:code-reviewer` agent body without its frontmatter; the repo reviewer's body if that file exists; then these lines: \"Skills: <ce>skills/architecting-systems/SKILL.md, <ce>skills/writing-tests/SKILL.md, <ce>skills/handling-errors/SKILL.md. The base branch is main; review the uncommitted work in <worktree>. Your sandbox is read-only, so don't run the tests; the author already ran the checks. The task's contract:\" followed by this contract's text, from `/tmp/scratch`.\n3. `codex exec --ephemeral --sandbox read-only -m gpt-6.1-sol -c model_reasoning_effort=high -c service_tier=priority -o <review>/review.md - < <review>/prompt.md`\n\nFix every finding in `review.md`, or say in the hand-off why a finding is wrong. A finding that is a bug gets a regression test in the repo before its fix, revert-verified. Then rerun the acceptance checks. One review pass only.\n\n## Hand-off\n\nYou're done when the review's findings are resolved and the acceptance checks pass, or when you're blocked. Leave everything uncommitted and end with this report as your final message; the orchestrator works from it, so be specific and name files and symbols.\n\n1. Summary: what you built, in two or three sentences.\n2. Files: each file created or changed, with one line on why.\n3. Decisions: choices the contract left open and why you made them; any deviation from the design or contract and the reason; where the skills changed your approach. Name every new mechanism you added and the acceptance test or contract line that needed it.\n4. Checks: each command you ran and its result (test counts, not just \"passed\"), and the QA: what you ran, what you judged and what you changed.\n5. Review: the review file's path, each finding in a line, and how you resolved it (fixed, or why not).\n6. Look closer at: the places most likely to be wrong.\n7. Open: what's left undone or blocked, and the questions you'd ask.\n",
   "events": [
     {
       "seq": 1,
@@ -56,7 +56,7 @@
       "seq": 8,
       "t": 10892,
       "kind": "command",
-      "command": "cat AGENTS.md README.md docs/rfcs/0001-forman.md .claude/rules/effect.md .claude/rules/src/cli.md .claude/rules/src/effect-services.md .claude/rules/src/typescript.md .claude/rules/src/testing.md .claude/rules/src/verification.md",
+      "command": "cat AGENTS.md README.md docs/rfcs/0001-foreman.md .claude/rules/effect.md .claude/rules/src/cli.md .claude/rules/src/effect-services.md .claude/rules/src/typescript.md .claude/rules/src/testing.md .claude/rules/src/verification.md",
       "exitCode": 0,
       "output": "  - \"scripts/**\"\n---\n\nRead [Before calling work done](../../../docs/guidance/typescript-cli/verification.md). This is the shared authoritative guidance for every selected agent."
     },
@@ -142,7 +142,7 @@
       "seq": 25,
       "t": 28269,
       "kind": "command",
-      "command": "cat src/core/command-output.ts src/schemas/codex.ts npm/forman.cjs .github/workflows/release.yml tests/codex-schemas.test.ts tests/npm.test.ts",
+      "command": "cat src/core/command-output.ts src/schemas/codex.ts npm/foreman.cjs .github/workflows/release.yml tests/codex-schemas.test.ts tests/npm.test.ts",
       "exitCode": 0,
       "output": "    stdout: \"\",\n    stderr: \"\",\n  });\n});"
     },
@@ -158,9 +158,9 @@
       "seq": 27,
       "t": 28432,
       "kind": "command",
-      "command": "rg -n 'doctor|next:|outdated|FORMAN_HOME|release' tests/commands-*.test.ts tests/config-logging.test.ts e2e/binary.test.ts src/core/commands.ts src/services/host.ts src/services/output.ts src/daemon/client.ts",
+      "command": "rg -n 'doctor|next:|outdated|FOREMAN_HOME|release' tests/commands-*.test.ts tests/config-logging.test.ts e2e/binary.test.ts src/core/commands.ts src/services/host.ts src/services/output.ts src/daemon/client.ts",
       "exitCode": 0,
-      "output": "tests/commands-cli.test.ts:925:      env: { FORMAN_HOME: home, CODEX_BIN: join(home, \"missing\") },\ntests/commands-cli.test.ts:941:    const json = await f.run([\"doctor\", \"--json\"]);\ntests/commands-cli.test.ts:947:    const human = await f.run([\"doctor\"]);\ntests/commands-cli.test.ts:964:      const result = await f.run([\"doctor\", \"--json\"], { CODEX_BIN: bin });"
+      "output": "tests/commands-cli.test.ts:925:      env: { FOREMAN_HOME: home, CODEX_BIN: join(home, \"missing\") },\ntests/commands-cli.test.ts:941:    const json = await f.run([\"doctor\", \"--json\"]);\ntests/commands-cli.test.ts:947:    const human = await f.run([\"doctor\"]);\ntests/commands-cli.test.ts:964:      const result = await f.run([\"doctor\", \"--json\"], { CODEX_BIN: bin });"
     },
     {
       "seq": 28,
@@ -200,7 +200,7 @@
       "kind": "command",
       "command": "cat src/services/host.ts src/services/output.ts .env.example .github/workflows/release.yml",
       "exitCode": 0,
-      "output": "          for package in dist/npm/forman-*; do\n            (cd \"$package\" && npm publish --provenance --access public)\n          done\n          (cd dist/npm/forman && npm publish --provenance --access public)"
+      "output": "          for package in dist/npm/foreman-*; do\n            (cd \"$package\" && npm publish --provenance --access public)\n          done\n          (cd dist/npm/foreman && npm publish --provenance --access public)"
     },
     {
       "seq": 37,
@@ -224,7 +224,7 @@
       "kind": "command",
       "command": "rg -n -A 45 -B 15 'outdated|continuation|next:|on PATH|source executable' e2e/binary.test.ts",
       "exitCode": 0,
-      "output": "496-    FORMAN_HOME: join(root, \"d\"),\n497-    FAKE_APP_SERVER_SCENARIO: join(root, \"scenario.json\"),\n498-    LOG_LEVEL: \"none\",\n499-  };"
+      "output": "496-    FOREMAN_HOME: join(root, \"d\"),\n497-    FAKE_APP_SERVER_SCENARIO: join(root, \"scenario.json\"),\n498-    LOG_LEVEL: \"none\",\n499-  };"
     },
     {
       "seq": 40,
@@ -318,7 +318,7 @@
       "seq": 55,
       "t": 48209,
       "kind": "command",
-      "command": "cat docs/rfcs/0001-forman.md",
+      "command": "cat docs/rfcs/0001-foreman.md",
       "exitCode": 0,
       "output": "\n## Deviations found while building\n\nA `thread/start` reply arriving after its timeout is discarded by the client because its request has no waiter left. The run stays `unknown` and becomes `lost` after 5 minutes. No turn was started on that thread, so it does no work."
     },
@@ -342,7 +342,7 @@
       "seq": 61,
       "t": 67019,
       "kind": "message",
-      "text": "I’ll keep the launcher path separate from the native executable used to start the daemon. Printed continuations will include the resolved absolute `FORMAN_HOME`. Doctor will inspect home access and metadata without changing permissions or ownership."
+      "text": "I’ll keep the launcher path separate from the native executable used to start the daemon. Printed continuations will include the resolved absolute `FOREMAN_HOME`. Doctor will inspect home access and metadata without changing permissions or ownership."
     },
     {
       "seq": 63,
@@ -388,7 +388,7 @@
       "kind": "files",
       "paths": [
         ".env.example",
-        "npm/forman.cjs",
+        "npm/foreman.cjs",
         "src/config.ts",
         "src/core/command-output.ts",
         "src/core/commands.ts",
@@ -401,7 +401,7 @@
       "kind": "command",
       "command": "rg -n 'homePermissions|Could not read daemon|executable.command' src/core/doctor.ts src/schemas/doctor.ts src/core/commands.ts",
       "exitCode": 0,
-      "output": "src/core/commands.ts:46:    next: `${executable.command} wait ${result.all ? \"--all\" : name} --after ${result.cursor}`,\nsrc/core/commands.ts:189:      result.next.replace(/^forman(?= )/, () => executable.command) +"
+      "output": "src/core/commands.ts:46:    next: `${executable.command} wait ${result.all ? \"--all\" : name} --after ${result.cursor}`,\nsrc/core/commands.ts:189:      result.next.replace(/^foreman(?= )/, () => executable.command) +"
     },
     {
       "seq": 219,
@@ -409,7 +409,7 @@
       "kind": "command",
       "command": "rg -n -A 8 -B 3 'May change|small example' README.md",
       "exitCode": 0,
-      "output": "…d worktrees). Without `--wait`, `start` returns immediately and ends with `next: <executable> wait <name>`. The executable is `forman` when that name on `PATH` resolves to this binary, or the running executable's absolute path otherwise; `doctor` reports the comparison. To watch several runs, use `wait --all`: it covers the repo containing the current directory, including its linked worktrees.\n92-"
+      "output": "…d worktrees). Without `--wait`, `start` returns immediately and ends with `next: <executable> wait <name>`. The executable is `foreman` when that name on `PATH` resolves to this binary, or the running executable's absolute path otherwise; `doctor` reports the comparison. To watch several runs, use `wait --all`: it covers the repo containing the current directory, including its linked worktrees.\n92-"
     },
     {
       "seq": 221,
@@ -567,9 +567,9 @@
       "seq": 2359,
       "t": 321702,
       "kind": "command",
-      "command": "rg -n 'FORMAN_HOME=\\\\\"'$'\"\\\\{f.dataDir\\\\}' tests/commands-cli.test.ts",
+      "command": "rg -n 'FOREMAN_HOME=\\\\\"'$'\"\\\\{f.dataDir\\\\}' tests/commands-cli.test.ts",
       "exitCode": 0,
-      "output": "…`));\n912:        expect(human.stdout.trimEnd().split(\"\\n\").at(-1)).toBe(`next: FORMAN_HOME=${f.dataDir} ${response.next}`);\n915:        expect(human.stdout.trimEnd().split(\"\\n\").at(-1)).toBe(`next: FORMAN_HOME=${f.dataDir} forman wait unit-a`);\n924:      expect(machine(json.stdout)).toEqual(response._tag === \"Waited\" ? { ...response, next: `FORMAN_HOME=${f.dataDir} ${response.next}` } : response);"
+      "output": "…`));\n912:        expect(human.stdout.trimEnd().split(\"\\n\").at(-1)).toBe(`next: FOREMAN_HOME=${f.dataDir} ${response.next}`);\n915:        expect(human.stdout.trimEnd().split(\"\\n\").at(-1)).toBe(`next: FOREMAN_HOME=${f.dataDir} foreman wait unit-a`);\n924:      expect(machine(json.stdout)).toEqual(response._tag === \"Waited\" ? { ...response, next: `FOREMAN_HOME=${f.dataDir} ${response.next}` } : response);"
     },
     {
       "seq": 2396,
@@ -607,7 +607,7 @@
       "seq": 2410,
       "t": 342490,
       "kind": "command",
-      "command": "npm view @steamfield/forman-missing-release-probe@0.0.0 dist.integrity --json",
+      "command": "npm view @steamfield/foreman-missing-release-probe@0.0.0 dist.integrity --json",
       "exitCode": 1,
       "output": "  }\n}\nnpm error 404 tarball, folder, http url, or git url.\nnpm error A complete log of this run can be found in: ~/.npm/_logs/2026-11-06T03_45_35_217Z-debug-0.log"
     },
@@ -629,9 +629,9 @@
       "seq": 2438,
       "t": 348490,
       "kind": "command",
-      "command": "node -e 'try { require(\\\"node:child_process\\\").execFileSync(\\\"npm\\\", [\\\"view\\\", \\\"@steamfield/forman-missing-release-probe@0.0.0\\\", \\\"dist.integrity\\\", \\\"--json\\\"], {encoding:\\\"utf8\\\",stdio:[\\\"ignore\\\",\\\"pipe\\\",\\\"pipe\\\"]}); } catch(e) { console.log(JSON.stringify({stdout:e.stdout,stderr:e.stderr})); }'",
+      "command": "node -e 'try { require(\\\"node:child_process\\\").execFileSync(\\\"npm\\\", [\\\"view\\\", \\\"@steamfield/foreman-missing-release-probe@0.0.0\\\", \\\"dist.integrity\\\", \\\"--json\\\"], {encoding:\\\"utf8\\\",stdio:[\\\"ignore\\\",\\\"pipe\\\",\\\"pipe\\\"]}); } catch(e) { console.log(JSON.stringify({stdout:e.stdout,stderr:e.stderr})); }'",
       "exitCode": 0,
-      "output": "…ror 404\\nnpm error 404  The requested resource '@steamfield/forman-missing-release-probe@0.0.0' could not be found or you do not have permission to access it.\\nnpm error 404\\nnpm error 404 Note that you can also install from a\\nnpm error 404 tarball, folder, http url, or git url.\\nnpm error A complete log of this run can be found in: ~/.npm/_logs/2026-11-06T03_45_41_475Z-debug-0.log\\n\"}"
+      "output": "…ror 404\\nnpm error 404  The requested resource '@steamfield/foreman-missing-release-probe@0.0.0' could not be found or you do not have permission to access it.\\nnpm error 404\\nnpm error 404 Note that you can also install from a\\nnpm error 404 tarball, folder, http url, or git url.\\nnpm error A complete log of this run can be found in: ~/.npm/_logs/2026-11-06T03_45_41_475Z-debug-0.log\\n\"}"
     },
     {
       "seq": 2440,
@@ -819,9 +819,9 @@
       "seq": 2586,
       "t": 472810,
       "kind": "command",
-      "command": "rg -n 'FORMAN_SMOKE_SHORT|test\\\\(|test.each|describe' smoke/*.ts",
+      "command": "rg -n 'FOREMAN_SMOKE_SHORT|test\\\\(|test.each|describe' smoke/*.ts",
       "exitCode": 0,
-      "output": "…eal-codex.test.ts:105:    if (/^(done|failed|interrupted|question) +smoke\\b/m.test(printed))\nsmoke/helpers.ts:46:        !/^(FORMAN_|GIT_|LOG_LEVEL$|OPENAI_API_KEY$|OPENAI_API_BASE$|CODEX_API_KEY$)/.test(\nsmoke/helpers.ts:122:      if (new RegExp(`^${kind} +smoke\\\\b`, \"m\").test(output)) return output;\nsmoke/helpers.ts:123:      if (/^(done|failed|interrupted|lost|question) +smoke\\b/m.test(output))"
+      "output": "…eal-codex.test.ts:105:    if (/^(done|failed|interrupted|question) +smoke\\b/m.test(printed))\nsmoke/helpers.ts:46:        !/^(FOREMAN_|GIT_|LOG_LEVEL$|OPENAI_API_KEY$|OPENAI_API_BASE$|CODEX_API_KEY$)/.test(\nsmoke/helpers.ts:122:      if (new RegExp(`^${kind} +smoke\\\\b`, \"m\").test(output)) return output;\nsmoke/helpers.ts:123:      if (/^(done|failed|interrupted|lost|question) +smoke\\b/m.test(output))"
     },
     {
       "seq": 2587,
@@ -865,21 +865,21 @@
       "seq": 2598,
       "t": 490801,
       "kind": "command",
-      "command": "mktemp -d /tmp/forman-revert-XXXXXX",
+      "command": "mktemp -d /tmp/foreman-revert-XXXXXX",
       "exitCode": 0,
-      "output": "/tmp/forman-revert-0Nu7i1"
+      "output": "/tmp/foreman-revert-0Nu7i1"
     },
     {
       "seq": 2602,
       "t": 501243,
       "kind": "files",
-      "paths": ["/tmp/forman-revert-0Nu7i1/verify.py"]
+      "paths": ["/tmp/foreman-revert-0Nu7i1/verify.py"]
     },
     {
       "seq": 2607,
       "t": 509778,
       "kind": "command",
-      "command": "python /tmp/forman-revert-0Nu7i1/verify.py",
+      "command": "python /tmp/foreman-revert-0Nu7i1/verify.py",
       "exitCode": 0,
       "output": "\nerror: script \"test:unit\" exited with code 1\n\nRestored all working changes."
     },
@@ -909,15 +909,15 @@
       "seq": 2615,
       "t": 523645,
       "kind": "files",
-      "paths": ["/tmp/forman-revert-0Nu7i1/binary.py"]
+      "paths": ["/tmp/foreman-revert-0Nu7i1/binary.py"]
     },
     {
       "seq": 2617,
       "t": 524951,
       "kind": "command",
-      "command": "rg -n 'FAIL|×|Tests ' /tmp/forman-revert-0Nu7i1/unit.log",
+      "command": "rg -n 'FAIL|×|Tests ' /tmp/foreman-revert-0Nu7i1/unit.log",
       "exitCode": 0,
-      "output": "…config-logging.test.ts > real config and emitted logging > resolves launcher identity only from FORMAN_LAUNCHER=\" \\t \"\n1257: FAIL  tests/config-logging.test.ts > real config and emitted logging > resolves launcher identity only from FORMAN_LAUNCHER=\"./npm/forman.cjs\"\n1270: FAIL  tests/npm.test.ts > packed install works on PATH from a scratch directory\n1304:      Tests  46 failed | 178 passed (224)"
+      "output": "…config-logging.test.ts > real config and emitted logging > resolves launcher identity only from FOREMAN_LAUNCHER=\" \\t \"\n1257: FAIL  tests/config-logging.test.ts > real config and emitted logging > resolves launcher identity only from FOREMAN_LAUNCHER=\"./npm/foreman.cjs\"\n1270: FAIL  tests/npm.test.ts > packed install works on PATH from a scratch directory\n1304:      Tests  46 failed | 178 passed (224)"
     },
     {
       "seq": 2624,
@@ -943,7 +943,7 @@
       "seq": 2636,
       "t": 561177,
       "kind": "command",
-      "command": "python /tmp/forman-revert-0Nu7i1/binary.py",
+      "command": "python /tmp/foreman-revert-0Nu7i1/binary.py",
       "exitCode": 0,
       "output": "Ran 9 tests across 1 file. [17.99s]\nerror: script \"e2e\" exited with code 1\n\nRestored src/core/commands.ts."
     },
@@ -989,17 +989,17 @@
       "seq": 2657,
       "t": 590513,
       "kind": "command",
-      "command": "mktemp -d /tmp/forman-qa-XXXXXX",
+      "command": "mktemp -d /tmp/foreman-qa-XXXXXX",
       "exitCode": 0,
-      "output": "/tmp/forman-qa-uTbmrJ"
+      "output": "/tmp/foreman-qa-uTbmrJ"
     },
     {
       "seq": 2658,
       "t": 590671,
       "kind": "command",
-      "command": "mktemp -d /tmp/forman-review-XXXXXX",
+      "command": "mktemp -d /tmp/foreman-review-XXXXXX",
       "exitCode": 0,
-      "output": "/tmp/forman-review-vrUWux"
+      "output": "/tmp/foreman-review-vrUWux"
     },
     {
       "seq": 2665,
@@ -1053,13 +1053,13 @@
       "seq": 2700,
       "t": 630096,
       "kind": "files",
-      "paths": ["/tmp/forman-review-vrUWux/prompt.md"]
+      "paths": ["/tmp/foreman-review-vrUWux/prompt.md"]
     },
     {
       "seq": 2742,
       "t": 659902,
       "kind": "command",
-      "command": "FORMAN_SMOKE=1 FORMAN_SMOKE_SHORT=1 bun run smoke",
+      "command": "FOREMAN_SMOKE=1 FOREMAN_SMOKE_SHORT=1 bun run smoke",
       "exitCode": 1,
       "output": " 7 fail\n 101 expect() calls\nRan 16 tests across 3 files. [70.61s]\nerror: script \"smoke\" exited with code 1"
     },
@@ -1067,7 +1067,7 @@
       "seq": 2743,
       "t": 666474,
       "kind": "message",
-      "text": "Lint, typecheck, and the built-binary tests pass. The full suite and smoke run exposed test helpers outside this unit’s scope that assume continuations start with `forman`, plus supervisor tests that expect a plain-text upgrade notice under `--json`. I’ll leave those files untouched and name the required updates in the hand-off."
+      "text": "Lint, typecheck, and the built-binary tests pass. The full suite and smoke run exposed test helpers outside this unit’s scope that assume continuations start with `foreman`, plus supervisor tests that expect a plain-text upgrade notice under `--json`. I’ll leave those files untouched and name the required updates in the hand-off."
     },
     {
       "seq": 2745,
@@ -1095,7 +1095,7 @@
       "seq": 2772,
       "t": 699909,
       "kind": "files",
-      "paths": ["/tmp/forman-qa-uTbmrJ/qa.py"]
+      "paths": ["/tmp/foreman-qa-uTbmrJ/qa.py"]
     },
     {
       "seq": 2837,
@@ -1109,7 +1109,7 @@
       "seq": 2839,
       "t": 704904,
       "kind": "command",
-      "command": "python /tmp/forman-qa-uTbmrJ/qa.py",
+      "command": "python /tmp/foreman-qa-uTbmrJ/qa.py",
       "exitCode": 0,
       "output": "Source doctor json=False: private temporary home reported correctly.\nSource doctor json=True: private temporary home reported correctly.\nPrinted command executed from another directory with a conflicting home; original home retained.\nDaemon stopped."
     },
@@ -1157,7 +1157,7 @@
       "seq": 2928,
       "t": 730154,
       "kind": "command",
-      "command": "rg -n 'nextCommand|FORMAN_HOME' smoke/regressions.test.ts",
+      "command": "rg -n 'nextCommand|FOREMAN_HOME' smoke/regressions.test.ts",
       "exitCode": 0,
       "output": "7:import { fixture, nextCommand } from \"./helpers\";\n15:    nextCommand("
     },
@@ -1165,9 +1165,9 @@
       "seq": 2974,
       "t": 746318,
       "kind": "command",
-      "command": "rg -n '\"'^##|''^[0-9]+'\"\\\\.|Verdict|APPROVE|NEEDS' /tmp/forman-review-vrUWux/review.md",
+      "command": "rg -n '\"'^##|''^[0-9]+'\"\\\\.|Verdict|APPROVE|NEEDS' /tmp/foreman-review-vrUWux/review.md",
       "exitCode": 2,
-      "output": "rg: /tmp/forman-review-vrUWux/review.md: IO error for operation on /tmp/forman-review-vrUWux/review.md: No such file or directory (os error 2)"
+      "output": "rg: /tmp/foreman-review-vrUWux/review.md: IO error for operation on /tmp/foreman-review-vrUWux/review.md: No such file or directory (os error 2)"
     },
     {
       "seq": 2976,
@@ -1191,7 +1191,7 @@
       "kind": "command",
       "command": "sed -n '1,75p' docs/guidance/typescript-cli/effect-services.md",
       "exitCode": 0,
-      "output": "…looking keys and object values. It appends JSONL to FORMAN_LOG_FILE when set, with every log on stderr too; --json forces JSON stderr. A sink failure cannot fail the command.\n\nNew network integrations own their timeout and retry policy: at most two retries with jittered backoff, retryable failures only, never after streaming output. Time-based programs use Effect Clock so TestClock can drive them."
+      "output": "…looking keys and object values. It appends JSONL to FOREMAN_LOG_FILE when set, with every log on stderr too; --json forces JSON stderr. A sink failure cannot fail the command.\n\nNew network integrations own their timeout and retry policy: at most two retries with jittered backoff, retryable failures only, never after streaming output. Time-based programs use Effect Clock so TestClock can drive them."
     },
     {
       "seq": 3030,
@@ -1229,7 +1229,7 @@
       "seq": 3072,
       "t": 804709,
       "kind": "command",
-      "command": "test -f /tmp/forman-review-vrUWux/review.md",
+      "command": "test -f /tmp/foreman-review-vrUWux/review.md",
       "exitCode": 1,
       "output": ""
     },
@@ -1273,7 +1273,7 @@
       "seq": 3108,
       "t": 843063,
       "kind": "command",
-      "command": "test -f /tmp/forman-review-vrUWux/review.md",
+      "command": "test -f /tmp/foreman-review-vrUWux/review.md",
       "exitCode": 1,
       "output": ""
     },
@@ -1329,7 +1329,7 @@
       "seq": 3130,
       "t": 884917,
       "kind": "command",
-      "command": "test -f /tmp/forman-review-vrUWux/review.md",
+      "command": "test -f /tmp/foreman-review-vrUWux/review.md",
       "exitCode": 1,
       "output": ""
     },
@@ -1339,7 +1339,7 @@
       "kind": "command",
       "command": "rg -n 'HOME|chmod|chown' src/core/doctor.ts",
       "exitCode": 0,
-      "output": "…ad, write and search access: ${target}. Correct its permissions or choose another FORMAN_HOME.`,\n109:        \"Home is owned by another user. Choose a FORMAN_HOME owned by your user or correct its ownership.\",\n114:        `Home is accessible to other users. Run ${CommandLine.join([\"chmod\", \"700\", home])} to make it private.`,\n198:    { ...config.inheritedEnvironment, CODEX_HOME: config.codexHome },"
+      "output": "…ad, write and search access: ${target}. Correct its permissions or choose another FOREMAN_HOME.`,\n109:        \"Home is owned by another user. Choose a FOREMAN_HOME owned by your user or correct its ownership.\",\n114:        `Home is accessible to other users. Run ${CommandLine.join([\"chmod\", \"700\", home])} to make it private.`,\n198:    { ...config.inheritedEnvironment, CODEX_HOME: config.codexHome },"
     },
     {
       "seq": 3150,
@@ -1361,7 +1361,7 @@
       "seq": 3165,
       "t": 909327,
       "kind": "command",
-      "command": "codex exec --ephemeral --sandbox read-only -m gpt-6.1-sol -c model_reasoning_effort=high -c service_tier=priority -o /tmp/forman-review-vrUWux/review.md - < /tmp/forman-review-vrUWux/prompt.md",
+      "command": "codex exec --ephemeral --sandbox read-only -m gpt-6.1-sol -c model_reasoning_effort=high -c service_tier=priority -o /tmp/foreman-review-vrUWux/review.md - < /tmp/foreman-review-vrUWux/prompt.md",
       "exitCode": 0,
       "output": "\n## Verdict\n\n**NEEDS FIXES** - The packed-install regression test must clean up its daemon on failure."
     },
@@ -1369,7 +1369,7 @@
       "seq": 3167,
       "t": 915013,
       "kind": "command",
-      "command": "test -f /tmp/forman-review-vrUWux/review.md",
+      "command": "test -f /tmp/foreman-review-vrUWux/review.md",
       "exitCode": 0,
       "output": ""
     },
@@ -1377,7 +1377,7 @@
       "seq": 3169,
       "t": 920115,
       "kind": "command",
-      "command": "rg -n 'Test Files|Tests |FAIL  tests/' /tmp/forman-review-vrUWux/full-test.log",
+      "command": "rg -n 'Test Files|Tests |FAIL  tests/' /tmp/foreman-review-vrUWux/full-test.log",
       "exitCode": 1,
       "output": ""
     },
@@ -1385,7 +1385,7 @@
       "seq": 3173,
       "t": 923135,
       "kind": "command",
-      "command": "cat /tmp/forman-review-vrUWux/review.md",
+      "command": "cat /tmp/foreman-review-vrUWux/review.md",
       "exitCode": 0,
       "output": "\n## Verdict\n\n**NEEDS FIXES** - The packed-install regression test must clean up its daemon on failure."
     },
@@ -1409,21 +1409,21 @@
       "kind": "command",
       "command": "sed -n '1,180p' tests/npm.test.ts",
       "exitCode": 0,
-      "output": "  const binary = join(fixture, \"node_modules\", packageName, \"bin/forman\");\n  await mkdir(dirname(binary), { recursive: true });\n  await copyFile(join(repo, \"npm/forman.cjs\"), launcher);\n  await writeFile("
+      "output": "  const binary = join(fixture, \"node_modules\", packageName, \"bin/foreman\");\n  await mkdir(dirname(binary), { recursive: true });\n  await copyFile(join(repo, \"npm/foreman.cjs\"), launcher);\n  await writeFile("
     },
     {
       "seq": 3180,
       "t": 939575,
       "kind": "command",
-      "command": "wc -l /tmp/forman-review-vrUWux/full-test.log",
+      "command": "wc -l /tmp/foreman-review-vrUWux/full-test.log",
       "exitCode": 0,
-      "output": "     320 /tmp/forman-review-vrUWux/full-test.log"
+      "output": "     320 /tmp/foreman-review-vrUWux/full-test.log"
     },
     {
       "seq": 3183,
       "t": 964387,
       "kind": "command",
-      "command": "bun run test > /tmp/forman-review-vrUWux/full-test.log 2>&1",
+      "command": "bun run test > /tmp/foreman-review-vrUWux/full-test.log 2>&1",
       "exitCode": 1,
       "output": ""
     },
@@ -1447,7 +1447,7 @@
       "seq": 3187,
       "t": 986900,
       "kind": "command",
-      "command": "tail -8 /tmp/forman-review-vrUWux/full-test.log",
+      "command": "tail -8 /tmp/foreman-review-vrUWux/full-test.log",
       "exitCode": 0,
       "output": "   Duration  104.35s (tests 94%, import 6%)\n\nerror: script \"test:unit\" exited with code 1\nerror: script \"test\" exited with code 1"
     },
@@ -1477,7 +1477,7 @@
       "seq": 3221,
       "t": 1059264,
       "kind": "command",
-      "command": "cp tests/npm.test.ts /tmp/forman-review-vrUWux/npm-before-cleanup.ts",
+      "command": "cp tests/npm.test.ts /tmp/foreman-review-vrUWux/npm-before-cleanup.ts",
       "exitCode": 0,
       "output": ""
     },
@@ -1523,7 +1523,7 @@
       "kind": "command",
       "command": "sed -n '65,103p' tests/npm.test.ts",
       "exitCode": 0,
-      "output": "beforeAll(async () => {\n  root = await mkdtemp(join(tmpdir(), \"forman-npm-\"));\n  env = {\n    HOME: root,"
+      "output": "beforeAll(async () => {\n  root = await mkdtemp(join(tmpdir(), \"foreman-npm-\"));\n  env = {\n    HOME: root,"
     },
     {
       "seq": 3244,
@@ -1537,13 +1537,13 @@
       "seq": 3248,
       "t": 1103955,
       "kind": "files",
-      "paths": ["/tmp/forman-review-vrUWux/revert-cleanup.py"]
+      "paths": ["/tmp/foreman-review-vrUWux/revert-cleanup.py"]
     },
     {
       "seq": 3253,
       "t": 1110748,
       "kind": "command",
-      "command": "python /tmp/forman-review-vrUWux/revert-cleanup.py",
+      "command": "python /tmp/foreman-review-vrUWux/revert-cleanup.py",
       "exitCode": 0,
       "output": "\nerror: script \"test:unit\" exited with code 1\n\nRestored cleanup fix."
     },
@@ -1661,7 +1661,7 @@
       "seq": 3319,
       "t": 1352400,
       "kind": "command",
-      "command": "tail -8 /tmp/forman-review-vrUWux/final-full-test.log",
+      "command": "tail -8 /tmp/foreman-review-vrUWux/final-full-test.log",
       "exitCode": 0,
       "output": "  showDiff: true,\n  operator: 'strictEqual',\n  [cause]: undefined\n}"
     },
@@ -1691,7 +1691,7 @@
       "seq": 3330,
       "t": 1403027,
       "kind": "command",
-      "command": "bun run test > /tmp/forman-review-vrUWux/final-full-test.log 2>&1",
+      "command": "bun run test > /tmp/foreman-review-vrUWux/final-full-test.log 2>&1",
       "exitCode": 1,
       "output": ""
     },
@@ -1699,7 +1699,7 @@
       "seq": 3332,
       "t": 1423728,
       "kind": "command",
-      "command": "tail -10 /tmp/forman-review-vrUWux/final-full-test.log",
+      "command": "tail -10 /tmp/foreman-review-vrUWux/final-full-test.log",
       "exitCode": 0,
       "output": "   Duration  104.87s (tests 94%, import 6%)\n\nerror: script \"test:unit\" exited with code 1\nerror: script \"test\" exited with code 1"
     },
@@ -1715,7 +1715,7 @@
       "seq": 3337,
       "t": 1428663,
       "kind": "command",
-      "command": "rg -n 'FAIL  |×|❯ .*failed|Test Files|Tests ' /tmp/forman-review-vrUWux/final-full-test.log",
+      "command": "rg -n 'FAIL  |×|❯ .*failed|Test Files|Tests ' /tmp/foreman-review-vrUWux/final-full-test.log",
       "exitCode": 0,
       "output": "…tests/supervisor-integration.test.ts > supervisor over the real daemon socket > review: hook failure retains worktree ownership until completion\n799: FAIL  tests/supervisor-integration.test.ts > supervisor over the real daemon socket > fails closed even when a commandExecution item's detailed shape has changed\n826: Test Files  1 failed | 32 passed (33)\n827:      Tests  20 failed | 786 passed (806)"
     },
@@ -1723,7 +1723,7 @@
       "seq": 3338,
       "t": 1428762,
       "kind": "command",
-      "command": "tail -90 /tmp/forman-review-vrUWux/final-full-test.log",
+      "command": "tail -90 /tmp/foreman-review-vrUWux/final-full-test.log",
       "exitCode": 0,
       "output": "   Duration  104.87s (tests 94%, import 6%)\n\nerror: script \"test:unit\" exited with code 1\nerror: script \"test\" exited with code 1"
     },
@@ -1731,9 +1731,9 @@
       "seq": 3342,
       "t": 1432014,
       "kind": "command",
-      "command": "sed -n '405,435p' /tmp/forman-review-vrUWux/final-full-test.log",
+      "command": "sed -n '405,435p' /tmp/foreman-review-vrUWux/final-full-test.log",
       "exitCode": 0,
-      "output": "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/20]⎯\n\n FAIL  tests/supervisor-integration.test.ts > supervisor over the real daemon socket > answer prints a wait for fresh attention, json=false, legacy=false\nAssertionError: expected 'FORMAN_HOME=/private/tmp/fm-s-6DVaGs/…' to match /^forman wait unit --after \\S+$/"
+      "output": "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/20]⎯\n\n FAIL  tests/supervisor-integration.test.ts > supervisor over the real daemon socket > answer prints a wait for fresh attention, json=false, legacy=false\nAssertionError: expected 'FOREMAN_HOME=/private/tmp/fm-s-6DVaGs/…' to match /^foreman wait unit --after \\S+$/"
     },
     {
       "seq": 3343,
@@ -1763,7 +1763,7 @@
       "seq": 3352,
       "t": 1484831,
       "kind": "message",
-      "text": "**1. Summary**\n\nImplemented the ten scoped findings across CLI continuations, npm launcher identity, doctor diagnostics, Codex schemas, release publishing, and the README example. All changes remain uncommitted; release acceptance is blocked by integration work outside this unit’s scope.\n\n**2. Files**\n\n| File | Change |\n|---|---|\n| `.env.example` | Documents internal `FORMAN_LAUNCHER`. |\n| `.github/workflows/release.yml` | Retains/restores tarballs and uses verified, resumable publishing. |\n| `README.md` | Fixes the example’s scope bullet and explains its required format. |\n| `npm/forman.cjs` | Passes launcher identity to the native binary. |\n| `npm/release.cjs` — new | Packs artifacts, checks exact-version integrity, and gates main publication on all four platforms. |\n| `src/config.ts` | Reads and resolves the launcher setting only. |\n| `src/core/command-output.ts` | Preserves absolute home and executable identity; prints executable event continuations. |\n| `src/core/commands.ts` | Emits a JSON outdated-daemon notice under `--json`. |\n| `src/commands/runs.ts` | Supplies run names for event continuations. |\n| `src/core/doctor.ts` | Distinguishes absence from unavailability; inspects home access, ownership, and privacy without mutation. |\n| `src/commands/doctor.ts` | Renders new diagnostics and known hook-refusal details. |\n| `src/schemas/doctor.ts` | Defines the new diagnostic fields. |\n| `src/schemas/codex.ts` | Rejects malformed known items, accepts unfamiliar phases, and generates the tool input schema. |\n| `tests/codex-schemas.test.ts` | Schema regressions: 41 total tests. |\n| `tests/commands-cli.test.ts` | Continuation and README-scope regressions: 105 total. |\n| `tests/commands-doctor.test.ts` | Socket, permissions, ownership, and refusal regressions: 32 total. |\n| `tests/commands-release.test.ts` — new | Real packing and publishing failure/retry coverage: 7 tests. |\n| `tests/config-logging.test.ts` | Launcher resolution coverage: 35 total. |\n| `tests/npm.test.ts` | Packed-install identity, continuations, and failure-safe daemon cleanup: 6 total. |\n| `e2e/binary.test.ts` | Compiled, PATH, source, quoted-home, event, and upgrade cases: 9 tests. |\n\n**3. Decisions**\n\n- `FORMAN_LAUNCHER` identifies the npm entrypoint while daemon startup retains the native executable. Every printed continuation includes the absolute, shell-quoted home (O9/O10).\n- Publishing retains exact tarballs and compares registry SHA-512 integrity. Only an explicit registry 404 permits publication; main follows four confirmed platform versions (O11).\n- Doctor uses a bounded socket-open probe before Ping because the current daemon client erases connection failure codes (O12).\n- No change is needed in `normalize.ts` for unfamiliar phases: its existing agent-message checks and hand-off fallback now accept them.\n- The testing skills drove real process/socket coverage and deterministic `TestClock` waits. Error-handling guidance drove explicit unavailable states; architecture guidance kept release logic in one Node helper. Effect and writing guidance informed schema generation and diagnostics.\n\n**4. Checks**\n\n| Check | Result |\n|---|---|\n| Six changed Vitest files together | **226 passed** after review fixes. Every changed test file passed at least three runs/file-set runs. |\n| `bun run test:unit tests/npm.test.ts` | **6 passed**, including three post-fix runs. |\n| `bun run lint` | Passed: **122 files**. |\n| `bun run typecheck` | Passed. |\n| `bun run e2e` | **9 passed**, including four runs of the final cases and a post-review run. |\n| `bun run test` | Final: **786 passed, 20 failed / 806**, all failures in untouched `tests/supervisor-integration.test.ts`. Earlier runs had 19 failures. |\n| `FORMAN_SMOKE=1 FORMAN_SMOKE_SHORT=1 bun run smoke` | **9 passed, 7 failed**; failures reject the new home-assignment prefix in `smoke/helpers.ts`. |\n| `git diff --check` | Passed. |\n\nRevert verification reproduced 46 unit regression failures, two compiled/PATH continuation failures, the JSON-notice failure, and the review cleanup failure. Logs: [baseline regressions](/tmp/forman-revert-0Nu7i1/unit.log), [cleanup regression](/tmp/forman-review-vrUWux/cleanup-revert.log).\n\nManual QA verified binary/source doctor output, unchanged directory permissions, and printed commands executed from another directory with a conflicting home. Real-Codex delegation, question/answer, and hook-refusal cases passed. No publication was attempted. `bun run check` was not run.\n\n**5. Review**\n\n[Independent review](/tmp/forman-review-vrUWux/review.md) found one issue: failed npm assertions could leave detached daemons running while their homes were deleted.\n\nFixed with `withDaemonHomes`, tracked cleanup, PID-exit verification, and guarded directory removal. The regression starts both possible homes, forces an assertion failure, and confirms both processes exit. Revert-verified; no second review pass was run.\n\n**6. Look closer at**\n\n- Reconcile doctor’s additional socket probe with the daemon unit’s revised error contract.\n- The GitHub artifact restore/upload path was inspected and locally exercised through packing/publishing tests; it has not run in Actions.\n- Final full-suite log: [806-test run](/tmp/forman-review-vrUWux/final-full-test.log).\n\n**7. Open**\n\nAcceptance needs these out-of-scope changes:\n\n- `tests/supervisor-integration.test.ts`: update continuation parsing and JSON upgrade-notice expectations.\n- `src/supervisor/notifications.ts`: preserve hook enforcement using a validated minimal item envelope before detailed decoding. Strict B4 decoding now bypasses the guard for malformed `commandExecution` starts. Preserve the malformed-payload tests at lines 2218 and 2485.\n- `smoke/helpers.ts:nextCommand`: consume and validate the leading `FORMAN_HOME=…` assignment.\n- Investigate the additional final-run recovery failure at `tests/supervisor-integration.test.ts:1381`: expected the last event to be `StateChanged/lost`, received `QuestionResolved`. It passed in the previous two full runs.\n\nNo design questions remain."
+      "text": "**1. Summary**\n\nImplemented the ten scoped findings across CLI continuations, npm launcher identity, doctor diagnostics, Codex schemas, release publishing, and the README example. All changes remain uncommitted; release acceptance is blocked by integration work outside this unit’s scope.\n\n**2. Files**\n\n| File | Change |\n|---|---|\n| `.env.example` | Documents internal `FOREMAN_LAUNCHER`. |\n| `.github/workflows/release.yml` | Retains/restores tarballs and uses verified, resumable publishing. |\n| `README.md` | Fixes the example’s scope bullet and explains its required format. |\n| `npm/foreman.cjs` | Passes launcher identity to the native binary. |\n| `npm/release.cjs` — new | Packs artifacts, checks exact-version integrity, and gates main publication on all four platforms. |\n| `src/config.ts` | Reads and resolves the launcher setting only. |\n| `src/core/command-output.ts` | Preserves absolute home and executable identity; prints executable event continuations. |\n| `src/core/commands.ts` | Emits a JSON outdated-daemon notice under `--json`. |\n| `src/commands/runs.ts` | Supplies run names for event continuations. |\n| `src/core/doctor.ts` | Distinguishes absence from unavailability; inspects home access, ownership, and privacy without mutation. |\n| `src/commands/doctor.ts` | Renders new diagnostics and known hook-refusal details. |\n| `src/schemas/doctor.ts` | Defines the new diagnostic fields. |\n| `src/schemas/codex.ts` | Rejects malformed known items, accepts unfamiliar phases, and generates the tool input schema. |\n| `tests/codex-schemas.test.ts` | Schema regressions: 41 total tests. |\n| `tests/commands-cli.test.ts` | Continuation and README-scope regressions: 105 total. |\n| `tests/commands-doctor.test.ts` | Socket, permissions, ownership, and refusal regressions: 32 total. |\n| `tests/commands-release.test.ts` — new | Real packing and publishing failure/retry coverage: 7 tests. |\n| `tests/config-logging.test.ts` | Launcher resolution coverage: 35 total. |\n| `tests/npm.test.ts` | Packed-install identity, continuations, and failure-safe daemon cleanup: 6 total. |\n| `e2e/binary.test.ts` | Compiled, PATH, source, quoted-home, event, and upgrade cases: 9 tests. |\n\n**3. Decisions**\n\n- `FOREMAN_LAUNCHER` identifies the npm entrypoint while daemon startup retains the native executable. Every printed continuation includes the absolute, shell-quoted home (O9/O10).\n- Publishing retains exact tarballs and compares registry SHA-512 integrity. Only an explicit registry 404 permits publication; main follows four confirmed platform versions (O11).\n- Doctor uses a bounded socket-open probe before Ping because the current daemon client erases connection failure codes (O12).\n- No change is needed in `normalize.ts` for unfamiliar phases: its existing agent-message checks and hand-off fallback now accept them.\n- The testing skills drove real process/socket coverage and deterministic `TestClock` waits. Error-handling guidance drove explicit unavailable states; architecture guidance kept release logic in one Node helper. Effect and writing guidance informed schema generation and diagnostics.\n\n**4. Checks**\n\n| Check | Result |\n|---|---|\n| Six changed Vitest files together | **226 passed** after review fixes. Every changed test file passed at least three runs/file-set runs. |\n| `bun run test:unit tests/npm.test.ts` | **6 passed**, including three post-fix runs. |\n| `bun run lint` | Passed: **122 files**. |\n| `bun run typecheck` | Passed. |\n| `bun run e2e` | **9 passed**, including four runs of the final cases and a post-review run. |\n| `bun run test` | Final: **786 passed, 20 failed / 806**, all failures in untouched `tests/supervisor-integration.test.ts`. Earlier runs had 19 failures. |\n| `FOREMAN_SMOKE=1 FOREMAN_SMOKE_SHORT=1 bun run smoke` | **9 passed, 7 failed**; failures reject the new home-assignment prefix in `smoke/helpers.ts`. |\n| `git diff --check` | Passed. |\n\nRevert verification reproduced 46 unit regression failures, two compiled/PATH continuation failures, the JSON-notice failure, and the review cleanup failure. Logs: [baseline regressions](/tmp/foreman-revert-0Nu7i1/unit.log), [cleanup regression](/tmp/foreman-review-vrUWux/cleanup-revert.log).\n\nManual QA verified binary/source doctor output, unchanged directory permissions, and printed commands executed from another directory with a conflicting home. Real-Codex delegation, question/answer, and hook-refusal cases passed. No publication was attempted. `bun run check` was not run.\n\n**5. Review**\n\n[Independent review](/tmp/foreman-review-vrUWux/review.md) found one issue: failed npm assertions could leave detached daemons running while their homes were deleted.\n\nFixed with `withDaemonHomes`, tracked cleanup, PID-exit verification, and guarded directory removal. The regression starts both possible homes, forces an assertion failure, and confirms both processes exit. Revert-verified; no second review pass was run.\n\n**6. Look closer at**\n\n- Reconcile doctor’s additional socket probe with the daemon unit’s revised error contract.\n- The GitHub artifact restore/upload path was inspected and locally exercised through packing/publishing tests; it has not run in Actions.\n- Final full-suite log: [806-test run](/tmp/foreman-review-vrUWux/final-full-test.log).\n\n**7. Open**\n\nAcceptance needs these out-of-scope changes:\n\n- `tests/supervisor-integration.test.ts`: update continuation parsing and JSON upgrade-notice expectations.\n- `src/supervisor/notifications.ts`: preserve hook enforcement using a validated minimal item envelope before detailed decoding. Strict B4 decoding now bypasses the guard for malformed `commandExecution` starts. Preserve the malformed-payload tests at lines 2218 and 2485.\n- `smoke/helpers.ts:nextCommand`: consume and validate the leading `FOREMAN_HOME=…` assignment.\n- Investigate the additional final-run recovery failure at `tests/supervisor-integration.test.ts:1381`: expected the last event to be `StateChanged/lost`, received `QuestionResolved`. It passed in the previous two full runs.\n\nNo design questions remain."
     },
     {
       "seq": 3357,
@@ -1781,6 +1781,6 @@
     }
   ],
   "questions": [],
-  "handoff": "**1. Summary**\n\nImplemented the ten scoped findings across CLI continuations, npm launcher identity, doctor diagnostics, Codex schemas, release publishing, and the README example. All changes remain uncommitted; release acceptance is blocked by integration work outside this unit’s scope.\n\n**2. Files**\n\n| File | Change |\n|---|---|\n| `.env.example` | Documents internal `FORMAN_LAUNCHER`. |\n| `.github/workflows/release.yml` | Retains/restores tarballs and uses verified, resumable publishing. |\n| `README.md` | Fixes the example’s scope bullet and explains its required format. |\n| `npm/forman.cjs` | Passes launcher identity to the native binary. |\n| `npm/release.cjs` — new | Packs artifacts, checks exact-version integrity, and gates main publication on all four platforms. |\n| `src/config.ts` | Reads and resolves the launcher setting only. |\n| `src/core/command-output.ts` | Preserves absolute home and executable identity; prints executable event continuations. |\n| `src/core/commands.ts` | Emits a JSON outdated-daemon notice under `--json`. |\n| `src/commands/runs.ts` | Supplies run names for event continuations. |\n| `src/core/doctor.ts` | Distinguishes absence from unavailability; inspects home access, ownership, and privacy without mutation. |\n| `src/commands/doctor.ts` | Renders new diagnostics and known hook-refusal details. |\n| `src/schemas/doctor.ts` | Defines the new diagnostic fields. |\n| `src/schemas/codex.ts` | Rejects malformed known items, accepts unfamiliar phases, and generates the tool input schema. |\n| `tests/codex-schemas.test.ts` | Schema regressions: 41 total tests. |\n| `tests/commands-cli.test.ts` | Continuation and README-scope regressions: 105 total. |\n| `tests/commands-doctor.test.ts` | Socket, permissions, ownership, and refusal regressions: 32 total. |\n| `tests/commands-release.test.ts` — new | Real packing and publishing failure/retry coverage: 7 tests. |\n| `tests/config-logging.test.ts` | Launcher resolution coverage: 35 total. |\n| `tests/npm.test.ts` | Packed-install identity, continuations, and failure-safe daemon cleanup: 6 total. |\n| `e2e/binary.test.ts` | Compiled, PATH, source, quoted-home, event, and upgrade cases: 9 tests. |\n\n**3. Decisions**\n\n- `FORMAN_LAUNCHER` identifies the npm entrypoint while daemon startup retains the native executable. Every printed continuation includes the absolute, shell-quoted home (O9/O10).\n- Publishing retains exact tarballs and compares registry SHA-512 integrity. Only an explicit registry 404 permits publication; main follows four confirmed platform versions (O11).\n- Doctor uses a bounded socket-open probe before Ping because the current daemon client erases connection failure codes (O12).\n- No change is needed in `normalize.ts` for unfamiliar phases: its existing agent-message checks and hand-off fallback now accept them.\n- The testing skills drove real process/socket coverage and deterministic `TestClock` waits. Error-handling guidance drove explicit unavailable states; architecture guidance kept release logic in one Node helper. Effect and writing guidance informed schema generation and diagnostics.\n\n**4. Checks**\n\n| Check | Result |\n|---|---|\n| Six changed Vitest files together | **226 passed** after review fixes. Every changed test file passed at least three runs/file-set runs. |\n| `bun run test:unit tests/npm.test.ts` | **6 passed**, including three post-fix runs. |\n| `bun run lint` | Passed: **122 files**. |\n| `bun run typecheck` | Passed. |\n| `bun run e2e` | **9 passed**, including four runs of the final cases and a post-review run. |\n| `bun run test` | Final: **786 passed, 20 failed / 806**, all failures in untouched `tests/supervisor-integration.test.ts`. Earlier runs had 19 failures. |\n| `FORMAN_SMOKE=1 FORMAN_SMOKE_SHORT=1 bun run smoke` | **9 passed, 7 failed**; failures reject the new home-assignment prefix in `smoke/helpers.ts`. |\n| `git diff --check` | Passed. |\n\nRevert verification reproduced 46 unit regression failures, two compiled/PATH continuation failures, the JSON-notice failure, and the review cleanup failure. Logs: [baseline regressions](/tmp/forman-revert-0Nu7i1/unit.log), [cleanup regression](/tmp/forman-review-vrUWux/cleanup-revert.log).\n\nManual QA verified binary/source doctor output, unchanged directory permissions, and printed commands executed from another directory with a conflicting home. Real-Codex delegation, question/answer, and hook-refusal cases passed. No publication was attempted. `bun run check` was not run.\n\n**5. Review**\n\n[Independent review](/tmp/forman-review-vrUWux/review.md) found one issue: failed npm assertions could leave detached daemons running while their homes were deleted.\n\nFixed with `withDaemonHomes`, tracked cleanup, PID-exit verification, and guarded directory removal. The regression starts both possible homes, forces an assertion failure, and confirms both processes exit. Revert-verified; no second review pass was run.\n\n**6. Look closer at**\n\n- Reconcile doctor’s additional socket probe with the daemon unit’s revised error contract.\n- The GitHub artifact restore/upload path was inspected and locally exercised through packing/publishing tests; it has not run in Actions.\n- Final full-suite log: [806-test run](/tmp/forman-review-vrUWux/final-full-test.log).\n\n**7. Open**\n\nAcceptance needs these out-of-scope changes:\n\n- `tests/supervisor-integration.test.ts`: update continuation parsing and JSON upgrade-notice expectations.\n- `src/supervisor/notifications.ts`: preserve hook enforcement using a validated minimal item envelope before detailed decoding. Strict B4 decoding now bypasses the guard for malformed `commandExecution` starts. Preserve the malformed-payload tests at lines 2218 and 2485.\n- `smoke/helpers.ts:nextCommand`: consume and validate the leading `FORMAN_HOME=…` assignment.\n- Investigate the additional final-run recovery failure at `tests/supervisor-integration.test.ts:1381`: expected the last event to be `StateChanged/lost`, received `QuestionResolved`. It passed in the previous two full runs.\n\nNo design questions remain.",
-  "digest": "run:       fix-cli  idle  24m46s  (gpt-6.1-sol, high, priority, write)\ndir:       ~/.forman/runs/fix-cli\nworktree:  ~/src/forman/.claude/worktrees/fix-cli\nbranch:    forman/fix-cli (forman-created, base 39aec1625582d74b66751460b5fb66b6b1b27add)\nturn:      1 (start)\nquestion:  (none)\ncommands:  180 (27 failed, 0 blocked by repo hooks)\n  last:    /bin/zsh -lc \"rg -n 'recover|StateChanged|cancelQuestions' src/supervisor/registry.ts\"  exit=0\nfiles written:\n  .env.example\n  .github/workflows/release.yml\n  README.md\n  e2e/binary.test.ts\n  npm/forman.cjs\n  npm/release.cjs\n  src/commands/doctor.ts\n  src/commands/runs.ts\n  src/config.ts\n  src/core/command-output.ts\n  src/core/commands.ts\n  src/core/doctor.ts\n  src/schemas/codex.ts\n  src/schemas/doctor.ts\n  tests/codex-schemas.test.ts\n  tests/commands-cli.test.ts\n  tests/commands-doctor.test.ts\n  tests/commands-release.test.ts\n  tests/config-logging.test.ts\n  tests/npm.test.ts\noutside May change:  (none)\nnew in git status since start:  (none)\ntokens:    15.3M in (99% cached), 65.2K out\n"
+  "handoff": "**1. Summary**\n\nImplemented the ten scoped findings across CLI continuations, npm launcher identity, doctor diagnostics, Codex schemas, release publishing, and the README example. All changes remain uncommitted; release acceptance is blocked by integration work outside this unit’s scope.\n\n**2. Files**\n\n| File | Change |\n|---|---|\n| `.env.example` | Documents internal `FOREMAN_LAUNCHER`. |\n| `.github/workflows/release.yml` | Retains/restores tarballs and uses verified, resumable publishing. |\n| `README.md` | Fixes the example’s scope bullet and explains its required format. |\n| `npm/foreman.cjs` | Passes launcher identity to the native binary. |\n| `npm/release.cjs` — new | Packs artifacts, checks exact-version integrity, and gates main publication on all four platforms. |\n| `src/config.ts` | Reads and resolves the launcher setting only. |\n| `src/core/command-output.ts` | Preserves absolute home and executable identity; prints executable event continuations. |\n| `src/core/commands.ts` | Emits a JSON outdated-daemon notice under `--json`. |\n| `src/commands/runs.ts` | Supplies run names for event continuations. |\n| `src/core/doctor.ts` | Distinguishes absence from unavailability; inspects home access, ownership, and privacy without mutation. |\n| `src/commands/doctor.ts` | Renders new diagnostics and known hook-refusal details. |\n| `src/schemas/doctor.ts` | Defines the new diagnostic fields. |\n| `src/schemas/codex.ts` | Rejects malformed known items, accepts unfamiliar phases, and generates the tool input schema. |\n| `tests/codex-schemas.test.ts` | Schema regressions: 41 total tests. |\n| `tests/commands-cli.test.ts` | Continuation and README-scope regressions: 105 total. |\n| `tests/commands-doctor.test.ts` | Socket, permissions, ownership, and refusal regressions: 32 total. |\n| `tests/commands-release.test.ts` — new | Real packing and publishing failure/retry coverage: 7 tests. |\n| `tests/config-logging.test.ts` | Launcher resolution coverage: 35 total. |\n| `tests/npm.test.ts` | Packed-install identity, continuations, and failure-safe daemon cleanup: 6 total. |\n| `e2e/binary.test.ts` | Compiled, PATH, source, quoted-home, event, and upgrade cases: 9 tests. |\n\n**3. Decisions**\n\n- `FOREMAN_LAUNCHER` identifies the npm entrypoint while daemon startup retains the native executable. Every printed continuation includes the absolute, shell-quoted home (O9/O10).\n- Publishing retains exact tarballs and compares registry SHA-512 integrity. Only an explicit registry 404 permits publication; main follows four confirmed platform versions (O11).\n- Doctor uses a bounded socket-open probe before Ping because the current daemon client erases connection failure codes (O12).\n- No change is needed in `normalize.ts` for unfamiliar phases: its existing agent-message checks and hand-off fallback now accept them.\n- The testing skills drove real process/socket coverage and deterministic `TestClock` waits. Error-handling guidance drove explicit unavailable states; architecture guidance kept release logic in one Node helper. Effect and writing guidance informed schema generation and diagnostics.\n\n**4. Checks**\n\n| Check | Result |\n|---|---|\n| Six changed Vitest files together | **226 passed** after review fixes. Every changed test file passed at least three runs/file-set runs. |\n| `bun run test:unit tests/npm.test.ts` | **6 passed**, including three post-fix runs. |\n| `bun run lint` | Passed: **122 files**. |\n| `bun run typecheck` | Passed. |\n| `bun run e2e` | **9 passed**, including four runs of the final cases and a post-review run. |\n| `bun run test` | Final: **786 passed, 20 failed / 806**, all failures in untouched `tests/supervisor-integration.test.ts`. Earlier runs had 19 failures. |\n| `FOREMAN_SMOKE=1 FOREMAN_SMOKE_SHORT=1 bun run smoke` | **9 passed, 7 failed**; failures reject the new home-assignment prefix in `smoke/helpers.ts`. |\n| `git diff --check` | Passed. |\n\nRevert verification reproduced 46 unit regression failures, two compiled/PATH continuation failures, the JSON-notice failure, and the review cleanup failure. Logs: [baseline regressions](/tmp/foreman-revert-0Nu7i1/unit.log), [cleanup regression](/tmp/foreman-review-vrUWux/cleanup-revert.log).\n\nManual QA verified binary/source doctor output, unchanged directory permissions, and printed commands executed from another directory with a conflicting home. Real-Codex delegation, question/answer, and hook-refusal cases passed. No publication was attempted. `bun run check` was not run.\n\n**5. Review**\n\n[Independent review](/tmp/foreman-review-vrUWux/review.md) found one issue: failed npm assertions could leave detached daemons running while their homes were deleted.\n\nFixed with `withDaemonHomes`, tracked cleanup, PID-exit verification, and guarded directory removal. The regression starts both possible homes, forces an assertion failure, and confirms both processes exit. Revert-verified; no second review pass was run.\n\n**6. Look closer at**\n\n- Reconcile doctor’s additional socket probe with the daemon unit’s revised error contract.\n- The GitHub artifact restore/upload path was inspected and locally exercised through packing/publishing tests; it has not run in Actions.\n- Final full-suite log: [806-test run](/tmp/foreman-review-vrUWux/final-full-test.log).\n\n**7. Open**\n\nAcceptance needs these out-of-scope changes:\n\n- `tests/supervisor-integration.test.ts`: update continuation parsing and JSON upgrade-notice expectations.\n- `src/supervisor/notifications.ts`: preserve hook enforcement using a validated minimal item envelope before detailed decoding. Strict B4 decoding now bypasses the guard for malformed `commandExecution` starts. Preserve the malformed-payload tests at lines 2218 and 2485.\n- `smoke/helpers.ts:nextCommand`: consume and validate the leading `FOREMAN_HOME=…` assignment.\n- Investigate the additional final-run recovery failure at `tests/supervisor-integration.test.ts:1381`: expected the last event to be `StateChanged/lost`, received `QuestionResolved`. It passed in the previous two full runs.\n\nNo design questions remain.",
+  "digest": "run:       fix-cli  idle  24m46s  (gpt-6.1-sol, high, priority, write)\ndir:       ~/.foreman/runs/fix-cli\nworktree:  ~/src/foreman/.claude/worktrees/fix-cli\nbranch:    foreman/fix-cli (foreman-created, base 39aec1625582d74b66751460b5fb66b6b1b27add)\nturn:      1 (start)\nquestion:  (none)\ncommands:  180 (27 failed, 0 blocked by repo hooks)\n  last:    /bin/zsh -lc \"rg -n 'recover|StateChanged|cancelQuestions' src/supervisor/registry.ts\"  exit=0\nfiles written:\n  .env.example\n  .github/workflows/release.yml\n  README.md\n  e2e/binary.test.ts\n  npm/foreman.cjs\n  npm/release.cjs\n  src/commands/doctor.ts\n  src/commands/runs.ts\n  src/config.ts\n  src/core/command-output.ts\n  src/core/commands.ts\n  src/core/doctor.ts\n  src/schemas/codex.ts\n  src/schemas/doctor.ts\n  tests/codex-schemas.test.ts\n  tests/commands-cli.test.ts\n  tests/commands-doctor.test.ts\n  tests/commands-release.test.ts\n  tests/config-logging.test.ts\n  tests/npm.test.ts\noutside May change:  (none)\nnew in git status since start:  (none)\ntokens:    15.3M in (99% cached), 65.2K out\n"
 }

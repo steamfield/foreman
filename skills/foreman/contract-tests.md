@@ -2,8 +2,8 @@
 
 <!-- Claude: copy outside the worktree, fill task placeholders and remove this comment.
 Leave REVIEW DIR for the delegate's mktemp output.
-Fill REVIEW MODEL with the literal visible model passed to forman start --model and confirm
-it in the digest's run: header. Use forman start <name> --worktree <path> --contract <this-file>
+Fill REVIEW MODEL with the literal visible model passed to foreman start --model and confirm
+it in the digest's run: header. Use foreman start <name> --worktree <path> --contract <this-file>
 --write --model <model>, then background the printed next: wait command and follow each next:. -->
 
 You are the test author, separate from the implementer. Work in this git worktree, not in the

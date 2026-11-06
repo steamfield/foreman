@@ -19,7 +19,7 @@ export const DoctorResult = Schema.Struct({
   version: Schema.String,
   platform: Schema.String,
   compiled: Schema.Boolean,
-  formanOnPath: Schema.Boolean,
+  foremanOnPath: Schema.Boolean,
   configFile: Schema.String,
   home: Schema.String,
   homePermissions: Schema.Struct({

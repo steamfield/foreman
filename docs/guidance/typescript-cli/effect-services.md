@@ -10,9 +10,9 @@ Capture dependencies in layer constructors. Methods close over them, with no hid
 
 ## Config
 
-Only config.ts reads environment settings (bin.ts passes its process env). Empty and whitespace-only strings count as absent. Project-owned settings use the FORMAN_ prefix. ConfigProvider.fromEnvRecord supplies Effect Config reads.
+Only config.ts reads environment settings (bin.ts passes its process env). Empty and whitespace-only strings count as absent. Project-owned settings use the FOREMAN_ prefix. ConfigProvider.fromEnvRecord supplies Effect Config reads.
 
-`FORMAN_HOME` selects the config and state directory, defaulting to `$HOME/.forman`. AppConfig exposes the absolute `home` and derives `configFile` as `home/config.json`; the daemon, run store and logs use that same home. Relative values resolve at config read time, and a spawned daemon receives the absolute `FORMAN_HOME` before changing cwd.
+`FOREMAN_HOME` selects the config and state directory, defaulting to `$HOME/.foreman`. AppConfig exposes the absolute `home` and derives `configFile` as `home/config.json`; the daemon, run store and logs use that same home. Relative values resolve at config read time, and a spawned daemon receives the absolute `FOREMAN_HOME` before changing cwd.
 
 The optional config file is schema-decoded with excess properties rejected. `CODEX_BIN` wins over file `codexBin`, then the default `codex`. A malformed file is reported by doctor, never treated as a valid empty file; only NotFound means absent. Paths and logging resolve independently of a failed application load. File logLevel applies beneath LOG_LEVEL; invalid levels use the safe warn fallback. New settings need a schema, precedence tests, .env.example and README entries.
 
@@ -26,6 +26,6 @@ runInvocation is the sole promise runner. Interrupted runtime exits map to 130. 
 
 ## Logging
 
-Use Effect logging with fixed message names and scalar annotations. logging.ts creates UTC records with lowercase level, msg and detail, protects reserved fields and redacts secret-looking keys and object values. It appends JSONL to FORMAN_LOG_FILE when set, with every log on stderr too; --json forces JSON stderr. A sink failure cannot fail the command.
+Use Effect logging with fixed message names and scalar annotations. logging.ts creates UTC records with lowercase level, msg and detail, protects reserved fields and redacts secret-looking keys and object values. It appends JSONL to FOREMAN_LOG_FILE when set, with every log on stderr too; --json forces JSON stderr. A sink failure cannot fail the command.
 
 New network integrations own their timeout and retry policy: at most two retries with jittered backoff, retryable failures only, never after streaming output. Time-based programs use Effect Clock so TestClock can drive them.

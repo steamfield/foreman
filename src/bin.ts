@@ -34,7 +34,7 @@ const platform = Layer.mergeAll(
     listen: (path) => BunSocketServer.make({ path }),
   }),
   Host.layer({
-    name: "forman",
+    name: "foreman",
     version: metadata.version ?? "dev",
     build,
     platform: process.platform,

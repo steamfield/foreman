@@ -7,7 +7,7 @@ const npm = (args) => execFileSync("npm", args, { encoding: "utf8", stdio: ["ign
 
 function pack(source, destination) {
   mkdirSync(destination, { recursive: true });
-  const packages = [...targets.map((target) => `forman-${target}`), "forman"].map((name) => {
+  const packages = [...targets.map((target) => `foreman-${target}`), "foreman"].map((name) => {
     const [packed] = JSON.parse(npm(["pack", resolve(source, name), "--json", "--pack-destination", resolve(destination)]));
     return { name: packed.name, version: packed.version, filename: packed.filename, integrity: packed.integrity };
   });
@@ -34,7 +34,7 @@ function publishedIntegrity(spec) {
 
 function publish(directory) {
   const packages = JSON.parse(readFileSync(join(directory, "packages.json"), "utf8"));
-  const expectedNames = [...targets.map((target) => `@steamfield/forman-${target}`), "@steamfield/forman"];
+  const expectedNames = [...targets.map((target) => `@steamfield/foreman-${target}`), "@steamfield/foreman"];
   if (packages.length !== expectedNames.length || packages.some((entry, index) => entry.name !== expectedNames[index]))
     throw new Error("Release must contain all four platform packages followed by the main package.");
   for (const entry of packages) {

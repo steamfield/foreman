@@ -18,7 +18,7 @@ if (mode === "legacy") {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       if (mode === "environment")
-        yield* fs.writeFileString(`${dataDir}/log-file`, process.env.FORMAN_TEST_LOG_FILE ?? "");
+        yield* fs.writeFileString(`${dataDir}/log-file`, process.env.FOREMAN_TEST_LOG_FILE ?? "");
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
       const busy = Effect.gen(function* () {
         return (mode === "busy" || mode === "codex-busy") && !(yield* fs.exists(`${dataDir}/idle`));
@@ -60,7 +60,7 @@ if (mode === "legacy") {
           idleLimitMs: 30_000,
         }),
       );
-      while (!(yield* fs.exists(`${dataDir}/forman.sock`))) yield* Effect.yieldNow;
+      while (!(yield* fs.exists(`${dataDir}/foreman.sock`))) yield* Effect.yieldNow;
       yield* fs.writeFileString(`${dataDir}/ready`, "");
       yield* Fiber.join(running);
     }).pipe(

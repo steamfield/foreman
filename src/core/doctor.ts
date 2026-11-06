@@ -14,7 +14,7 @@ import {
 } from "../errors";
 import type { DoctorResult, RepoHookTrust } from "../schemas/doctor";
 import { Host } from "../services/host";
-import { formanExecutable } from "./command-output";
+import { foremanExecutable } from "./command-output";
 import { mainCheckout as discoverMainCheckout } from "./main-checkout";
 import { orphanWorktrees } from "./managed-worktree";
 import { hasRepoHooks, inspectHookTrust } from "./preflight/hooks";
@@ -70,7 +70,7 @@ const homePermissions = Effect.fnUntraced(
     if (info === null || info.type !== "Directory")
       return result(
         "unusable",
-        `Home or parent is not a directory: ${target}. Choose a directory for FORMAN_HOME.`,
+        `Home or parent is not a directory: ${target}. Choose a directory for FOREMAN_HOME.`,
       );
     const access = yield* fs.access(target, { readable: true, writable: true }).pipe(Effect.result);
     const searchable = yield* spawner.exitCode(
@@ -79,7 +79,7 @@ const homePermissions = Effect.fnUntraced(
     if (access._tag === "Failure" || searchable !== 0)
       return result(
         "unusable",
-        `Home or parent needs read, write and search access: ${target}. Correct its permissions or choose another FORMAN_HOME.`,
+        `Home or parent needs read, write and search access: ${target}. Correct its permissions or choose another FOREMAN_HOME.`,
       );
     if (target !== home)
       return result("missing", `Home does not exist; accessible parent: ${target}.`);
@@ -94,7 +94,7 @@ const homePermissions = Effect.fnUntraced(
     if (info.uid.value !== uid)
       return result(
         "unsafe",
-        "Home is owned by another user. Choose a FORMAN_HOME owned by your user or correct its ownership.",
+        "Home is owned by another user. Choose a FOREMAN_HOME owned by your user or correct its ownership.",
       );
     if ((info.mode & 0o077) !== 0)
       return result(
@@ -170,7 +170,7 @@ const repoHookTrust = Effect.fnUntraced(function* (
           error instanceof RepoHooksUntrusted ||
           error instanceof CodexUnavailable
             ? (error.detail ?? errorText(error))
-            : `Could not query Codex hook trust for ${mainCheckout ?? cwd} using ${JSON.stringify(config.codexBin)} (${error._tag}). Check Codex availability and version, then retry forman doctor.`,
+            : `Could not query Codex hook trust for ${mainCheckout ?? cwd} using ${JSON.stringify(config.codexBin)} (${error._tag}). Check Codex availability and version, then retry foreman doctor.`,
       }),
     ),
   );
@@ -230,7 +230,7 @@ export const doctor = Effect.fn("doctor")(function* (cwd = ".") {
     version: host.version,
     platform: host.platform,
     compiled: host.compiled,
-    formanOnPath: (yield* formanExecutable()).onPath,
+    foremanOnPath: (yield* foremanExecutable()).onPath,
     configFile: config.configFile,
     home: config.home,
     homePermissions: yield* homePermissions(config.home),

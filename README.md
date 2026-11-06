@@ -1,21 +1,21 @@
-# forman
+# foreman
 
-forman lets Claude Code delegate coding tasks to OpenAI's Codex in git worktrees. Claude reads progress, answers questions and sends corrections, then reviews the diff before committing. A local daemon keeps runs alive between CLI calls.
+foreman lets Claude Code delegate coding tasks to OpenAI's Codex in git worktrees. Claude reads progress, answers questions and sends corrections, then reviews the diff before committing. A local daemon keeps runs alive between CLI calls.
 
-forman drives `codex app-server` using your Codex ChatGPT login. It does not need an API key. The MCP wrapper is still pending.
+foreman drives `codex app-server` using your Codex ChatGPT login. It does not need an API key. The MCP wrapper is still pending.
 
 ## Install
 
-You need git, a repo with a commit and [Node 26 or newer](https://nodejs.org/en/download) for the npm launcher. Install Codex **0.166.0**, the version forman's protocol is checked against, then sign in:
+You need git, a repo with a commit and [Node 26 or newer](https://nodejs.org/en/download) for the npm launcher. Install Codex **0.166.0**, the version foreman's protocol is checked against, then sign in:
 
 ```sh
-npm i -g @steamfield/forman
+npm i -g @steamfield/foreman
 npm i -g @openai/codex@0.166.0
 codex login
-forman doctor
+foreman doctor
 ```
 
-The package supplies a native binary for macOS or Linux, arm64 or x64; keep optional dependencies enabled. You can also install with `bun add -g @steamfield/forman` or run `npx @steamfield/forman`.
+The package supplies a native binary for macOS or Linux, arm64 or x64; keep optional dependencies enabled. You can also install with `bun add -g @steamfield/foreman` or run `npx @steamfield/foreman`.
 
 Read doctor's probes even when it exits 0. It checks config, Codex, hook trust and daemon state without starting a turn or starting or replacing the daemon. If a version-manager shim fails, set `CODEX_BIN` to the actual executable.
 
@@ -24,13 +24,13 @@ Read doctor's probes even when it exits 0. It checks config, Codex, hook trust a
 Clone this repo, or use an existing checkout, and copy the skill and contract templates into your personal skills directory:
 
 ```sh
-git clone https://github.com/steamfield/forman.git
-cd forman
+git clone https://github.com/steamfield/foreman.git
+cd foreman
 mkdir -p "$HOME/.claude/skills"
-cp -R skills/forman "$HOME/.claude/skills/forman"
+cp -R skills/foreman "$HOME/.claude/skills/foreman"
 ```
 
-Open Claude Code in the repo and ask: "Use the forman skill to delegate this task to Codex, then review its work." The [skill procedure](skills/forman/SKILL.md) covers contracts and supervision.
+Open Claude Code in the repo and ask: "Use the foreman skill to delegate this task to Codex, then review its work." The [skill procedure](skills/foreman/SKILL.md) covers contracts and supervision.
 
 ## One-time repo setup
 
@@ -43,19 +43,19 @@ codex
 Trust the project if prompted. If the repo has `.codex/hooks.json`, run `/hooks` inside Codex, inspect the project hooks and approve them. Exit Codex, then run:
 
 ```sh
-forman doctor
+foreman doctor
 ```
 
-Project hooks should say `trusted` or `managed`, then `forman start will accept runs here (hook trust).` Start also validates the worktree and dependencies. Without `.codex/hooks.json`, expect `no repo hooks apply`.
+Project hooks should say `trusted` or `managed`, then `foreman start will accept runs here (hook trust).` Start also validates the worktree and dependencies. Without `.codex/hooks.json`, expect `no repo hooks apply`.
 
-Linked worktrees inside the main checkout inherit its approved hooks. Reapprove changed definitions there; hook edits in a delegated branch take effect after reaching the main checkout. forman never approves hooks or changes Codex trust.
+Linked worktrees inside the main checkout inherit its approved hooks. Reapprove changed definitions there; hook edits in a delegated branch take effect after reaching the main checkout. foreman never approves hooks or changes Codex trust.
 
 ## Your first delegation
 
-This example uses this repo, with setup complete, `forman` on `PATH` and [Bun 1.4 or newer](https://bun.sh/docs/installation) for setup and checks. Start in its main checkout with an unused name. The contract states the task, allowed edits, checks and expected report:
+This example uses this repo, with setup complete, `foreman` on `PATH` and [Bun 1.4 or newer](https://bun.sh/docs/installation) for setup and checks. Start in its main checkout with an unused name. The contract states the task, allowed edits, checks and expected report:
 
 ```sh
-contract=$(mktemp /tmp/forman-contract.XXXXXX)
+contract=$(mktemp /tmp/foreman-contract.XXXXXX)
 cat > "$contract" <<'CONTRACT'
 Clarify the doctor help description for a new user.
 - May change: `src/commands/doctor.ts`
@@ -63,10 +63,10 @@ Change description text only. Read AGENTS.md and the rules it names.
 Run bun run lint and bun run typecheck; inspect doctor --help.
 Leave changes uncommitted. Report the change, checks and open questions.
 CONTRACT
-forman start doctor-help --new-worktree --setup "bun install" --contract "$contract" --write --wait
+foreman start doctor-help --new-worktree --setup "bun install" --contract "$contract" --write --wait
 ```
 
-forman creates `.claude/worktrees/doctor-help` on `forman/doctor-help` at the caller's HEAD (`--from` selects another base). Setup runs before validation or any Codex request, with a 10-minute default limit. An explicit `--budget` sets that limit too; the turn gets its own budget afterward.
+foreman creates `.claude/worktrees/doctor-help` on `foreman/doctor-help` at the caller's HEAD (`--from` selects another base). Setup runs before validation or any Codex request, with a 10-minute default limit. An explicit `--budget` sets that limit too; the turn gets its own budget afterward.
 
 `--write` gives Codex full host access, including commands and network, with your filtered inherited environment. The default is read-only.
 
@@ -75,8 +75,8 @@ forman creates `.claude/worktrees/doctor-help` on `forman/doctor-help` at the ca
 Wait prints questions with their ids. Answer or defer the actual id; these are alternatives when `q1` is pending:
 
 ```sh
-forman answer doctor-help q1 "Keep the description to one sentence." --wait
-forman defer doctor-help q1 "Waiting for a person to decide." --wait
+foreman answer doctor-help q1 "Keep the description to one sentence." --wait
+foreman defer doctor-help q1 "Waiting for a person to decide." --wait
 ```
 
 Deferral releases the tool call and tells Codex to continue independent work, avoid irreversible steps on the decision and list it under Open. Timeout does the same after 15 minutes by default. You can answer later, even after the turn ends.
@@ -84,7 +84,7 @@ Deferral releases the tool call and tells Codex to continue independent work, av
 A `done` outcome means the turn ended. Read its hand-off and inspect the work yourself:
 
 ```sh
-forman result doctor-help
+foreman result doctor-help
 git -C .claude/worktrees/doctor-help diff
 git -C .claude/worktrees/doctor-help status --short
 ```
@@ -92,29 +92,29 @@ git -C .claude/worktrees/doctor-help status --short
 Check new files as well as the diff. To return a review finding to Codex, send a follow-up on the inactive run:
 
 ```sh
-forman followup doctor-help "Keep the help to one sentence and mention repo hook trust. Run lint and typecheck again." --wait
-forman result doctor-help
+foreman followup doctor-help "Keep the help to one sentence and mention repo hook trust. Run lint and typecheck again." --wait
+foreman result doctor-help
 ```
 
 Review the revised diff too. For this repo, run the gate and inspect the rebuilt help from the delegated worktree:
 
 ```sh
-(cd .claude/worktrees/doctor-help && bun run check && ./dist/forman doctor --help)
+(cd .claude/worktrees/doctor-help && bun run check && ./dist/foreman doctor --help)
 ```
 
-Commit there and merge into the source branch when you accept the work. forman does not commit or merge for you.
+Commit there and merge into the source branch when you accept the work. foreman does not commit or merge for you.
 
 After the work is merged and the worktree is clean:
 
 ```sh
-forman archive doctor-help
+foreman archive doctor-help
 ```
 
-Archive preserves records and frees the name. Managed cleanup requires a clean worktree with no untracked files, and a branch with no new commits or a tip merged into its source branch. Use `forman archive doctor-help --keep-worktree` to retain unfinished work. Status and doctor report existing worktrees under `<main>/.claude/worktrees/` on `forman/*` branches when no current run record refers to them. Retained worktrees elsewhere are not reported as orphans.
+Archive preserves records and frees the name. Managed cleanup requires a clean worktree with no untracked files, and a branch with no new commits or a tip merged into its source branch. Use `foreman archive doctor-help --keep-worktree` to retain unfinished work. Status and doctor report existing worktrees under `<main>/.claude/worktrees/` on `foreman/*` branches when no current run record refers to them. Retained worktrees elsewhere are not reported as orphans.
 
 ## Supervise a run
 
-Names are global within `FORMAN_HOME`. Unnamed `status` and `wait --all` select the current repo and linked worktrees. Concurrent runs need separate worktrees.
+Names are global within `FOREMAN_HOME`. Unnamed `status` and `wait --all` select the current repo and linked worktrees. Concurrent runs need separate worktrees.
 
 | Situation | Command and behavior |
 | --- | --- |
@@ -135,18 +135,18 @@ Without `--wait`, the other commands normally print `ok` and a command to wait f
 
 Interrupting start preflight instead returns `Ok`, without a cursor or wait, even with `--wait`. A queued answer's cursor tracks its own delivered turn.
 
-Use the printed `next:` command. A question suggests `answer`, or `defer` while pending; replace the answer placeholder with your decision. Ordinary wait continuations use `--after` to avoid repeated attention and preserve an explicit timeout. A mutation without `--wait` does not carry its timeout into `next:`. Commands use `forman` if it resolves to the running executable on `PATH`, otherwise an absolute invocation, and prefix FORMAN_HOME only for a nondefault home.
+Use the printed `next:` command. A question suggests `answer`, or `defer` while pending; replace the answer placeholder with your decision. Ordinary wait continuations use `--after` to avoid repeated attention and preserve an explicit timeout. A mutation without `--wait` does not carry its timeout into `next:`. Commands use `foreman` if it resolves to the running executable on `PATH`, otherwise an absolute invocation, and prefix FOREMAN_HOME only for a nondefault home.
 
-`--budget` defaults to 60 minutes per working turn. On expiry, forman interrupts, then requests a read-only hand-off with a separate 10-minute budget. The run ends interrupted; the next follow-up restores its configured sandbox. A hand-off is not guaranteed if Codex or supervision fails.
+`--budget` defaults to 60 minutes per working turn. On expiry, foreman interrupts, then requests a read-only hand-off with a separate 10-minute budget. The run ends interrupted; the next follow-up restores its configured sandbox. A hand-off is not guaranteed if Codex or supervision fails.
 
 ## Command reference
 
-All commands accept `--json` and `--help`. Commands below follow `forman`; angle brackets mark values to supply. Answer, steer and followup require one message argument or `--file`.
+All commands accept `--json` and `--help`. Commands below follow `foreman`; angle brackets mark values to supply. Answer, steer and followup require one message argument or `--file`.
 
 | Command | Purpose |
 | --- | --- |
 | `start <name> --new-worktree --contract <file>` | Create a worktree and start; accepts `--from`, `--setup`, `--write`, `--model`, `--effort`, `--tier`, `--budget`, `--question-timeout`, `--skip-deps-check` |
-| `start <name> --worktree <path> --contract <file>` | Use a prepared linked worktree inside the main checkout; forman never removes it or its branch |
+| `start <name> --worktree <path> --contract <file>` | Use a prepared linked worktree inside the main checkout; foreman never removes it or its branch |
 | `status [<name>]` | Full digest for one run, or a line per run in the group; both JSON forms return `Digests` |
 | `events <name> [--after <n>] [--limit <n>] [--verbose]` | Read up to 100 stored events by default. Text hides protocol chatter and token usage unless `--verbose` is set. JSON includes every event in the selected page. |
 | `answer <name> <question-id> [<text>] [--file <path>]` | Answer now, send a late answer or correct a previous answer |
@@ -199,22 +199,22 @@ Failures leave stdout empty and report on stderr. With `--json`, the last stderr
 
 ## Configuration, state and logs
 
-Environment settings take precedence over `$FORMAN_HOME/config.json`, then defaults. The file accepts only `codexBin` and `logLevel`; unknown keys make it invalid. The CLI never reads `.env`. See [.env.example](.env.example).
+Environment settings take precedence over `$FOREMAN_HOME/config.json`, then defaults. The file accepts only `codexBin` and `logLevel`; unknown keys make it invalid. The CLI never reads `.env`. See [.env.example](.env.example).
 
 | Variable | Config key | Default |
 | --- | --- | --- |
-| `FORMAN_HOME` | | `~/.forman` |
+| `FOREMAN_HOME` | | `~/.foreman` |
 | `CODEX_BIN` | `codexBin` | `codex`, resolved through `PATH` |
 | `CODEX_HOME` | | `~/.codex` |
 | `LOG_LEVEL` | `logLevel` | `warn`; accepts `trace`, `debug`, `info`, `warn`, `error`, `fatal`, `none` |
-| `FORMAN_LOG_FORMAT` | | Pretty stderr; `json` selects JSON lines |
-| `FORMAN_LOG_FILE` | | No additional CLI file; overrides the daemon JSON log path when set |
+| `FOREMAN_LOG_FORMAT` | | Pretty stderr; `json` selects JSON lines |
+| `FOREMAN_LOG_FILE` | | No additional CLI file; overrides the daemon JSON log path when set |
 
 Relative paths resolve from the caller's directory. Start defaults to the newest visible `gpt-*-sol` in Codex's cache (fallback `gpt-6.1-sol`), `high` effort and `priority` tier.
 
-`FORMAN_HOME` holds the socket, ownership files, logs and `runs/<name>/` records, with home mode `0700`. Use a local filesystem with advisory locking; the socket path must fit within 104 bytes. Question and event lines use storage format **2**; older binaries refuse those runs.
+`FOREMAN_HOME` holds the socket, ownership files, logs and `runs/<name>/` records, with home mode `0700`. Use a local filesystem with advisory locking; the socket path must fit within 104 bytes. Question and event lines use storage format **2**; older binaries refuse those runs.
 
-Daemon diagnostics are in `logs/daemon.jsonl`, app-server stderr in `logs/app-server.log`; both rotate past 5 MB. CLI logs use stderr and optionally `FORMAN_LOG_FILE`. Command records use debug on success, error on failure, filtered by `LOG_LEVEL`. The [architecture doc](docs/architecture.md) details storage and the child environment, which removes API key/base overrides and adds delegate markers.
+Daemon diagnostics are in `logs/daemon.jsonl`, app-server stderr in `logs/app-server.log`; both rotate past 5 MB. CLI logs use stderr and optionally `FOREMAN_LOG_FILE`. Command records use debug on success, error on failure, filtered by `LOG_LEVEL`. The [architecture doc](docs/architecture.md) details storage and the child environment, which removes API key/base overrides and adds delegate markers.
 
 ## Upgrade
 
@@ -223,14 +223,14 @@ Update with your installation method. For a source install, rebuild and replace 
 ```sh
 bun install
 bun run build
-cp dist/forman "$HOME/.local/bin/forman.new" && mv -f "$HOME/.local/bin/forman.new" "$HOME/.local/bin/forman"
+cp dist/foreman "$HOME/.local/bin/foreman.new" && mv -f "$HOME/.local/bin/foreman.new" "$HOME/.local/bin/foreman"
 ```
 
 On macOS, copying over an existing binary can get it killed (exit 137) because the kernel caches its code signature by inode.
 
 With one CLI build in use, the next run command replaces an idle outdated daemon with that build. An outdated busy daemon keeps serving its runs; the CLI prints a notice and retries replacement on a later call after they finish. Stop polling loops that still use an older executable: they can replace an idle new daemon with the old build again.
 
-While an outdated daemon is busy, managed starts and `defer` are refused. Answers are allowed only for questions the old daemon still reports as pending; late answers and corrections are refused. Finish its runs before using those features. `forman daemon stop` explicitly stops an idle daemon without starting a replacement, and succeeds if none is running. It refuses while runs, preflight or queued answers need the daemon. Doctor only reports the build comparison; it does not trigger replacement.
+While an outdated daemon is busy, managed starts and `defer` are refused. Answers are allowed only for questions the old daemon still reports as pending; late answers and corrections are refused. Finish its runs before using those features. `foreman daemon stop` explicitly stops an idle daemon without starting a replacement, and succeeds if none is running. It refuses while runs, preflight or queued answers need the daemon. Doctor only reports the build comparison; it does not trigger replacement.
 
 ## Build and contribute
 
@@ -239,15 +239,15 @@ With Bun 1.4 or newer, build from this checkout:
 ```sh
 bun install
 bun run build
-./dist/forman --version
-./dist/forman doctor
+./dist/foreman --version
+./dist/foreman doctor
 ```
 
 Install the binary on `PATH` using a new file and rename, including when replacing an earlier build:
 
 ```sh
 mkdir -p "$HOME/.local/bin"
-cp dist/forman "$HOME/.local/bin/forman.new" && mv -f "$HOME/.local/bin/forman.new" "$HOME/.local/bin/forman"
+cp dist/foreman "$HOME/.local/bin/foreman.new" && mv -f "$HOME/.local/bin/foreman.new" "$HOME/.local/bin/foreman"
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
@@ -257,15 +257,15 @@ Keep PATH in your shell's startup file. The rename avoids the macOS issue under 
 
 ### Smoke tests
 
-After building, `FORMAN_SMOKE=1 bun run smoke` uses your real Codex login and plan in temporary repos, with low-effort turns and daemon cleanup. Without the flag it skips. Smoke is excluded from check, hooks and CI.
+After building, `FOREMAN_SMOKE=1 bun run smoke` uses your real Codex login and plan in temporary repos, with low-effort turns and daemon cleanup. Without the flag it skips. Smoke is excluded from check, hooks and CI.
 
-Enable the question hold with `FORMAN_SMOKE=1 FORMAN_SMOKE_LONG=1 bun run smoke` (15-minute timeout, 16-minute hold), or use `FORMAN_SMOKE_SHORT=1` instead of `FORMAN_SMOKE_LONG=1` (one-minute timeout, two-minute hold). Its separate Bun config preserves the login. Typecheck with `bunx tsc --noEmit --project smoke/tsconfig.json`.
+Enable the question hold with `FOREMAN_SMOKE=1 FOREMAN_SMOKE_LONG=1 bun run smoke` (15-minute timeout, 16-minute hold), or use `FOREMAN_SMOKE_SHORT=1` instead of `FOREMAN_SMOKE_LONG=1` (one-minute timeout, two-minute hold). Its separate Bun config preserves the login. Typecheck with `bunx tsc --noEmit --project smoke/tsconfig.json`.
 
 ### Releasing
 
-Bump `version` and all four platform `optionalDependencies` versions in `package.json`, then run `bun install` to update the lockfile. Commit and push a matching `vX.Y.Z` tag. The release workflow verifies the version, runs lint, typecheck, coverage and e2e, builds four platform packages and publishes them before `@steamfield/forman`, with npm provenance. It needs the `NPM_TOKEN` repository secret.
+Bump `version` and all four platform `optionalDependencies` versions in `package.json`, then run `bun install` to update the lockfile. Commit and push a matching `vX.Y.Z` tag. The release workflow verifies the version, runs lint, typecheck, coverage and e2e, builds four platform packages and publishes them before `@steamfield/foreman`, with npm provenance. It needs the `NPM_TOKEN` repository secret.
 
-`bun run build:npm` builds packages under `dist/npm/`; `bun run build --npm-host` builds only the host platform and main package. Inspect each generated package with `npm publish --dry-run --access public` from its directory. The main package is `dist/npm/forman`; its manifest omits development dependencies and lifecycle scripts.
+`bun run build:npm` builds packages under `dist/npm/`; `bun run build --npm-host` builds only the host platform and main package. Inspect each generated package with `npm publish --dry-run --access public` from its directory. The main package is `dist/npm/foreman`; its manifest omits development dependencies and lifecycle scripts.
 
 ## License
 

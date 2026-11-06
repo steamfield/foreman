@@ -3,8 +3,8 @@
 <!-- Claude: copy to a scratch file outside the worktree, fill task placeholders and remove
 this comment and inapplicable sections. Leave REVIEW DIR for the delegate's mktemp output.
 Choose a visible model, fill REVIEW MODEL with its
-literal name, pass the same name to forman start --model, and confirm the digest's run: header.
-Start with forman start <name> --worktree <path> --contract <this-file> --write --model <model>.
+literal name, pass the same name to foreman start --model, and confirm the digest's run: header.
+Start with foreman start <name> --worktree <path> --contract <this-file> --write --model <model>.
 Run the printed next: wait command in the background and follow each subsequent next: command. -->
 
 You are working in a git worktree for an orchestrator who reviews, refactors and commits your

@@ -66,7 +66,7 @@ export const openConnection = Effect.fn("codex.openConnection")(function* (
     .pipe(
       Effect.mapError(() =>
         unavailable(
-          `Could not launch ${JSON.stringify(options.codexBin)}. Install Codex or set CODEX_BIN to an executable, then run forman doctor.`,
+          `Could not launch ${JSON.stringify(options.codexBin)}. Install Codex or set CODEX_BIN to an executable, then run foreman doctor.`,
         ),
       ),
     );
@@ -206,7 +206,7 @@ export const openConnection = Effect.fn("codex.openConnection")(function* (
   yield* request(
     Method.initialize,
     {
-      clientInfo: { name: "forman", title: "forman", version: options.version },
+      clientInfo: { name: "foreman", title: "foreman", version: options.version },
       capabilities: { experimentalApi: true },
     },
     Schema.Unknown,

@@ -62,7 +62,7 @@ it.live("failed worktree add preserves a racing foreign worktree and its dirty f
 fi`);
     yield* createWorktree(f.repo, name).pipe(Effect.flip);
     expect(yield* f.fs.readFileString(`${f.worktree}/foreign.txt`)).toBe("keep");
-    expect((yield* f.git(["branch", "--list", "forman/unit"])).stdout).toBe("");
+    expect((yield* f.git(["branch", "--list", "foreman/unit"])).stdout).toBe("");
     expect((yield* f.git(["symbolic-ref", "--short", "HEAD"], f.worktree)).stdout.trim()).toBe(
       "foreign",
     );
@@ -93,13 +93,13 @@ it.live.each(["dirty", "committed", "branch", "replacement"] as const)(
       if (kind === "branch") yield* f.git(["checkout", "-qb", "other"], f.worktree);
       if (kind === "replacement") {
         yield* f.git(["worktree", "remove", f.worktree]);
-        yield* f.git(["worktree", "add", f.worktree, "forman/unit"]);
+        yield* f.git(["worktree", "add", f.worktree, "foreman/unit"]);
       }
-      const before = (yield* f.git(["rev-parse", "refs/heads/forman/unit"])).stdout;
+      const before = (yield* f.git(["rev-parse", "refs/heads/foreman/unit"])).stdout;
       const result = yield* removeCreatedWorktree(created).pipe(Effect.result);
       expect(result._tag).toBe("Failure");
       expect(yield* f.fs.exists(f.worktree)).toBe(true);
-      expect((yield* f.git(["rev-parse", "refs/heads/forman/unit"])).stdout).toBe(before);
+      expect((yield* f.git(["rev-parse", "refs/heads/foreman/unit"])).stdout).toBe(before);
       if (kind === "dirty")
         expect(yield* f.fs.readFileString(`${f.worktree}/work.txt`)).toBe("keep");
     }).pipe(Effect.provide(NodeServices.layer)),
@@ -124,16 +124,16 @@ it.live(
         "concurrent",
       ])).stdout.trim();
       yield* f.inject(
-        `if [ "$1" = worktree ] && [ "$2" = remove ]; then '${f.realGit}' -C '${f.repo}' update-ref refs/heads/forman/unit '${next}'; fi`,
+        `if [ "$1" = worktree ] && [ "$2" = remove ]; then '${f.realGit}' -C '${f.repo}' update-ref refs/heads/foreman/unit '${next}'; fi`,
       );
       const error = yield* rollbackOnFailure(
         created,
         Effect.fail(new WorktreeInvalid({ detail: "preflight refused" })),
       ).pipe(Effect.flip);
       assert.instanceOf(error, WorktreeInvalid);
-      expect(error.detail).toContain("refs/heads/forman/unit");
+      expect(error.detail).toContain("refs/heads/foreman/unit");
       expect(error.detail).not.toContain(`Rollback retained ${f.worktree}`);
       expect(yield* f.fs.exists(f.worktree)).toBe(false);
-      expect((yield* f.git(["rev-parse", "refs/heads/forman/unit"])).stdout.trim()).toBe(next);
+      expect((yield* f.git(["rev-parse", "refs/heads/foreman/unit"])).stdout.trim()).toBe(next);
     }).pipe(Effect.provide(NodeServices.layer)),
 );

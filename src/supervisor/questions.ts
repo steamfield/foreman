@@ -13,7 +13,7 @@ export const makeQuestions = Effect.fn("supervisor.questions")(function* (regist
     const question = lines.find((line) => line._tag === "Asked" && line.id === id);
     if (question?._tag !== "Asked")
       return yield* new RunNotFound({
-        detail: `No question ${id} in run ${run.record.name}; run forman status ${run.record.name} to see its questions.`,
+        detail: `No question ${id} in run ${run.record.name}; run foreman status ${run.record.name} to see its questions.`,
       });
     const pending = Store.pendingQuestions(lines);
     const open = pending.some((question) => question.id === id);
@@ -68,7 +68,7 @@ export const makeQuestions = Effect.fn("supervisor.questions")(function* (regist
     const lines = yield* Store.readQuestions(run.dir);
     if (!lines.some((line) => line._tag === "Asked" && line.id === id))
       return yield* new RunNotFound({
-        detail: `No question ${id} in run ${run.record.name}; run forman status ${run.record.name} to see its questions.`,
+        detail: `No question ${id} in run ${run.record.name}; run foreman status ${run.record.name} to see its questions.`,
       });
     const rpc = run.calls.get(id);
     if (
@@ -77,7 +77,7 @@ export const makeQuestions = Effect.fn("supervisor.questions")(function* (regist
       !Store.pendingQuestions(lines).some((q) => q.id === id)
     )
       return yield* new RunConflict({
-        detail: `${id} in run ${run.record.name} is no longer pending; run forman status ${run.record.name} before retrying.`,
+        detail: `${id} in run ${run.record.name} is no longer pending; run foreman status ${run.record.name} before retrying.`,
       });
     yield* Effect.gen(function* () {
       yield* rpc.server.connection.respond(rpc.id, {

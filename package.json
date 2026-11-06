@@ -1,14 +1,14 @@
 {
-  "name": "@steamfield/forman",
+  "name": "@steamfield/foreman",
   "version": "0.1.0",
   "description": "Delegate coding tasks to Codex and supervise them from the command line",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/steamfield/forman.git"
+    "url": "git+https://github.com/steamfield/foreman.git"
   },
-  "homepage": "https://github.com/steamfield/forman#readme",
-  "bugs": "https://github.com/steamfield/forman/issues",
+  "homepage": "https://github.com/steamfield/foreman#readme",
+  "bugs": "https://github.com/steamfield/foreman/issues",
   "keywords": [
     "cli",
     "codex",
@@ -16,18 +16,18 @@
     "worktree"
   ],
   "bin": {
-    "forman": "npm/forman.cjs"
+    "foreman": "npm/foreman.cjs"
   },
   "files": [
-    "npm/forman.cjs",
+    "npm/foreman.cjs",
     "LICENSE",
     "README.md"
   ],
   "optionalDependencies": {
-    "@steamfield/forman-darwin-arm64": "0.1.0",
-    "@steamfield/forman-darwin-x64": "0.1.0",
-    "@steamfield/forman-linux-x64": "0.1.0",
-    "@steamfield/forman-linux-arm64": "0.1.0"
+    "@steamfield/foreman-darwin-arm64": "0.1.0",
+    "@steamfield/foreman-darwin-x64": "0.1.0",
+    "@steamfield/foreman-linux-x64": "0.1.0",
+    "@steamfield/foreman-linux-arm64": "0.1.0"
   },
   "type": "module",
   "scripts": {
