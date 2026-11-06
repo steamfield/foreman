@@ -191,7 +191,20 @@ it("seeded stress: concurrent delegations recover from daemon SIGKILL and app-se
         ["events.jsonl", RunEvent],
         ["questions.jsonl", QuestionLine],
       ] as const) {
-        const text = await readFile(`${data}/runs/${digest.name}/${file}`, "utf8");
+        // questions.jsonl appears with a run's first question. On a slow machine the seeded
+        // interrupt can stop the app server before a run asks one; readers treat that as empty.
+        const text = await readFile(`${data}/runs/${digest.name}/${file}`, "utf8").catch(
+          (error: unknown) => {
+            if (
+              file === "questions.jsonl" &&
+              error instanceof Error &&
+              "code" in error &&
+              error.code === "ENOENT"
+            )
+              return "";
+            throw error;
+          },
+        );
         expect(text === "" || text.endsWith("\n")).toBe(true);
         for (const line of text.trim().split("\n").filter(Boolean))
           Schema.decodeUnknownSync(Schema.fromJsonString(schema))(line);
