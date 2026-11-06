@@ -2,15 +2,25 @@
 
 forman lets Claude Code hand coding tasks to OpenAI's Codex and supervise them while they run. Claude starts a Codex agent in a git worktree, reads its progress, steers or interrupts it, and answers questions Codex asks mid-turn. A local daemon keeps runs alive between CLI calls. forman drives `codex app-server` over JSON-RPC using your existing Codex ChatGPT login; it never needs an OpenAI API key.
 
+## Install
+
+```sh
+npm i -g @steamfield/forman
+```
+
+Or use `bun add -g @steamfield/forman` or `npx @steamfield/forman`. The package installs a native binary for macOS or Linux on arm64 or x64. npm installs and npx need Node 26 or newer; Bun is only needed to build from source or install with Bun. Keep optional dependencies enabled so the matching binary package is installed.
+
+After upgrading, run `forman daemon stop` to stop the old build. Stop refuses while any run is active; finish or interrupt those runs first. The next run command starts the new daemon.
+
 ## Requirements
 
-- Node 26 or newer, Bun 1.4 or newer, and git.
+- git, and Node 26 or newer when using the npm launcher.
 - Codex CLI 0.166.0, signed in with `codex login`. This is the version forman's protocol schemas were recorded against. `forman doctor` reports protocol compatibility.
 - A git repo with a commit and a linked worktree inside its main checkout. Install the delegated repo's dependencies in that worktree before starting.
 
-## Install and build
+## Build from source
 
-From this checkout:
+With Bun 1.4 or newer, from this checkout:
 
 ```sh
 bun install
@@ -27,7 +37,7 @@ cp dist/forman "$HOME/.local/bin/forman"
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-Keep that `PATH` setting in your shell's startup file. Rebuild and copy the binary after updating this checkout, then run `forman daemon stop` to stop the old build. Stop refuses while any run is active and names those runs; finish or interrupt them first. With no daemon running it succeeds without starting one. The next run command starts the rebuilt daemon. npm publishing is pending. For development, `bun run dev <args>` runs from source, with separate state under `.dev/home` and logs under `logs/`. Optional lefthook git hooks install during `bun install` if lefthook is available (`brew install lefthook` on macOS).
+Keep that `PATH` setting in your shell's startup file. Rebuild and copy the binary after updating this checkout, then run `forman daemon stop` to stop the old build. Stop refuses while any run is active and names those runs; finish or interrupt them first. With no daemon running it succeeds without starting one. The next run command starts the rebuilt daemon. For development, `bun run dev <args>` runs from source, with separate state under `.dev/home` and logs under `logs/`. Optional lefthook git hooks install during `bun install` if lefthook is available (`brew install lefthook` on macOS).
 
 `doctor` succeeds even when configuration or a Codex probe is unavailable, so read its output. It reports config paths, the resolved Codex executable, Codex version, protocol match, login, daemon state and repo hook trust. For a running daemon it reports `build` and `buildMatches` in JSON, with the build and its match to this CLI in text; both are unknown (null in JSON) for an old daemon without a build identity. Each probe has a 5-second execution timeout. Unavailable Codex checks are null in JSON; repo hook probe failures have state `unknown`. It never starts or replaces the daemon or starts a Codex turn.
 
@@ -151,7 +161,7 @@ Failures leave stdout empty and report once on stderr. With `--json`, the final 
 
 ## Configuration
 
-Settings come from environment variables, then the optional file `$FORMAN_HOME/config.json` (default `~/.forman/config.json`), then defaults. The CLI never reads `.env`; `.env.example` lists the variables. Config and data under the old XDG paths (`~/.config/forman`, `~/.local/share/forman`) or `FORMAN_DATA_DIR` are not read.
+Settings come from environment variables, then the optional file `$FORMAN_HOME/config.json` (default `~/.forman/config.json`), then defaults. The CLI never reads `.env`; `.env.example` lists the variables. Config and data from earlier layouts are not read.
 
 | Variable | Config key | Default | Meaning |
 | --- | --- | --- | --- |
@@ -206,11 +216,18 @@ The long question hold is separately enabled with `FORMAN_SMOKE=1 FORMAN_SMOKE_L
 | `bun run coverage` | Unit suite with coverage |
 | `bun run e2e` | Build, then test the compiled binary |
 | `bun run build` | Compile `dist/forman` |
+| `bun run build:npm` | Cross-compile all four platform packages under `dist/npm/` |
 | `bun run check` | lint, typecheck, test and e2e |
 | `bun run clean` | Remove build, test and log output |
 
-The MCP wrapper, npm publishing and release workflow are pending.
+The MCP wrapper is pending.
+
+## Releasing
+
+Bump `version` and all four `optionalDependencies` versions in `package.json`, then run `bun install` to update the lockfile. Commit the change and push a matching `vX.Y.Z` tag. `.github/workflows/release.yml` checks the tag against the version, runs the full checks, builds all four platforms and publishes the platform packages before `@steamfield/forman`, with npm provenance.
+
+The workflow needs an `NPM_TOKEN` repository secret with permission to publish the packages under `@steamfield`. npm trusted publishing can replace the token once configured for each package and this workflow. To inspect packages locally, run `bun run build:npm`, then `npm publish --dry-run --access public` in each `dist/npm/*` directory. The main package is `dist/npm/forman`; its generated manifest omits development dependencies and lifecycle scripts.
 
 ## License
 
-To be decided.
+MIT. See [LICENSE](LICENSE).

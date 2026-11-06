@@ -27,7 +27,7 @@ const metadata = Schema.decodeUnknownSync(PackageInfo)(
   JSON.parse(await readFile("package.json", "utf8")),
 );
 
-const binary = resolve("dist", metadata.name);
+const binary = resolve("dist", "forman");
 
 async function waitForExit(pid: number) {
   const deadline = Date.now() + 5000;
@@ -243,7 +243,7 @@ async function buildCopy(root: string) {
       new Response(child.stderr).text(),
     ]);
     expect({ status, stdout, stderr }).toMatchObject({ status: 0 });
-    return join(project, "dist", metadata.name);
+    return join(project, "dist", "forman");
   };
   return { project, rebuild };
 }
@@ -255,7 +255,7 @@ test("compiled identities survive identical rebuilds and replace idle daemons af
   const run = async (args: string[], fromSource = false) => {
     const executable = fromSource
       ? [process.execPath, join(project, "src/bin.ts")]
-      : [join(project, "dist", metadata.name)];
+      : [join(project, "dist", "forman")];
     const child = Bun.spawn([...executable, ...args], {
       cwd: root,
       env,
@@ -562,7 +562,7 @@ test("one question delegation takes exactly two calls using printed attention", 
 
 test("compiled output, config precedence, log records, errors, and no dotenv autoload", async () => {
   const home = await mkdtemp(join(tmpdir(), "cli-binary-"));
-  const prefix = metadata.name.toUpperCase().replace(/[^A-Z0-9]/g, "_");
+  const prefix = "FORMAN";
   try {
     const config = join(home, ".forman");
     const log = join(home, "cli.jsonl");
@@ -598,7 +598,7 @@ test("compiled output, config precedence, log records, errors, and no dotenv aut
     const result = await run(["doctor", "--json"]);
     expect(result.status).toBe(0);
     expect(Schema.decodeUnknownSync(DoctorResult)(JSON.parse(result.stdout))).toMatchObject({
-      name: metadata.name,
+      name: "forman",
       version: metadata.version ?? "dev",
       compiled: true,
       codexBin: join(home, "file-codex"),
@@ -655,7 +655,7 @@ test("compiled output, config precedence, log records, errors, and no dotenv aut
       expect(output.status).toBe(0);
       expect(output.stderr).toBe("");
       expect(output.stdout).toContain(
-        args[0] === "--version" ? (metadata.version ?? "dev") : metadata.name,
+        args[0] === "--version" ? (metadata.version ?? "dev") : "forman",
       );
       if (args[0] === "--help") {
         for (const command of [

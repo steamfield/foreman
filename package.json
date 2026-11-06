@@ -1,10 +1,39 @@
 {
-  "name": "forman",
-  "private": true,
+  "name": "@steamfield/forman",
+  "version": "0.1.0",
+  "description": "Delegate coding tasks to Codex and supervise them from the command line",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/steamfield/forman.git"
+  },
+  "homepage": "https://github.com/steamfield/forman#readme",
+  "bugs": "https://github.com/steamfield/forman/issues",
+  "keywords": [
+    "cli",
+    "codex",
+    "agents",
+    "worktree"
+  ],
+  "bin": {
+    "forman": "npm/forman.cjs"
+  },
+  "files": [
+    "npm/forman.cjs",
+    "LICENSE",
+    "README.md"
+  ],
+  "optionalDependencies": {
+    "@steamfield/forman-darwin-arm64": "0.1.0",
+    "@steamfield/forman-darwin-x64": "0.1.0",
+    "@steamfield/forman-linux-x64": "0.1.0",
+    "@steamfield/forman-linux-arm64": "0.1.0"
+  },
   "type": "module",
   "scripts": {
     "dev": "bun scripts/dev.ts",
     "build": "bun scripts/build.ts",
+    "build:npm": "bun scripts/build.ts --all",
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",
     "format": "biome check --write .",
@@ -18,17 +47,15 @@
     "clean": "rm -rf dist coverage logs .dev",
     "prepare": "bun scripts/prepare.ts"
   },
-  "dependencies": {
-    "@effect/platform-bun": "^4.1.2",
-    "effect": "^4.1.2"
-  },
   "devDependencies": {
     "@biomejs/biome": "^2.6.5",
+    "@effect/platform-bun": "^4.1.2",
     "@effect/platform-node": "^4.1.2",
     "@effect/vitest": "^4.1.2",
     "@types/bun": "^1.4.4",
     "@types/node": "^26.6.6",
     "@vitest/coverage-v8": "^5.1.0",
+    "effect": "^4.1.2",
     "typescript": "^7.0.2",
     "vitest": "^5.1.0"
   },
