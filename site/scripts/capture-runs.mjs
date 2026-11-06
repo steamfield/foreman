@@ -1,14 +1,21 @@
 #!/usr/bin/env node
 // Export forman run records into scrubbed fixtures the page replays.
 //
-//   node scripts/capture-runs.mjs <run-name>...
+//   node scripts/capture-runs.mjs <run-name>[:<transcript>]...
 //
 // Reads $FORMAN_HOME/runs/<name>/ (default ~/.forman) and writes
 // fixtures/runs/<name>.json. It also captures `forman status <name>` as the
-// digest. Home paths, the worktree prefix and temp directories are scrubbed;
+// digest, or reads it from a saved `start --wait` transcript (needed once the run is
+// archived, and to keep the scope check from before the work was committed). Home paths, the worktree prefix and temp directories are scrubbed;
 // the output is reviewed by hand before committing.
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { join } from "node:path";
 
@@ -69,8 +76,35 @@ function readJsonl(path) {
     .map((line) => JSON.parse(line));
 }
 
-function exportRun(name) {
-  const dir = join(home, "runs", name);
+// A run archived by `forman archive` lives in runs/.archive/<name>-<timestamp>/.
+function runDir(name) {
+  const live = join(home, "runs", name);
+  if (existsSync(live)) return live;
+  const archive = join(home, "runs", ".archive");
+  const match = readdirSync(archive)
+    .filter((entry) => entry.startsWith(`${name}-`))
+    .sort()
+    .at(-1);
+  if (!match) throw new Error(`No run or archived run named ${name}`);
+  return join(archive, match);
+}
+
+// The digest block a `start --wait` or `wait` transcript printed for this run.
+function digestFromTranscript(name, file) {
+  const lines = readFileSync(file, "utf8").split("\n");
+  const start = lines.findIndex((line) =>
+    line.startsWith(`run:       ${name} `),
+  );
+  const end = lines.findIndex(
+    (line, i) => i > start && line.startsWith("tokens:"),
+  );
+  if (start < 0 || end < 0) throw new Error(`No digest for ${name} in ${file}`);
+  return `${lines.slice(start, end + 1).join("\n")}\n`;
+}
+
+function exportRun(arg) {
+  const [name, transcript] = arg.split(":");
+  const dir = runDir(name);
   const run = JSON.parse(readFileSync(join(dir, "run.json"), "utf8"));
   const scrub = scrubber(run);
   const start = Date.parse(run.createdAt);
@@ -165,7 +199,9 @@ function exportRun(name) {
   }));
 
   const handoffPath = join(dir, "turns", "1.md");
-  const digest = execFileSync("forman", ["status", name], { encoding: "utf8" });
+  const digest = transcript
+    ? digestFromTranscript(name, transcript)
+    : execFileSync("forman", ["status", name], { encoding: "utf8" });
 
   const fixture = {
     name,

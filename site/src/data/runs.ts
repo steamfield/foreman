@@ -6,6 +6,8 @@ import fixSupervisor from "../../fixtures/runs/fix-supervisor.json";
 import fixWorktrees from "../../fixtures/runs/fix-worktrees.json";
 import siteCommands from "../../fixtures/runs/site-commands.json";
 import siteConsole from "../../fixtures/runs/site-console.json";
+import siteE2e from "../../fixtures/runs/site-e2e.json";
+import siteSession from "../../fixtures/runs/site-session.json";
 
 /** forman's run states, as `StateChanged` events report them. */
 export type RunState =
@@ -104,8 +106,13 @@ export const releaseRuns = [
   fixWorktrees,
 ] as Run[];
 
-/** Delegates that built this page: the command tabs (sol) and the hero replay (astra). */
-export const siteRuns = [siteCommands, siteConsole] as Run[];
+/** Delegates that built this page: command tabs (sol), hero replay and session diagram (astra), browser tests (terra). */
+export const siteRuns = [
+  siteCommands,
+  siteConsole,
+  siteSession,
+  siteE2e,
+] as Run[];
 
 export function loadRun(name: string): Run {
   const run = [...releaseRuns, ...siteRuns].find((r) => r.name === name);
