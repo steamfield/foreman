@@ -17,6 +17,20 @@ const Rpc = Schema.Struct({
   result: Schema.optionalKey(Schema.Unknown),
 });
 
+export function nextCommand(text: string, executable: string) {
+  const line = text.trimEnd().split("\n").at(-1);
+  if (!line?.startsWith("next: ")) throw new Error("Missing printed next command");
+  const tokens = execFileSync(
+    "/bin/sh",
+    ["-c", `set -- ${line.slice("next: ".length)}; printf '%s\\0' "$@"`],
+    { encoding: "utf8" },
+  ).split("\0");
+  tokens.pop();
+  expect(["forman", executable]).toContain(tokens.shift() ?? "");
+  expect(tokens[0]).toBe("wait");
+  return tokens;
+}
+
 export async function fixture(inherited: NodeJS.ProcessEnv = process.env) {
   // /tmp avoids macOS's long per-user TMPDIR; it is the system temp alias there.
   const parent = process.platform === "darwin" ? "/tmp" : tmpdir();
@@ -82,12 +96,7 @@ export async function fixture(inherited: NodeJS.ProcessEnv = process.env) {
   };
   const json = async (args: string[]) =>
     Schema.decodeUnknownSync(DaemonResult)(JSON.parse(await ok([...args, "--json"])));
-  const next = (text: string) => {
-    const line = text.trimEnd().split("\n").at(-1);
-    expect(line).toMatch(/^next: forman wait /);
-    if (!line) throw new Error("Missing printed next command");
-    return line.slice("next: forman ".length).split(" ");
-  };
+  const next = (text: string) => nextCommand(text, binary);
   const start = async (task: string, extra: string[] = []) => {
     const contract = join(root, "contract.md");
     await writeFile(contract, `${task}\n- May change: \`result.txt\`\nDo not commit.\n`);

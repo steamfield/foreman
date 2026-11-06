@@ -269,15 +269,17 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
     const server = yield* servers.get;
     run.serverGeneration = server.generation;
     if (!server.loaded.has(run.record.threadId)) {
-      yield* server.connection.request(
+      const resumed = yield* server.connection.request(
         Codex.Method.threadResume,
         { threadId: run.record.threadId, ...settings(run) },
         Codex.ThreadOpened,
       );
       server.loaded.add(run.record.threadId);
-      const warning = "Thread resumed: questions may not reach Claude in this turn.";
-      if (!run.record.warnings.includes(warning))
-        yield* registry.save(run, { warnings: [...run.record.warnings, warning] });
+      yield* registry.event(run, {
+        _tag: "Resumed",
+        sandbox: resumed.sandbox.type,
+        model: resumed.model,
+      });
     }
     run.hooksRequired = yield* fs.exists(path.join(run.record.group, ".codex/hooks.json"));
     if (body.effort !== undefined) yield* registry.save(run, { effort: body.effort });

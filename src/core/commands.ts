@@ -4,6 +4,7 @@ import { call } from "../daemon/client";
 import type { DaemonRequestBody, QuestionId, RunName } from "../schemas/daemon";
 import { Output } from "../services/output";
 import { durationMs, type MessageInput, messageText, readText, realPath } from "./command-input";
+import { formanExecutable } from "./command-output";
 
 const request = Effect.fn("commands.request")(function* (body: DaemonRequestBody) {
   const config = yield* AppConfig;
@@ -110,7 +111,12 @@ export const wait = Effect.fn("commands.wait")(function* (
     ...(input.after === undefined ? {} : { after: input.after }),
     cwd: yield* realPath("."),
   });
-  return result._tag === "Waited" && input.timeout !== undefined
-    ? { ...result, next: `${result.next} --timeout ${input.timeout}` }
-    : result;
+  if (result._tag !== "Waited") return result;
+  const executable = yield* formanExecutable();
+  return {
+    ...result,
+    next:
+      result.next.replace(/^forman(?= )/, () => executable.command) +
+      (input.timeout === undefined ? "" : ` --timeout ${input.timeout}`),
+  };
 });

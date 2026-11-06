@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdir, realpath, writeFile } from "node:fs/promises";
+import { mkdir, realpath, symlink, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { NodeServices, NodeSocket, NodeSocketServer } from "@effect/platform-node";
@@ -52,6 +52,60 @@ const entered = Effect.fnUntraced(function* (marker: string) {
 });
 
 describe("bounded doctor diagnostics", () => {
+  it.live("never passes API credentials to doctor Codex probes", () =>
+    Effect.gen(function* () {
+      const home = yield* temp();
+      const fs = yield* FileSystem.FileSystem;
+      const bin = `${home}/codex`;
+      yield* fs.writeFileString(
+        bin,
+        `#!${process.execPath}
+const fs = require("node:fs");
+if (["OPENAI_API_KEY", "OPENAI_API_BASE", "CODEX_API_KEY"].some(k => process.env[k])) process.exit(1);
+if (process.argv[2] === "--version") console.log("codex-cli 0.166.0");
+if (process.argv[2] === "app-server") fs.writeFileSync(process.argv.at(-1) + "/schema.json", "{}");
+`,
+        { mode: 0o755 },
+      );
+      const result = yield* doctor(home).pipe(
+        Effect.provide(
+          AppConfig.layer({
+            HOME: home,
+            FORMAN_DATA_DIR: home,
+            CODEX_BIN: bin,
+            OPENAI_API_KEY: "must-not-pass",
+            OPENAI_API_BASE: "must-not-pass",
+            CODEX_API_KEY: "must-not-pass",
+          }),
+        ),
+      );
+      expect(result).toMatchObject({
+        codexVersion: "0.166.0",
+        protocolMatches: false,
+        loggedIn: true,
+      });
+    }).pipe(Effect.provide(platform)),
+  );
+  it.each(["same", "different", "absent"] as const)(
+    "reports whether forman on PATH is this executable: %s",
+    async (target) => {
+      const home = await tempDir();
+      if (target === "same") await symlink(process.execPath, `${home}/forman`);
+      if (target === "different")
+        await writeFile(`${home}/forman`, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+      for (const json of [false, true]) {
+        const result = await runCli(["doctor", ...(json ? ["--json"] : [])], {
+          home,
+          env: { PATH: home, LOG_LEVEL: "none" },
+        });
+        expect(result.status).toBe(0);
+        expect(result.stderr).toBe("");
+        if (json)
+          expect(JSON.parse(result.stdout)).toMatchObject({ formanOnPath: target === "same" });
+        else expect(result.stdout).toContain(`forman on PATH is this binary: ${target === "same"}`);
+      }
+    },
+  );
   it.live("finds a bare Codex executable through the inherited PATH", () =>
     Effect.gen(function* () {
       const home = yield* temp();

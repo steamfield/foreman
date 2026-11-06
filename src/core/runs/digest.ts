@@ -39,6 +39,17 @@ export function buildDigest(
   const endedAt =
     events.findLast(({ event }) => event._tag === "StateChanged")?.at ?? run.updatedAt;
   const elapsedUntil = activeStates.has(run.state) ? now : DateTime.toEpochMillis(endedAt);
+  const handoffActive =
+    run.restoreSandbox && run.turnKind === "handoff" && activeStates.has(run.state);
+  const expectedSandbox = run.sandbox === "read-only" ? "readOnly" : "dangerFullAccess";
+  const resumeWarnings = events.flatMap(({ event }) =>
+    event._tag === "Resumed" && event.sandbox !== expectedSandbox
+      ? [`resumed with sandbox ${event.sandbox}, run expects ${expectedSandbox}`]
+      : [],
+  );
+  const warnings = run.warnings.filter(
+    (warning) => warning !== "Thread resumed: questions may not reach Claude in this turn.",
+  );
   return {
     name: run.name,
     state: run.state,
@@ -46,7 +57,7 @@ export function buildDigest(
     model: run.model,
     effort: run.effort,
     tier: run.tier,
-    sandbox: run.sandbox,
+    sandbox: handoffActive ? "read-only" : run.sandbox,
     runDir,
     worktree: run.worktree,
     turn: run.turns,
@@ -77,7 +88,7 @@ export function buildDigest(
             message: run.failure.message,
             hint: failureHint(run.failure.codexErrorInfo),
           },
-    warnings: run.warnings,
+    warnings: [...new Set([...warnings, ...resumeWarnings])],
   };
 }
 
@@ -130,7 +141,13 @@ export function renderStatus(digest: Digest): string {
 }
 
 export function renderDigest(digest: Digest): string {
-  const mode = digest.sandbox === "danger-full-access" ? "write" : "read-only";
+  let mode = digest.sandbox === "danger-full-access" ? "write" : "read-only";
+  if (
+    digest.turnKind === "handoff" &&
+    activeStates.has(digest.state) &&
+    digest.sandbox === "read-only"
+  )
+    mode = "read-only (hand-off turn)";
   const scopeAbsent =
     digest.filesWritten === null && digest.newInGitStatus === null
       ? "(not computed)"

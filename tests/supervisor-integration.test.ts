@@ -24,6 +24,14 @@ import { type Rule, Scenario, type Step } from "./fixtures/fake-app-server/scena
 import { repoHooks, successfulTurn } from "./fixtures/fake-app-server/scenarios";
 
 const fake = fileURLToPath(new URL("./fixtures/fake-app-server/main.mjs", import.meta.url));
+it("limits ask_orchestrator to blockers and consequential decisions, with progress in the hand-off", () => {
+  for (const text of [Codex.askOrchestratorTool.description, preamble]) {
+    expect(text).toContain("only when blocked");
+    expect(text).toContain("decision with real consequences");
+    expect(text).toContain("Progress, findings and corrections go in the hand-off");
+    expect(text).toContain("every call pauses the turn until answered");
+  }
+});
 const name = Schema.decodeUnknownSync(D.RunName)("unit");
 const q1 = Schema.decodeUnknownSync(D.QuestionId)("q1");
 const platform = Layer.mergeAll(
@@ -114,6 +122,7 @@ const fixture = Effect.fnUntraced(function* (script: Scenario) {
   const log = `${root}/received.jsonl`;
   const scenarioFile = `${root}/scenario.json`;
   yield* fs.makeDirectory(repo);
+  yield* fs.symlink(process.execPath, `${root}/forman`);
   const git = (cwd: string, args: string[]) =>
     commandResult(ChildProcess.make("git", args, { cwd, stderr: "ignore" })).pipe(
       Effect.tap(({ code }) => Effect.sync(() => expect(code).toBe(0))),
@@ -137,7 +146,7 @@ const fixture = Effect.fnUntraced(function* (script: Scenario) {
   yield* fs.writeFileString(log, "");
   const env = {
     HOME: root,
-    PATH: `${dirname(process.execPath)}:/usr/bin:/bin`,
+    PATH: `${root}:${dirname(process.execPath)}:/usr/bin:/bin`,
     CODEX_HOME: `${root}/codex`,
     CODEX_BIN: fake,
     FORMAN_DATA_DIR: dataDir,
@@ -1259,7 +1268,7 @@ if (process.argv.includes("generate-json-schema")) {
     }).pipe(Effect.provide(platform)),
   );
   it.live(
-    "marks active runs lost on a crash, resumes with saved settings, and warns about questions",
+    "marks active runs lost on a crash and records the resumed sandbox without a tool warning",
     () =>
       Effect.gen(function* () {
         const script = scenario(
@@ -1297,9 +1306,17 @@ if (process.argv.includes("generate-json-schema")) {
         );
         yield* f.request({ _tag: "Followup", name, message: "continue" });
         const digest = yield* f.untilState("idle");
-        expect(digest.warnings).toContain(
-          "Thread resumed: questions may not reach Claude in this turn.",
+        expect((yield* Store.readEvents(f.runDir)).events.map(({ event }) => event)).toContainEqual(
+          {
+            _tag: "Resumed",
+            sandbox: "readOnly",
+            model: opened.model,
+          },
         );
+        expect(digest.warnings).toContain(
+          "resumed with sandbox readOnly, run expects dangerFullAccess",
+        );
+        expect(digest.warnings.join(" ")).not.toMatch(/questions may not reach Claude/i);
         expect(
           (yield* f.readLog).find((entry) => entry.method === Codex.Method.threadResume)?.params,
         ).toEqual({

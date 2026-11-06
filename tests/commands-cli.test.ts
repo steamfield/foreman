@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { NodeServices, NodeSocket, NodeSocketServer } from "@effect/platform-node";
 import { Effect, Fiber, Layer, ManagedRuntime, Schema } from "effect";
@@ -55,6 +55,7 @@ const event = Schema.decodeUnknownSync(RunEvent)({
 
 async function fixture(response: DaemonResult | AppError = { _tag: "Ok" }) {
   const dataDir = await mkdtemp("/tmp/fm-u6-");
+  await symlink(process.execPath, join(dataDir, "forman"));
   const requests: DaemonRequestBody[] = [];
   const runtime = ManagedRuntime.make(
     Layer.mergeAll(
@@ -105,7 +106,7 @@ async function fixture(response: DaemonResult | AppError = { _tag: "Ok" }) {
   const run = (args: readonly string[], env: Record<string, string> = {}) =>
     runCli(args, {
       home: dataDir,
-      env: { TEST_CLI_DATA_DIR: dataDir, ...env },
+      env: { TEST_CLI_DATA_DIR: dataDir, PATH: dataDir, ...env },
     });
   return { dataDir, requests, run };
 }
@@ -496,6 +497,43 @@ const outputCases: { label: string; args: string[]; response: DaemonResult; text
 ];
 
 describe("daemon result rendering", () => {
+  it.each(["same", "different", "absent"] as const)(
+    "prints usable next commands when forman on PATH is %s",
+    async (target) => {
+      const response = {
+        _tag: "Waited",
+        outcome: "timeout",
+        runs: [],
+        cursor,
+        next: "forman wait --all --after opaque:42",
+      } satisfies DaemonResult;
+      const f = await fixture(response);
+      const bin = join(f.dataDir, "bin");
+      await mkdir(bin);
+      if (target === "same") await symlink(process.execPath, join(bin, "forman"));
+      if (target === "different")
+        await writeFile(join(bin, "forman"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+      const executable = target === "same" ? "forman" : process.execPath;
+      for (const json of [false, true]) {
+        const result = await f.run(
+          ["wait", "--all", "--timeout", "9m", ...(json ? ["--json"] : [])],
+          { PATH: bin },
+        );
+        expect(result.status).toBe(0);
+        expect(result.stderr).toBe("");
+        const next = `${executable} wait --all --after opaque:42 --timeout 9m`;
+        if (json) expect(machine(result.stdout)).toMatchObject({ next });
+        else expect(result.stdout.trimEnd().split("\n").at(-1)).toBe(`next: ${next}`);
+      }
+      const started = await fixture({ _tag: "Started", name, runDir: "/runs/unit-a" });
+      const result = await started.run(
+        ["start", "unit-a", "--worktree", ".", "--contract", "README.md"],
+        { PATH: bin },
+      );
+      expect(result.status).toBe(0);
+      expect(result.stdout.trimEnd().split("\n").at(-1)).toBe(`next: ${executable} wait unit-a`);
+    },
+  );
   it.each(outputCases)(
     "renders $label in text and one schema-encoded JSON value",
     async ({ args, response, text }) => {
