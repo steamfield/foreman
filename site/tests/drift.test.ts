@@ -28,11 +28,12 @@ function readTable(header: string, source = readme) {
 }
 
 function codexVersion(requirements: string) {
-  return normalize(requirements).match(/Codex CLI (\d+\.\d+\.\d+)/)?.[1];
+  return normalize(requirements)
+    .replaceAll("*", "")
+    .match(/Codex(?: CLI)? (\d+\.\d+\.\d+)/)?.[1];
 }
 
-const requirements =
-  readme.split("## Requirements\n")[1]?.split("\n## ")[0] ?? "";
+const installation = readme.split("## Install\n")[1]?.split("\n## ")[0] ?? "";
 
 describe("landing copy agrees with the repository README", () => {
   it("keeps the llms command reference aligned with README without claiming to replay recordings", async () => {
@@ -43,24 +44,25 @@ describe("landing copy agrees with the repository README", () => {
   });
 
   it("compares the Codex version through Markdown and line-wrap changes", () => {
-    const version = codexVersion(requirements);
+    const version = codexVersion(installation);
     expect(version).toBeDefined();
-    const formatted = requirements.replace(
-      /(Codex CLI) (\d+\.\d+\.\d+)/,
+    const formatted = installation.replace(
+      /(Codex) \*\*(\d+\.\d+\.\d+)\*\*/,
       "$1\n`$2`",
     );
+    expect(formatted).not.toBe(installation);
     expect(codexVersion(formatted)).toBe(version);
   });
 
   it("matches every exit code and meaning, with no omitted README rows", () => {
     expect(exitCodes.map((row) => row.map(normalize))).toEqual(
-      readTable("Exit code"),
+      readTable("Code"),
     );
   });
 
   it("matches every wait outcome and meaning, with no omitted README rows", () => {
     expect(waitOutcomes.map((row) => row.map(normalize))).toEqual(
-      readTable("Wait outcome"),
+      readTable("Outcome"),
     );
   });
 
@@ -71,8 +73,8 @@ describe("landing copy agrees with the repository README", () => {
     },
   );
 
-  it("uses the Codex version from README Requirements", () => {
-    const documentedVersion = codexVersion(requirements);
+  it("uses the Codex version from README Install", () => {
+    const documentedVersion = codexVersion(installation);
     const pageVersion = codexVersion(install.requirements.join("\n"));
     expect(documentedVersion).toBeDefined();
     expect(pageVersion).toBe(documentedVersion);
@@ -81,14 +83,17 @@ describe("landing copy agrees with the repository README", () => {
   it("quotes the README's budget, question timeout and private-state mode", () => {
     const page = normalize(guardrails.rows.map((row) => row[1]).join(" "));
     const source = normalize(readme);
-    const budget = page.match(/budget \(([^)]+) by default\)/)?.[1];
+    const budget = page.match(/budget defaults to (.+?)\./)?.[1];
     const timeout = page.match(/question times out after (.+?) and Codex/)?.[1];
     const mode = page.match(/mode (\d{4})/)?.[1];
     expect(budget).toBeDefined();
     expect(timeout).toBeDefined();
     expect(mode).toBeDefined();
     expect(source).toContain(
-      `budget to ${budget} and question timeout to ${timeout}.`,
+      `--budget defaults to ${budget} per working turn.`,
+    );
+    expect(source).toContain(
+      `Timeout does the same after ${timeout} by default.`,
     );
     expect(source).toContain(`mode ${mode}`);
   });
