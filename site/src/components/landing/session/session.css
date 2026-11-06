@@ -1,0 +1,17 @@
+.session-canvas {
+  aspect-ratio: 360 / 1080;
+}
+.session-wide {
+  display: none;
+}
+@media (min-width: 64rem) {
+  .session-canvas {
+    aspect-ratio: 1120 / 550;
+  }
+  .session-wide {
+    display: initial;
+  }
+  .session-tall {
+    display: none;
+  }
+}
