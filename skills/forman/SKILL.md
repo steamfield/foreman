@@ -128,10 +128,13 @@ When wait returns, read its outcome and each digest. All wait outcomes exit 0:
 | `timeout` | Run the printed next wait command; the run may still be working. |
 | `none` | No active runs or unseen attention remain for `--all`; stop waiting until more work starts. |
 
-After handling attention, run the final `next:` command as another background task. It carries
-the cursor (`--after`) that prevents repeated attention and preserves any explicit `--timeout`.
+After handling attention, run the printed `next:` command. Wait continuations carry
+the cursor (`--after`) that prevents repeated attention and preserve any explicit `--timeout`.
+Question continuations suggest `answer`; replace `<answer>` with the decision. A pending
+question also prints `or: forman defer <name> <question-id>` to free the delegate while a
+human considers it. The printed cursor remains available for an explicit wait.
 When using a home other than `~/.forman`, the command also carries `FORMAN_HOME=...`.
-Don't rebuild it from memory. `start`, `answer`, `followup`, `steer` and `interrupt` accept `--wait` with
+Don't rebuild it from memory. `start`, `answer`, `defer`, `followup`, `steer` and `interrupt` accept `--wait` with
 the same 60-minute default as standalone wait. For a foreground call, use `--timeout 9m`
 to stay below Claude Code's foreground limit.
 
@@ -139,12 +142,33 @@ These commands apply at different states:
 
 ```sh
 forman answer <name> <question-id> "The decision the delegate needs." --wait
+forman defer <name> <question-id> "Waiting for the human's decision." --wait
 forman steer <name> "A correction to the active task." --wait
 forman followup <name> --file <followup-contract-path> --wait
 forman result <name>
 ```
 
-Answer the printed question id to resume its held tool call. Use `steer` only on an active turn
+Answer the printed question id to resume its held tool call. A timeout now defers the question:
+Codex continues independent work, takes no irreversible step on that decision and lists it
+under Open. `defer` does this immediately, with an optional note; it requires a pending question.
+Status keeps deferred, unanswered questions visible. A completed turn's wait summary says
+`done, N unanswered questions` or `blocked on qN`, and suggests an answer.
+
+Use the same `answer` command when the decision arrives late, including after timeout or
+interruption. It adds the original question's context and steers a running turn, or starts a
+follow-up on an inactive run. If Codex refuses the steer, the command waits for that turn to
+end and starts the follow-up. During a budget hand-off it returns accepted with a queued
+message and delivers the answer after the hand-off; `--wait` waits for that answer's follow-up.
+Further answers and corrections join the queue behind earlier answers. Shutdown and run reuse
+wait until accepted answers have been delivered.
+Answering again sends a correction. If another question is pending, answer that id first
+and include both decisions in the text. An older busy daemon supports only in-time answers;
+finish its runs and restart it to use late answers or `defer`.
+
+An explicit `steer` or `followup` supersedes unanswered questions, since the new message
+handles the delegate's Open list. A superseded question still accepts a late answer. Legacy
+auto-answered and cancelled questions accept late answers but never count as unanswered.
+Use `steer` only on an active turn
 with no pending question. Use `followup` on an inactive run to continue its Codex thread, with
 `--budget <duration>` or `--effort <effort>` if needed. Answer, steer and followup accept either
 one text argument or `--file <path>`, never both. Ask the user only for a decision you cannot
@@ -152,7 +176,7 @@ make from the contract and repo. Delegates use `ask_orchestrator` for blockers o
 decisions; progress, findings and corrections belong in the hand-off.
 
 Run these `--wait` calls in the background too. One question takes exactly two calls:
-`start --wait`, then `answer --wait`. Without `--wait`, answer, steer and followup print `ok`
+`start --wait`, then `answer --wait`. Without `--wait`, answer, defer, steer and followup print `ok`
 and a `next:` wait command with the run's cursor at acceptance. Interrupt does the same.
 These waits and their next commands always name the target run. Use an explicit `wait --all`
 to supervise the group. The cursor carries the target group, even when invoked from another repo.

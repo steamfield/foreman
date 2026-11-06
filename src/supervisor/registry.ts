@@ -39,6 +39,8 @@ export interface Run {
   readonly lock: Semaphore.Semaphore;
   readonly calls: Map<QuestionId, { id: RpcId; server: AppServer }>;
   readonly messages: Queue.Queue<Effect.Effect<void, unknown>, Cause.Done>;
+  readonly answers: Queue.Queue<Effect.Effect<void, unknown>, Cause.Done>;
+  queuedAnswers: number;
   items: ThreadItem[];
   projectHook: boolean;
   hooksRequired: boolean;
@@ -75,7 +77,7 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
       if (
         other.record.name !== name &&
         other.record.worktree === worktree &&
-        activeStates.has(other.record.state)
+        (activeStates.has(other.record.state) || other.queuedAnswers > 0)
       )
         return yield* new RunConflict({
           detail: `${other.record.name} is ${other.record.state} in ${worktree}; wait or interrupt it before reusing this worktree.`,
@@ -87,7 +89,7 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
       Effect.gen(function* () {
         yield* requireWorktreeAvailable(name, worktree);
         const previous = runs.get(name);
-        if (previous && activeStates.has(previous.record.state))
+        if (previous && (activeStates.has(previous.record.state) || previous.queuedAnswers > 0))
           return yield* new RunConflict({
             detail: `${name} is ${previous.record.state}; wait or interrupt it first.`,
           });
@@ -113,6 +115,8 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
       lock: yield* lockFor(record.name),
       calls: new Map(),
       messages: yield* Queue.unbounded<Effect.Effect<void, unknown>, Cause.Done>(),
+      answers: yield* Queue.unbounded<Effect.Effect<void, unknown>, Cause.Done>(),
+      queuedAnswers: 0,
       items: [],
       projectHook: false,
       hooksRequired: false,
@@ -128,6 +132,21 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
       workers,
       Stream.fromQueue(run.messages).pipe(
         Stream.runForEach((work) => background(run, run.lock.withPermits(1)(work))),
+      ),
+    );
+    // Continuations wait outside the notification lock, in acceptance order.
+    yield* FiberSet.run(
+      workers,
+      Stream.fromQueue(run.answers).pipe(
+        Stream.runForEach((work) =>
+          background(run, work).pipe(
+            Effect.ensuring(
+              Effect.sync(() => {
+                run.queuedAnswers -= 1;
+              }),
+            ),
+          ),
+        ),
       ),
     );
     return run;
@@ -320,6 +339,14 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
     const context = yield* Effect.context<R>();
     yield* Queue.offer(run.messages, work.pipe(Effect.provide(context)));
   });
+  const enqueueAnswer = Effect.fnUntraced(function* <E, R>(
+    run: Run,
+    work: Effect.Effect<void, E, R>,
+  ) {
+    const context = yield* Effect.context<R>();
+    run.queuedAnswers += 1;
+    yield* Queue.offer(run.answers, work.pipe(Effect.provide(context)));
+  }, Effect.uninterruptible);
   const requireCurrent = Effect.fnUntraced(function* (run: Run) {
     if (!isCurrent(run))
       return yield* new RunNotFound({
@@ -375,6 +402,7 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
           if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause);
           runs.delete(record.name);
           return Queue.end(run.messages).pipe(
+            Effect.andThen(Queue.end(run.answers)),
             Effect.andThen(
               Effect.logWarning("supervisor.run.skipped").pipe(
                 Effect.annotateLogs({ name: record.name, reasonTag: reasonTag(cause) }),
@@ -390,7 +418,7 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
       starts.withPermits(1)(
         Effect.gen(function* () {
           yield* requireCurrent(run);
-          if (activeStates.has(run.record.state))
+          if (activeStates.has(run.record.state) || run.queuedAnswers > 0)
             return yield* new RunConflict({
               detail: `${name} is ${run.record.state}; active runs cannot be archived.`,
             });
@@ -403,6 +431,7 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
           const archivePath = yield* Store.archiveRun(dataDir, name, cleanup);
           runs.delete(name);
           yield* Queue.end(run.messages);
+          yield* Queue.end(run.answers);
           yield* wake;
           return { _tag: "Archived" as const, name, archivePath };
         }).pipe(Effect.uninterruptible),
@@ -434,11 +463,14 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
     recover,
     background,
     enqueue,
+    enqueueAnswer,
     archive,
     busy: Effect.sync(
       () =>
         reservations.size > 0 ||
-        [...runs.values()].some((run) => activeStates.has(run.record.state)),
+        [...runs.values()].some(
+          (run) => activeStates.has(run.record.state) || run.queuedAnswers > 0,
+        ),
     ),
     change: Effect.suspend(() => Effect.succeed(Deferred.await(changed))),
   };

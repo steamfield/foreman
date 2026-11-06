@@ -382,8 +382,8 @@ test.each(["compiled", "path", "development"])(
       }
     };
     const next = (stdout: string) => {
-      const line = stdout.trimEnd().split("\n").at(-1);
-      expect(line).toMatch(/^next: .+ wait /);
+      const line = stdout.split("\n").findLast((line) => line.startsWith("next: "));
+      expect(line).toMatch(/^next: .+ (wait|answer) /);
       return (line ?? "").slice("next: ".length);
     };
     try {
@@ -437,13 +437,25 @@ test.each(["compiled", "path", "development"])(
       expect(status).toMatchObject({ status: 0, stderr: "" });
       expect(status.stdout.trimEnd().split("\n")).toHaveLength(1);
       expect(status.stdout).toMatch(/^unit {2}waiting {2}turn 1 \(start\) {2}\S+ {2}q1 pending\n$/);
-      const command = next(attention.stdout);
-      expect(command).toContain(" wait --all ");
+      const answerCommand = next(attention.stdout);
+      expect(answerCommand).toEndWith(' answer unit q1 "<answer>"');
+      expect(attention.stdout.trimEnd().split("\n").at(-1)).toBe(
+        `or: ${answerCommand.replace(' answer unit q1 "<answer>"', " defer unit q1")}`,
+      );
+      const cursor = attention.stdout
+        .split("\n")
+        .find((line) => line.startsWith("cursor: "))
+        ?.slice(8);
+      expect(cursor).toBeDefined();
+      const command = answerCommand.replace(
+        ' answer unit q1 "<answer>"',
+        ` wait --all --after ${cursor} --timeout 9m`,
+      );
       const timed = await runPrinted(command.replace(/ --timeout \S+$/, " --timeout 0ms"));
       expect(timed).toMatchObject({ status: 0, stderr: "" });
       expect(timed.stdout.split("\n")[0]).toBe("timeout");
       expect(next(timed.stdout)).toEndWith(" --timeout 0ms");
-      const answered = await run(["answer", "unit", "q1", "Proceed"]);
+      const answered = await runPrinted(answerCommand.replace('"<answer>"', '"Proceed"'));
       expect(answered).toMatchObject({ status: 0, stderr: "" });
       expect(answered.stdout).toMatch(/^ok\nnext: /);
       const done = await runPrinted(next(answered.stdout));

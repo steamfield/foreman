@@ -27,6 +27,22 @@ regression("continuations accept a quoted home assignment before the executable"
     ),
   ).toEqual(["wait", "smoke", "--after", "cursor"]);
 });
+regression.each(["answer smoke q1 '<answer>'", "defer smoke q1"])(
+  "question continuations keep polling from the printed cursor: %s",
+  (command) => {
+    expect(
+      nextCommand(
+        `question smoke q1\ncursor: cursor\nnext: FORMAN_HOME='/tmp/home path' forman ${command}\nor: forman defer smoke q1\n`,
+        "/tmp/forman",
+      ),
+    ).toEqual(["wait", "smoke", "--after", "cursor"]);
+  },
+);
+regression("question continuations refuse polling without a printed cursor", () => {
+  expect(() => nextCommand("next: forman answer smoke q1 '<answer>'", "/tmp/forman")).toThrow(
+    "Missing printed cursor",
+  );
+});
 
 regression("proxy exits quietly when its stdout consumer closes the pipe", async () => {
   const root = await mkdtemp("/tmp/fm-reg-");

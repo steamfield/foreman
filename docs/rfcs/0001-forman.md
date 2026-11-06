@@ -114,17 +114,21 @@ State lives in `$FORMAN_HOME/runs/<name>/`:
 | `contract.md` | the contract as given at `start`, copied so the digest doesn't depend on Claude's scratchpad |
 | `events.jsonl` | normalized events, each with a sequence number and timestamp |
 | `codex.jsonl` | bounded app-server notifications and requests, with secret-looking keys and values redacted |
-| `questions.jsonl` | one line per question asked, answered, auto-answered or cancelled |
+| `questions.jsonl` | question history: asked, deferred and resolved (including legacy auto-answered or cancelled records) |
 | `turns/<n>.md` | the final answer of turn `n`, when it produced one |
 | `last-message.md` | a copy of the newest `turns/<n>.md`, the name the codex-delegate skill already reads |
 | `start-mark` | an empty file touched at start, for finding files written during the run |
 | `baseline.txt` | `git status` at start, for the "new since start" comparison |
 
-`run.json` is written atomically (temp file and rename). It and every JSONL record carry `formatVersion: 1`; unversioned records are read as version 1. An unsupported version fences the whole run against writes and appends, including startup recovery and archive cleanup. Opening a run validates existing history; the serialized writer tracks checked file identities and metadata and records its own appends, avoiding repeated scans of unchanged logs. Start refuses unreadable or unsupported names and preserves their directories. Automatic deletion applies only to unpublished staging directories that this operation created.
+`run.json` is written atomically (temp file and rename). It and raw Codex records carry `formatVersion: 1`; new question and event lines carry `formatVersion: 2`. Readers accept versions 1 and 2, treating unversioned records as version 1. Version 2 fences out older readers before decoding the new question states. An unsupported version fences the whole run against writes and appends, including startup recovery and archive cleanup. Opening a run validates existing history; the serialized writer tracks checked file identities and metadata and records its own appends, avoiding repeated scans of unchanged logs. Start refuses unreadable or unsupported names and preserves their directories. Automatic deletion applies only to unpublished staging directories that this operation created.
+
+Question history records `Deferred {id, by: "timeout" | "orchestrator", note?, at}`. `Resolved` records use `answered`, `late`, `correction` or `superseded`, retaining legacy `auto-answered` and `cancelled`; delivered answers include `delivery: "response" | "steer" | "followup" | "queued"`. Events publish the corresponding `QuestionResolved` resolution, including `deferred`. Pending questions have an open RPC; unanswered questions are deferred questions with no subsequent resolution. CLI and daemon exchange these states only on compatible builds. An older busy daemon stays alive until its runs finish, so the CLI refuses `defer` and late answers or corrections against it; in-time answers remain supported.
 
 State changes persist a pending transition identifier in `run.json` before appending the matching event. Startup streams the history to find that identifier, publishes missing transitions and clears completed ones without duplicating attention. Turn hand-offs and `last-message.md` also publish through temporary files and rename; readers ignore unfinished temporary files.
 
 New wait cursors use UTF-8 with an explicit `u1.` prefix. Unprefixed legacy cursors keep their Latin-1 decoding, including paths whose bytes could also be interpreted as UTF-8.
+
+Queued answers use a FIFO worker separate from protocol notifications, which must keep processing while a continuation waits. Outstanding answers retain the run's ownership and prevent shutdown between turns. A queued answer's cursor carries a continuation id; its delivery publishes `QuestionResolved.continuation {id, turn}`, binding that cursor to the actual receiving turn rather than an estimated turn number. This binding remains readable from event history after delivery.
 
 Normalized events cover what the digest and `forman events` need: turn started and completed (status, error), command executions (command, exit code, status, redacted output tail), file changes (paths), agent messages, hook runs that blocked something, questions, steers and follow-ups Claude sent, token totals, and MCP startup failures. Command output tails retain their last 2 KB with best-effort redaction. Agent message deltas and reasoning items are dropped.
 
@@ -233,13 +237,32 @@ Every thread registers one dynamic tool:
 
 `kind` lets `status` tell a blocker from a question. On `item/tool/call` for this tool the daemon assigns a question id (`q1`, `q2`, ... per run), appends it to `questions.jsonl`, sets the run to `waiting`, wakes waiters, and holds the JSON-RPC request. Several questions can be pending at once if the model calls the tool in parallel; the digest lists each. `answer` replies `{success: true, contentItems: [{type: "inputText", text}]}`.
 
-When a question's timeout passes, the daemon answers "No answer from the orchestrator. Proceed with your best judgment and note this question and your choice under Open in the hand-off." and records it `auto-answered`. Spike 1 held a call for 3 minutes. The smoke suite has a separately enabled 15-minute timeout with a 16-minute observation window (`FORMAN_SMOKE_LONG=1`); unit 11 runs a one-minute timeout and two-minute observation window (`FORMAN_SMOKE_SHORT=1`) to check the mechanism. A 15-minute pending call is still unverified; the long case must pass before treating that duration as established.
+When a question's timeout passes (15 minutes by default), the daemon frees the tool call with this deferral and records `Deferred` by `timeout`:
+
+> No answer yet; the decision may need a person and can take a while. Continue with all work that doesn't depend on it. For the question itself, take no irreversible step and nothing outside the contract; if a safe, reversible default exists, use it and say so; otherwise leave that part undone. End your turn normally and list the question, and what you did about it, under Open. The answer will arrive as a message later.
+
+`forman defer <run> <question-id> ["note"]` frees a pending call immediately with the same text, adding `Orchestrator note: <note>` when supplied, and records `Deferred` by `orchestrator`. Deferring a non-pending question conflicts and names its state. The timeout flag and default stay unchanged. Spike 1 held a call for 3 minutes. The smoke suite has a separately enabled 15-minute timeout with a 16-minute observation window (`FORMAN_SMOKE_LONG=1`); the short case uses a one-minute timeout and two-minute observation window (`FORMAN_SMOKE_SHORT=1`). A 15-minute pending call is still unverified; the long case must pass before treating that duration as established.
 
 When a turn ends with questions pending, they are recorded `cancelled`, because the app server cancels the call itself and drops a later answer without a word.
+
+`forman answer <run> <question-id> "<text>"` also accepts closed questions. An answer to an already answered question is a correction. The daemon frames late answers as `Answer to your earlier question q2 ("<question text>"): <text>` and corrections as `Correction to your answer to q2 ("<question text>"): <text>`, then routes them by run state:
+
+| Run state | Delivery |
+| --- | --- |
+| Another question pending | Conflict: `answer q3 first; the answer can carry this too` |
+| Normal turn running | Steer; if Codex refuses, start a follow-up when the turn ends in the same command |
+| Budget hand-off running | Accept and queue a follow-up after the hand-off; the acknowledgement says it is queued |
+| Inactive (idle, failed, lost or interrupted) | Follow-up on the saved thread, using the usual worktree and start checks |
+
+These commands' `--wait` and `next:` continuations target this run only. An answer queued during a hand-off waits for the answer's follow-up, rather than returning the hand-off's completion or an earlier queued answer's completion. Further answers and corrections join the same queue while older answers await delivery.
+
+Only a newly deferred question is unanswered. An answer closes it as `late`; an explicit `steer` or `followup` closes all unanswered questions as `superseded`. Legacy `auto-answered` and `cancelled` questions never appear unanswered, but still accept late answers. Status shows `question: q2 deferred, unanswered` with its text. On completion, wait says `done, N unanswered question[s]`, or `blocked on q2` for a blocked question. Its `next:` suggests `forman answer <run> q2 "<answer>"`. On arrival of a pending question it suggests the same answer command, followed by `or: forman defer <run> q2`.
 
 Any other dynamic tool call or server request gets a JSON-RPC error response, so nothing unexpected can hang a turn.
 
 ### Resume and the tool
+
+Existing threads retain their original tool description. The timeout response explains deferral itself.
 
 `thread/resume` takes no `dynamicTools`, but the unit 11 real-Codex test confirms that `ask_orchestrator` survives a daemon/app-server restart on Codex 0.166.0. The resumed thread asks a question and uses the CLI's answer in its hand-off. The captured resume response reports `sandbox: {type: "readOnly"}` and the original run model. forman passes `model`, `serviceTier`, `approvalPolicy`, `sandbox` and `cwd` from `run.json` on every resume, preventing fallback to the user's defaults. A write run also resumes with `sandbox: {type: "dangerFullAccess"}` and can write a file after restart. Every successful resume appends a `Resumed {sandbox, model}` event decoded through `ThreadOpened`; a differing sandbox produces `resumed with sandbox X, run expects Y` in the digest, using Codex policy names. There is no warning about the question tool after resume.
 
@@ -247,7 +270,7 @@ Any other dynamic tool call or server request gets a JSON-RPC error response, so
 
 `forman wait` returns when one of the named runs (or any run in the group, with `--all`) has something newer than its cursor: a question pending, a turn completed, failed or interrupted, or the run lost. With `--all` and no active run in the group, it returns at once with `none`. Without `--after` it returns anything that happened since the run started that Claude hasn't been given a cursor past.
 
-Each result prints a cursor line (`cursor: <opaque>`) and ends with the exact continuation command: `next: <executable> wait <same names, or --all> --after <cursor>`, followed by `--timeout <dur>` if supplied. The invoking CLI selects the executable as described above. This applies to `timeout` and `none` too. JSON `Waited` includes the command in `next`. The daemon keeps no per-reader state, so a `status` from another session or a `wait` killed mid-print loses nothing.
+Each result prints a cursor line (`cursor: <opaque>`). Pending or unanswered questions suggest `next: <executable> answer <name> <question-id> "<answer>"`; pending questions also print `or: <executable> defer <name> <question-id>`. Other results, including `timeout` and `none`, end with `next: <executable> wait <same names, or --all> --after <cursor>`, preserving `--timeout <dur>` if supplied. The invoking CLI selects the executable as described above. JSON `Waited` includes `next` and an optional `alternative` for defer. The daemon keeps no per-reader state, so a `status` from another session or a `wait` killed mid-print loses nothing.
 
 Claude starts a single delegation with `start --wait` as a background Bash task. If it asks a question, `answer <name> <id> <text> --wait` resumes and waits in one more call. A delegation needing no answer is one call; one question is two. `steer --wait` and `followup --wait` use the same loop. On timeout, run the printed `next:` command. For several units, start without `--wait` and use `forman wait --all` for the group. After a request without `--wait`, use its acknowledgement's `next:` command, whose cursor skips attention from before acceptance. Terminal outcomes carry the turn's hand-off, so reading it needs no separate `result` call. `result` remains available to reread hand-offs and can fall back to an earlier turn; wait carries null when its completed turn has no hand-off.
 
@@ -257,7 +280,8 @@ Claude starts a single delegation with `start --wait` as a background Bash task.
 question  unit-a q2 (blocked): lint rejects the CLI-help test's runtime imports under src/
 done      unit-b turn 1
 cursor:   7f3a…
-next: forman wait --all --after 7f3a…
+next: forman answer unit-a q2 "<answer>"
+or: forman defer unit-a q2
 ```
 
 The other first words are `failed`, `interrupted`, `lost`, `timeout` and `none`. meight's scheme (1 timeout, 2 failed, 3 question) is not used because 2 and 3 already mean usage error and invalid config in this project's error table. Claude reads a background task's output either way, so the exit code only separates "here is something" from "forman itself broke".

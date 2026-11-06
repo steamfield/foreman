@@ -4,5 +4,5 @@ export const preamble =
 export const timeUp =
   "Your time is up. Stop working and run no more commands. Write the hand-off now, in the contract's hand-off format if it has one: what is done, what is not, any measurements so far, and the state of the worktree.";
 
-export const noAnswer =
-  "No answer from the orchestrator. Proceed with your best judgment and note this question and your choice under Open in the hand-off.";
+export const deferral =
+  "No answer yet; the decision may need a person and can take a while. Continue with all work that doesn't depend on it. For the question itself, take no irreversible step and nothing outside the contract; if a safe, reversible default exists, use it and say so; otherwise leave that part undone. End your turn normally and list the question, and what you did about it, under Open. The answer will arrive as a message later.";

@@ -16,6 +16,7 @@ describe("stdout and error contracts", () => {
     ["followup"],
     ["interrupt"],
     ["answer"],
+    ["defer"],
     ["result"],
     ["archive"],
     ["wait"],
@@ -25,6 +26,7 @@ describe("stdout and error contracts", () => {
   ])("describes every flag in help for %j", async (...command) => {
     const result = await runCli([...command, "--help"]);
     expect(result).toMatchObject({ status: 0, stderr: "" });
+    if (command[0] === "defer") expect(result.stdout).toContain("Release a pending question");
     const flags = result.stdout.split("\n").filter((line) => /^ {2}--/.test(line));
     expect(flags.length).toBeGreaterThan(0);
     for (const line of flags) expect(line.trim().split(/\s{2,}/).length, line).toBe(2);
@@ -41,6 +43,7 @@ describe("stdout and error contracts", () => {
       "followup",
       "interrupt",
       "answer",
+      "defer",
       "result",
       "archive",
       "wait",

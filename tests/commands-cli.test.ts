@@ -134,6 +134,37 @@ function machine(stdout: string) {
 }
 
 describe("command requests through the real parser and daemon", () => {
+  it.each(["defer", "answer"])(
+    "refuses new %s delivery through an incompatible busy daemon",
+    async (command) => {
+      const f = await fixture((body) => {
+        if (body._tag === "Status")
+          return { _tag: "Digests", digests: [{ ...digest, questions: [] }] };
+        if (body._tag === "Wait")
+          return {
+            _tag: "Waited",
+            outcome: "timeout",
+            runs: [],
+            cursor,
+            next: "forman wait unit-a --after opaque:42",
+          };
+        return { _tag: "Accepted", cursor };
+      }, "old");
+      const result = await f.run([
+        command,
+        name,
+        "q2",
+        ...(command === "answer" ? ["Late decision"] : []),
+        "--json",
+      ]);
+      expect(result.status).toBe(4);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("Outdated daemon");
+      expect(f.requests.some((body) => body._tag === "Defer" || body._tag === "Answer")).toBe(
+        false,
+      );
+    },
+  );
   it.each([false, true])("omits the home prefix for the default home, json=%s", async (json) => {
     const f = await fixture({ _tag: "Accepted", cursor });
     await symlink(f.dataDir, join(f.dataDir, ".forman"));
@@ -342,7 +373,11 @@ describe("command requests through the real parser and daemon", () => {
   it.each(["answer", "followup", "steer"])(
     "refuses %s before dispatch when an outdated busy daemon cannot provide a cursor",
     async (command) => {
-      const f = await fixture({ _tag: "Ok" }, "old");
+      const f = await fixture(
+        (body) =>
+          body._tag === "Status" ? { _tag: "Digests", digests: [digest] } : { _tag: "Ok" },
+        "old",
+      );
       const result = await f.run(
         [command, "unit-a", ...(command === "answer" ? ["q2"] : []), "Proceed", "--wait", "--json"],
         { LOG_LEVEL: "none" },
@@ -355,25 +390,26 @@ describe("command requests through the real parser and daemon", () => {
           detail: expect.stringContaining("request was not sent"),
         },
       });
-      expect(f.requests.map((body) => body._tag)).toEqual(["Shutdown", "Wait"]);
+      expect(f.requests.map((body) => body._tag)).toEqual(
+        command === "answer" ? ["Shutdown", "Status", "Wait"] : ["Shutdown", "Wait"],
+      );
     },
   );
 
   it("prefers a busy different build's accepted cursor over its compatibility probe", async () => {
     const accepted = Schema.decodeUnknownSync(Cursor)("accepted:99");
-    const f = await fixture(
-      (body) =>
-        body._tag === "Wait"
-          ? {
-              _tag: "Waited",
-              outcome: "timeout",
-              runs: [],
-              cursor,
-              next: "forman wait unit-a --after opaque:42",
-            }
-          : { _tag: "Accepted", cursor: accepted },
-      "different",
-    );
+    const f = await fixture((body) => {
+      if (body._tag === "Status") return { _tag: "Digests", digests: [digest] };
+      if (body._tag === "Wait")
+        return {
+          _tag: "Waited",
+          outcome: "timeout",
+          runs: [],
+          cursor,
+          next: "forman wait unit-a --after opaque:42",
+        };
+      return { _tag: "Accepted", cursor: accepted };
+    }, "different");
     const result = await f.run(["answer", "unit-a", "q2", "Proceed", "--json"]);
     expect(result.status).toBe(0);
     expect(machine(result.stdout)).toEqual({
@@ -381,7 +417,7 @@ describe("command requests through the real parser and daemon", () => {
       cursor: accepted,
       next: `FORMAN_HOME=${f.dataDir} forman wait unit-a --after accepted:99`,
     });
-    expect(f.requests.map((body) => body._tag)).toEqual(["Shutdown", "Wait", "Answer"]);
+    expect(f.requests.map((body) => body._tag)).toEqual(["Shutdown", "Status", "Wait", "Answer"]);
   });
 
   for (const command of ["start", "answer", "followup", "steer"] as const) {

@@ -5,6 +5,7 @@ import { doctorCommand } from "./commands/doctor";
 import {
   answerCommand,
   archiveCommand,
+  deferCommand,
   eventsCommand,
   followupCommand,
   interruptCommand,
@@ -35,6 +36,7 @@ export const cli = (name: string) =>
       followupCommand,
       interruptCommand,
       answerCommand,
+      deferCommand,
       resultCommand,
       archiveCommand,
       waitCommand,

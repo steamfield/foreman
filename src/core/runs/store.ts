@@ -37,6 +37,7 @@ const encodeStored = Effect.fnUntraced(function* <A>(
   schema: Schema.Codec<A, unknown>,
   value: A,
   diagnostic = false,
+  formatVersion: 1 | 2 = 1,
 ) {
   const encoded = yield* Schema.encodeEffect(schema)(value);
   const fields = yield* Schema.decodeUnknownEffect(Schema.Record(Schema.String, Schema.Unknown))(
@@ -48,7 +49,7 @@ const encodeStored = Effect.fnUntraced(function* <A>(
           redactDiagnostic(fields),
         )
       : fields),
-    formatVersion: 1,
+    formatVersion,
   });
 });
 
@@ -305,9 +306,10 @@ const appendLine = Effect.fnUntraced(function* <A>(
   schema: Schema.Codec<A, unknown>,
   value: A,
   diagnostic = true,
+  formatVersion: 1 | 2 = 1,
 ) {
   const fs = yield* FileSystem.FileSystem;
-  const text = yield* encodeStored(schema, value, diagnostic);
+  const text = yield* encodeStored(schema, value, diagnostic, formatVersion);
   yield* repairTail(file);
   yield* fs.writeFileString(file, `${text}\n`, { flag: "a" });
   yield* rememberVersion(file);
@@ -416,7 +418,7 @@ export const appendEvent = Effect.fn("runs.appendEvent")(function* (
     ...(transitionId === undefined ? {} : { transitionId }),
   };
   // File-change paths are identities used by scope reporting, not diagnostic text.
-  yield* appendLine(file, RunEvent, entry, event._tag !== "FileChange");
+  yield* appendLine(file, RunEvent, entry, event._tag !== "FileChange", 2);
   return entry;
 });
 
@@ -444,7 +446,7 @@ export const appendQuestion = Effect.fn("runs.appendQuestion")(function* (
 ) {
   const path = yield* Path.Path;
   yield* assertSupported(runDir);
-  yield* appendLine(path.join(runDir, "questions.jsonl"), QuestionLine, line);
+  yield* appendLine(path.join(runDir, "questions.jsonl"), QuestionLine, line, true, 2);
 });
 
 export function pendingQuestions(lines: readonly QuestionLine[]) {
@@ -454,6 +456,19 @@ export function pendingQuestions(lines: readonly QuestionLine[]) {
     else pending.delete(line.id);
   }
   return [...pending.values()];
+}
+
+export function unansweredQuestions(lines: readonly QuestionLine[]) {
+  const asked = new Map<string, Extract<QuestionLine, { _tag: "Asked" }>>();
+  const unanswered = new Map<string, Extract<QuestionLine, { _tag: "Asked" }>>();
+  for (const line of lines) {
+    if (line._tag === "Asked") asked.set(line.id, line);
+    else if (line._tag === "Deferred") {
+      const question = asked.get(line.id);
+      if (question) unanswered.set(line.id, question);
+    } else unanswered.delete(line.id);
+  }
+  return [...unanswered.values()];
 }
 
 export const writeHandoff = Effect.fn("runs.writeHandoff")(function* (

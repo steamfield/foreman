@@ -44,10 +44,22 @@ export type Sandbox = typeof Sandbox.Type;
 export const TurnKind = Schema.Literals(["start", "followup", "handoff"]);
 export type TurnKind = typeof TurnKind.Type;
 
-// Unversioned storage is version 1. Public socket shapes remain unchanged.
+// Unversioned storage is version 1. Question/event writers use version 2.
+// Socket peers negotiate builds; incompatible busy daemons refuse new question commands.
 export const StorageHeader = Schema.Struct({
-  formatVersion: Schema.optionalKey(Schema.Literal(1)),
+  formatVersion: Schema.optionalKey(Schema.Literals([1, 2])),
 });
+
+export const QuestionResolution = Schema.Literals([
+  "answered",
+  "auto-answered",
+  "cancelled",
+  "late",
+  "correction",
+  "superseded",
+]);
+export const AnswerDelivery = Schema.Literals(["response", "steer", "followup", "queued"]);
+export type AnswerDelivery = typeof AnswerDelivery.Type;
 
 export const QuestionKind = Schema.Literals(["question", "blocked"]);
 export type QuestionKind = typeof QuestionKind.Type;
@@ -140,7 +152,17 @@ export const RunEventBody = Schema.TaggedUnion({
   QuestionAsked: { id: QuestionId, kind: QuestionKind, question: Schema.String },
   QuestionResolved: {
     id: QuestionId,
-    resolution: Schema.Literals(["answered", "auto-answered", "cancelled"]),
+    // Binds a queued answer's cursor to the turn that actually received it.
+    continuation: Schema.optionalKey(Schema.Struct({ id: Schema.String, turn: Schema.Int })),
+    resolution: Schema.Literals([
+      "answered",
+      "auto-answered",
+      "cancelled",
+      "deferred",
+      "late",
+      "correction",
+      "superseded",
+    ]),
   },
   Steered: { message: Schema.String },
   Interrupted: { by: Schema.Literals(["orchestrator", "budget", "repo-hooks"]) },
@@ -171,9 +193,16 @@ export const QuestionLine = Schema.TaggedUnion({
   },
   Resolved: {
     id: QuestionId,
-    resolution: Schema.Literals(["answered", "auto-answered", "cancelled"]),
-    // The answer sent to Codex; null when cancelled.
+    resolution: QuestionResolution,
+    delivery: Schema.optionalKey(AnswerDelivery),
+    // The answer sent to Codex; null when cancelled or superseded.
     text: Schema.NullOr(Schema.String),
+    at: Schema.DateTimeUtcFromString,
+  },
+  Deferred: {
+    id: QuestionId,
+    by: Schema.Literals(["timeout", "orchestrator"]),
+    note: Schema.optionalKey(Schema.String),
     at: Schema.DateTimeUtcFromString,
   },
 });
@@ -200,6 +229,15 @@ export const Digest = Schema.Struct({
   turn: Schema.Int,
   turnKind: Schema.NullOr(TurnKind),
   questions: Schema.Array(PendingQuestion),
+  unansweredQuestions: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({
+        id: QuestionId,
+        kind: QuestionKind,
+        question: Schema.String,
+      }),
+    ),
+  ),
   commands: Schema.Struct({
     total: Schema.Int,
     failed: Schema.Int,
@@ -262,6 +300,7 @@ export const DaemonRequestBody = Schema.TaggedUnion({
   },
   Interrupt: { name: RunName },
   Answer: { name: RunName, question: QuestionId, text: Schema.String },
+  Defer: { name: RunName, question: QuestionId, note: Schema.optionalKey(Schema.String) },
   Result: { name: RunName },
   Archive: { name: RunName, keepWorktree: Schema.optionalKey(Schema.Boolean) },
   Wait: {
@@ -312,6 +351,7 @@ export const DaemonResult = Schema.TaggedUnion({
     all: Schema.optionalKey(Schema.Boolean),
     // The CLI supplies the executable-aware continuation.
     next: Schema.optionalKey(Schema.String),
+    delivery: Schema.optionalKey(AnswerDelivery),
   },
   Result: {
     digest: Digest,
@@ -333,6 +373,7 @@ export const DaemonResult = Schema.TaggedUnion({
     runs: Schema.Array(WaitOutcome),
     cursor: Cursor,
     next: Schema.String,
+    alternative: Schema.optionalKey(Schema.String),
   },
 });
 export type DaemonResult = typeof DaemonResult.Type;

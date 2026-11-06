@@ -306,7 +306,7 @@ export const askOrchestratorTool: typeof DynamicToolSpec.Type = {
   type: "function",
   name: "ask_orchestrator",
   description:
-    "Ask the orchestrator only when blocked by something the contract and code don't settle, or a decision with real consequences is needed. Progress, findings and corrections go in the hand-off: every call pauses the turn until answered. If the answer times out, proceed with best judgment and note the question and choice under Open.",
+    "Ask the orchestrator only when blocked by something the contract and code don't settle, or a decision with real consequences is needed. Progress, findings and corrections go in the hand-off: every call pauses the turn until answered. If no answer comes in time, you'll be told to continue without it; the answer arrives later as a message.",
   inputSchema: Schema.toJsonSchemaDocument(AskOrchestratorArguments, { onExcessProperty: "error" })
     .schema,
 };

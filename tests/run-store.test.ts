@@ -227,6 +227,60 @@ it.effect("derives pending questions after answered, auto-answered and cancelled
   }).pipe(Effect.provide(NodeServices.layer)),
 );
 
+it.effect("deferred questions stay unanswered until a late answer or superseding message", () =>
+  Effect.gen(function* () {
+    const { fs, dir } = yield* setup();
+    for (const [index, resolution] of (
+      ["auto-answered", "cancelled", "deferred", "late", "superseded"] as const
+    ).entries()) {
+      const id = Schema.decodeUnknownSync(QuestionId)(`q${index + 1}`);
+      yield* Store.appendQuestion(dir, {
+        _tag: "Asked",
+        id,
+        turn: 1,
+        kind: "blocked",
+        question: `Question ${index}`,
+        at: DateTime.makeUnsafe(0),
+      });
+      if (index >= 2)
+        yield* Store.appendQuestion(dir, {
+          _tag: "Deferred",
+          id,
+          by: "timeout",
+          at: DateTime.makeUnsafe(1),
+        });
+      if (resolution !== "deferred")
+        yield* Store.appendQuestion(dir, {
+          _tag: "Resolved",
+          id,
+          resolution,
+          text: null,
+          at: DateTime.makeUnsafe(2),
+        });
+    }
+    const history = yield* Store.readQuestions(dir);
+    expect(Store.pendingQuestions(history)).toEqual([]);
+    expect(Store.unansweredQuestions(history)).toMatchObject([
+      { id: "q3", question: "Question 2" },
+    ]);
+    for (const file of ["questions.jsonl", "events.jsonl"]) {
+      if (file === "events.jsonl")
+        yield* Store.appendEvent(dir, {
+          _tag: "QuestionResolved",
+          id: Schema.decodeUnknownSync(QuestionId)("q3"),
+          resolution: "deferred",
+        });
+      const lines = (yield* fs.readFileString(`${dir}/${file}`)).trim().split("\n");
+      const oldHeader = Schema.Struct({ formatVersion: Schema.optionalKey(Schema.Literal(1)) });
+      for (const line of lines) {
+        const value: unknown = JSON.parse(line);
+        expect(value).toHaveProperty("formatVersion", 2);
+        expect(Schema.decodeUnknownResult(oldHeader)(value)._tag).toBe("Failure");
+      }
+    }
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
 it.effect("reads the newest available hand-off when the interrupted latest turn has none", () =>
   Effect.gen(function* () {
     const { fs, path, dir } = yield* setup();
@@ -309,7 +363,7 @@ it.effect("does not discover unpublished staging directories", () =>
   }).pipe(Effect.provide(NodeServices.layer)),
 );
 
-it.effect("writes version 1 records and reads the legacy unversioned format", () =>
+it.effect("writes versioned records and reads the legacy unversioned format", () =>
   Effect.gen(function* () {
     const { fs, dir, run } = yield* setup();
     const json = Schema.decodeUnknownSync(
@@ -317,7 +371,7 @@ it.effect("writes version 1 records and reads the legacy unversioned format", ()
     );
     expect(json(yield* fs.readFileString(`${dir}/run.json`)).formatVersion).toBe(1);
     yield* Store.appendEvent(dir, { _tag: "Other", method: "probe" });
-    expect(json((yield* fs.readFileString(`${dir}/events.jsonl`)).trim()).formatVersion).toBe(1);
+    expect(json((yield* fs.readFileString(`${dir}/events.jsonl`)).trim()).formatVersion).toBe(2);
     yield* fs.writeFileString(
       `${dir}/run.json`,
       Schema.encodeSync(Schema.fromJsonString(RunRecord))(run),
@@ -352,7 +406,7 @@ it.effect.each<"run.json" | "events.jsonl" | "questions.jsonl" | "codex.jsonl">(
       "codex.jsonl": { method: "future" },
     };
     const value = values[file];
-    const bytes = `${JSON.stringify({ ...value, formatVersion: 2 })}\n`;
+    const bytes = `${JSON.stringify({ ...value, formatVersion: 3 })}\n`;
     yield* fs.writeFileString(`${dir}/${file}`, bytes);
     const attempts = [
       Store.writeRun(dir, { ...run, state: "lost" }),

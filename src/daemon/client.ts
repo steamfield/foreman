@@ -190,6 +190,24 @@ const exchangeRunRequest = Effect.fn("daemon.exchangeRunRequest")(function* (
   reader: Socket.Reader,
   outdated: boolean,
 ) {
+  if (outdated && body._tag === "Defer")
+    return yield* new DaemonUnavailable({
+      detail:
+        "Outdated daemon cannot defer questions; finish its active runs and restart the daemon.",
+    });
+  if (outdated && body._tag === "Answer") {
+    const status = yield* exchange({ _tag: "Status", name: body.name, cwd: "" }, socket, reader);
+    if (
+      status._tag !== "Digests" ||
+      !status.digests.some((digest) =>
+        digest.questions.some((question) => question.id === body.question),
+      )
+    )
+      return yield* new DaemonUnavailable({
+        detail:
+          "Outdated daemon cannot route late answers or corrections; finish its active runs and restart the daemon.",
+      });
+  }
   if (outdated && body._tag === "Start" && body.newWorktree)
     return yield* new DaemonUnavailable({
       detail:

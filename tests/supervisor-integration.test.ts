@@ -35,7 +35,7 @@ import * as D from "../src/schemas/daemon";
 import { Host } from "../src/services/host";
 import { makeSupervisor } from "../src/supervisor";
 import { makeAppServer } from "../src/supervisor/app-server";
-import { noAnswer, preamble, timeUp } from "../src/supervisor/prompts";
+import { deferral, preamble, timeUp } from "../src/supervisor/prompts";
 import { makeQuestions } from "../src/supervisor/questions";
 import { makeRegistry } from "../src/supervisor/registry";
 import { makeTurns } from "../src/supervisor/turns";
@@ -358,7 +358,721 @@ const preflightFixture = Effect.fnUntraced(function* () {
   return { ...f, registry, turns, body };
 });
 
+const queuedAnswersFixture = Effect.fnUntraced(function* () {
+  const finished = (id: string, status = "completed") =>
+    notify(Codex.Method.turnCompleted, {
+      threadId: "primary",
+      turn: { id, status, error: null, items: [] },
+    });
+  const response = (id: string) => ({
+    result: { turn: { id, status: "inProgress", error: null, items: [] } },
+  });
+  const script = scenario(
+    { ...turnRule([question(), { awaitResponse: "q" }]), respond: response("work") },
+    {
+      method: Codex.Method.turnStart,
+      respond: response("handoff"),
+      steps: [{ awaitRequest: Codex.Method.threadStart }, finished("handoff")],
+    },
+    ...["A", "B", "C"].map(
+      (id): Rule => ({
+        method: Codex.Method.turnStart,
+        when: { threadId: "primary" },
+        respond: response(id),
+        steps: [...(id === "C" ? [] : [{ awaitRequest: Codex.Method.threadStart }]), finished(id)],
+      }),
+    ),
+    { ...turnRule([complete()]), repeat: true },
+    {
+      method: Codex.Method.turnInterrupt,
+      respond: { result: {} },
+      steps: [finished("work", "interrupted")],
+    },
+    { method: Codex.Method.turnSteer, repeat: true, respond: { result: { turnId: "A" } } },
+  );
+  const f = yield* fixture({
+    rules: [
+      {
+        method: Codex.Method.threadStart,
+        respond: { result: { ...opened, thread: { id: "primary" } } },
+      },
+      ...script.rules,
+    ],
+  });
+  let peers = 0;
+  const release = Effect.gen(function* () {
+    const peer = Schema.decodeUnknownSync(D.RunName)(`peer-${++peers}`);
+    const worktree = `${f.repo}/work/${peer}`;
+    yield* f.git(f.repo, ["worktree", "add", "-qb", peer, worktree]);
+    yield* f.start({ name: peer, worktree });
+    yield* f.wait({ names: [peer] });
+  });
+  const handoff = Effect.gen(function* () {
+    yield* f.start({ budgetMs: 1000 });
+    yield* f.untilState("waiting");
+    yield* f.cli(["defer", "unit", "q1"]);
+    yield* TestClock.adjust(1000);
+    while ((yield* f.status()).turnKind !== "handoff") yield* Effect.yieldNow;
+  });
+  const atTurn = (turn: number) =>
+    Effect.gen(function* () {
+      while ((yield* f.status()).turn < turn) yield* Effect.yieldNow;
+    });
+  const answer = (text: string) => f.request({ _tag: "Answer", name, question: q1, text });
+  return { ...f, release, handoff, atTurn, answer };
+});
+
 describe("supervisor over the real daemon socket", () => {
+  it.effect("review: each queued answer waits for its own delivered turn", () =>
+    Effect.gen(function* () {
+      const f = yield* queuedAnswersFixture();
+      yield* f.launch();
+      yield* f.handoff;
+      yield* f.answer("A");
+      const second = yield* f.answer("B");
+      assert(second._tag === "Accepted");
+      yield* f.release;
+      yield* f.atTurn(3);
+      yield* f.release;
+      yield* f.atTurn(4);
+      expect(yield* f.wait({ after: second.cursor, timeoutMs: 0 })).toMatchObject({
+        outcome: "timeout",
+        runs: [],
+      });
+      yield* f.release;
+      expect(yield* f.wait({ after: second.cursor })).toMatchObject({
+        runs: [{ kind: "done", digest: { turn: 4 } }],
+      });
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.effect("review: a correction cannot overtake an older queued answer", () =>
+    Effect.gen(function* () {
+      const f = yield* queuedAnswersFixture();
+      yield* f.launch();
+      yield* f.handoff;
+      yield* f.answer("A");
+      yield* f.answer("B");
+      yield* f.release;
+      yield* f.atTurn(3);
+      const third = yield* f.answer("C");
+      expect(third).toMatchObject({ _tag: "Accepted", delivery: "queued" });
+      assert(third._tag === "Accepted");
+      yield* f.release;
+      yield* f.atTurn(4);
+      yield* f.release;
+      expect(yield* f.wait({ after: third.cursor })).toMatchObject({
+        runs: [{ kind: "done", digest: { turn: 5 } }],
+      });
+      const PrimaryInput = Schema.Struct({
+        threadId: Schema.Literal("primary"),
+        input: Schema.Array(Schema.Struct({ text: Schema.String })),
+      });
+      const inputs = (yield* f.readLog)
+        .filter((entry) => entry.method === Codex.Method.turnStart)
+        .map((entry) => entry.params)
+        .filter(Schema.is(PrimaryInput))
+        .map((entry) => entry.input[0]?.text);
+      expect(inputs.slice(-3)).toEqual([
+        expect.stringContaining(": A"),
+        expect.stringContaining(": B"),
+        expect.stringContaining(": C"),
+      ]);
+      expect((yield* Store.readQuestions(f.runDir)).at(-1)).toMatchObject({
+        text: "C",
+        delivery: "followup",
+      });
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.effect(
+    "review: shutdown honors accepted answers between handoff completion and start reservation",
+    () =>
+      Effect.gen(function* () {
+        const f = yield* queuedAnswersFixture();
+        const reached = yield* Deferred.make<void>();
+        const released = yield* Deferred.make<void>();
+        let armed = false;
+        const observed = {
+          ...f.fs,
+          writeFileString: (
+            file: string,
+            text: string,
+            options?: Parameters<typeof f.fs.writeFileString>[2],
+          ) =>
+            Effect.gen(function* () {
+              if (
+                armed &&
+                file === `${f.runDir}/events.jsonl` &&
+                text.includes('"to":"interrupted"')
+              ) {
+                armed = false;
+                yield* Deferred.succeed(reached, undefined);
+                yield* Deferred.await(released);
+              }
+              yield* f.fs.writeFileString(file, text, options);
+            }),
+        };
+        const { supervisor, fiber } = yield* f
+          .launch()
+          .pipe(Effect.provideService(FileSystem.FileSystem, observed));
+        // A failed assertion must also let an unexpectedly accepted Shutdown drain.
+        yield* Effect.addFinalizer(() => TestClock.adjust(100));
+        yield* Effect.gen(function* () {
+          yield* f.handoff;
+          yield* f.answer("A");
+          armed = true;
+          yield* f.release;
+          yield* Deferred.await(reached);
+          expect((yield* Store.readRun(f.runDir)).state).toBe("interrupted");
+          const busy = yield* supervisor.busy;
+          const shutdown = yield* f.request({ _tag: "Shutdown" }).pipe(Effect.result);
+          expect(shutdown).toMatchObject({ _tag: "Failure", failure: { _tag: "RunConflict" } });
+          expect(busy).toBe(true);
+        }).pipe(Effect.ensuring(Deferred.succeed(released, undefined)));
+        yield* f.atTurn(3);
+        yield* f.release;
+        yield* f.untilState("idle");
+        expect(yield* f.request({ _tag: "Shutdown" })).toEqual({ _tag: "Ok" });
+        // Orderly socket shutdown drains responses for 100 ms on the daemon clock.
+        yield* TestClock.adjust(100);
+        yield* Fiber.join(fiber);
+      }).pipe(Effect.provide(platform)),
+  );
+
+  it.effect("review: queued answers retain ownership for archive and worktree reuse", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario(turnRule([complete()])));
+      const daemon = yield* f.launch();
+      yield* f.start();
+      yield* f.untilState("idle");
+      yield* daemon.stop;
+      const registry = yield* makeRegistry(f.dataDir);
+      const run = yield* registry.lookup(name);
+      const released = yield* Deferred.make<void>();
+      yield* registry.enqueueAnswer(run, Deferred.await(released));
+      yield* Effect.gen(function* () {
+        expect(yield* registry.busy).toBe(true);
+        const other = Schema.decodeUnknownSync(D.RunName)("other");
+        for (const operation of [
+          registry.archive(name, true),
+          registry.reserveWorktree(name, f.worktree),
+          registry.reserveWorktree(other, f.worktree),
+        ])
+          expect(yield* operation.pipe(Effect.flip)).toMatchObject({ _tag: "RunConflict" });
+        expect(yield* f.fs.exists(f.runDir)).toBe(true);
+      }).pipe(Effect.ensuring(Deferred.succeed(released, undefined)));
+      while (yield* registry.busy) yield* Effect.yieldNow;
+      yield* registry.reserveWorktree(name, f.worktree);
+      yield* registry.releaseWorktree(name, f.worktree);
+      expect(yield* registry.archive(name, true)).toMatchObject({ _tag: "Archived" });
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live.each(["Answer", "Followup"] as const)(
+    "deferred: %s races with another continuation and Shutdown without reversing locks",
+    (first) =>
+      Effect.gen(function* () {
+        const script = scenario(
+          turnRule([question(), { awaitResponse: "q" }, complete()]),
+          turnRule([complete()]),
+          { ...turnRule([complete()]), repeat: true },
+          {
+            method: Codex.Method.turnSteer,
+            repeat: true,
+            respond: { result: { turnId: "{{turn}}" } },
+          },
+        );
+        const f = yield* fixture(script);
+        const ready = `${f.root}/continuation-ready`;
+        const release = `${f.root}/continuation-release`;
+        yield* commandResult(ChildProcess.make("mkfifo", [release]));
+        let turns = 0;
+        yield* f.fs.writeFileString(
+          f.scenarioFile,
+          Schema.encodeSync(Schema.fromJsonString(Scenario))({
+            rules: script.rules.map((rule) => {
+              if (rule.method !== Codex.Method.turnStart || ++turns !== 2) return rule;
+              return { ...rule, gate: { ready, release } };
+            }),
+          }),
+        );
+        yield* f.launch();
+        yield* f.start();
+        yield* f.untilState("waiting");
+        yield* f.cli(["defer", "unit", "q1"]);
+        yield* f.untilState("idle");
+        const answer: D.DaemonRequestBody = { _tag: "Answer", name, question: q1, text: "A" };
+        const followup: D.DaemonRequestBody = { _tag: "Followup", name, message: "Continue" };
+        const one = yield* f
+          .request(first === "Answer" ? answer : followup)
+          .pipe(Effect.result, Effect.forkChild);
+        while (!(yield* f.fs.exists(ready))) yield* Effect.yieldNow;
+        const two = yield* f
+          .request(first === "Answer" ? followup : answer)
+          .pipe(Effect.result, Effect.forkChild);
+        expect(yield* f.request({ _tag: "Shutdown" }).pipe(Effect.flip)).toMatchObject({
+          _tag: "RunConflict",
+        });
+        yield* f.fs.writeFileString(release, "go");
+        expect((yield* Fiber.join(one))._tag).toBe("Success");
+        const other = yield* Fiber.join(two);
+        if (other._tag === "Failure") expect(other.failure).toMatchObject({ _tag: "RunConflict" });
+        else expect(other.success._tag).toBe("Accepted");
+        expect(yield* f.request({ _tag: "Ping" })).toMatchObject({ _tag: "Pong" });
+      }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("deferred: an idle late answer with --wait ignores another run's completion", () =>
+    Effect.gen(function* () {
+      const script = scenario(
+        turnRule([question(), { awaitResponse: "q" }, complete()]),
+        {
+          ...turnRule(),
+          respond: {
+            result: { turn: { id: "peer-turn", status: "inProgress", error: null, items: [] } },
+          },
+        },
+        {
+          ...turnRule([
+            notify(Codex.Method.turnCompleted, {
+              threadId: "peer",
+              turn: { id: "peer-turn", status: "completed", error: null, items: [] },
+            }),
+            notify(Codex.Method.turnCompleted, {
+              threadId: "primary",
+              turn: { id: "late", status: "completed", error: null, items: [] },
+            }),
+          ]),
+          respond: {
+            result: { turn: { id: "late", status: "inProgress", error: null, items: [] } },
+          },
+        },
+      );
+      const f = yield* fixture({
+        rules: [
+          {
+            method: Codex.Method.threadStart,
+            respond: { result: { ...opened, thread: { id: "primary" } } },
+          },
+          {
+            method: Codex.Method.threadStart,
+            respond: { result: { ...opened, thread: { id: "peer" } } },
+          },
+          ...script.rules,
+        ],
+      });
+      yield* f.launch();
+      yield* f.start();
+      yield* f.untilState("waiting");
+      yield* f.cli(["defer", "unit", "q1"]);
+      yield* f.untilState("idle");
+      const other = `${f.repo}/work/peer`;
+      yield* f.git(f.repo, ["worktree", "add", "-qb", "peer", other]);
+      yield* f.start({ name: Schema.decodeUnknownSync(D.RunName)("peer"), worktree: other });
+      const output = Schema.decodeUnknownSync(Schema.fromJsonString(D.DaemonResult))(
+        yield* f.cli(["answer", "unit", "q1", "Approved", "--wait", "--timeout", "2s", "--json"]),
+      );
+      expect(output).toMatchObject({
+        _tag: "Waited",
+        runs: [{ name, kind: "done", digest: { turn: 2 } }],
+      });
+      assert(output._tag === "Waited");
+      expect(output.runs).toHaveLength(1);
+      expect(output.next).toContain("wait unit --after");
+    }).pipe(Effect.provide(platform)),
+  );
+  it.effect("deferred: timeout releases the RPC without handing over the decision", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario(turnRule([question(), { awaitResponse: "q" }])));
+      yield* f.launch();
+      yield* f.start({ questionTimeoutMs: 1000 });
+      yield* f.untilState("waiting");
+      yield* TestClock.adjust(1000);
+      yield* f.untilState("running");
+      expect(yield* f.readLog).toContainEqual({
+        result: {
+          success: true,
+          contentItems: [
+            {
+              type: "inputText",
+              text: expect.stringContaining("No answer yet; the decision may need a person"),
+            },
+          ],
+        },
+      });
+      expect(yield* Store.readQuestions(f.runDir)).toMatchObject([
+        { _tag: "Asked", id: q1 },
+        { _tag: "Deferred", id: q1, by: "timeout" },
+      ]);
+      expect(yield* f.status()).toMatchObject({
+        questions: [],
+        unansweredQuestions: [{ id: q1, question: "Which path?" }],
+      });
+      expect(yield* f.cli(["status", "unit"])).toContain("q1 deferred, unanswered");
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("deferred: defer releases a question immediately with an optional note", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario(turnRule([question(), { awaitResponse: "q" }])));
+      yield* f.launch();
+      yield* f.start();
+      yield* f.untilState("waiting");
+      expect(yield* f.cli(["defer", "unit", "q1", "Waiting for a person"])).toContain("ok");
+      expect((yield* Store.readQuestions(f.runDir)).at(-1)).toMatchObject({
+        _tag: "Deferred",
+        by: "orchestrator",
+        note: "Waiting for a person",
+      });
+      expect(yield* f.readLog).toContainEqual({
+        result: {
+          success: true,
+          contentItems: [
+            {
+              type: "inputText",
+              text: expect.stringContaining("Orchestrator note: Waiting for a person"),
+            },
+          ],
+        },
+      });
+      expect(
+        yield* f.request({ _tag: "Defer", name, question: q1 }).pipe(Effect.flip),
+      ).toMatchObject({
+        _tag: "RunConflict",
+        detail: expect.stringContaining("deferred"),
+      });
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live.each(["steer", "followup"] as const)(
+    "deferred: late answer uses %s with the original question context",
+    (delivery) =>
+      Effect.gen(function* () {
+        const f = yield* fixture(
+          scenario(
+            turnRule([
+              question(),
+              { awaitResponse: "q" },
+              ...(delivery === "followup" ? [complete()] : []),
+            ]),
+            { method: Codex.Method.turnSteer, respond: { result: { turnId: "{{turn}}" } } },
+            turnRule([complete()]),
+          ),
+        );
+        yield* f.launch();
+        yield* f.start();
+        yield* f.untilState("waiting");
+        yield* f.cli(["defer", "unit", "q1"]);
+        yield* f.untilState(delivery === "followup" ? "idle" : "running");
+        yield* f.cli(["answer", "unit", "q1", "Use A"]);
+        const request = (yield* f.readLog)
+          .filter(
+            (entry) =>
+              entry.method ===
+              (delivery === "steer" ? Codex.Method.turnSteer : Codex.Method.turnStart),
+          )
+          .at(-1);
+        expect(request?.params).toMatchObject({
+          input: [
+            { type: "text", text: 'Answer to your earlier question q1 ("Which path?"): Use A' },
+          ],
+        });
+        expect((yield* Store.readQuestions(f.runDir)).at(-1)).toMatchObject({
+          _tag: "Resolved",
+          resolution: "late",
+          delivery,
+          text: "Use A",
+        });
+        expect((yield* f.status()).unansweredQuestions ?? []).toEqual([]);
+      }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("deferred: a refused late steer falls back to a follow-up in the same command", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(
+        scenario(
+          turnRule([
+            question(),
+            { awaitResponse: "q" },
+            { awaitRequest: Codex.Method.turnSteer },
+            complete(),
+          ]),
+          {
+            method: Codex.Method.turnSteer,
+            respond: { error: { code: -1, message: "activeTurnNotSteerable" } },
+          },
+          turnRule([complete()]),
+        ),
+      );
+      yield* f.launch();
+      yield* f.start();
+      yield* f.untilState("waiting");
+      yield* f.cli(["defer", "unit", "q1"]);
+      yield* f.untilState("running");
+      expect(
+        yield* f.cli(["answer", "unit", "q1", "Use A", "--wait", "--timeout", "2s", "--json"]),
+      ).toContain('"kind":"done"');
+      expect(
+        (yield* f.readLog).filter((entry) => entry.method === Codex.Method.turnStart),
+      ).toHaveLength(2);
+      expect((yield* Store.readQuestions(f.runDir)).at(-1)).toMatchObject({
+        resolution: "late",
+        delivery: "followup",
+      });
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("deferred: another pending question takes priority over a late answer", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(
+        scenario(turnRule([question(), { awaitResponse: "q" }, question("second")])),
+      );
+      yield* f.launch();
+      yield* f.start();
+      yield* f.untilState("waiting");
+      yield* f.cli(["defer", "unit", "q1"]);
+      while (!(yield* f.status()).questions.some((q) => q.id === "q2")) yield* Effect.yieldNow;
+      expect(
+        yield* f.request({ _tag: "Answer", name, question: q1, text: "A" }).pipe(Effect.flip),
+      ).toMatchObject({
+        _tag: "RunConflict",
+        detail: "answer q2 first; the answer can carry this too",
+      });
+      expect(
+        yield* f.request({ _tag: "Defer", name, question: q1 }).pipe(Effect.flip),
+      ).toMatchObject({
+        _tag: "RunConflict",
+        detail: "q1 is deferred; only a pending question can be deferred.",
+      });
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("deferred: a closed question conflicts without opening an app server", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(
+        scenario(turnRule([question(), { awaitResponse: "q" }, complete()])),
+      );
+      const first = yield* f.launch();
+      yield* f.start();
+      yield* f.untilState("waiting");
+      yield* f.cli(["answer", "unit", "q1", "A"]);
+      yield* f.untilState("idle");
+      yield* first.stop;
+      f.env.CODEX_BIN = `${f.root}/missing-codex`;
+      yield* f.launch();
+      expect(
+        yield* f.request({ _tag: "Defer", name, question: q1 }).pipe(Effect.flip),
+      ).toMatchObject({
+        _tag: "RunConflict",
+        detail: "q1 is answered; only a pending question can be deferred.",
+      });
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("deferred: re-answering a resolved question sends a correction", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(
+        scenario(turnRule([question(), { awaitResponse: "q" }]), {
+          method: Codex.Method.turnSteer,
+          respond: { result: { turnId: "{{turn}}" } },
+        }),
+      );
+      yield* f.launch();
+      yield* f.start();
+      yield* f.untilState("waiting");
+      yield* f.cli(["answer", "unit", "q1", "A"]);
+      yield* f.cli(["answer", "unit", "q1", "Actually B"]);
+      expect(
+        (yield* f.readLog).find((entry) => entry.method === Codex.Method.turnSteer)?.params,
+      ).toMatchObject({
+        input: [
+          { type: "text", text: 'Correction to your answer to q1 ("Which path?"): Actually B' },
+        ],
+      });
+      expect((yield* Store.readQuestions(f.runDir)).at(-1)).toMatchObject({
+        resolution: "correction",
+        delivery: "steer",
+      });
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live.each(["Steer", "Followup"] as const)(
+    "deferred: %s supersedes unanswered questions",
+    (action) =>
+      Effect.gen(function* () {
+        const f = yield* fixture(
+          scenario(
+            turnRule([
+              question(),
+              { awaitResponse: "q" },
+              ...(action === "Followup" ? [complete()] : []),
+            ]),
+            {
+              method: Codex.Method.turnSteer,
+              respond: { result: { turnId: "{{turn}}" } },
+              steps: [complete()],
+            },
+            turnRule([complete()]),
+          ),
+        );
+        yield* f.launch();
+        yield* f.start();
+        yield* f.untilState("waiting");
+        yield* f.cli(["defer", "unit", "q1"]);
+        yield* f.untilState(action === "Followup" ? "idle" : "running");
+        yield* f.request({ _tag: action, name, message: "Continue without the decision" });
+        yield* f.untilState("idle");
+        expect((yield* f.status()).unansweredQuestions ?? []).toEqual([]);
+        expect((yield* Store.readQuestions(f.runDir)).at(-1)).toMatchObject({
+          resolution: "superseded",
+        });
+        expect((yield* f.wait()).runs.at(-1)?.summary).not.toContain("unanswered");
+      }).pipe(Effect.provide(platform)),
+  );
+
+  it.live.each(["blocked", "question"] as const)(
+    "deferred: completion keeps %s questions visible and suggests answering",
+    (kind) =>
+      Effect.gen(function* () {
+        const f = yield* fixture(
+          scenario(
+            turnRule([
+              question("q", { question: "Choose?", kind }),
+              { awaitResponse: "q" },
+              complete(),
+            ]),
+          ),
+        );
+        yield* f.launch();
+        yield* f.start();
+        yield* f.untilState("waiting");
+        const asked = yield* f.cli(["wait", "unit", "--timeout", "0ms"]);
+        expect(asked).toContain('forman answer unit q1 "<answer>"');
+        expect(asked).toContain("or: ");
+        expect(asked).toContain("forman defer unit q1");
+        yield* f.cli(["defer", "unit", "q1"]);
+        yield* f.untilState("idle");
+        const done = yield* f.cli(["wait", "unit", "--timeout", "0ms"]);
+        expect(done).toContain(
+          kind === "blocked" ? "blocked on q1" : "done, 1 unanswered question",
+        );
+        expect(done).toContain('forman answer unit q1 "<answer>"');
+      }).pipe(Effect.provide(platform)),
+  );
+
+  it.effect.each([false, true])(
+    "deferred: an answer during budget hand-off queues a follow-up after completion, wait=%s",
+    (waiting) =>
+      Effect.gen(function* () {
+        // Fixed identities let another Start release the hand-off without a timer.
+        const script = scenario(
+          {
+            ...turnRule([question(), { awaitResponse: "q" }]),
+            respond: {
+              result: { turn: { id: "work", status: "inProgress", error: null, items: [] } },
+            },
+          },
+          {
+            ...turnRule([
+              { awaitRequest: Codex.Method.threadStart },
+              notify(Codex.Method.turnCompleted, {
+                threadId: "primary",
+                turn: { id: "handoff", status: "completed", error: null, items: [] },
+              }),
+            ]),
+            respond: {
+              result: { turn: { id: "handoff", status: "inProgress", error: null, items: [] } },
+            },
+          },
+          {
+            method: Codex.Method.turnStart,
+            when: { threadId: "primary" },
+            respond: {
+              result: { turn: { id: "delivered", status: "inProgress", error: null, items: [] } },
+            },
+            steps: [
+              notify(Codex.Method.turnCompleted, {
+                threadId: "primary",
+                turn: { id: "delivered", status: "completed", error: null, items: [] },
+              }),
+            ],
+          },
+          turnRule([complete()]),
+          {
+            method: Codex.Method.turnInterrupt,
+            respond: { result: {} },
+            steps: [
+              notify(Codex.Method.turnCompleted, {
+                threadId: "primary",
+                turn: { id: "work", status: "interrupted", error: null, items: [] },
+              }),
+            ],
+          },
+        );
+        const f = yield* fixture({
+          rules: [
+            {
+              method: Codex.Method.threadStart,
+              respond: { result: { ...opened, thread: { id: "primary" } } },
+            },
+            ...script.rules,
+          ],
+        });
+        yield* f.launch();
+        yield* f.start({ budgetMs: 1000 });
+        yield* f.untilState("waiting");
+        yield* f.cli(["defer", "unit", "q1"]);
+        yield* TestClock.adjust(1000);
+        while ((yield* f.status()).turnKind !== "handoff") yield* Effect.yieldNow;
+        const pending = yield* f
+          .cli([
+            "answer",
+            "unit",
+            "q1",
+            "A",
+            "--json",
+            ...(waiting ? ["--wait", "--timeout", "2s"] : []),
+          ])
+          .pipe(Effect.forkChild);
+        while (
+          !(yield* Store.readQuestions(f.runDir)).some(
+            (line) => line._tag === "Resolved" && line.delivery === "queued",
+          )
+        )
+          yield* Effect.yieldNow;
+        if (!waiting) {
+          const accepted = Schema.decodeUnknownSync(Schema.fromJsonString(D.DaemonResult))(
+            yield* Fiber.join(pending),
+          );
+          expect(accepted).toMatchObject({ _tag: "Accepted", delivery: "queued" });
+          assert(accepted._tag === "Accepted");
+          const position: unknown = JSON.parse(
+            atob(accepted.cursor.slice(3).replaceAll("-", "+").replaceAll("_", "/")),
+          );
+          expect(position).toMatchObject({
+            positions: { unit: { continuation: expect.any(String) } },
+          });
+        }
+        expect(
+          (yield* f.readLog).filter((entry) => entry.method === Codex.Method.turnStart),
+        ).toHaveLength(2);
+        const other = `${f.repo}/work/other`;
+        yield* f.git(f.repo, ["worktree", "add", "-qb", "other", other]);
+        yield* f.start({ name: Schema.decodeUnknownSync(D.RunName)("other"), worktree: other });
+        while ((yield* f.status()).turn < 3) yield* Effect.yieldNow;
+        yield* f.untilState("idle");
+        if (waiting)
+          expect(JSON.parse(yield* Fiber.join(pending))).toMatchObject({
+            _tag: "Waited",
+            runs: [{ kind: "done", digest: { turn: 3, turnKind: "followup" } }],
+          });
+        expect((yield* Store.readQuestions(f.runDir)).at(-1)).toMatchObject({
+          resolution: "late",
+          delivery: "followup",
+        });
+      }).pipe(Effect.provide(platform)),
+  );
   it.live.each(["start", "followup", "steer", "answer"] as const)(
     "%s --wait ignores a peer's completion and keeps a named next command",
     (command) =>
@@ -897,7 +1611,7 @@ exec '${realGit}' "$@"
       const stored = Schema.decodeUnknownSync(
         Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)),
       )(yield* f.fs.readFileString(file));
-      const future = JSON.stringify({ ...stored, formatVersion: 2 });
+      const future = JSON.stringify({ ...stored, formatVersion: 3 });
       yield* f.fs.writeFileString(file, future);
       expect(yield* f.request({ _tag: "Archive", name }).pipe(Effect.flip)).toMatchObject({
         _tag: "RunConflict",
@@ -2535,7 +3249,12 @@ child.on("exit", code => process.exit(code ?? 1));
             expect(stdout).not.toContain("next: forman wait unit\n");
             if (kind === "done") expect(stdout).toContain("Hand-off (turn 1):\nFinished work.");
           }
-          expect(stdout).toContain(" --timeout 2s");
+          if (kind === "done") expect(stdout).toContain(" --timeout 2s");
+          else {
+            expect(stdout).toContain(`forman answer unit q1`);
+            expect(stdout).toContain(`forman defer unit q1`);
+            expect(stdout).not.toContain(" --timeout 2s");
+          }
         }).pipe(Effect.provide(platform)),
       );
     }
@@ -2649,12 +3368,19 @@ child.on("exit", code => process.exit(code ?? 1));
       yield* f.start({ name: otherName, worktree: otherWorktree });
       yield* f.wait({ names: [otherName] });
       const first = yield* f.cli(["wait", "unit", "other"]);
-      const next = first.trimEnd().split("\n").at(-1);
-      expect(f.nextArgs((next ?? "").slice("next: ".length)).join(" ")).toMatch(
-        /^wait unit other --after \S+$/,
-      );
+      expect(first).toContain(`next: FORMAN_HOME=${f.dataDir} forman answer other q1 "<answer>"`);
+      expect(first).toContain(`or: FORMAN_HOME=${f.dataDir} forman defer other q1`);
+      const cursor = first
+        .split("\n")
+        .find((line) => line.startsWith("cursor: "))
+        ?.slice(8);
+      expect(cursor).toBeDefined();
       const continued = yield* f.cli([
-        ...f.nextArgs((next ?? "").slice("next: ".length)),
+        "wait",
+        "unit",
+        "other",
+        "--after",
+        cursor ?? "",
         "--timeout",
         "0ms",
         "--json",
@@ -2695,7 +3421,14 @@ child.on("exit", code => process.exit(code ?? 1));
           );
           return f.nextArgs((line ?? "").slice("next: ".length));
         };
-        const next = continuation(first);
+        expect(first).toContain(`next: FORMAN_HOME=${f.dataDir} forman answer unit q1 "<answer>"`);
+        expect(first).toContain(`or: FORMAN_HOME=${f.dataDir} forman defer unit q1`);
+        const cursor = first
+          .split("\n")
+          .find((line) => line.startsWith("cursor: "))
+          ?.slice(8);
+        expect(cursor).toBeDefined();
+        const next = ["wait", "unit", "--after", cursor ?? "", "--timeout", "0ms"];
         const timed = yield* f.cli(next);
         expect(timed.split("\n")[0]).toBe("timeout");
         expect(continuation(timed)).toEqual(next);
@@ -4292,7 +5025,7 @@ if (process.argv.includes("generate-json-schema")) {
     }).pipe(Effect.provide(platform)),
   );
 
-  it.live("holds questions, refuses steer, answers once, and returns to running", () =>
+  it.live("holds questions, refuses steer, answers the RPC once, and accepts a correction", () =>
     Effect.gen(function* () {
       const f = yield* fixture(
         scenario(
@@ -4320,10 +5053,9 @@ if (process.argv.includes("generate-json-schema")) {
       });
       yield* f.request({ _tag: "Answer", name, question: q1, text: "Take path A" });
       expect((yield* f.status()).state).toBe("running");
-      expect(
-        yield* f.request({ _tag: "Answer", name, question: q1, text: "twice" }).pipe(Effect.flip),
-      ).toMatchObject({ _tag: "RunConflict" });
-      yield* f.request({ _tag: "Steer", name, message: "finish" });
+      expect(yield* f.request({ _tag: "Answer", name, question: q1, text: "twice" })).toMatchObject(
+        { _tag: "Accepted", delivery: "steer" },
+      );
       expect((yield* f.wait({ after: waited.cursor })).runs).toMatchObject([{ kind: "done" }]);
       expect(yield* f.readLog).toContainEqual({
         result: { success: true, contentItems: [{ type: "inputText", text: "Take path A" }] },
@@ -4331,11 +5063,12 @@ if (process.argv.includes("generate-json-schema")) {
       expect(yield* Store.readQuestions(f.runDir)).toMatchObject([
         { _tag: "Asked", id: "q1", turn: 1 },
         { _tag: "Resolved", resolution: "answered", text: "Take path A" },
+        { _tag: "Resolved", resolution: "correction", text: "twice", delivery: "steer" },
       ]);
     }).pipe(Effect.provide(platform)),
   );
 
-  it.effect("auto-answers on the question timeout through TestClock", () =>
+  it.effect("defers on the question timeout through TestClock", () =>
     Effect.gen(function* () {
       const f = yield* fixture(
         scenario(turnRule([question(), { awaitResponse: "q" }, complete()])),
@@ -4346,23 +5079,27 @@ if (process.argv.includes("generate-json-schema")) {
       yield* TestClock.adjust(1000);
       yield* f.untilState("idle");
       expect(yield* f.readLog).toContainEqual({
-        result: { success: true, contentItems: [{ type: "inputText", text: noAnswer }] },
+        result: { success: true, contentItems: [{ type: "inputText", text: deferral }] },
       });
       expect(yield* Store.readQuestions(f.runDir)).toMatchObject([
         { _tag: "Asked" },
-        { resolution: "auto-answered", text: noAnswer },
+        { _tag: "Deferred", by: "timeout" },
       ]);
     }).pipe(Effect.provide(platform)),
   );
 
-  it.live("cancels held questions on interrupt and refuses a later answer", () =>
+  it.live("cancels held questions on interrupt and delivers a later answer in a follow-up", () =>
     Effect.gen(function* () {
       const f = yield* fixture(
-        scenario(turnRule([question()]), {
-          method: Codex.Method.turnInterrupt,
-          respond: { result: {} },
-          steps: [complete("interrupted")],
-        }),
+        scenario(
+          turnRule([question()]),
+          {
+            method: Codex.Method.turnInterrupt,
+            respond: { result: {} },
+            steps: [complete("interrupted")],
+          },
+          turnRule([complete()]),
+        ),
       );
       const { supervisor } = yield* f.launch();
       yield* f.start();
@@ -4372,12 +5109,14 @@ if (process.argv.includes("generate-json-schema")) {
         { kind: "interrupted" },
       ]);
       expect(yield* supervisor.busy).toBe(false);
-      expect(
-        yield* f.request({ _tag: "Answer", name, question: q1, text: "late" }).pipe(Effect.flip),
-      ).toMatchObject({ _tag: "RunConflict" });
+      expect(yield* f.request({ _tag: "Answer", name, question: q1, text: "late" })).toMatchObject({
+        _tag: "Accepted",
+        delivery: "followup",
+      });
       expect(yield* Store.readQuestions(f.runDir)).toMatchObject([
         { _tag: "Asked" },
         { resolution: "cancelled", text: null },
+        { resolution: "late", text: "late", delivery: "followup" },
       ]);
       expect(yield* f.readLog).not.toContainEqual(
         expect.objectContaining({ result: { success: true, contentItems: expect.anything() } }),

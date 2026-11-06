@@ -43,6 +43,8 @@ export const Rule = Schema.Struct({
   // Wait this long before sending the response, without blocking other requests, so a later
   // request's response can arrive first. The rule's steps start after the response is sent.
   delayMs: Schema.optionalKey(Schema.Int),
+  // Mark entry, then hold the response until the release FIFO is written.
+  gate: Schema.optionalKey(Schema.Struct({ ready: Schema.String, release: Schema.String })),
   // `none` sends no response, for request-timeout tests.
   respond: Schema.Union([
     Schema.Struct({ result: Json }),

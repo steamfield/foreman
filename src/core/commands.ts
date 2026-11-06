@@ -163,6 +163,18 @@ export const answer = Effect.fn("commands.answer")(function* (
   return yield* afterAccepted(result, input.name, input);
 });
 
+export const defer = Effect.fn("commands.defer")(function* (
+  input: WaitOptions & { name: RunName; question: QuestionId; note: string | undefined },
+) {
+  const result = yield* request({
+    _tag: "Defer",
+    name: input.name,
+    question: input.question,
+    ...(input.note === undefined ? {} : { note: input.note }),
+  });
+  return yield* afterAccepted(result, input.name, input);
+});
+
 export const result = (name: RunName) => request({ _tag: "Result", name });
 
 export const archive = (name: RunName, keepWorktree = false) =>
@@ -187,6 +199,11 @@ export const wait = Effect.fn("commands.wait")(function* (
     ...result,
     next:
       result.next.replace(/^forman(?= )/, () => executable.command) +
-      (input.timeout === undefined ? "" : ` --timeout ${input.timeout}`),
+      (input.timeout === undefined || !result.next.startsWith("forman wait ")
+        ? ""
+        : ` --timeout ${input.timeout}`),
+    ...(result.alternative === undefined
+      ? {}
+      : { alternative: result.alternative.replace(/^forman(?= )/, () => executable.command) }),
   };
 });

@@ -175,7 +175,20 @@ export const answerCommand = Command.make(
     message: Argument.String("text").pipe(Argument.optional, Argument.map(Option.getOrUndefined)),
   },
   (input) => print("answer", programs.answer(input)),
-).pipe(Command.withDescription("Answer a pending question with text or a file."));
+).pipe(
+  Command.withDescription("Answer a question or correct an earlier answer with text or a file."),
+);
+
+export const deferCommand = Command.make(
+  "defer",
+  {
+    name,
+    question: Argument.String("question-id").pipe(Argument.withSchema(QuestionId)),
+    note: Argument.String("note").pipe(Argument.optional, Argument.map(Option.getOrUndefined)),
+    ...waiting,
+  },
+  (input) => print("defer", programs.defer(input)),
+).pipe(Command.withDescription("Release a pending question and leave the decision unanswered."));
 
 export const resultCommand = Command.make("result", { name }, ({ name }) =>
   print("result", programs.result(name)),

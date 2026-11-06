@@ -137,7 +137,7 @@ export function renderResult(
     case "Ok":
       return "ok";
     case "Accepted":
-      return `ok\nnext: ${result.next}`;
+      return `ok${result.delivery === "queued" ? " (answer queued for the next available turn)" : ""}\nnext: ${result.next}`;
     case "Result":
       return [
         renderDigest(result.digest),
@@ -164,6 +164,7 @@ export function renderResult(
         ...(result.runs.length === 0 ? [] : [""]),
         `cursor: ${result.cursor}`,
         `next: ${result.next}`,
+        ...(result.alternative ? [`or: ${result.alternative}`] : []),
       ].join("\n");
   }
 }
