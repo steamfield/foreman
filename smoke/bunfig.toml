@@ -1,0 +1,3 @@
+[test]
+# Smoke tests deliberately use the real login; the normal preload replaces HOME.
+preload = []

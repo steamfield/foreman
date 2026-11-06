@@ -20,6 +20,7 @@ Run these from the repo root. They are the only supported way to build, test, an
 | `bun run test:unit tests/cli.test.ts` | One test file (any path or name filter works) |
 | `bun run coverage` | The unit suite with V8 coverage into `coverage/` |
 | `bun run e2e` | Build, then run `e2e/` against the compiled binary with Bun's runner |
+| `bun run smoke` | Development only: real Codex suite; build first, then set `FORMAN_SMOKE=1` (uses your login and plan) |
 | `bun run lint` | Biome checks, including the `biome-plugins/` Grit rules |
 | `bun run format` | Biome formatting and safe fixes |
 | `bun run typecheck` | `tsc --noEmit` |
@@ -102,6 +103,7 @@ Boundary schemas live in `src/schemas/`, one dependency-free file per domain imp
 Unit tests (`src/*.test.ts`) cover pure contracts. `tests/cli.test.ts` drives the real parser and invocation boundary with temporary files and real Node services through `tests/helpers/cli.ts`. `tests/config-logging.test.ts` implements the matrix in `docs/acceptance/typescript-cli.md`. `e2e/binary.test.ts` runs the compiled binary with a clean environment. Vitest always runs on Node; Bun's runner only runs `./e2e`. `tests/helpers/setup.ts` isolates tests from a local `.env`. No mocks of project services; nothing needs to be running first.
 
 - Behavior-focused tests against real dependencies where practical. Fake only what crosses the network to third parties.
+- Automated tests never run real inference. Codex is the one third party: tests use the fake app server in `tests/fixtures/fake-app-server/`. `bun run smoke` hits real Codex and is a development tool only; never add it to `check`, git hooks or CI.
 - A bug fix starts with a test that reproduces the bug.
 - Weakening or skipping a test to get green is a failure, not a fix.
 
