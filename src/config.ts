@@ -55,6 +55,7 @@ export class AppConfig extends Context.Service<
     configFile: string;
     home: string;
     defaultHome: string;
+    userHome: string | null;
     codexBin: string;
     codexHome: string;
     launcher: string | null;
@@ -82,12 +83,13 @@ export class AppConfig extends Context.Service<
           config.pipe(Effect.provide(ConfigProvider.layer(provider)));
         const text = (key: string, fallback = "") =>
           read(Config.String(key).pipe(Config.withDefault(fallback))).pipe(Effect.orDie);
-        const userHome = yield* text("HOME", ".");
-        const defaultHome = absolute(path.join(userHome, ".foreman"));
+        const homeSetting = yield* text("HOME");
+        const userHome = homeSetting === "" ? null : absolute(homeSetting);
+        const defaultHome = absolute(path.join(userHome ?? ".", ".foreman"));
         const home = absolute(yield* text("FOREMAN_HOME", defaultHome));
         const configFile = path.join(home, "config.json");
         const environmentCodexBin = yield* text("CODEX_BIN");
-        const codexHome = absolute(yield* text("CODEX_HOME", path.join(userHome, ".codex")));
+        const codexHome = absolute(yield* text("CODEX_HOME", path.join(userHome ?? ".", ".codex")));
         const launcherSetting = yield* read(
           Config.schema(CodexBin, "FOREMAN_LAUNCHER").pipe(Config.withDefault("")),
         ).pipe(Effect.orDie);
@@ -168,6 +170,7 @@ export class AppConfig extends Context.Service<
           configFile,
           home,
           defaultHome,
+          userHome,
           codexBin,
           codexHome,
           launcher,

@@ -6,7 +6,7 @@ Instructions for coding agents working in this repository. Keep this file under 
 
 foreman 0.1.0 lets Claude Code delegate coding tasks to OpenAI's Codex in git worktrees and supervise them through a local daemon. It drives `codex app-server` over JSON-RPC with the Codex CLI's ChatGPT login. The TypeScript CLI uses Effect 4 and compiles to one binary with Bun. The command is `foreman`; npm installs use `@steamfield/foreman`.
 
-The daemon owns turns, question deferral and late answers, budgets and repo hook enforcement. Mutation continuations wait on the named run; explicit `wait --all` supervises a repo group. Read [repo setup](README.md#one-time-repo-setup) before delegating into another repo and [architecture](docs/architecture.md) before changing supervision or storage.
+The daemon owns turns, question deferral and late answers, budgets and repo hook enforcement. Mutation continuations wait on the named run; explicit `wait --all` supervises a repo group. Agents learn the installed version through `foreman guide` and command `--help`; `foreman skill install` installs the thin entry point. Read [repo setup](README.md#one-time-repo-setup) before delegating into another repo and [architecture](docs/architecture.md) before changing supervision or storage.
 
 ## Commands
 
@@ -25,6 +25,7 @@ Run these from the repo root. They are the only supported way to build, test, an
 | `bun run format` | Biome formatting and safe fixes |
 | `bun run typecheck` | `tsc --noEmit` |
 | `bun run build` | Compile `dist/foreman` for this host |
+| `bun scripts/generate-skill.ts` | Regenerate the checked-in skill from `src/guide/skill.ts` |
 | `bun run build:npm` | Build the main and four platform npm packages under `dist/npm/` |
 | `bun run build --npm-host` | Build the main and host platform npm packages for packaging tests |
 | `bun run check` | lint, typecheck, test and e2e: the gate before a commit |

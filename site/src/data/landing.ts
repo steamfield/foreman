@@ -156,7 +156,7 @@ export const install = {
   ],
   setup: {
     title: "Once per repository",
-    lede: "In the main checkout, open Codex and trust the project. If the repo has `.codex/hooks.json`, run `/hooks` in Codex and approve them. Then check:",
+    lede: "Run `foreman skill install` for the agent entry point, then `foreman guide` for the workflow. In the main checkout, open Codex and trust the project. If the repo has `.codex/hooks.json`, run `/hooks` in Codex and approve them. Then check:",
     steps: ["cd /path/to/repo", "codex", "foreman doctor"],
   },
   first:

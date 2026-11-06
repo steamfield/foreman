@@ -1,4 +1,4 @@
-# Contract: acceptance tests for {TITLE}
+export const contractTestsText = `# Contract: acceptance tests for {TITLE}
 
 <!-- Claude: copy outside the worktree, fill task placeholders and remove this comment.
 Leave REVIEW DIR for the delegate's mktemp output.
@@ -7,7 +7,7 @@ it in the digest's run: header. Use foreman start <name> --worktree <path> --con
 --write --model <model>, then background the printed next: wait command and follow each next:. -->
 
 You are the test author, separate from the implementer. Work in this git worktree, not in the
-main checkout. Leave changes uncommitted and do not push. Use `ask_orchestrator` only when
+main checkout. Leave changes uncommitted and do not push. Use \`ask_orchestrator\` only when
 blocked by something the contract and repo do not settle, or for a decision with real
 consequences. Calls pause your work; progress, findings and corrections go in the hand-off.
 
@@ -28,7 +28,7 @@ against the existing code. Existing tests and fixtures whose patterns to follow.
 
 ## Scope
 
-- May change: {actual test and fixture paths, each in backticks; a directory ends in `/`}.
+- May change: {actual test and fixture paths, each in backticks; a directory ends in \`/\`}.
 - Must not change: {actual backticked source, existing test and design paths}.
 - Locked: {actual backticked paths, or none}.
 
@@ -38,23 +38,23 @@ merge, remove worktrees or clean up the orchestrator's scratch files.
 
 ## Read first
 
-- `AGENTS.md`, if present: {testing and conventions sections}.
+- \`AGENTS.md\`, if present: {testing and conventions sections}.
 - {Applicable testing rules, CLAUDE.md sections, tests and helpers. Codex does not automatically
   load Claude's rules or CLAUDE.md.}
 
 ## Skills to apply
 
-Find the newest installed Claude Code `claude-essentials` marketplace copy:
+Find the newest installed Claude Code \`claude-essentials\` marketplace copy:
 
-```sh
+\`\`\`sh
 ce=$(ls -d "$HOME"/.claude/plugins/cache/*/ce/*/ | sort -V | tail -1)
-```
+\`\`\`
 
-- `ce:writing-tests`: `${ce}skills/writing-tests/SKILL.md` for every test, including
-  `references/waiting-typescript.md` for tests waiting on processes, sockets, timers or files,
-  and `references/flaky-tests.md` for isolation and repeat-run checks.
-- `${ce}skills/architecting-systems/SKILL.md` and its `references/structure.md`, `coupling.md`
-  and `boundaries.md`: before deciding an interface's shape.
+- \`ce:writing-tests\`: \`\${ce}skills/writing-tests/SKILL.md\` for every test, including
+  \`references/waiting-typescript.md\` for tests waiting on processes, sockets, timers or files,
+  and \`references/flaky-tests.md\` for isolation and repeat-run checks.
+- \`\${ce}skills/architecting-systems/SKILL.md\` and its \`references/structure.md\`, \`coupling.md\`
+  and \`boundaries.md\`: before deciding an interface's shape.
 - {Other required skills and paths.}
 
 The repo's testing rules win where they differ. Ask if a required skill is missing. Report
@@ -88,12 +88,12 @@ digest instead of loading both into buffers.
 
 Run these from the worktree root:
 
-```sh
+\`\`\`sh
 {command for each new test file; run each three times}
 {full test suite command; run once with the new tests included}
 {lint command}
 {typecheck command}
-```
+\`\`\`
 
 Do not run the aggregate project gate unless this contract names it. The orchestrator runs it
 after implementation and refactoring. QA the tests as the implementer would: check that their
@@ -105,7 +105,7 @@ failure messages identify the missing behaviour and the fixtures reach the inten
 - Edit an existing or locked test, weaken an assertion or skip a test to get a different result.
 - Disable lint, add a cast or suppress a type error to hide a missing import.
 - Add mechanisms the design's tests do not need.
-- Edit `~/.codex` config, hooks, trust or auth. Codex's own runtime session and log writes
+- Edit \`~/.codex\` config, hooks, trust or auth. Codex's own runtime session and log writes
   there are fine, including during the independent review.
 - Mention any repository outside this one in a tracked file. External references are for
   reading only.
@@ -113,17 +113,17 @@ failure messages identify the missing behaviour and the fixtures reach the inten
 ## Review before hand-off
 
 Once the tests fail for the right reasons and the other checks are clean as described above,
-get one independent review in a fresh Codex process. Read `${ce}agents/code-reviewer.md` and
-the repo reviewer `{REPO REVIEWER PATH OR NONE}`, if present.
+get one independent review in a fresh Codex process. Read \`\${ce}agents/code-reviewer.md\` and
+the repo reviewer \`{REPO REVIEWER PATH OR NONE}\`, if present.
 
 Run separate simple commands from the worktree root. First:
 
-```sh
+\`\`\`sh
 mktemp -d
-```
+\`\`\`
 
 Keep its printed absolute directory outside the worktree. With the file-writing tool, write
-`<review-directory>/prompt.md`. Include the marketplace reviewer body without frontmatter,
+\`<review-directory>/prompt.md\`. Include the marketplace reviewer body without frontmatter,
 the writing-tests skill and waiting/flaky reference paths, then the repo reviewer body without
 frontmatter so repo rules win. Append the full filled contract and these task instructions:
 
@@ -133,15 +133,15 @@ that they assert the design's behaviour, reject wrong implementations and avoid 
 coupling to internals. Your sandbox is read-only; don't run tests or edit files. The author
 ran the checks. Report every real defect with a file:line reference."
 
-Then run this one plain command, filling `{REVIEW DIR}` with that printed absolute path:
+Then run this one plain command, filling \`{REVIEW DIR}\` with that printed absolute path:
 
-```sh
+\`\`\`sh
 codex exec --ephemeral --sandbox read-only -m "{REVIEW MODEL}" -c 'model_reasoning_effort="high"' -c 'service_tier="priority"' -o "{REVIEW DIR}/review.md" - < "{REVIEW DIR}/prompt.md"
-```
+\`\`\`
 
-Use the literal `{REVIEW MODEL}` Claude filled in and verified against the run's digest header,
+Use the literal \`{REVIEW MODEL}\` Claude filled in and verified against the run's digest header,
 not an environment variable. Do not wrap these steps in a function, braces, a heredoc or a
-script. Read `review.md`, fix every finding or explain why it is wrong. Do not edit locked
+script. Read \`review.md\`, fix every finding or explain why it is wrong. Do not edit locked
 files to resolve findings; report them. Rerun affected checks after fixes and confirm the
 tests still fail for the intended reasons. One review only, with no second pass after fixes.
 If the review cannot run, ask the orchestrator rather than claiming it passed.
@@ -163,3 +163,4 @@ Leave everything uncommitted and end with this report, naming files and symbols:
 7. Review: the review file's absolute path, each finding and its resolution or dispute.
 8. Look closer at: tests or assumptions the orchestrator should examine.
 9. Open: unfinished work, blockers and questions.
+`;

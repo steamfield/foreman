@@ -34,7 +34,19 @@ const stopCommand = Command.make(
       stopped ? "Daemon stopped." : "Daemon: not running.",
     );
   }),
-).pipe(Command.withDescription("Stop an inactive daemon without starting one."));
+).pipe(
+  Command.withDescription(
+    "Stop an idle daemon and wait for shutdown cleanup without starting a replacement. Succeeds if no daemon is running. Refuses while active runs (starting, running, waiting, unknown), start preflight or queued answers need it. Finish or interrupt active turns and inspect status before retrying. Exits 0 when stopped or absent, 2 for usage, 4 for daemon failure, 6 for permissions, 8 when busy, 130 when interrupted, 1 on an internal error.",
+  ),
+  Command.withShortDescription("Stop an inactive daemon without starting one."),
+  Command.withExamples([
+    { command: "foreman daemon stop", description: "Stop an idle daemon after its runs finish" },
+    {
+      command: "foreman daemon stop --json",
+      description: "Get an Ok result even if no daemon is running",
+    },
+  ]),
+);
 
 export const withDaemonLogging = Effect.fn("daemon.logging")(function* <A, E, R>(
   program: Effect.Effect<A, E, R>,
@@ -142,6 +154,15 @@ export const daemonCommand = Command.make(
     );
   }),
 ).pipe(
-  Command.withDescription("Run the supervisor in the foreground (normally started automatically)."),
+  Command.withDescription(
+    "Run the supervisor in the foreground, normally started automatically by run commands. Recovers stored runs; formerly active states become lost with pending questions cancelled. Existing inactive runs stay available for inspection or continuation. A home already owned by another daemon exits 0 without starting another. Exits 2 for usage, 4 for startup or lock acquisition errors, 6 for permissions, 130 when interrupted, 1 on an internal error; normal shutdown exits 0. Use daemon stop from another process when idle.",
+  ),
+  Command.withShortDescription(
+    "Run the supervisor in the foreground (normally started automatically).",
+  ),
+  Command.withExamples([
+    { command: "foreman daemon", description: "Run foreground supervision for diagnostics" },
+    { command: "foreman daemon stop", description: "Stop it from another process once idle" },
+  ]),
   Command.withSubcommands([stopCommand]),
 );

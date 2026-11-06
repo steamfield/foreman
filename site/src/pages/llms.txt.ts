@@ -12,6 +12,8 @@ import {
 // Command spellings and descriptions follow the repository README's Command reference.
 const commandTable = `| Command | Purpose |
 | --- | --- |
+| guide [<topic>] | Print the agent workflow, or contract, contract tests, supervise, review or recover; --json includes text, topics and mentioned commands |
+| skill install [--force] [--print] | Install the bundled skill under $HOME/.claude/skills/foreman/, leave an identical copy unchanged, or print it for another agent |
 | start <name> --new-worktree --contract <file> | Create a worktree and start; accepts --from, --setup, --write, --model, --effort, --tier, --budget, --question-timeout, --skip-deps-check |
 | start <name> --worktree <path> --contract <file> | Use a prepared linked worktree inside the main checkout; foreman never removes it or its branch |
 | status [<name>] | Full digest for one run, or a line per run in the group; both JSON forms return Digests |
