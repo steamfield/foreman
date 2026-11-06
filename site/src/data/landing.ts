@@ -3,16 +3,16 @@
 
 export const hero = {
   title: "Let Claude Code hand work to Codex and supervise it while it runs.",
-  lede: "forman starts a Codex agent in its own git worktree, tells Claude when it finishes or asks a question, and lets Claude answer, steer or interrupt it mid-turn. It drives the Codex CLI with your ChatGPT login, so there is no API key to manage.",
+  lede: "forman starts Codex in its own git worktree and wakes Claude when Codex finishes or asks a question. Claude can answer it or change its instructions mid-turn, then reviews the diff before anything is committed. It runs on the Codex CLI's ChatGPT login, so there is no OpenAI API key involved.",
   consoleCaption:
-    "A real run, replayed at high speed: forman's fix-supervisor delegate from forman's own release, including the question Codex asked and Claude's answer. Codex's events and forman's output are recorded; Claude's side of the conversation is written for this page.",
+    "The fix-supervisor delegate from forman's own release, 70 minutes replayed in one, including the question Codex asked and Claude's answer. Codex's events and forman's output are recorded. Claude's side of the conversation was written for this page.",
 };
 
 export const why = {
-  title: "Claude holds the other terminal",
-  lede: "Running Codex beside Claude Code by hand makes you the go-between. forman gives that job to Claude, which already wrote the plan and will review the result.",
+  title: "Running two agents",
+  lede: "If you run Codex beside Claude Code yourself, you carry every message between them. forman gives that job to Claude, which wrote the plan and reviews the result anyway.",
   before: {
-    title: "Two agents, you in the middle",
+    title: "By hand",
     items: [
       "You paste Claude's spec into a Codex session and watch it work.",
       "Codex asks a question while you're at lunch, and the turn sits there.",
@@ -21,45 +21,45 @@ export const why = {
     ],
   },
   after: {
-    title: "Claude delegates and supervises",
+    title: "Through forman",
     items: [
       "Claude writes a contract and starts Codex in a fresh worktree with one command.",
-      "forman holds Codex's question and wakes Claude, which answers and the turn continues.",
-      "Each delegate works on its own branch; nothing touches your checkout.",
+      "forman holds Codex's question until Claude answers it, and the turn picks up where it stopped.",
+      "Each delegate works in its own worktree on its own branch, away from your checkout.",
       "Claude reads the hand-off and the diff, refactors, runs your checks and commits.",
     ],
   },
 };
 
 export const lifecycle = {
-  title: "How a delegation runs",
-  lede: "Every run moves through the same states. Claude waits on a run in the background and acts only when forman reports something that needs it.",
+  title: "Run states",
+  lede: "Every run moves through the same states. Claude waits on it in the background and only steps in when forman reports a question or the end of a turn.",
 };
 
 export const handoff = {
-  title: "The contract and the digest",
+  title: "Contracts and digests",
   lede: "Claude hands Codex a written contract: the goal, the files it may change, the checks to run and the report to end with. When the turn ends, forman's digest lists every file Codex wrote and flags the ones outside the contract's scope.",
 };
 
 export const questions = {
-  title: "When Codex needs a decision",
-  lede: "Codex asks through a tool call that forman holds open. Claude's background wait returns with the question, Claude answers, and the held call resumes with the answer. These two questions are from the fix-supervisor run, word for word.",
+  title: "Questions from Codex",
+  lede: "Codex asks through a tool call that forman holds open. Claude's background wait returns with the question, and the held call resumes once Claude answers. Both questions below are copied from the fix-supervisor run.",
 };
 
 export const parallel = {
-  title: "Several delegates at once",
-  lede: "Each run gets its own worktree and branch, so independent tasks run side by side. One `forman wait --all` watches every run in the repository and returns when any of them needs Claude.",
+  title: "Parallel runs",
+  lede: "Each run gets its own worktree and branch, so independent tasks can run at the same time. One `forman wait --all` watches every run in the repository and returns when any of them needs Claude.",
   caption:
     "The four delegates that fixed forman's release blockers, started from the same commit within seconds of each other. Each owned a different set of files.",
 };
 
 export const commands = {
-  title: "What Claude types",
-  lede: "Every command takes `--json` for one machine-readable result. The output below is recorded from real runs.",
+  title: "Commands",
+  lede: "Claude runs these through its shell tool, and every one takes `--json` for a single machine-readable result. The output is recorded from real runs, including the ones that built this page.",
 };
 
 export const guardrails = {
-  title: "What keeps it contained",
+  title: "Safeguards",
   rows: [
     [
       "Read-only by default",
@@ -97,8 +97,8 @@ export const guardrails = {
 };
 
 export const agentFacing = {
-  title: "Built for an agent to drive",
-  lede: "Claude runs forman through its shell tool. Every result ends with a `next:` line that says exactly what to run next, with a cursor so the same event is never reported twice.",
+  title: "Output for agents",
+  lede: "Every result ends with a `next:` line naming the command to run next. Its cursor means Claude never sees the same event twice.",
 };
 
 /** README "Wait outcomes and exit codes". */
@@ -138,7 +138,7 @@ export const install = {
   options: [
     { id: "npm", label: "npm", command: "npm i -g @steamfield/forman" },
     { id: "bun", label: "bun", command: "bun add -g @steamfield/forman" },
-    { id: "npx", label: "npx", command: "npx @steamfield/forman doctor" },
+    { id: "npx", label: "npx", command: "npx @steamfield/forman" },
   ],
   requirements: [
     "macOS or Linux, on arm64 or x64",

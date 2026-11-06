@@ -1,7 +1,7 @@
 export const site = {
   title: "forman",
   description:
-    "forman lets Claude Code hand coding tasks to Codex in their own git worktrees and supervise them while they run: answer Codex's questions, steer it, and review the work before it lands.",
+    "forman lets Claude Code hand coding tasks to Codex, each in its own git worktree, and supervise them while they run. Claude answers Codex's questions and reviews the diff before anything is committed.",
   url: "https://forman.steamfield.io",
   author: "Riley Hilliard",
   image: "/default-og.svg",
