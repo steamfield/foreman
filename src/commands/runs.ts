@@ -84,7 +84,7 @@ export const startCommand = Command.make(
     from: optionalText("from", "Base the new worktree on this Git ref (default: HEAD)."),
     setup: optionalText(
       "setup",
-      "Run this shell command in the new worktree before starting Codex.",
+      "Run a shell command before Codex (limit: 10m, or the explicit --budget).",
     ),
     contract: Flag.String("contract").pipe(
       Flag.withDescription("Read the task contract from this file."),
@@ -93,16 +93,16 @@ export const startCommand = Command.make(
       Flag.withDefault(false),
       Flag.withDescription("Allow Codex to write files and run commands with full access."),
     ),
-    model: optionalText("model", "Use this Codex model instead of the configured default."),
+    model: optionalText("model", "Override the newest visible gpt-*-sol model from Codex's cache."),
     effort: optionalText("effort", "Set Codex reasoning effort (default: high)."),
     tier: optionalText("tier", "Set the Codex service tier (default: priority)."),
     budgetMs: optionalDuration(
       "budget",
-      "Turn budget; also bounds setup when supplied (setup defaults to 10 minutes).",
+      "Turn budget (default: 60m); also sets the setup limit when supplied.",
     ),
     questionTimeoutMs: optionalDuration(
       "question-timeout",
-      "Time allowed to answer each question (default: 15m).",
+      "Time before deferring each unanswered question (default: 15m).",
     ),
     skipDepsCheck: Flag.Boolean("skip-deps-check").pipe(
       Flag.withDefault(false),
@@ -143,7 +143,7 @@ export const eventsCommand = Command.make(
     ),
   },
   (input) => print("events", programs.events(input), false, input.name, input.verbose),
-).pipe(Command.withDescription("Read normalized run events after a sequence number."));
+).pipe(Command.withDescription("Read run events; text omits protocol chatter unless --verbose."));
 
 export const steerCommand = Command.make("steer", { name, ...message, ...waiting }, (input) =>
   print("steer", programs.steer(input)),
@@ -159,7 +159,9 @@ export const followupCommand = Command.make(
     effort: optionalText("effort", "Set reasoning effort for this and later turns."),
   },
   (input) => print("followup", programs.followup(input)),
-).pipe(Command.withDescription("Start a follow-up turn with a message or file."));
+).pipe(
+  Command.withDescription("Start a turn on an inactive run; refuses while answers are queued."),
+);
 
 export const interruptCommand = Command.make("interrupt", { name, ...waiting }, (input) =>
   print("interrupt", programs.interrupt(input)),

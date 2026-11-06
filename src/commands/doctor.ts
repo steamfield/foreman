@@ -65,6 +65,4 @@ export const doctorCommand = Command.make(
       ].join("\n"),
     );
   }),
-).pipe(
-  Command.withDescription("Inspect runtime and configuration without requiring valid settings."),
-);
+).pipe(Command.withDescription("Inspect config, Codex, repo hook trust and daemon state."));

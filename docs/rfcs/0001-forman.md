@@ -1,6 +1,6 @@
 # RFC 0001: forman, a supervised Codex delegate for Claude Code
 
-Status: draft, revised after a devil's-advocate review (22 findings, all taken). Date: 2026-11-05. Codex CLI 0.166.0.
+Status: implemented in 0.1.0. The deviations section records where the build differs; [docs/architecture.md](../architecture.md) describes the current design. Date: 2026-11-05. Codex CLI 0.166.0.
 
 ## Summary
 
@@ -17,7 +17,7 @@ These were settled with Riley before this RFC and are not reopened here.
 | Name | `forman`, published as `@steamfield/forman` |
 | Shape | Effect 4 TypeScript CLI first, MCP server later |
 | Worktrees | Unit 21 replaces the earlier Claude-owned creation decision: forman creates and safely cleans its own worktrees; `--worktree` still accepts ones Claude prepared |
-| Unanswered questions | Auto-answer after a per-run timeout, default 15 minutes |
+| Unanswered questions | Changed in 0.1.0: defer after a per-run timeout (default 15 minutes), continue independent work and keep the decision under Open; accept late answers and corrections |
 | Implementation | Delegated in units through `/execute:codex` once this RFC is reviewed |
 
 The worktree decision now follows Claude Code's Agent tool with `isolation: "worktree"`: create one worktree per delegate, remove it when it holds no work, and retain and report it when it does. This removes manual setup from delegation while keeping leftover work visible. forman performs cleanup through `archive`, after Claude reviews the result.
