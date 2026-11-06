@@ -1,8 +1,25 @@
-import { Clock, DateTime, Deferred, Effect, FiberSet, FileSystem, Semaphore } from "effect";
+import {
+  Cause,
+  Clock,
+  DateTime,
+  Deferred,
+  Effect,
+  Exit,
+  FiberSet,
+  FileSystem,
+  type Path,
+  type PlatformError,
+  Predicate,
+  Queue,
+  type Schema,
+  Semaphore,
+  Stream,
+} from "effect";
+import { CodexRequestTimeout, CodexRpcError } from "../codex/client";
 import { buildDigest } from "../core/runs/digest";
 import * as Store from "../core/runs/store";
 import { computeWorktreeFields, type WorktreeFields } from "../core/runs/worktree";
-import { RunConflict, RunNotFound } from "../errors";
+import { CodexUnavailable, RunConflict, RunNotFound } from "../errors";
 import type { RpcId, ThreadItem } from "../schemas/codex";
 import {
   activeStates,
@@ -18,6 +35,7 @@ export interface Run {
   readonly dir: string;
   readonly lock: Semaphore.Semaphore;
   readonly calls: Map<QuestionId, RpcId>;
+  readonly messages: Queue.Queue<Effect.Effect<void, unknown>, Cause.Done>;
   items: ThreadItem[];
   projectHook: boolean;
   hooksRequired: boolean;
@@ -44,6 +62,7 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
       dir: yield* Store.runDirectory(dataDir, record.name),
       lock: yield* Semaphore.make(1),
       calls: new Map(),
+      messages: yield* Queue.unbounded<Effect.Effect<void, unknown>, Cause.Done>(),
       items: [],
       projectHook: false,
       hooksRequired: false,
@@ -54,6 +73,12 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
       recoveryVersion: 0,
     };
     runs.set(record.name, run);
+    yield* FiberSet.run(
+      workers,
+      Stream.fromQueue(run.messages).pipe(
+        Stream.runForEach((work) => background(run, run.lock.withPermits(1)(work))),
+      ),
+    );
     return run;
   });
   const save = Effect.fnUntraced(function* (run: Run, patch: Partial<RunRecord>) {
@@ -99,6 +124,116 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
     return run;
   });
   const isCurrent = (run: Run) => runs.get(run.record.name) === run;
+  const reasonTag = (cause: Cause.Cause<unknown>) => {
+    if (Cause.hasDies(cause)) return "Defect";
+    const error = cause.reasons.find(Cause.isFailReason)?.error;
+    return Predicate.hasProperty(error, "_tag") && typeof error._tag === "string"
+      ? error._tag
+      : "Unknown";
+  };
+  const markUnknown = Effect.fnUntraced(function* (
+    run: Run,
+  ): Effect.fn.Return<
+    void,
+    PlatformError.PlatformError | Schema.SchemaError,
+    FileSystem.FileSystem | Path.Path
+  > {
+    const version = ++run.recoveryVersion;
+    yield* FiberSet.run(
+      workers,
+      background(
+        run,
+        Effect.sleep("5 minutes").pipe(
+          Effect.andThen(
+            run.lock.withPermits(1)(
+              Effect.gen(function* () {
+                if (
+                  isCurrent(run) &&
+                  run.record.state === "unknown" &&
+                  run.recoveryVersion === version
+                )
+                  yield* lost(run);
+              }),
+            ),
+          ),
+        ),
+      ),
+    );
+    yield* state(run, "unknown");
+  });
+  // Called with the run lock. A damaged store must not let recovery fail the daemon too.
+  const recover = Effect.fnUntraced(function* (
+    run: Run,
+    cause: Cause.Cause<unknown>,
+  ): Effect.fn.Return<string | null, never, FileSystem.FileSystem | Path.Path> {
+    if (Cause.hasInterruptsOnly(cause)) return null;
+    const error = cause.reasons.find(Cause.isFailReason)?.error;
+    const uncertain =
+      run.record.activeTurnId !== null ||
+      error instanceof CodexRequestTimeout ||
+      error instanceof CodexUnavailable;
+    const next = uncertain ? "unknown" : "failed";
+    const infrastructure = !(
+      error instanceof CodexRequestTimeout ||
+      error instanceof CodexUnavailable ||
+      error instanceof CodexRpcError
+    );
+    const patch = {
+      ...(uncertain ? {} : { activeTurnId: null }),
+      ...(infrastructure || !uncertain
+        ? {
+            failure: { message: "Supervisor operation failed", codexErrorInfo: null },
+          }
+        : {}),
+    };
+    const recovery = yield* Effect.exit(
+      Effect.gen(function* () {
+        // Arm before any write: a transient store failure must not disable this deadline.
+        if (uncertain) {
+          yield* markUnknown(run);
+          yield* save(run, patch);
+        } else {
+          yield* cancelQuestions(run);
+          yield* save(run, patch);
+          yield* state(run, next);
+        }
+      }),
+    );
+    if (Exit.isFailure(recovery)) {
+      run.record = { ...run.record, ...patch, state: next };
+      yield* wake;
+      return reasonTag(recovery.cause);
+    }
+    return null;
+  });
+  const background = <A, E, R>(
+    run: Run,
+    work: Effect.Effect<A, E, R>,
+  ): Effect.Effect<void, E, R | FileSystem.FileSystem | Path.Path> =>
+    work.pipe(
+      Effect.asVoid,
+      Effect.catchCause((cause) => {
+        if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause);
+        return run.lock.withPermits(1)(
+          Effect.gen(function* () {
+            if (!isCurrent(run)) return;
+            const recoveryReason = yield* recover(run, cause);
+            yield* Effect.logError("supervisor.run.failed").pipe(
+              Effect.annotateLogs({
+                name: run.record.name,
+                reasonTag: reasonTag(cause),
+                state: run.record.state,
+                recoveryReason,
+              }),
+            );
+          }),
+        );
+      }),
+    );
+  const enqueue = Effect.fnUntraced(function* <E, R>(run: Run, work: Effect.Effect<void, E, R>) {
+    const context = yield* Effect.context<R>();
+    yield* Queue.offer(run.messages, work.pipe(Effect.provide(context)));
+  });
   const requireCurrent = Effect.fnUntraced(function* (run: Run) {
     if (!isCurrent(run))
       return yield* new RunNotFound({
@@ -109,17 +244,10 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
     yield* requireCurrent(run);
     const fs = yield* FileSystem.FileSystem;
     let removed = !(yield* fs.exists(run.record.worktree));
-    if (refresh && !removed)
-      run.worktree = yield* computeWorktreeFields(run.record.worktree, run.dir).pipe(
-        Effect.catch((error) =>
-          Effect.gen(function* () {
-            // Removal can race the existence check while git or find is running.
-            removed = !(yield* fs.exists(run.record.worktree));
-            if (!removed) return yield* Effect.fail(error);
-            return run.worktree;
-          }),
-        ),
-      );
+    if (refresh && !removed) {
+      yield* refreshWorktree(run);
+      removed = !(yield* fs.exists(run.record.worktree));
+    }
     return buildDigest(
       removed
         ? {
@@ -134,26 +262,59 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
       run.worktree,
     );
   });
+  const refreshWorktree = Effect.fnUntraced(function* (run: Run) {
+    const fs = yield* FileSystem.FileSystem;
+    run.worktree = yield* computeWorktreeFields(run.record.worktree, run.dir).pipe(
+      Effect.catch((error) =>
+        Effect.gen(function* () {
+          // Removal can race the existence check while git or find is running.
+          const removed = !(yield* fs.exists(run.record.worktree));
+          if (!removed) return yield* Effect.fail(error);
+          return run.worktree;
+        }),
+      ),
+    );
+  });
   const existing = yield* Store.readAllRuns(dataDir);
   for (const skipped of existing.skipped)
-    yield* Effect.logWarning("supervisor.run.skipped", { name: skipped.name });
+    yield* Effect.logWarning("supervisor.run.skipped").pipe(
+      Effect.annotateLogs({ name: skipped.name }),
+    );
   for (const record of existing.runs) {
     const run = yield* add(record);
-    yield* run.lock.withPermits(1)(lost(run));
+    yield* run.lock
+      .withPermits(1)(lost(run))
+      .pipe(
+        Effect.catchCause((cause) => {
+          if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause);
+          runs.delete(record.name);
+          return Queue.end(run.messages).pipe(
+            Effect.andThen(
+              Effect.logWarning("supervisor.run.skipped").pipe(
+                Effect.annotateLogs({ name: record.name, reasonTag: reasonTag(cause) }),
+              ),
+            ),
+          );
+        }),
+      );
   }
   const archive = Effect.fnUntraced(function* (name: RunName) {
     const run = yield* lookup(name);
     return yield* run.lock.withPermits(1)(
-      Effect.gen(function* () {
-        if (activeStates.has(run.record.state))
-          return yield* new RunConflict({
-            detail: `${name} is ${run.record.state}; active runs cannot be archived.`,
-          });
-        const archivePath = yield* Store.archiveRun(dataDir, name);
-        runs.delete(name);
-        yield* wake;
-        return { _tag: "Archived" as const, name, archivePath };
-      }).pipe(Effect.uninterruptible),
+      starts.withPermits(1)(
+        Effect.gen(function* () {
+          yield* requireCurrent(run);
+          if (activeStates.has(run.record.state))
+            return yield* new RunConflict({
+              detail: `${name} is ${run.record.state}; active runs cannot be archived.`,
+            });
+          const archivePath = yield* Store.archiveRun(dataDir, name);
+          runs.delete(name);
+          yield* Queue.end(run.messages);
+          yield* wake;
+          return { _tag: "Archived" as const, name, archivePath };
+        }).pipe(Effect.uninterruptible),
+      ),
     );
   });
   return {
@@ -171,6 +332,11 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
     isCurrent,
     requireCurrent,
     digest,
+    refreshWorktree,
+    markUnknown,
+    recover,
+    background,
+    enqueue,
     archive,
     busy: Effect.sync(() => [...runs.values()].some((run) => activeStates.has(run.record.state))),
     change: Effect.suspend(() => Effect.succeed(Deferred.await(changed))),

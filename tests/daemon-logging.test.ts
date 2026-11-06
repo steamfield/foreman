@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { NodeServices, NodeSocket, NodeSocketServer } from "@effect/platform-node";
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Fiber, FileSystem, Layer, Schema } from "effect";
@@ -7,7 +8,9 @@ import { daemon } from "../src/daemon/server";
 import { DaemonSockets } from "../src/daemon/sockets";
 import { main } from "../src/main";
 import { AppLayer } from "../src/runtime";
+import { RunName, RunRecord } from "../src/schemas/daemon";
 import { Host } from "../src/services/host";
+import { makeSupervisor } from "../src/supervisor";
 
 const platform = Layer.mergeAll(
   NodeServices.layer,
@@ -32,6 +35,114 @@ const Record = Schema.Struct({
 });
 
 describe("daemon file logging", () => {
+  it.live.each(["platform", "schema"])(
+    "logs one %s request failure with request and run annotations",
+    (kind) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const root = yield* fs.makeTempDirectoryScoped({ directory: "/tmp", prefix: "fm-log-" });
+        const runDir = `${root}/runs/unit-a`;
+        yield* fs.makeDirectory(runDir, { recursive: true });
+        const record = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(RunRecord))(
+          yield* fs.readFileString(
+            fileURLToPath(new URL("./fixtures/runs/run.json", import.meta.url)),
+          ),
+        );
+        yield* fs.writeFileString(
+          `${runDir}/run.json`,
+          Schema.encodeSync(Schema.fromJsonString(RunRecord))({
+            ...record,
+            state: "idle",
+            worktree: `${root}/removed`,
+          }),
+        );
+        const questions = `${runDir}/questions.jsonl`;
+        if (kind === "platform") yield* fs.makeDirectory(questions);
+        else yield* fs.writeFileString(questions, "PRIVATE_SECRET=do-not-record\n");
+        const app = AppLayer(
+          { HOME: root, FORMAN_DATA_DIR: root },
+          false,
+          async () => {},
+          async () => {},
+        );
+        const status = yield* main(
+          ["status"],
+          withDaemonLogging(
+            Effect.scoped(
+              Effect.gen(function* () {
+                const supervisor = yield* makeSupervisor();
+                yield* supervisor.handler({ _tag: "Status", name: record.name, cwd: root });
+              }),
+            ),
+          ),
+        ).pipe(Effect.provide(app));
+        expect(status).toBe(8);
+        const text = yield* fs.readFileString(`${root}/logs/daemon.jsonl`);
+        const records = text
+          .trim()
+          .split("\n")
+          .map((line) =>
+            Schema.decodeUnknownSync(
+              Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)),
+            )(line),
+          );
+        const failures = records.filter((record) => record.msg === "supervisor.request.failed");
+        expect(failures).toHaveLength(1);
+        expect(failures[0]).toMatchObject({
+          request: "Status",
+          name: "unit-a",
+          reasonTag: kind === "platform" ? "PlatformError" : "SchemaError",
+          ...(kind === "platform" ? { method: "readFile", path: questions } : {}),
+        });
+        expect(text).not.toContain("PRIVATE_SECRET");
+        expect(text).not.toContain("do-not-record");
+      }).pipe(Effect.provide(platform)),
+  );
+  it.live("keeps a skipped run's name as a scalar annotation", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.makeTempDirectoryScoped({ directory: "/tmp", prefix: "fm-log-" });
+      yield* fs.makeDirectory(`${root}/runs/broken`, { recursive: true });
+      yield* fs.writeFileString(`${root}/runs/broken/run.json`, "corrupt\n");
+      const app = AppLayer(
+        { HOME: root, FORMAN_DATA_DIR: root },
+        false,
+        async () => {},
+        async () => {},
+      );
+      const status = yield* main(
+        ["status"],
+        withDaemonLogging(
+          Effect.scoped(
+            Effect.gen(function* () {
+              const supervisor = yield* makeSupervisor();
+              yield* supervisor.handler({
+                _tag: "Status",
+                name: Schema.decodeUnknownSync(RunName)("missing"),
+                cwd: root,
+              });
+            }),
+          ),
+        ),
+      ).pipe(Effect.provide(app));
+      expect(status).toBe(7);
+      const records = (yield* fs.readFileString(`${root}/logs/daemon.jsonl`))
+        .trim()
+        .split("\n")
+        .map((line) =>
+          Schema.decodeUnknownSync(
+            Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)),
+          )(line),
+        );
+      expect(records.find((record) => record.msg === "supervisor.run.skipped")).toMatchObject({
+        name: "broken",
+        detail: [],
+      });
+      expect(records.filter((record) => record.msg === "supervisor.request.failed")).toMatchObject([
+        { request: "Status", name: "missing", reasonTag: "RunNotFound" },
+      ]);
+    }).pipe(Effect.provide(platform)),
+  );
   it.live(
     "flushes one handler defect with frames but no private message through a real socket",
     () =>

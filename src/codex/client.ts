@@ -1,4 +1,4 @@
-import { Cause, Deferred, Duration, Effect, Fiber, Queue, Schema, Stream } from "effect";
+import { Cause, Data, Deferred, Duration, Effect, Fiber, Queue, Schema, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import { CodexUnavailable } from "../errors";
 import {
@@ -19,6 +19,12 @@ export class CodexRpcError extends Schema.TaggedError<CodexRpcError>()("CodexRpc
   code: Schema.Number,
   message: Schema.String,
 }) {}
+
+// Internal signal: the supervisor maps it to the existing public CodexUnavailable error.
+export class CodexRequestTimeout extends Data.TaggedError("CodexRequestTimeout")<{
+  readonly method: string;
+  readonly timeoutMs: number;
+}> {}
 
 const JsonLine = Schema.fromJsonString(Schema.Unknown);
 const Incoming = Schema.fromJsonString(
@@ -136,7 +142,7 @@ export const openConnection = Effect.fn("codex.openConnection")(function* (
         Effect.timeoutOrElse({
           duration: timeout,
           orElse: () =>
-            Effect.fail(unavailable(`${method} timed out after ${Duration.toMillis(timeout)} ms`)),
+            Effect.fail(new CodexRequestTimeout({ method, timeoutMs: Duration.toMillis(timeout) })),
         }),
         Effect.flatMap(Schema.decodeUnknownEffect(resultSchema)),
         Effect.ensuring(

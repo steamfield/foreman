@@ -58,17 +58,19 @@ export const createRun = Effect.fn("runs.createRun")(function* (
   const dir = yield* runDirectory(dataDir, record.name);
   yield* fs.makeDirectory(path.dirname(dir), { recursive: true });
   return yield* Effect.acquireUseRelease(
-    fs.makeDirectory(dir),
-    () =>
+    fs.makeTempDirectory({ directory: path.dirname(dir), prefix: `.tmp-${record.name}-` }),
+    (staging) =>
       Effect.gen(function* () {
-        yield* fs.writeFileString(path.join(dir, "contract.md"), contract);
-        yield* fs.writeFileString(path.join(dir, "start-mark"), "");
-        yield* fs.writeFileString(path.join(dir, "baseline.txt"), baseline.join("\n"));
-        yield* fs.writeFileString(path.join(dir, "events.jsonl"), "");
-        yield* writeRun(dir, record);
+        yield* fs.writeFileString(path.join(staging, "contract.md"), contract);
+        yield* fs.writeFileString(path.join(staging, "start-mark"), "");
+        yield* fs.writeFileString(path.join(staging, "baseline.txt"), baseline.join("\n"));
+        yield* fs.writeFileString(path.join(staging, "events.jsonl"), "");
+        yield* writeRun(staging, record);
+        yield* fs.rename(staging, dir);
         return dir;
       }),
-    (_, exit) => (Exit.isFailure(exit) ? fs.remove(dir, { recursive: true }) : Effect.void),
+    (staging, exit) =>
+      Exit.isFailure(exit) ? fs.remove(staging, { recursive: true }) : Effect.void,
   );
 });
 
@@ -82,7 +84,7 @@ export const readAllRuns = Effect.fn("runs.readAllRuns")(function* (dataDir: str
   const runs: RunRecord[] = [];
   const skipped: { name: string; reason: string }[] = [];
   for (const name of names.sort()) {
-    if (name === ".archive") continue;
+    if (name === ".archive" || name.startsWith(".tmp-")) continue;
     const dir = path.join(root, name);
     if ((yield* fs.stat(dir)).type !== "Directory") continue;
     const result = yield* Effect.result(readRun(dir));
@@ -114,9 +116,50 @@ const readLines = Effect.fnUntraced(function* <A>(file: string, schema: Schema.C
     .readFileString(file)
     .pipe(Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed("")));
   return yield* Effect.forEach(
-    text.split("\n").filter((line) => line !== ""),
+    text
+      .split("\n")
+      .slice(0, -1)
+      .filter((line) => line !== ""),
     (line) => Schema.decodeUnknownEffect(Schema.fromJsonString(schema))(line),
   );
+});
+
+// Only newline-terminated records are committed. Scan bytes so a torn UTF-8 tail is safe too.
+const repairTail = Effect.fnUntraced(function* (file: string) {
+  const fs = yield* FileSystem.FileSystem;
+  yield* Effect.scoped(
+    Effect.gen(function* () {
+      const handle = yield* fs.open(file, { flag: "r+" });
+      const original = (yield* handle.stat).size;
+      let position: bigint = original;
+      while (position > 0n) {
+        const size = Number(position < 4096n ? position : 4096n);
+        position -= BigInt(size);
+        const buffer = new Uint8Array(size);
+        let read = 0;
+        while (read < size) {
+          const count = yield* handle.read(buffer.subarray(read), {
+            position: position + BigInt(read),
+          });
+          if (count === 0)
+            return yield* PlatformError.systemError({
+              _tag: "UnexpectedEof",
+              module: "runs",
+              method: "repairTail",
+              pathOrDescriptor: file,
+            });
+          read += count;
+        }
+        const newline = buffer.lastIndexOf(10);
+        if (newline >= 0) {
+          const committed = position + BigInt(newline + 1);
+          if (committed !== original) yield* handle.truncate(Number(committed));
+          return;
+        }
+      }
+      if (original > 0n) yield* handle.truncate(0);
+    }),
+  ).pipe(Effect.catchReason("PlatformError", "NotFound", () => Effect.void));
 });
 
 const appendLine = Effect.fnUntraced(function* <A>(
@@ -126,6 +169,7 @@ const appendLine = Effect.fnUntraced(function* <A>(
 ) {
   const fs = yield* FileSystem.FileSystem;
   const text = yield* Schema.encodeEffect(Schema.fromJsonString(schema))(value);
+  yield* repairTail(file);
   yield* fs.writeFileString(file, `${text}\n`, { flag: "a" });
 });
 
@@ -199,6 +243,7 @@ export const appendEvent = Effect.fn("runs.appendEvent")(function* (
 ) {
   const path = yield* Path.Path;
   const file = path.join(runDir, "events.jsonl");
+  yield* repairTail(file);
   const previous = yield* readLastEvent(file);
   const entry: RunEvent = {
     seq: (previous?.seq ?? 0) + 1,

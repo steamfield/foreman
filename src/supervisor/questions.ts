@@ -93,6 +93,7 @@ export const makeQuestions = Effect.fn("supervisor.questions")(function* (regist
           }),
         ),
       ),
+      (work) => registry.background(run, work),
       registry.fork,
     );
   });

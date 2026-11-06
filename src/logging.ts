@@ -1,6 +1,24 @@
-import { Context, Effect, FileSystem, Layer, Logger, Path, References } from "effect";
+import { Context, Effect, FileSystem, Layer, Logger, Path, References, Semaphore } from "effect";
 import type { LogSettings } from "./config";
 import { Output } from "./services/output";
+
+// Shared by the daemon logger and app-server stderr; serialized independently per file.
+export const makeLogAppender = Effect.fnUntraced(function* (file: string) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const lock = yield* Semaphore.make(1);
+  return (text: string) =>
+    lock.withPermits(1)(
+      Effect.gen(function* () {
+        yield* fs.makeDirectory(path.dirname(file), { recursive: true });
+        const info = yield* fs
+          .stat(file)
+          .pipe(Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(null)));
+        if (info !== null && info.size > 5_000_000n) yield* fs.rename(file, `${file}.1`);
+        yield* fs.writeFileString(file, text, { flag: "a" });
+      }),
+    );
+});
 
 export type LogEntry = {
   time: string;

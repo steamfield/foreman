@@ -321,8 +321,9 @@ describe("real Node app-server client", () => {
       yield* client.notifications.pipe(Stream.take(1), Stream.runDrain);
       yield* TestClock.adjust("4 seconds");
       expect(yield* Fiber.join(request)).toMatchObject({
-        _tag: "CodexUnavailable",
-        detail: "held timed out after 4000 ms",
+        _tag: "CodexRequestTimeout",
+        method: "held",
+        timeoutMs: 4000,
       });
     }).pipe(Effect.provide(NodeServices.layer)),
   );
@@ -357,8 +358,9 @@ describe("real Node app-server client", () => {
         yield* client.notifications.pipe(Stream.take(1), Stream.runDrain);
         yield* TestClock.adjust(test.milliseconds);
         expect(yield* Fiber.join(pending)).toMatchObject({
-          _tag: "CodexUnavailable",
-          detail: `${test.method} timed out after ${test.milliseconds} ms`,
+          _tag: "CodexRequestTimeout",
+          method: test.method,
+          timeoutMs: test.milliseconds,
         });
       }
     }).pipe(Effect.provide(NodeServices.layer)),

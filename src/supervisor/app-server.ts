@@ -1,10 +1,11 @@
-import { Effect, Exit, FileSystem, Path, Scope, Semaphore, Stream } from "effect";
+import { Effect, Exit, type FileSystem, Path, Scope, Semaphore, Stream } from "effect";
 import { checkProtocol } from "../codex/check";
 import { openConnection } from "../codex/client";
 import { appServerEnvironment } from "../codex/environment";
 import type { AppConfig } from "../config";
 import { probeSsh } from "../core/preflight/ssh";
 import { CodexUnavailable } from "../errors";
+import { makeLogAppender } from "../logging";
 import type * as Codex from "../schemas/codex";
 import type { Registry } from "./registry";
 
@@ -15,24 +16,6 @@ export interface AppServer {
   readonly connection: Connection;
   readonly loaded: Set<string>;
 }
-
-// Shared by the daemon logger and app-server stderr; serialized independently per file.
-export const makeLogAppender = Effect.fnUntraced(function* (file: string) {
-  const fs = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
-  const lock = yield* Semaphore.make(1);
-  return (text: string) =>
-    lock.withPermits(1)(
-      Effect.gen(function* () {
-        yield* fs.makeDirectory(path.dirname(file), { recursive: true });
-        const info = yield* fs
-          .stat(file)
-          .pipe(Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(null)));
-        if (info !== null && info.size > 5_000_000n) yield* fs.rename(file, `${file}.1`);
-        yield* fs.writeFileString(file, text, { flag: "a" });
-      }),
-    );
-});
 
 export const makeAppServer = Effect.fn("supervisor.appServer")(function* (
   config: AppConfig["Service"],
@@ -85,12 +68,10 @@ export const makeAppServer = Effect.fn("supervisor.appServer")(function* (
     );
     yield* Scope.close(server.scope, Exit.void);
     for (const run of affected)
-      yield* run.lock.withPermits(1)(
+      yield* registry.enqueue(
+        run,
         Effect.gen(function* () {
-          if (
-            run.serverGeneration === server.generation &&
-            registry.runs.get(run.record.name) === run
-          )
+          if (run.serverGeneration === server.generation && registry.isCurrent(run))
             yield* registry.lost(run);
         }),
       );
@@ -126,23 +107,17 @@ export const makeAppServer = Effect.fn("supervisor.appServer")(function* (
       const server: AppServer = { connection, generation: Symbol(), scope, loaded: new Set() };
       current = server;
       yield* connection.notifications.pipe(
-        Stream.runForEach((message) =>
-          notify(server, message).pipe(
-            Effect.catch((error) =>
-              error instanceof CodexUnavailable ? Effect.void : Effect.fail(error),
-            ),
-          ),
+        Stream.runForEach((message) => notify(server, message)),
+        Effect.catch((error) =>
+          error instanceof CodexUnavailable ? Effect.void : Effect.fail(error),
         ),
         Effect.andThen(disconnected(server)),
         registry.fork,
       );
       yield* connection.serverRequests.pipe(
-        Stream.runForEach((message) =>
-          request(server, message).pipe(
-            Effect.catch((error) =>
-              error instanceof CodexUnavailable ? Effect.void : Effect.fail(error),
-            ),
-          ),
+        Stream.runForEach((message) => request(server, message)),
+        Effect.catch((error) =>
+          error instanceof CodexUnavailable ? Effect.void : Effect.fail(error),
         ),
         registry.fork,
       );
