@@ -4,9 +4,9 @@ Instructions for coding agents working in this repository. Keep this file under 
 
 ## Overview
 
-forman lets Claude Code delegate coding tasks to OpenAI's Codex and supervise them while they run: start a Codex agent in a git worktree, watch what it does, steer or interrupt it, and answer questions Codex asks mid-turn. It drives `codex app-server` over JSON-RPC and uses the Codex CLI's own ChatGPT login, never an API key. It is a TypeScript CLI on Effect 4, compiled to one binary with Bun; an MCP server wrapping the CLI comes later. Published as `@steamfield/forman`, command `forman`.
+forman lets Claude Code delegate coding tasks to OpenAI's Codex and supervise them while they run: start a Codex agent in a git worktree, watch what it does, steer or interrupt it, and answer questions Codex asks mid-turn. It drives `codex app-server` over JSON-RPC and uses the Codex CLI's own ChatGPT login, never an API key. It is a TypeScript CLI on Effect 4, compiled to one binary with Bun; an MCP server wrapping the CLI comes later. The command is `forman`; npm installs use `@steamfield/forman`.
 
-Today the tree is the stacks `typescript-cli` scaffold with one `doctor` command; the bridge itself is not built yet.
+The CLI and bridge are implemented: the daemon supervises Codex turns, questions, budgets and repo hooks. See [README repo setup](README.md#one-time-repo-setup) before delegating into another repo.
 
 ## Commands
 
@@ -15,15 +15,18 @@ Run these from the repo root. They are the only supported way to build, test, an
 | Command | What it does |
 | --- | --- |
 | `bun install` | Install dependencies; `prepare` then installs the lefthook git hooks (outside CI) |
-| `bun run dev <args>` | Run the CLI from source; logs to `logs/cli.jsonl` and `logs/cli.log`, data under `.dev/data` |
+| `bun run dev <args>` | Run the CLI from source; logs to `logs/cli.jsonl` and `logs/cli.log`, data under `.dev/home` |
 | `bun run test` | The Vitest unit suite on Node (`src/**/*.test.ts`, `tests/`) |
 | `bun run test:unit tests/cli.test.ts` | One test file (any path or name filter works) |
 | `bun run coverage` | The unit suite with V8 coverage into `coverage/` |
 | `bun run e2e` | Build, then run `e2e/` against the compiled binary with Bun's runner |
+| `bun run smoke` | Development only: real Codex suite; build first, then set `FORMAN_SMOKE=1` (uses your login and plan) |
 | `bun run lint` | Biome checks, including the `biome-plugins/` Grit rules |
 | `bun run format` | Biome formatting and safe fixes |
 | `bun run typecheck` | `tsc --noEmit` |
 | `bun run build` | Compile `dist/forman` for this host |
+| `bun run build:npm` | Build the main and four platform npm packages under `dist/npm/` |
+| `bun run build --npm-host` | Build the main and host platform npm packages for packaging tests |
 | `bun run check` | lint, typecheck, test and e2e: the gate before a commit |
 | `bun run clean` | Remove `dist/`, `coverage/`, `logs/`, `.dev/` |
 | `stacks verify` | The scaffold's definition of done (every check above plus doc and hook checks) |
@@ -36,7 +39,12 @@ src/
   main.ts        the invocation boundary: runs the CLI, maps errors to exit codes, renders output once
   cli.ts         the Effect CLI command tree
   commands/      thin command handlers that call core/
-  core/          platform-free programs
+  codex/         app-server JSON-RPC client, protocol and environment checks
+  core/          platform-free command programs and doctor
+    preflight/   worktree validation, hook trust, model selection and SSH probe
+    runs/        persistence, normalization, worktree changes and digests
+  daemon/        socket client/server, automatic startup and ownership lock
+  supervisor/    app-server lifetime, turns, questions, budgets and wait cursors
   schemas/       Schema definitions for every boundary shape (args, config, machine output)
   services/      Context.Service classes: Host, Invocation, Output
   config.ts      file + environment config (only place that reads env)
@@ -97,6 +105,7 @@ Boundary schemas live in `src/schemas/`, one dependency-free file per domain imp
 Unit tests (`src/*.test.ts`) cover pure contracts. `tests/cli.test.ts` drives the real parser and invocation boundary with temporary files and real Node services through `tests/helpers/cli.ts`. `tests/config-logging.test.ts` implements the matrix in `docs/acceptance/typescript-cli.md`. `e2e/binary.test.ts` runs the compiled binary with a clean environment. Vitest always runs on Node; Bun's runner only runs `./e2e`. `tests/helpers/setup.ts` isolates tests from a local `.env`. No mocks of project services; nothing needs to be running first.
 
 - Behavior-focused tests against real dependencies where practical. Fake only what crosses the network to third parties.
+- Automated tests never run real inference. Codex is the one third party: tests use the fake app server in `tests/fixtures/fake-app-server/`. `bun run smoke` hits real Codex and is a development tool only; never add it to `check`, git hooks or CI.
 - A bug fix starts with a test that reproduces the bug.
 - Weakening or skipping a test to get green is a failure, not a fix.
 
@@ -112,7 +121,7 @@ Errors are `Schema.TaggedError` classes in `src/errors.ts`, each with a row in t
 - If a fix hasn't worked after two attempts with no new diagnostic step in between, stop. Write down what you learned, list two or three other root-cause hypotheses, and ask which to pursue. Running a new diagnostic between attempts resets the count.
 - Read logs and error output before guessing.
 
-`bun run dev` appends JSON records to `logs/cli.jsonl` and copies stderr to `logs/cli.log` (rotated past 5 MB). Set `LOG_LEVEL=debug` for more; `FORMAN_LOG_FORMAT=json` switches stderr to JSON. Each run ends with one `command` record (command, exit code, error tag, duration) at the configured level.
+`bun run dev` appends JSON records to `logs/cli.jsonl` and copies stderr to `logs/cli.log` (rotated past 5 MB). Set `LOG_LEVEL=debug` for more; `FORMAN_LOG_FORMAT=json` switches stderr to JSON. Each run emits one `command` record (command, exit code, error tag, duration): debug on success, error on failure, filtered by the configured level.
 
 ## Git hooks
 
@@ -122,19 +131,20 @@ lefthook runs Biome on staged files at pre-commit (fixes are re-staged), `bun ru
 
 `.github/workflows/ci.yml` runs one `ci-ok` job on pushes to `main`, pull requests and manual dispatch: frozen install, lint, typecheck, coverage, then e2e, uploading logs and coverage on failure. Actions are pinned by commit SHA with the tag in a comment; Dependabot (`.github/dependabot.yml`) proposes weekly grouped updates for actions and bun dependencies, or resolve a new SHA with `git ls-remote --tags`.
 
+`.github/workflows/release.yml` runs the full checks on `v*` tags, verifies the package version, cross-compiles all four platform packages and publishes them before the main npm package with provenance. It uses the `NPM_TOKEN` repository secret.
+
 ## Build workarounds
 
 None yet.
 
 ## Deferred
 
-The bridge itself (daemon, Codex app-server client, run commands, MCP server), npm publishing and a release workflow.
+The MCP server wrapper.
 
 ## Pending user actions
 
-- Create the GitHub repository and push. Confirm with `git remote -v`.
 - Require the `ci-ok` check in the branch ruleset once the repository exists.
-- Trust the project in Codex and approve each hook in `/hooks`, so `.codex/hooks.json` runs. Confirm with `/hooks` in a Codex session here.
+Repo trust and hook approval are done for this repo. For other repos, follow [README repo setup](README.md#one-time-repo-setup).
 
 ## Deeper context
 

@@ -5,8 +5,11 @@ export class Host extends Context.Service<
   {
     name: string;
     version: string;
+    build: string;
     platform: string;
     compiled: boolean;
+    executable: ReadonlyArray<string>;
+    pid: number;
   }
 >()("app/Host") {
   static layer = (value: Host["Service"]) => Layer.succeed(Host, value);

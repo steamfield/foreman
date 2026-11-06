@@ -1,5 +1,5 @@
 import { Context, Effect, Layer } from "effect";
-import { type AppError, BrokenPipe, errorEnvelope, errorTable, PermissionDenied } from "../errors";
+import { type AppError, BrokenPipe, errorEnvelope, errorText, PermissionDenied } from "../errors";
 
 export type Writer = (text: string) => Promise<void>;
 const write = (writer: Writer, text: string) =>
@@ -43,10 +43,7 @@ export class Output extends Context.Service<
         }),
         note: (text) => write(stderr, text),
         error: (error) =>
-          write(
-            stderr,
-            machine ? JSON.stringify(errorEnvelope(error)) : errorTable[error._tag].message,
-          ),
+          write(stderr, machine ? JSON.stringify(errorEnvelope(error)) : errorText(error)),
       };
     });
 }

@@ -1,9 +1,10 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { NodeServices } from "@effect/platform-node";
+import { NodeServices, NodeSocket, NodeSocketServer } from "@effect/platform-node";
 import { Effect, Layer } from "effect";
 import { onTestFinished } from "vitest";
+import { DaemonSockets } from "../../src/daemon/sockets";
 import { jsonRequested, main } from "../../src/main";
 import { AppLayer, runInvocation } from "../../src/runtime";
 import { Host } from "../../src/services/host";
@@ -36,8 +37,7 @@ export async function runCli(
   const home = options.home ?? (await tempDir());
   const env = {
     HOME: home,
-    XDG_CONFIG_HOME: join(home, "config"),
-    XDG_DATA_HOME: join(home, "data"),
+    CODEX_BIN: join(home, "missing-codex"),
     ...options.env,
   };
   let stdout = "";
@@ -56,7 +56,19 @@ export async function runCli(
   );
   const platform = Layer.mergeAll(
     NodeServices.layer,
-    Host.layer({ name: "test-cli", version: "dev", platform: "test", compiled: false }),
+    DaemonSockets.layer({
+      connect: (path) => NodeSocket.makeNet({ path }),
+      listen: (path) => NodeSocketServer.make({ path }),
+    }),
+    Host.layer({
+      name: "test-cli",
+      version: "dev",
+      build: "test",
+      platform: "test",
+      compiled: false,
+      executable: [process.execPath],
+      pid: process.pid,
+    }),
   );
   const status = await runInvocation(
     main(args, options.program).pipe(Effect.provide(app), Effect.provide(platform), Effect.scoped),

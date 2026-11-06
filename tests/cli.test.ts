@@ -7,6 +7,26 @@ import { DoctorResult } from "../src/schemas/doctor";
 import { ndjson, runCli, tempDir } from "./helpers/cli";
 
 describe("stdout and error contracts", () => {
+  it("lists the run commands and the daemon command", async () => {
+    const result = await runCli(["--help"]);
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe("");
+    for (const command of [
+      "start",
+      "status",
+      "events",
+      "steer",
+      "followup",
+      "interrupt",
+      "answer",
+      "result",
+      "archive",
+      "wait",
+      "doctor",
+      "daemon",
+    ])
+      expect(result.stdout).toMatch(new RegExp(`\\b${command}\\b`));
+  });
   it.each([
     { flags: ["--json=true"], json: true },
     { flags: ["--json", "false"], json: false },
@@ -21,9 +41,9 @@ describe("stdout and error contracts", () => {
         expect(result.stderr).toBe("");
         if (json)
           expect(Schema.decodeUnknownSync(DoctorResult)(JSON.parse(result.stdout))).toMatchObject({
-            greeting: "Hello, world!",
+            codexBin: expect.stringContaining("missing-codex"),
           });
-        else expect(result.stdout).toContain("Greeting: Hello, world!");
+        else expect(result.stdout).toContain("Codex executable:");
       } else {
         expect(result.stdout).toBe("");
         if (json) expect(JSON.parse(result.stderr)).toMatchObject({ error: { tag: "Usage" } });
@@ -57,7 +77,7 @@ describe("stdout and error contracts", () => {
     })),
   )("help and version survive broken config %j", async ({ args }) => {
     const home = await tempDir();
-    const dir = join(home, "config", "test-cli");
+    const dir = join(home, ".forman");
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, "config.json"), "broken");
     const result = await runCli(args, { home, env: { LOG_LEVEL: "none" } });
@@ -75,12 +95,12 @@ describe("stdout and error contracts", () => {
     const human = await runCli(["doctor"], { env: { LOG_LEVEL: "none" } });
     expect(human.status).toBe(0);
     expect(human.stderr).toBe("");
-    expect(human.stdout).toContain("Greeting: Hello, world!");
+    expect(human.stdout).toContain("Codex executable:");
     const json = await runCli(["doctor", "--json"], { env: { LOG_LEVEL: "none" } });
     expect(json.status).toBe(0);
     expect(json.stderr).toBe("");
     expect(Schema.decodeUnknownSync(DoctorResult)(JSON.parse(json.stdout))).toMatchObject({
-      greeting: "Hello, world!",
+      codexBin: expect.stringContaining("missing-codex"),
       configError: null,
     });
   });

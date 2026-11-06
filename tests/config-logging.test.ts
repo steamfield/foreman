@@ -1,77 +1,250 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { Schema } from "effect";
+import { join, relative, resolve } from "node:path";
+import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
+import { AppConfig } from "../src/config";
 import { DoctorResult } from "../src/schemas/doctor";
+import { Output } from "../src/services/output";
 import { ndjson, runCli, tempDir } from "./helpers/cli";
 
 async function configFile(content: string) {
   const home = await tempDir();
-  const dir = join(home, "config", "test-cli");
+  const dir = join(home, ".forman");
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, "config.json"), content);
   return home;
 }
 
 describe("real config and emitted logging", () => {
-  it("emits the default command record without a config file or env settings", async () => {
-    const result = await runCli(["doctor", "--json"]);
+  it.each([undefined, "", " ", "absolute", "relative"])(
+    "uses FORMAN_HOME=%s for configuration and state, ignoring legacy paths",
+    async (setting) => {
+      const home = await tempDir();
+      let override = setting;
+      if (setting === "absolute") override = join(home, "selected");
+      if (setting === "relative") override = relative(process.cwd(), join(home, "selected"));
+      const expected = override?.trim() ? resolve(override) : join(home, ".forman");
+      await mkdir(expected, { recursive: true });
+      await writeFile(join(expected, "config.json"), '{"codexBin":"/missing/home-codex"}');
+      const oldConfig = join(home, "old-config", "test-cli");
+      await mkdir(oldConfig, { recursive: true });
+      await writeFile(join(oldConfig, "config.json"), "broken");
+      const result = await runCli(["doctor", "--json"], {
+        home,
+        env: {
+          CODEX_BIN: undefined,
+          FORMAN_HOME: override,
+          FORMAN_DATA_DIR: join(home, "old-data"),
+          TEST_CLI_DATA_DIR: join(home, "old-test-data"),
+          XDG_CONFIG_HOME: join(home, "old-config"),
+          XDG_DATA_HOME: join(home, "old-xdg-data"),
+        },
+      });
+      expect(result).toMatchObject({ status: 0, stderr: "" });
+      expect(Schema.decodeUnknownSync(DoctorResult)(JSON.parse(result.stdout))).toMatchObject({
+        home: expected,
+        configFile: join(expected, "config.json"),
+        configError: null,
+        codexBin: "/missing/home-codex",
+      });
+    },
+  );
+
+  it.each(["./tools/codex", "tools/codex", "codex"])(
+    "resolves relative daemon and Codex paths before changing cwd: %s",
+    async (bin) => {
+      const result = await runCli(["--json"], {
+        env: {
+          FORMAN_HOME: "./relative-data",
+          CODEX_HOME: "./relative-home",
+          CODEX_BIN: bin,
+        },
+        program: Effect.gen(function* () {
+          const config = yield* AppConfig;
+          yield* (yield* Output).result(
+            {
+              home: config.home,
+              codexHome: config.codexHome,
+              codexBin: config.codexBin,
+              loadedBin: (yield* config.load).codexBin,
+            },
+            "paths",
+          );
+        }),
+      });
+      expect(result).toMatchObject({ status: 0, stderr: "" });
+      expect(JSON.parse(result.stdout)).toEqual({
+        home: resolve("relative-data"),
+        codexHome: resolve("relative-home"),
+        codexBin: bin === "codex" ? bin : resolve(bin),
+        loadedBin: bin === "codex" ? bin : resolve(bin),
+      });
+    },
+  );
+
+  it("resolves a relative Codex executable from file settings at the caller's cwd", async () => {
+    const home = await configFile('{"codexBin":"./tools/file-codex"}');
+    const result = await runCli(["--json"], {
+      home,
+      env: { CODEX_BIN: undefined },
+      program: Effect.gen(function* () {
+        const config = yield* AppConfig;
+        yield* (yield* Output).result(
+          { codexBin: config.codexBin, loadedBin: (yield* config.load).codexBin },
+          "paths",
+        );
+      }),
+    });
+    expect(result).toMatchObject({ status: 0, stderr: "" });
+    expect(JSON.parse(result.stdout)).toEqual({
+      codexBin: resolve("tools/file-codex"),
+      loadedBin: resolve("tools/file-codex"),
+    });
+  });
+
+  it("resolves a relative log override from the caller and preserves an absent override", async () => {
+    for (const file of ["", "./logs/shared.jsonl"]) {
+      const result = await runCli(["--json"], {
+        env: { TEST_CLI_LOG_FILE: file },
+        program: Effect.gen(function* () {
+          yield* (yield* Output).result((yield* (yield* AppConfig).logging).file, "log path");
+        }),
+      });
+      expect(result).toMatchObject({ status: 0, stderr: "" });
+      expect(JSON.parse(result.stdout)).toBe(file === "" ? "" : resolve(file));
+    }
+  });
+  it("exposes the environment supplied to each config layer without trimming or dropping values", async () => {
+    const home = await tempDir();
+    for (const value of [" first ", "second"]) {
+      const result = await runCli(["--json"], {
+        home,
+        env: { PATH: "/fixture/bin", EXTRA_VALUE: value, EMPTY: "" },
+        program: Effect.gen(function* () {
+          const config = yield* AppConfig;
+          yield* (yield* Output).result(config.inheritedEnvironment, "environment");
+        }),
+      });
+      expect(result.status).toBe(0);
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        HOME: home,
+        PATH: "/fixture/bin",
+        EXTRA_VALUE: value,
+        EMPTY: "",
+      });
+    }
+  });
+  it.each([
+    { env: {}, bin: "codex", home: undefined },
+    {
+      env: {
+        CODEX_BIN: "/tools/codex",
+        CODEX_HOME: "/codex-state",
+        FORMAN_CODEX_BIN: "ignored",
+        FORMAN_CODEX_HOME: "ignored",
+      },
+      bin: "/tools/codex",
+      home: "/codex-state",
+    },
+    { env: { CODEX_BIN: " ", CODEX_HOME: "" }, bin: "codex", home: undefined },
+  ])("resolves Codex executable and home from $env", async ({ env, bin, home }) => {
+    const temporaryHome = await tempDir();
+    const result = await runCli(["--json"], {
+      home: temporaryHome,
+      env: { CODEX_BIN: undefined, ...env },
+      program: Effect.gen(function* () {
+        const config = yield* AppConfig;
+        yield* (yield* Output).result(
+          { codexBin: config.codexBin, codexHome: config.codexHome },
+          "Codex settings",
+        );
+      }),
+    });
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      codexBin: bin,
+      codexHome: home ?? join(temporaryHome, ".codex"),
+    });
+    expect(result.stderr).toBe("");
+  });
+  it("suppresses successful command records at the default level", async () => {
+    const emptyPath = await tempDir();
+    const result = await runCli(["doctor", "--json"], {
+      env: { CODEX_BIN: undefined, PATH: emptyPath },
+    });
     expect(result.status).toBe(0);
     expect(Schema.decodeUnknownSync(DoctorResult)(JSON.parse(result.stdout))).toMatchObject({
-      greeting: "Hello, world!",
+      codexBin: "codex",
       configError: null,
+      codexVersion: null,
+      protocolMatches: null,
+      loggedIn: null,
     });
-    expect(ndjson(result.stderr)).toEqual([
-      expect.objectContaining({ msg: "command", level: "warn", outcome: "success" }),
-    ]);
+    expect(result.stderr).toBe("");
   });
   it.each([
     { args: ["doctor", "--json"], command: "doctor" },
     { args: ["--help", "--json"], command: "framework" },
     { args: ["absent", "--json"], command: null },
   ])("names the command that ran as $command in its record", async ({ args, command }) => {
-    const result = await runCli(args);
+    const result = await runCli(args, { env: { LOG_LEVEL: "debug" } });
     expect(ndjson(result.stderr)).toContainEqual(
       expect.objectContaining({ msg: "command", command }),
     );
   });
+  it("emits failed command records at error at the default level", async () => {
+    const result = await runCli(["absent", "--json"]);
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe("");
+    expect(ndjson(result.stderr)).toEqual([
+      expect.objectContaining({ msg: "command", level: "error", outcome: "failure", exitCode: 2 }),
+      expect.objectContaining({ error: expect.objectContaining({ tag: "Usage" }) }),
+    ]);
+  });
   it.each([
-    { file: "{}", env: {}, levels: ["warn"], greeting: "Hello, world!" },
+    { file: "{}", env: {}, levels: [], codexBin: "codex" },
     {
-      file: '{"logLevel":"debug","greeting":"file"}',
+      file: '{"logLevel":"debug","codexBin":"/missing/file-codex"}',
       env: {},
       levels: ["debug", "debug"],
-      greeting: "file",
+      codexBin: "/missing/file-codex",
     },
-    { file: '{"logLevel":"info"}', env: {}, levels: ["info"], greeting: "Hello, world!" },
+    { file: '{"logLevel":"info"}', env: {}, levels: [], codexBin: "codex" },
     {
-      file: '{"logLevel":"debug","greeting":"file"}',
-      env: { LOG_LEVEL: "none", TEST_CLI_GREETING: "env" },
+      file: '{"logLevel":"debug","codexBin":"/missing/file-codex"}',
+      env: { LOG_LEVEL: "none", CODEX_BIN: "/missing/env-codex" },
       levels: [],
-      greeting: "env",
+      codexBin: "/missing/env-codex",
     },
     {
-      file: '{"logLevel":"info","greeting":"file"}',
-      env: { LOG_LEVEL: "", TEST_CLI_GREETING: " " },
-      levels: ["info"],
-      greeting: "file",
+      file: '{"logLevel":"info","codexBin":"/missing/file-codex"}',
+      env: { LOG_LEVEL: "", CODEX_BIN: " " },
+      levels: [],
+      codexBin: "/missing/file-codex",
     },
     {
       file: '{"logLevel":"debug"}',
       env: { LOG_LEVEL: "INFO" },
-      levels: ["info"],
-      greeting: "Hello, world!",
+      levels: [],
+      codexBin: "codex",
     },
-  ])("resolves file and env while emitting $levels", async ({ file, env, levels, greeting }) => {
+  ])("resolves file and env while emitting $levels", async ({ file, env, levels, codexBin }) => {
     const home = await configFile(file);
+    const emptyPath = await tempDir();
     const log = join(home, "logs", "cli.jsonl");
     const result = await runCli(["doctor", "--json"], {
       home,
-      env: { ...env, TEST_CLI_LOG_FILE: log, API_KEY: "PRIVATE_SENTINEL" },
+      env: {
+        CODEX_BIN: undefined,
+        PATH: emptyPath,
+        ...env,
+        TEST_CLI_LOG_FILE: log,
+        API_KEY: "PRIVATE_SENTINEL",
+      },
     });
     expect(result.status).toBe(0);
     const document = Schema.decodeUnknownSync(DoctorResult)(JSON.parse(result.stdout));
-    expect(document).toMatchObject({ greeting, configError: null, compiled: false });
+    expect(document).toMatchObject({ codexBin, configError: null, compiled: false });
     const records = ndjson(result.stderr);
     expect(
       records.map(
@@ -97,7 +270,9 @@ describe("real config and emitted logging", () => {
   it.each(["human", "json"])("reports invalid configuration safely in %s mode", async (mode) => {
     for (const content of [
       '{"logLevel":"loud"}',
-      '{"greeting":7}',
+      '{"codexBin":7}',
+      '{"codexBin":" "}',
+      '{"greeting":"old scaffold setting"}',
       '{"apiKey":"PRIVATE_SENTINEL"}',
       "broken",
     ]) {
@@ -108,7 +283,6 @@ describe("real config and emitted logging", () => {
       expect(result.stderr).not.toContain("PRIVATE_SENTINEL");
       if (mode === "json")
         expect(Schema.decodeUnknownSync(DoctorResult)(JSON.parse(result.stdout))).toMatchObject({
-          greeting: null,
           configError: expect.stringContaining("Invalid configuration"),
         });
       else expect(result.stdout).toContain("Config: Invalid configuration");
@@ -117,24 +291,25 @@ describe("real config and emitted logging", () => {
 
   it("keeps invocation state isolated", async () => {
     const first = await runCli(["doctor", "--json"], {
-      home: await configFile('{"logLevel":"debug","greeting":"first"}'),
+      home: await configFile('{"logLevel":"debug","codexBin":"/missing/first-codex"}'),
+      env: { CODEX_BIN: undefined },
     });
     const second = await runCli(["doctor", "--json"], {
-      home: await configFile('{"logLevel":"none","greeting":"second"}'),
+      home: await configFile('{"logLevel":"none","codexBin":"/missing/second-codex"}'),
+      env: { CODEX_BIN: undefined },
     });
     expect(first.status).toBe(0);
     expect(ndjson(first.stderr)).toHaveLength(2);
-    expect(JSON.parse(first.stdout)).toMatchObject({ greeting: "first" });
+    expect(JSON.parse(first.stdout)).toMatchObject({ codexBin: "/missing/first-codex" });
     expect(second).toMatchObject({ status: 0, stderr: "" });
-    expect(JSON.parse(second.stdout)).toMatchObject({ greeting: "second" });
+    expect(JSON.parse(second.stdout)).toMatchObject({ codexBin: "/missing/second-codex" });
   });
 
   it("keeps valid file logging when an unrelated application setting is invalid", async () => {
-    const home = await configFile('{"logLevel":"debug","greeting":7}');
+    const home = await configFile('{"logLevel":"debug","codexBin":7}');
     const result = await runCli(["doctor", "--json"], { home });
     expect(result.status).toBe(0);
     expect(JSON.parse(result.stdout)).toMatchObject({
-      greeting: null,
       configError: expect.any(String),
     });
     expect(ndjson(result.stderr)).toEqual([
@@ -153,7 +328,7 @@ describe("real config and emitted logging", () => {
       env: { TEST_CLI_LOG_FILE: join(occupied, "log") },
     });
     expect(result.status).toBe(0);
-    expect(JSON.parse(result.stdout)).toMatchObject({ greeting: "Hello, world!" });
+    expect(JSON.parse(result.stdout)).toMatchObject({ codexBin: join(home, "missing-codex") });
     expect(
       ndjson(result.stderr).filter((record) =>
         JSON.stringify(record).includes("Log file unavailable"),
@@ -170,7 +345,7 @@ describe("real config and emitted logging", () => {
       env: { TEST_CLI_LOG_FILE: join(occupied, "log"), TEST_CLI_LOG_FORMAT: "json" },
     });
     expect(result.status).toBe(0);
-    expect(result.stdout).toContain("Greeting: Hello, world!");
+    expect(result.stdout).toContain(`Codex executable: ${join(home, "missing-codex")}`);
     expect(ndjson(result.stderr)).toEqual([
       expect.objectContaining({ msg: "configuration checked", level: "debug" }),
       expect.objectContaining({

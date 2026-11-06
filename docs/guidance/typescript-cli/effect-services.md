@@ -12,7 +12,9 @@ Capture dependencies in layer constructors. Methods close over them, with no hid
 
 Only config.ts reads environment settings (bin.ts passes its process env). Empty and whitespace-only strings count as absent. Project-owned settings use the FORMAN_ prefix. ConfigProvider.fromEnvRecord supplies Effect Config reads.
 
-The optional config file is schema-decoded with excess properties rejected. Env greeting wins over file greeting, then the default. A malformed file is reported by doctor, never treated as a valid empty file; only NotFound means absent. Paths and logging resolve independently of a failed application load. File logLevel applies beneath LOG_LEVEL; invalid levels use the safe warn fallback. New settings need a schema, precedence tests, .env.example and README entries.
+`FORMAN_HOME` selects the config and state directory, defaulting to `$HOME/.forman`. AppConfig exposes the absolute `home` and derives `configFile` as `home/config.json`; the daemon, run store and logs use that same home. Relative values resolve at config read time, and a spawned daemon receives the absolute `FORMAN_HOME` before changing cwd.
+
+The optional config file is schema-decoded with excess properties rejected. `CODEX_BIN` wins over file `codexBin`, then the default `codex`. A malformed file is reported by doctor, never treated as a valid empty file; only NotFound means absent. Paths and logging resolve independently of a failed application load. File logLevel applies beneath LOG_LEVEL; invalid levels use the safe warn fallback. New settings need a schema, precedence tests, .env.example and README entries.
 
 ## Failures and runtimes
 

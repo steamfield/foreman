@@ -4,9 +4,9 @@ Status: draft, revised after a devil's-advocate review (22 findings, all taken).
 
 ## Summary
 
-forman lets Claude Code start Codex agents in worktrees Claude prepared, check on them, steer or interrupt them, and answer questions they ask mid-turn. One forman daemon per user owns one `codex app-server` child process and keeps every run's state on disk. The `forman` CLI talks to the daemon over a unix socket. Claude is woken by `forman wait` running as a background Bash task, which works in every Claude Code surface, the desktop app included. An MCP server wrapping the same daemon comes later.
+forman lets Claude Code start Codex agents in isolated worktrees, check on them, steer or interrupt them, and answer questions they ask mid-turn. `forman start <name> --new-worktree --setup "<install>" --contract <file> --write --wait` creates the worktree, installs dependencies and delegates in one call. One forman daemon per user owns one `codex app-server` child process and keeps every run's state on disk. The `forman` CLI talks to the daemon over a unix socket. Claude is woken by `forman wait` running as a background Bash task, which works in every Claude Code surface, the desktop app included. An MCP server wrapping the same daemon comes later.
 
-It replaces `~/.claude/skills/codex-delegate/scripts/delegate.sh` and keeps that workflow: the contract, the delegate preamble, the fresh-process self-review and the seven-part hand-off. Authentication is the Codex CLI's own ChatGPT login. forman never reads or asks for an OpenAI API key.
+It replaces `~/.claude/skills/codex-delegate/scripts/delegate.sh` and keeps that workflow: the contract, the delegate preamble, the fresh-process self-review and the seven-part hand-off. Authentication is the Codex CLI's own ChatGPT login. forman never reads or asks for an OpenAI API key. It strips `OPENAI_API_KEY`, `OPENAI_API_BASE` and `CODEX_API_KEY` from the inherited environment before launching Codex, including doctor probes.
 
 ## Decisions already made
 
@@ -16,9 +16,11 @@ These were settled with Riley before this RFC and are not reopened here.
 | --- | --- |
 | Name | `forman`, published as `@steamfield/forman` |
 | Shape | Effect 4 TypeScript CLI first, MCP server later |
-| Worktrees | Claude creates and removes them; forman validates the path it is given and never creates or deletes one |
+| Worktrees | Unit 21 replaces the earlier Claude-owned creation decision: forman creates and safely cleans its own worktrees; `--worktree` still accepts ones Claude prepared |
 | Unanswered questions | Auto-answer after a per-run timeout, default 15 minutes |
 | Implementation | Delegated in units through `/execute:codex` once this RFC is reviewed |
+
+The worktree decision now follows Claude Code's Agent tool with `isolation: "worktree"`: create one worktree per delegate, remove it when it holds no work, and retain and report it when it does. This removes manual setup from delegation while keeping leftover work visible. forman performs cleanup through `archive`, after Claude reviews the result.
 
 ## What the spikes established
 
@@ -42,7 +44,11 @@ Side effects: every thread starts the MCP servers from `~/.codex/config.toml` (t
 
 From the generated 0.166.0 types: `thread/resume` has no `dynamicTools` field, and turn settings (`effort`, `sandboxPolicy`, `model`) given on `turn/start` apply "to this turn and subsequent turns". A steer can fail with `activeTurnNotSteerable` when the turn is a `review` or `compact` turn.
 
-Still untested, each listed where the design depends on it: holds longer than 3 minutes, whether `ask_orchestrator` survives `thread/resume`, a steer racing turn completion, and Codex's self-review (`codex exec --ephemeral`) launched from inside a thread.
+The unit 11 smoke suite now drives the compiled CLI against real Codex 0.166.0. It confirms delegation through wait/result/archive, a held question answered through the CLI, steer during four slow commands, interrupt while a question is pending, refusal of a cancelled question's answer, and a successful follow-up. After stopping the daemon and starting a new app server, `ask_orchestrator` remains available on the resumed thread; the actual `thread/resume` response reports `sandbox: {type: "readOnly"}` and the run's original model.
+
+The 45-second budget interrupts a slow command, obtains a hand-off in a read-only turn and restores write access on follow-up. A nested `codex exec --ephemeral --sandbox read-only -m gpt-6.1-sol -c model_reasoning_effort=low "Reply with exactly: REVIEW-OK"` inside a write thread exits 0 and returns `REVIEW-OK`, confirming the fresh-process self-review step works. A scratch repo with unapproved project hooks is refused with `RepoHooksUntrusted` (exit 10) before a turn starts, and doctor reports that start will refuse.
+
+The shortened question hold auto-answered after 60.004 seconds, Codex used the supplied fallback text and chosen token, and the run remained idle through the two-minute observation window. An exact steer/completion race and question holds longer than 3 minutes remain untested. The suite checks steer while commands are running and refusal after completion. The separately enabled 16-minute hold is retained for a manual run.
 
 ## Processes
 
@@ -52,16 +58,18 @@ Claude Code
         │  unix socket, JSON lines
         ▼
      forman daemon             (one per user, started on demand)
-        ├─ run registry, state under $FORMAN_DATA_DIR/runs/
+        ├─ run registry, state under $FORMAN_HOME/runs/
         └─ codex app-server --listen stdio://   (child, explicit environment)
               └─ one thread per run, cwd = the run's worktree
 ```
 
 ### Starting and stopping the daemon
 
-Any command that needs the daemon connects to `$FORMAN_DATA_DIR/forman.sock`. If the connection fails, it spawns `forman daemon` fully detached (new session, stdin, stdout and stderr on `/dev/null`) so the calling command never waits on the daemon's output, then polls the socket for up to 10 s. Several CLIs doing this at once is normal, since Claude starts units in parallel; the daemon's own startup sorts out which one wins:
+`FORMAN_HOME` defaults to `~/.forman` and holds `config.json`, the socket and lock, `runs/` and `logs/`. The CLI resolves a relative override before passing the absolute home to a spawned daemon. Development uses `.dev/home`.
 
-1. Take the lock by creating `$FORMAN_DATA_DIR/daemon.lock` with exclusive create. If it exists, try connecting to the socket: success means another daemon is running, so exit 0. Failure means the lock is stale only if the lock is older than 30 s, in which case remove it and retry once; otherwise exit 0 and let the polling CLI find the other daemon.
+Any command that needs the daemon connects to `$FORMAN_HOME/forman.sock`. If the connection fails, it spawns `forman daemon` fully detached (new session, stdin, stdout and stderr on `/dev/null`) so the calling command never waits on the daemon's output, then polls the socket for up to 10 s. Several CLIs doing this at once is normal, since Claude starts units in parallel; the daemon's own startup sorts out which one wins:
+
+1. Take the lock by creating `$FORMAN_HOME/daemon.lock` with exclusive create and its owner PID. If it exists, try connecting to the socket: success means another daemon is running, so exit 0. On failure, a confirmed-dead recorded owner permits immediate takeover under the reclaim guard; a live owner is preserved. Legacy empty or torn owner records keep the 30-second age rule. This lets the command after SIGKILL restart within the CLI's 10-second startup limit.
 2. Remove a leftover socket file (Effect's socket server doesn't), then listen.
 3. Remove the lock on exit.
 
@@ -69,7 +77,7 @@ The CLI spawns the daemon with its own executable: `process.execPath daemon` for
 
 The daemon exits after 30 minutes with no run in `starting`, `running` or `waiting` and no open connection. It stops listening before it exits, and the CLI treats a connection reset during connect the same as no daemon. macOS limits socket paths to 104 bytes; the daemon refuses to start with a clear error if the path is longer.
 
-The daemon logs to `$FORMAN_DATA_DIR/logs/daemon.jsonl` by default (it has no terminal), and the app server's stderr goes to `$FORMAN_DATA_DIR/logs/app-server.log`. Both are rotated like the CLI log.
+The daemon logs to `$FORMAN_HOME/logs/daemon.jsonl` by default (it has no terminal), and the app server's stderr goes to `$FORMAN_HOME/logs/app-server.log`. Both are rotated like the CLI log.
 
 ### The app server's environment
 
@@ -98,11 +106,11 @@ A run is one Codex thread working in one worktree. Claude names it (`[a-z0-9][a-
 
 `starting`, `running`, `waiting` and `unknown` are active. The rest are inactive and accept a follow-up. Only active runs block anything: a new run may reuse the name or worktree of an inactive run, in which case the old run's directory is moved to `runs/.archive/<name>-<timestamp>/`. A follow-up on an inactive run whose worktree no longer exists is refused.
 
-State lives in `$FORMAN_DATA_DIR/runs/<name>/`:
+State lives in `$FORMAN_HOME/runs/<name>/`:
 
 | File | Contents |
 | --- | --- |
-| `run.json` | name, thread id, group, worktree, main checkout, base commit, model, effort, sandbox, tier, budgets, state, timestamps, latest token totals |
+| `run.json` | name, thread id, group, worktree, main checkout, base commit, optional `managedWorktree {branch, baseCommit, fromRef}` ownership, model, effort, sandbox, tier, budgets, state, timestamps, latest token totals |
 | `contract.md` | the contract as given at `start`, copied so the digest doesn't depend on Claude's scratchpad |
 | `events.jsonl` | normalized events, each with a sequence number and timestamp |
 | `codex.jsonl` | the raw app-server notifications and requests for this thread, for diagnosing a failed run |
@@ -120,20 +128,31 @@ Normalized events cover what the digest and `forman events` need: turn started a
 
 All commands take `--json` and then print exactly one JSON value on stdout. Without it they print short text meant for Claude to read. Every message argument also accepts `--file <path>`, since follow-up contracts are files.
 
+`start`, `answer`, `followup`, `steer` and `interrupt` accept `--wait [--timeout <dur>]`. They send their request and then wait with the standalone wait's 60-minute default. `start --wait` prints the run name and directory, plus a created worktree's path and branch, followed by the wait result and its `next:` line. Its JSON is one `Waited` value with `started: {name, runDir, worktree, branch}` for a new worktree; the other four return the wait result directly instead of `ok`.
+
+The daemon acknowledges `answer`, `followup`, `steer` and `interrupt` with `Accepted {cursor}`. If another run in the group is active at acceptance, it adds `all: true` and the cursor covers every run in the group; the CLI prints `next: <executable> wait --all --after <cursor>` and `--wait` uses that group. Otherwise it keeps the single-run form. Positions are captured before dispatching the mutation, so a peer completion arriving during the RPC remains visible. The target's position is captured under its lock; peers expose committed log prefixes without taking peer locks, avoiding deadlocks. Group cursors embed the main checkout, so automatic and printed waits keep the target group when invoked from another repo. Legacy position-only cursors remain readable. Without `--wait`, text is `ok` followed by `next: ...`, and JSON carries the same `next`. Shutdown keeps `Ok`.
+
+An outdated daemon stays in service while busy. Before sending these four requests to a different build, the client captures its run position through a nonblocking `Wait`. If that build returns the older `Ok` acknowledgement, the client uses the captured cursor as `Accepted`; if it returns `Accepted`, the daemon's cursor takes precedence. Capturing before dispatch preserves immediate continuations without retrying a mutation. A daemon that cannot provide the cursor is refused before the request is sent. Managed starts are refused before dispatch to an outdated busy daemon, whose older schema could silently drop the new isolation flags; finish its runs and restart it first.
+
 | Command | Does |
 | --- | --- |
-| `forman start <name> --worktree <path> --contract <file> [--write] [--model] [--effort] [--tier] [--budget <dur>] [--question-timeout <dur>]` | Validates the worktree, starts a thread with `ask_orchestrator` registered, sends the preamble and contract as the first turn, prints the run name and run directory, returns |
+| `forman start <name> --new-worktree [--from <ref>] [--setup "<command>"] --contract <file> [--write] [--model] [--effort] [--tier] [--budget <dur>] [--question-timeout <dur>]` | Creates and validates a worktree, starts a thread with `ask_orchestrator`, sends the preamble and contract, prints the name, directory, worktree and branch, then `next: <executable> wait <name>`. Alternatively `--worktree <path>` accepts a prepared worktree |
+| `forman archive <name> [--keep-worktree]` | Archives an inactive run and removes only a safe forman-created worktree and branch; `--keep-worktree` explicitly retains them |
 | `forman status [<name>]` | One run's digest, or a one-line summary of every run in the current group |
 | `forman events <name> [--after <seq>] [--limit <n>]` | Normalized events after a sequence number, with `gap: true` if older events were dropped |
 | `forman steer <name> <message>` | `turn/steer` on the turn in progress. Refused if no turn is in progress, or if a question is pending ("answer q2 first; the answer can carry the change"), because the model won't see a steer until the question is answered |
 | `forman followup <name> <message> [--budget <dur>] [--effort]` | Starts a new turn on an inactive run, resuming the thread first if this daemon didn't start it |
-| `forman interrupt <name>` | `turn/interrupt` on the turn in progress |
+| `forman interrupt <name> [--wait] [--timeout <dur>]` | `turn/interrupt` on the turn in progress; acknowledges with `Accepted {cursor}` and prints `next:` to wait past earlier turns, or waits from that cursor with `--wait` |
 | `forman answer <name> <question-id> <text>` | Answers a pending question; refused if the question is no longer pending |
 | `forman result <name>` | The digest and the hand-off, saying which turn it came from and whether the latest turn ended without one |
-| `forman wait [<name>...] [--all] [--after <cursor>] [--timeout <dur>]` | Blocks until a run needs Claude or the timeout passes |
-| `forman doctor` | Existing command, extended with the Codex version and schema check, login state and daemon status |
+| `forman wait [<name>...] [--all] [--after <cursor>] [--timeout <dur>]` | Blocks until a run needs Claude or the timeout passes; prints outcomes, digests, terminal turn hand-offs and the next wait command |
+| `forman doctor` | Codex version and schema check, login state and daemon status, including its build and whether it matches this CLI |
 
 `steer` and `followup` are separate. umum's single `message` picks steer or a new turn based on whether a turn is active, which turns a race at turn completion into a silently started turn. With two commands, losing that race is an error Claude sees.
+
+Printed `next:` commands use `forman` only when the first executable named `forman` on the invoking CLI's inherited `PATH` resolves to the running binary by real path. Otherwise they use its absolute path, quoted for the shell when needed; source invocations include `FORMAN_HOME` so continuations from `bun run dev` keep using development state. Wait JSON carries the same command, preserving names, cursor and timeout. `doctor` reports this comparison as `formanOnPath` in JSON and as `forman on PATH is this binary` in text.
+
+`Pong` carries the daemon's build identity. Doctor only probes it; it never replaces an outdated daemon. A running daemon's JSON has `build` and `buildMatches`; both are null when an older daemon omits its build. Text reports unknown for those values. With no daemon, it reports `not running` and starts nothing.
 
 `start` defaults: the newest `gpt-<version>-sol` model listed in `models_cache.json` (visibility "list", no variant suffix, fallback `gpt-6.1-sol`), effort `high`, tier `priority`, `approvalPolicy: "never"`, budget 60 minutes, question timeout 15 minutes. `--write` selects `danger-full-access`; without it the sandbox is `read-only`. `workspace-write` is not offered, because the gate can't pass inside it (hand-off section 4, item 2).
 
@@ -144,6 +163,12 @@ All commands take `--json` and then print exactly one JSON value on stdout. With
 Every run belongs to a group: the main checkout of its worktree. `status` with no name and `wait --all` cover the group of the current directory's repo, so two Claude sessions in different repos never see each other's runs. Two sessions in the same repo do share a group; they can name runs explicitly to stay apart.
 
 ### Worktree validation
+
+`--new-worktree` creates `<main checkout>/.claude/worktrees/<name>` on a new branch `forman/<name>`, from the HEAD of the repository containing the caller's current directory, or `--from <ref>`. It refuses existing paths and branches. It adds `.claude/worktrees/` to the common `.git/info/exclude` unless Git already ignores it. `--setup` runs `/bin/sh -c` in the created worktree with the app-server environment before validation or any Codex request. `--worktree <path>` remains the prepared-worktree alternative; the flags are mutually exclusive, and `--from` and `--setup` require `--new-worktree`.
+
+Creation and removal live in `src/core/managed-worktree.ts`, using `main-checkout.ts` and `process.ts`. The daemon holds the run's name lock through setup, validation, registration and startup. Under the registration lock it reserves the destination before creation and keeps that reservation through rollback or publication, blocking a differently named run from entering a worktree still in setup. Different runs can install concurrently. The run keeps its ownership, branch, original base commit and source ref. Branch source refs remain symbolic so archive can recognize a later merge; detached or tag bases remain commits.
+
+`archive` removes a forman-created worktree and branch only with no uncommitted or untracked files and either no new commits or a tip already merged into its source branch. It also refuses when another active or starting run reserves that path, or HEAD is detached. Branch deletion uses the checked tip as its expected OID, preserving a branch that advances during removal. Otherwise `RunConflict.detail` names the path, branch, remaining work and `forman archive <name> --keep-worktree`. That option archives the record while keeping both. Passed worktrees are never removed. Named and unnamed `status`, and `doctor`, list orphan directories under `.claude/worktrees/` on `forman/*` branches with no unarchived run, including their path, branch and whether they hold work. Without trustworthy run metadata, an orphan's commits are compared conservatively with main HEAD.
 
 `start` refuses, each with its own message, unless:
 
@@ -157,14 +182,14 @@ The main checkout, `HEAD` as the base commit, and the baseline are recorded.
 
 ### Repo hooks and trust
 
-A delegate in a repo with `.codex/hooks.json` must not run commands without those guards. Codex runs project hooks only when the project is trusted (`[projects."<path>"] trust_level = "trusted"`) and each hook is trusted by hash (`[hooks.state."<file>:<event>:<i>:<j>"] trusted_hash`). stacks today has the first and not the second, so its hooks don't run, which `delegate.sh` worked around with `--dangerously-bypass-hook-trust`. forman never passes that flag and never changes trust settings, so a guarded repo has to be trusted in Codex.
+A delegate in a repo with `.codex/hooks.json` must not run commands without those guards. Codex loads project hooks only for trusted projects, and approves each hook by its current hash. forman never bypasses hook trust or changes trust settings.
 
 forman checks this twice when the main checkout has a `.codex/hooks.json`:
 
-- Before starting, `start` reads `config.toml` and refuses unless the main checkout's real path is trusted and every hook in the file has a `hooks.state` entry. It can't recompute Codex's hashes, so an edited hook still passes this check.
+- Before starting, `start` asks its app-server connection for `hooks/list` with `{ cwds: [worktree] }`. Codex resolves linked worktrees inside the main checkout to that checkout's hooks. Every `source: "project"` hook must have `trustStatus: "trusted"` or `"managed"`. An untrusted or modified hook, an entry with errors, or no project hooks despite the file's existence refuses the run before its files are created. An untrusted project returns only user hooks, with no warnings or errors, so the missing-project-hooks check is necessary. forman uses Codex's trust decision instead of parsing `config.toml` or recomputing hashes.
 - While running, the daemon fails closed: if a `commandExecution` item starts in a turn with no `hook/started` from `source: "project"` before it, the daemon interrupts the turn and marks the run `failed` with "repo hooks did not run". That command has already started, which is the cost of not reimplementing Codex's trust logic.
 
-The refusal tells the user to open Codex in the main checkout and approve its hooks in `/hooks`.
+The refusal names failing hook keys and their statuses. It tells the user to open Codex in the main checkout, run `/hooks` and approve the hooks (and trust the project if asked), then run `forman doctor`. Doctor uses a short app-server connection to report each project hook's trust status and whether the trust check will accept runs. Probe failures show as unknown. Repos without a hooks file skip the probe.
 
 Because the hooks file comes from the main checkout, a branch that changes `.codex/hooks.json` doesn't take effect in its own delegate until merged.
 
@@ -176,7 +201,7 @@ Every thread registers one dynamic tool:
 {
   "type": "function",
   "name": "ask_orchestrator",
-  "description": "Ask the orchestrator (Claude) a question and wait for the answer. Use it when you are blocked by something the contract and the code don't settle, or the contract leaves open a choice with real consequences. Don't use it for anything you can decide from the contract, the repo or its docs. The answer can take minutes. If none arrives in time you'll be told to proceed with your best judgment; then note the question and your choice under Open in the hand-off.",
+  "description": "Ask the orchestrator only when blocked by something the contract and code don't settle, or a decision with real consequences is needed. Progress, findings and corrections go in the hand-off: every call pauses the turn until answered. If the answer times out, proceed with best judgment and note the question and choice under Open.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -190,7 +215,7 @@ Every thread registers one dynamic tool:
 
 `kind` lets `status` tell a blocker from a question. On `item/tool/call` for this tool the daemon assigns a question id (`q1`, `q2`, ... per run), appends it to `questions.jsonl`, sets the run to `waiting`, wakes waiters, and holds the JSON-RPC request. Several questions can be pending at once if the model calls the tool in parallel; the digest lists each. `answer` replies `{success: true, contentItems: [{type: "inputText", text}]}`.
 
-When a question's timeout passes, the daemon answers "No answer from the orchestrator. Proceed with your best judgment and note this question and your choice under Open in the hand-off." and records it `auto-answered`. Spike 1 held a call for 3 minutes; nothing yet shows a call stays open for 15. The smoke suite holds one for 16 minutes before this ships, and the default drops below any limit it finds.
+When a question's timeout passes, the daemon answers "No answer from the orchestrator. Proceed with your best judgment and note this question and your choice under Open in the hand-off." and records it `auto-answered`. Spike 1 held a call for 3 minutes. The smoke suite has a separately enabled 15-minute timeout with a 16-minute observation window (`FORMAN_SMOKE_LONG=1`); unit 11 runs a one-minute timeout and two-minute observation window (`FORMAN_SMOKE_SHORT=1`) to check the mechanism. A 15-minute pending call is still unverified; the long case must pass before treating that duration as established.
 
 When a turn ends with questions pending, they are recorded `cancelled`, because the app server cancels the call itself and drops a later answer without a word.
 
@@ -198,38 +223,40 @@ Any other dynamic tool call or server request gets a JSON-RPC error response, so
 
 ### Resume and the tool
 
-`thread/resume` takes no `dynamicTools`, so whether `ask_orchestrator` survives a resume is unknown. Resume also must not fall back to `config.toml` defaults, which on Riley's machine are `danger-full-access` and `gpt-6-astra`. forman passes `model`, `serviceTier`, `approvalPolicy`, `sandbox` and `cwd` from `run.json` on every resume, and the smoke suite checks the resumed thread's reported sandbox and that it can still call the tool. Until that test passes, a follow-up that needs a resume prints a warning that questions may not reach Claude in that turn.
+`thread/resume` takes no `dynamicTools`, but the unit 11 real-Codex test confirms that `ask_orchestrator` survives a daemon/app-server restart on Codex 0.166.0. The resumed thread asks a question and uses the CLI's answer in its hand-off. The captured resume response reports `sandbox: {type: "readOnly"}` and the original run model. forman passes `model`, `serviceTier`, `approvalPolicy`, `sandbox` and `cwd` from `run.json` on every resume, preventing fallback to the user's defaults. A write run also resumes with `sandbox: {type: "dangerFullAccess"}` and can write a file after restart. Every successful resume appends a `Resumed {sandbox, model}` event decoded through `ThreadOpened`; a differing sandbox produces `resumed with sandbox X, run expects Y` in the digest, using Codex policy names. There is no warning about the question tool after resume.
 
 ## `wait` and how Claude is woken
 
 `forman wait` returns when one of the named runs (or any run in the group, with `--all`) has something newer than its cursor: a question pending, a turn completed, failed or interrupted, or the run lost. With `--all` and no active run in the group, it returns at once with `none`. Without `--after` it returns anything that happened since the run started that Claude hasn't been given a cursor past.
 
-Each result ends with a cursor line (`cursor: <opaque>`), and Claude passes it to the next `wait --after`. The daemon keeps no per-reader state, so a `status` from another session or a `wait` killed mid-print loses nothing.
+Each result prints a cursor line (`cursor: <opaque>`) and ends with the exact continuation command: `next: <executable> wait <same names, or --all> --after <cursor>`, followed by `--timeout <dur>` if supplied. The invoking CLI selects the executable as described above. This applies to `timeout` and `none` too. JSON `Waited` includes the command in `next`. The daemon keeps no per-reader state, so a `status` from another session or a `wait` killed mid-print loses nothing.
 
-Claude's loop is: `start` the units; run `forman wait --all` as a background Bash task; when it exits, read what it printed, then `answer`, `steer`, `followup` or `result`; run `wait --all --after <cursor>` again while any run is active.
+Claude starts a single delegation with `start --wait` as a background Bash task. If it asks a question, `answer <name> <id> <text> --wait` resumes and waits in one more call. A delegation needing no answer is one call; one question is two. `steer --wait` and `followup --wait` use the same loop. On timeout, run the printed `next:` command. For several units, start without `--wait` and use `forman wait --all` for the group. After a request without `--wait`, use its acknowledgement's `next:` command, whose cursor skips attention from before acceptance. Terminal outcomes carry the turn's hand-off, so reading it needs no separate `result` call. `result` remains available to reread hand-offs and can fall back to an earlier turn; wait carries null when its completed turn has no hand-off.
 
-`wait` exits 0 whenever it returns an outcome and prints one line per run that needs attention, followed by each one's digest:
+`wait` exits 0 whenever it returns an outcome and prints one line per run that needs attention, followed by each one's digest. `done`, `failed` and `interrupted` print `Hand-off (turn N):` and the full hand-off after that run's digest, or `No hand-off available.`. Questions retain their full text. An abbreviated example:
 
 ```
 question  unit-a q2 (blocked): lint rejects the CLI-help test's runtime imports under src/
 done      unit-b turn 1
 cursor:   7f3a…
+next: forman wait --all --after 7f3a…
 ```
 
 The other first words are `failed`, `interrupted`, `lost`, `timeout` and `none`. meight's scheme (1 timeout, 2 failed, 3 question) is not used because 2 and 3 already mean usage error and invalid config in this project's error table. Claude reads a background task's output either way, so the exit code only separates "here is something" from "forman itself broke".
 
-`--timeout` defaults to 9 minutes, under Claude Code's 10-minute cap on foreground Bash calls.
+`--timeout` defaults to 60 minutes for background Bash tasks, which have no foreground time cap. Use `--timeout 9m` for foreground calls to stay under Claude Code's 10-minute cap.
 
 The scaffold logs a `command` record to stderr on every run at the configured level (default `warn`), which would end every `wait` result Claude reads. forman logs it at `debug` instead, with a matching change to `docs/acceptance/typescript-cli.md` and its test.
 
 ## The digest
 
-`status`, `wait` and `result` show the same digest:
+`status <name>`, `wait` and `result` show the same digest:
 
 ```
 run:       unit-a  running  12m04s  (gpt-6.1-sol, high, priority, write)
-dir:       ~/.local/share/forman/runs/unit-a
-worktree:  /Users/riley/Projects/opendata/.claude/worktrees/unit-a
+dir:       ~/.forman/runs/unit-a
+worktree:  /repo/.claude/worktrees/unit-a
+branch:    forman/unit-a (forman-created, base <commit>)
 turn:      2 (followup)
 question:  q2 (blocked) pending 1m10s: lint rejects the CLI-help test's runtime imports under src/
 commands:  84 (3 failed, 1 blocked by repo hooks)
@@ -239,6 +266,8 @@ outside May change:  (none)
 new in git status since start:  ?? src/commands/run.ts
 tokens:    4.1M in (96% cached), 31K out
 ```
+
+Without a name, `status` prints one line per run: `unit-a  waiting  turn 2 (followup)  12m04s  q2 pending`. Each pending question gets its own marker; removed worktrees add `worktree removed`. Both status forms append orphan lines with path, branch and `holds work` or `clean`; JSON keeps `Digests` with an optional `orphans` array. The digest includes optional managed-worktree metadata and the branch/base text line. Elapsed time in the digest header and status line runs from creation to now while active, and from creation to the last state change while inactive. If there is no state-change event, the record's update time is the fallback.
 
 Event fields come from `events.jsonl` and are cheap. The three file fields come from the worktree and are computed when a turn ends and when `status` or `result` asks, never per event:
 
@@ -252,7 +281,7 @@ MCP startup failures are recorded as events but kept out of the digest and never
 
 ## Prompt, budget and hand-off
 
-The first turn is the delegate preamble from `delegate.sh` followed by the contract, with one sentence added to the preamble: "If you're blocked by something the contract doesn't settle, call the ask_orchestrator tool rather than guessing; otherwise keep working." Follow-up turns send only Claude's message. forman doesn't own the contract templates; they stay in the codex-delegate skill.
+The first turn is the delegate preamble from `delegate.sh` followed by the contract, with this tool guidance added to the preamble: "Use ask_orchestrator only when blocked by something the contract and code don't settle, or a decision with real consequences is needed. Progress, findings and corrections go in the hand-off: every call pauses the turn until answered; otherwise keep working." Follow-up turns send only Claude's message. forman doesn't own the contract templates; they stay in the codex-delegate skill.
 
 Each turn has a budget: `--budget` on `start` for the first turn and on `followup` for later ones, default 60 minutes. When it passes, the daemon does what `delegate.sh` does on timeout instead of steering, because a steer waits behind a pending question and fails during a compaction turn:
 
@@ -262,15 +291,24 @@ Each turn has a budget: `--budget` on `start` for the first turn and on `followu
 
 The run ends `interrupted` with the hand-off from step 2 if one was written.
 
+Unit 11 confirms this through the real compiled CLI: a write run with a 45-second budget is interrupted during `sleep 120`, turn 2 produces the hand-off with a captured `readOnly` policy, and turn 3 restores `dangerFullAccess` and writes a file successfully. While `restoreSandbox` is set and the hand-off turn is active, the digest reports `read-only` and its header shows `read-only (hand-off turn)`. After that turn ends, the digest again describes the run's configured sandbox; the next follow-up explicitly restores it.
+
 The hand-off of a turn is its `agentMessage` with `phase: "final_answer"`, or its last `agentMessage` if none has that phase, written to `turns/<n>.md` and copied to `last-message.md`. An interrupted turn usually has none; `result` then shows the newest earlier hand-off and says which turn it came from.
 
 ## Failure handling
 
 | Failure | Handling |
 | --- | --- |
+| Setup, preflight, hook trust or thread startup refuses a new worktree | Roll back only the worktree and branch created in that call. Setup errors carry its exit code and output tail in `WorktreeInvalid.detail`; passed worktrees remain untouched. Retain a worktree after an unconfirmed turn start even if still clean, or whenever a failed turn start leaves work; preserve the recovery state and report its path and branch in the refusal and digest warning |
+| Archive finds work | Refuse with `RunConflict`, naming path, branch and remaining files or commits; `--keep-worktree` archives while retaining them, then orphan diagnostics keep them visible |
 | App server exits | Active runs become `lost`, pending questions `cancelled`; the next request that needs it restarts the app server; a follow-up resumes the thread |
 | Daemon exits | Same, found from `run.json` at the next daemon start |
+| One run's background work fails | Log once with the run name and reason. An unconfirmed active turn stays `unknown` with its turn ID and worktree reservation; other failures become `failed` and wake waiters. Each run consumes its own ordered message queue, so its lock and worktree scans cannot delay other runs. Acquire run locks before the global registration lock; release registration before thread and turn RPCs. Only infrastructure failures reach the daemon's fatal worker boundary |
+| Worktree removed during a turn | Completion keeps the last available worktree fields. Digests warn that the worktree was removed; the daemon and other runs continue |
+| Crash during a JSONL append | Ignore the final line without a newline and truncate it before the next append. Corruption in complete records still fails that run's recovery; log its name and skip it while recovering the others |
+| Crash during run creation | Build under `runs/.tmp-<name>-<random>` and publish by rename after writing `run.json`. Registry discovery ignores staging directories; Start removes an unregistered directory occupying the requested name |
 | Request times out | `thread/start` waits up to 180 s (MCP servers can take 120 s to start); other requests 30 s. A timed-out `thread/start` or `turn/start` puts the run in `unknown`, and a retry is refused while it is |
+| Recording `unknown` fails | Keep the reservation in memory and the five-minute recovery deadline armed. Once storage is writable, the deadline can still mark the run `lost` |
 | A message fails to decode | Logged and recorded. `turn/started` and `turn/completed` fall back to a minimal decode of `threadId`, `turn.id` and `turn.status`, so a schema change can't leave a run `running` forever |
 | Unknown notification or item type | Recorded as a generic event |
 
@@ -289,13 +327,39 @@ New tags in `errorTable`. The error envelope gains an optional `detail` field ho
 
 ## Protocol types and versioning
 
-Types generated with `codex app-server generate-ts --experimental` from Codex 0.166.0 are committed under `src/codex/generated/`, with the version and a hash of `generate-json-schema --experimental` output in a header file. The client decodes only the messages forman uses, through Schemas in `src/schemas/codex.ts`, accepting the open `string | object` arms of `CodexErrorInfo`. Codex is still `0.x`, so a version comparison says nothing about compatibility; instead the daemon regenerates the schema at startup and compares its hash. A mismatch is shown by `doctor` and in the output of every `start` until resolved.
+Forman identifies a build by a SHA-256 of sorted source paths and contents under `src/`, `package.json`, `bun.lock`, the build script and the Bun version. Identical inputs preserve the identity. Source invocations compute this hash at startup with a `dev-` prefix, so source edits replace dev daemons too. The CLI checks `Pong.build` with one Ping on its existing connection, reusing a Ping command's own reply; a missing field means outdated. On a mismatch, Shutdown lets an idle daemon exit before the normal spawn-on-demand path starts the caller's build. A busy daemon refuses shutdown: the command continues with one stderr notice, and a later CLI call retries replacement. A connection closed during replacement gets one handshake retry before the command is sent; commands are never replayed. Explicit shutdown stops the daemon without starting a replacement.
+
+The generated protocol is 467 JSON Schema files (5.8 MB), too large to commit for a reference, so `src/codex/protocol.ts` records the Codex version and a SHA-256 of the `generate-json-schema --experimental` output instead (generation is deterministic; two runs were identical). `tests/fixtures/codex-0.166.0.jsonl` holds one real recorded message of each shape forman reads. The client decodes only the messages forman uses, through Schemas in `src/schemas/codex.ts`, accepting the open `string | object` arms of `CodexErrorInfo`. Codex is still `0.x`, so a version comparison says nothing about compatibility; instead the daemon regenerates the schema at startup and compares its hash. A mismatch is shown by `doctor` and in the output of every `start` until resolved.
 
 ## Testing
 
+Unit 21 adds real-repo tests for managed creation, caller HEAD and `--from`, exclude rules, setup, refused-start rollback, safe archive and retained work, orphan diagnostics, mutually exclusive flags, and combined continuations for all four mutations. Review regressions cover old daemons, cross-repo cursors, concurrent commits, shared-path reservations and completions during a mutation. A Vitest stress case runs `bun src/bin.ts` CLI and daemon processes with the fake app server, three concurrent delegations and four bounded fault iterations (printed seed `210021`). It kills the daemon with SIGKILL and triggers scripted app-server exits at seeded request boundaries, checks the complete set of successfully started runs and independently decodes every expected run record and JSONL file, checks status and wait, and confirms every owned daemon and fake-server PID exits. It uses condition/exit waits without test sleeps and has a 59-second ceiling.
+
 Unit and integration tests run on Node without network. The app server is replaced by a fake: a script speaking the same JSONL protocol that plays scripted turns, tool calls, hooks, token usage, interrupts and the silent drop of a late answer. That is the one fake, and it stands in for a third-party process. Tests run the daemon program in the test process with Node services, listening on a socket in a temporary data directory, and drive it through the real CLI parser.
 
-The smoke suite, `bun run smoke`, runs against the real app server and is opt-in (`FORMAN_SMOKE=1`) because it uses Riley's plan. It turns the spikes into tests and adds the untested cases: a 16-minute question hold, resume after an app server restart (sandbox and tool), steer racing turn completion, the time-up hand-off turn under read-only, and a self-review `codex exec` inside a thread.
+The smoke suite, `bun run smoke`, drives `dist/forman` against the real app server and is opt-in (`FORMAN_SMOKE=1`) because it uses the user's ChatGPT login and plan. Build first with `bun run build`. Without the flag all ten real-Codex cases and five local harness regressions skip with enabling instructions; it is outside the normal gate. Cases cover delegation/wait/result/archive, question/answer, steer during slow commands and refusal after completion, interrupt with a pending question, read-only and write resume after daemon/app-server restart, budget hand-off and sandbox restoration, nested `codex exec`, and unapproved repo hooks refused before any turn. The ninth case is separately enabled as described under The question tool; unit 11 does not run the 16-minute variant. An exact steer/completion network race is not forced.
+
+Each real-Codex case owns a short temporary data directory, scratch repo and linked worktree, stops its daemon and removes those directories even after assertion failures. These cases synchronize through the CLI's `wait`; the only sleeps are tasks given to Codex. Turns use low effort. A smoke-only pass-through Codex executable captures JSON-RPC traffic to inspect the actual resume response and turn sandbox policies. It forwards to the real installed Codex without replacing responses.
+
+Independent review added four harness regressions: inherited stdout drains after the child exits, SIGTERM propagates correctly while stdin stays open, failed shutdown terminates an owned process tree before deleting state, and scratch Git ignores signing configuration and inherited repository selectors. They use local subprocesses and condition-based output/exit waits, without Codex turns. All four fail when their fixes are reverted and pass with the fixes, including three repeat runs. The proxy waits for closed/drained stdout and removes signal forwarding handlers before re-raising a signal. Cleanup snapshots descendants of the PID reported by the fixture's daemon, attempts the CLI stop, then uses bounded TERM/KILL fallback and confirms exit before removing state; it retains the original shutdown error. Scratch Git configuration is isolated while the Codex login home is preserved.
+
+The runner starts Bun from `smoke/` with its own `bunfig.toml`. Using only `--config` from the repository root still merged the normal isolation preload, replaced `HOME` and hid the login, producing 401 failures. Two setup runs exposed this before the corrected runs. Smoke children also omit `OPENAI_API_KEY`, `OPENAI_API_BASE` and `CODEX_API_KEY` to keep authentication on the login. Separate cheap probes with the real home authenticated both with and without the inherited API/OAuth variables; those variables were not established as the cause of the 401.
+
+Unit 11 results (2026-11-05 local date, Codex 0.166.0, low effort, gpt-6.1-sol): the first corrected run passed all nine cases in 407.74 seconds; the second passed eight and skipped the hold in 285.47 seconds. After review fixes, the full suite passed 12 tests (eight real-Codex cases plus four harness regressions) and skipped the hold in 145.89 seconds. Cases 1–8 passed in all three runs, with no observed flakes. Durations include setup and cleanup.
+
+| Case | First run | Second run | After review | Observation |
+| --- | --- | --- | --- | --- |
+| 1. Delegation | Pass, 11.8 s | Pass, 30.2 s | Pass, 13.1 s | File content, wake hand-off, digest, result and archive agree |
+| 2. Question | Pass, 18.6 s | Pass, 16.8 s | Pass, 11.3 s | Answer reaches the final hand-off |
+| 3. Steer | Pass, 38.3 s | Pass, 40.0 s | Pass, 35.8 s | Four slow commands complete; final answer changes; late steer refused |
+| 4. Interrupt | Pass, 37.7 s | Pass, 35.0 s | Pass, 7.5 s | Pending answer refused with exit 8; follow-up completes |
+| 5. Resume | Pass, 17.7 s | Pass, 28.3 s | Pass, 8.7 s | Same thread, dynamic tool available, server reports readOnly |
+| 6. Budget | Pass, 96.7 s | Pass, 72.7 s | Pass, 53.1 s | Interrupted with read-only hand-off; write restored on follow-up |
+| 7. Self-review | Pass, 42.9 s | Pass, 53.7 s | Pass, 12.6 s | Nested codex exec exits 0 with REVIEW-OK |
+| 8. Hook trust | Pass, 11.2 s | Pass, 8.7 s | Pass, 3.4 s | Exit 10 before a turn; doctor says start will refuse |
+| 9. Short hold | Pass, 132.8 s | Skipped | Skipped | Auto-answer at 60.004 s, observation through 120 s |
+
+The first run preceded extra assertions for the file name in the text wake, absence of commands before the question, all four completed slow commands, refusal of a late steer, and the timeout history's elapsed time. The second run includes those assertions except the separately skipped hold. The hold's recorded timestamps independently establish the elapsed time above.
 
 ## Delegation plan
 
@@ -317,3 +381,7 @@ The MCP server, Channels push, launchd install, a command to delete archived run
 
 1. MCP servers in delegate threads. Every thread starts the user's global Codex MCP servers, which slows `thread/start` and adds noise when they fail. Thread `config` overrides could turn them off, but some contracts may want them. This RFC leaves them on.
 2. License: Apache-2.0 like stacks, or MIT like rr.
+
+## Deviations found while building
+
+A `thread/start` reply arriving after its timeout is discarded by the client because its request has no waiter left. The run stays `unknown` and becomes `lost` after 5 minutes. No turn was started on that thread, so it does no work.
