@@ -3,8 +3,9 @@
 The landing site for forman, a CLI for delegating coding tasks to Codex from
 Claude Code, at https://forman.steamfield.io.
 
-This directory is a separate Astro project. It ships a placeholder landing page
-and an MDX publishing pipeline, with no published posts yet.
+This directory is a separate Astro project. The landing page replays real forman
+recordings from `fixtures/`; an MDX publishing pipeline sits under `/blog` with no
+published posts yet. `docs/PRODUCT.md` explains the page and `DESIGN.md` its look.
 
 ## Development
 
@@ -16,8 +17,8 @@ make dev
 ```
 
 Open http://localhost:4321. Set `PORT_WEB` if that port is busy.
-Shared UI styles and placeholder tokens are wired in `src/styles/`; Archivo and
-IBM Plex Mono are installed for the later page design, with no font imports yet.
+`make e2e` runs the Playwright and axe suite against a production build
+(Chromium is installed by `make install` outside CI).
 
 ## Publishing
 

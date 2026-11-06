@@ -3,7 +3,9 @@
 ## Overview
 
 This separate Astro project serves forman's landing page at https://forman.steamfield.io.
-The landing page is a placeholder; the MDX blog pipeline lives under `/blog`.
+It is one page whose demos replay real forman recordings, plus the stack's MDX blog
+pipeline under `/blog` (no published posts). Why the page is shaped this way:
+[docs/PRODUCT.md](docs/PRODUCT.md); the visual contract: [DESIGN.md](DESIGN.md).
 Use this directory's Makefile and Bun dependencies, independently of the CLI above it.
 
 ## Commands
@@ -38,24 +40,41 @@ Never deploy as part of verification.
 ## Architecture map
 
 ```text
-src/pages/       landing, blog routes, RSS and 404
-src/layouts/     shared metadata and post layout
-src/components/ React post list/header and reading-state island
-src/content/    MDX posts and shared frontmatter schema
-src/lib/        publication rules, collection loader, analytics and events
-src/styles/     Tailwind and shared UI token mapping
-scripts/        frontmatter reader and draft generator
-public/         static social image and Pages headers
-tests/          process, build and Pages runtime assertions
-docs/           development guidance
-.claude/        Claude Code hooks and adapter documentation
-.stacks/        recorded verification manifest (do not edit)
+src/pages/index.astro    the landing page: section order and which island goes where
+src/data/landing.ts      all landing copy and reference tables (checked by tests/drift.test.ts)
+src/data/runs.ts         typed access to the recorded runs in fixtures/runs/
+src/data/*.ts            pure build-time shaping per section: supervision (hero replay),
+                         session (orchestration diagram), lifecycle, evidence, commands
+src/components/landing/  primitives.tsx (Section, DataTable, CodeFrame, StateBadge) and
+                         one component per section; console/ and session/ hold subparts
+src/components/Logo.astro the mark (also public/favicon.svg)
+src/lib/                 format.ts (forman's elapsed and token formats), analytics, events,
+                         blog publication rules
+src/scripts/site.ts      copy buttons, section_viewed tracking, scroll reveals
+src/styles/              global.css (tokens, DESIGN.md), sf-theme.css (--sf-* mapping)
+src/pages/blog/, src/content/  the stack's blog pipeline, unlinked
+fixtures/runs/           scrubbed forman run records (events, questions, contract, digest)
+fixtures/cli/            scrubbed CLI transcripts: { command, output, exitCode }
+scripts/capture-*.mjs    write the fixtures from ~/.forman; review output before committing
+tests/                   build, deploy, drift and llms.txt assertions
+e2e/                     Playwright and axe against the production build
+.stacks/                 recorded verification manifest (do not edit)
 ```
 
 Routes and RSS load the collection through `src/lib/collection.ts` and publication
 rules in `posts.ts`. Sitemap config reads YAML through the same schema before
 Astro's content layer exists. Canonical paths omit trailing slashes; build output
 uses files. `/blog/` redirects to `/blog` on Pages.
+
+### Recordings
+
+Demos replay recordings; never hand-write forman output or Codex events. Capture a run
+with `node scripts/capture-runs.mjs <name>` (or `<name>:<transcript>` to take the digest
+from a saved `start --wait` transcript, which also works for archived runs) and CLI output
+with `node scripts/capture-cli.mjs <name> -- forman <args>`. Both scrub home paths, the
+username, temp directories and the paths inside wait cursors. Capture a run's digest before
+committing its worktree: the digest's scope check reads the worktree's uncommitted files.
+Prose written for the page beside recorded output is labeled as written for the page.
 
 ## Agent harness
 
@@ -74,8 +93,12 @@ Parent repository trust and hook approval are already done.
   interactive islands. Keep the post prose and single light syntax theme readable.
 - `@steamfield/ui` is restricted to `~0.4.0`; React peers are installed, Markdown
   peers are not added directly. Tailwind layer order starts `theme, base, sf,
-components, utilities`. `sf-theme.css` contains placeholder site tokens.
-- Archivo and IBM Plex Mono are installed for later design work; do not wire them yet.
+components, utilities`. `sf-theme.css` maps the site's tokens onto `--sf-*`.
+- Style with the token utilities from `global.css`, never raw hex; orange (`signal`) only
+  marks attention (a pending question, `waiting`, the primary action, focus). New values go
+  in DESIGN.md first and must pass `src/styles/tokens.test.ts`.
+- Every island server-renders its final state (no JS, reduced motion) and is gated to
+  on-screen playback with `@steamfield/ui/playback`.
 - Keep changes inside the requested scope. Do not edit generated `.astro/` or `dist/`.
 
 ## Testing
