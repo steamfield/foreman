@@ -70,8 +70,9 @@ Radius 2px for chips and state badges, 4px for buttons and command boxes, 6px fo
 ## Motifs
 
 - The work order: the contract in the hand-off section is set on `card` with a perforated top edge (a dashed `line-strong` rule with two punched notches) and a stamped `May change` line. This motif appears once.
+- Current and active items: a full border and the raised `card` surface (or `console-2` inside a console), never a colored left stripe. Ordered steps carry a mono number chip that is inked in for the current step. A note that needs attention (a question, a blocked hook) is a framed panel headed by its state badge, so the orange comes from the badge's square.
 - State badges: a 2px-radius chip, mono 12px uppercase-free, with a 6px square (not a dot) in the state color. `waiting` badges pulse their square once per 1.6s unless motion is off.
-- The mark: an ink tile with an orange bar across the top (the lead) over a paper square offset to the lower left (the delegate). Wordmark "foreman" in Archivo 700, width 112, lowercase.
+- The mark: three chevrons moving right, two in ink and the front one in signal orange (the lead out in front of the crew). Wordmark "foreman" in Archivo 700, lowercase, outlined to paths. The brand pack lives in `public/brand/`; `make brand` renders its raster sizes.
 
 ## Motion
 
