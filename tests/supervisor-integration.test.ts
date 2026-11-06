@@ -33,9 +33,11 @@ import * as Codex from "../src/schemas/codex";
 import * as D from "../src/schemas/daemon";
 import { Host } from "../src/services/host";
 import { makeSupervisor } from "../src/supervisor";
+import { makeAppServer } from "../src/supervisor/app-server";
 import { noAnswer, preamble, timeUp } from "../src/supervisor/prompts";
 import { makeQuestions } from "../src/supervisor/questions";
 import { makeRegistry } from "../src/supervisor/registry";
+import { makeTurns } from "../src/supervisor/turns";
 import { type Rule, Scenario, type Step } from "./fixtures/fake-app-server/scenario";
 import { repoHooks, successfulTurn } from "./fixtures/fake-app-server/scenarios";
 
@@ -324,7 +326,210 @@ const fixture = Effect.fnUntraced(function* (script: Scenario, legacy = false) {
   };
 });
 
+const preflightFixture = Effect.fnUntraced(function* () {
+  const f = yield* fixture(scenario(turnRule()));
+  const config = yield* Effect.service(AppConfig).pipe(Effect.provide(AppConfig.layer(f.env)));
+  const registry = yield* makeRegistry(f.dataDir);
+  const servers = yield* makeAppServer(
+    config,
+    "test",
+    registry,
+    () => Effect.void,
+    () => Effect.void,
+  );
+  const turns = yield* makeTurns(registry, servers, config);
+  const body = {
+    _tag: "Start" as const,
+    name,
+    worktree: f.repo,
+    newWorktree: true,
+    contract: "Do the work",
+    write: false,
+    skipDepsCheck: false,
+  };
+  return { ...f, registry, turns, body };
+});
+
 describe("supervisor over the real daemon socket", () => {
+  it.effect("review: cancellation during identity collection retains the rollback receipt", () =>
+    Effect.gen(function* () {
+      const f = yield* preflightFixture();
+      yield* commandResult(ChildProcess.make("mkfifo", [`${f.root}/identity-release`]));
+      const realGit = (yield* commandResult(ChildProcess.make("which", ["git"]))).stdout.trim();
+      yield* f.fs.writeFileString(
+        `${f.root}/git`,
+        `#!/bin/sh
+if [ "$1" = rev-parse ] && [ "$2" = --absolute-git-dir ] && [ ! -f '${f.root}/identity-ready' ]; then
+  printf ready > '${f.root}/identity-ready'
+  cat '${f.root}/identity-release' > /dev/null
+fi
+exec '${realGit}' "$@"
+`,
+        { mode: 0o755 },
+      );
+      const previous = process.env.PATH;
+      yield* Effect.acquireRelease(
+        Effect.sync(() => {
+          process.env.PATH = `${f.root}:${previous ?? ""}`;
+        }),
+        () =>
+          Effect.sync(() => {
+            if (previous === undefined) delete process.env.PATH;
+            else process.env.PATH = previous;
+          }),
+      );
+      const pending = yield* f.turns
+        .start(f.body, Effect.void)
+        .pipe(Effect.result, Effect.forkChild);
+      while (!(yield* f.fs.exists(`${f.root}/identity-ready`))) yield* Effect.yieldNow;
+      const cancelled = yield* f.turns.cancelStart(name).pipe(Effect.forkChild);
+      yield* TestClock.adjust(0);
+      yield* f.fs.writeFileString(`${f.root}/identity-release`, "go\n");
+      expect(yield* Fiber.join(cancelled)).toBe(true);
+      expect((yield* Fiber.join(pending))._tag).toBe("Failure");
+      expect(yield* f.fs.exists(`${f.repo}/.claude/worktrees/unit`)).toBe(false);
+      expect((yield* f.git(f.repo, ["branch", "--list", "forman/unit"])).stdout).toBe("");
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.effect("review: cancellation does not acknowledge a Start rejected before preflight", () =>
+    Effect.gen(function* () {
+      const f = yield* preflightFixture();
+      const body = { ...f.body, newWorktree: false, worktree: f.worktree };
+      yield* f.turns.start(body, Effect.void);
+      yield* f.registry.starts.take(1);
+      const pending = yield* f.turns.start(body, Effect.void).pipe(Effect.result, Effect.forkChild);
+      yield* TestClock.adjust(0);
+      const cancelled = yield* f.turns.cancelStart(name).pipe(Effect.forkChild);
+      yield* TestClock.adjust(0);
+      yield* f.registry.starts.release(1);
+      expect((yield* Fiber.join(pending))._tag).toBe("Failure");
+      expect(yield* Fiber.join(cancelled)).toBe(false);
+      expect(f.registry.runs.get(name)?.record.state).toBe("running");
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("failed setup retains dirty work and reports both the exit and retained path", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario());
+      yield* f.launch();
+      const error = yield* f
+        .start({
+          worktree: f.repo,
+          newWorktree: true,
+          setup: "printf keep > result.txt; exit 23",
+        })
+        .pipe(Effect.flip);
+      expect(error).toMatchObject({
+        detail: expect.stringMatching(/exited 23[\s\S]*Rollback retained/),
+      });
+      expect(yield* f.fs.readFileString(`${f.repo}/.claude/worktrees/unit/result.txt`)).toBe(
+        "keep",
+      );
+      expect((yield* f.git(f.repo, ["branch", "--list", "forman/unit"])).stdout).toContain(
+        "forman/unit",
+      );
+      expect(yield* f.request({ _tag: "Shutdown" })).toMatchObject({ _tag: "Ok" });
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("preflight cancellation joins setup and releases ownership before acknowledging", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario(turnRule()));
+      const config = yield* Effect.service(AppConfig).pipe(Effect.provide(AppConfig.layer(f.env)));
+      const registry = yield* makeRegistry(f.dataDir);
+      const servers = yield* makeAppServer(
+        config,
+        "test",
+        registry,
+        () => Effect.void,
+        () => Effect.void,
+      );
+      const turns = yield* makeTurns(registry, servers, config);
+      const body = {
+        _tag: "Start" as const,
+        name,
+        worktree: f.repo,
+        newWorktree: true,
+        contract: "Do the work",
+        write: false,
+        skipDepsCheck: false,
+      };
+      const pending = yield* turns
+        .start(
+          {
+            ...body,
+            setup: `trap 'exit 0' TERM; /bin/sh -c 'trap "printf stopped > ${f.root}/stopped; exit 0" TERM; printf ready > ${f.root}/ready; while :; do :; done' & wait`,
+          },
+          Effect.void,
+        )
+        .pipe(Effect.result, Effect.forkChild);
+      while (!(yield* f.fs.exists(`${f.root}/ready`))) yield* Effect.yieldNow;
+      expect(yield* turns.cancelStart(name)).toBe(true);
+      expect(yield* f.fs.readFileString(`${f.root}/stopped`)).toBe("stopped");
+      expect(yield* f.fs.exists(`${f.repo}/.claude/worktrees/unit`)).toBe(false);
+      expect(yield* Fiber.join(pending)).toMatchObject({
+        _tag: "Failure",
+        failure: { _tag: "RunConflict", detail: expect.stringContaining("cancelled") },
+      });
+      expect(yield* turns.cancelStart(name)).toBe(false);
+      expect(yield* turns.start(body, Effect.void)).toMatchObject({ _tag: "Started" });
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live.each(["setup", "from"] as const)(
+    "socket Start refuses %s without managed mode before touching the repository",
+    (option) =>
+      Effect.gen(function* () {
+        const f = yield* fixture(scenario());
+        yield* f.launch();
+        const exclude = yield* f.fs.readFileString(`${f.repo}/.git/info/exclude`);
+        const result = yield* f
+          .start({
+            worktree: f.repo,
+            ...(option === "setup" ? { setup: "touch marker" } : { from: "HEAD" }),
+          })
+          .pipe(Effect.result);
+        expect(yield* f.fs.exists(`${f.repo}/marker`)).toBe(false);
+        expect(result).toMatchObject({ _tag: "Failure", failure: { _tag: "Usage" } });
+        expect(yield* f.fs.readFileString(`${f.repo}/.git/info/exclude`)).toBe(exclude);
+        expect(yield* f.fs.exists(f.runDir)).toBe(false);
+        expect(yield* f.readLog).toEqual([]);
+        expect(yield* f.request({ _tag: "Shutdown" })).toMatchObject({ _tag: "Ok" });
+      }).pipe(Effect.provide(platform)),
+  );
+
+  it.effect.each([undefined, 1000])(
+    "setup deadline %s joins its process group, rolls back and releases the reservation",
+    (budgetMs) =>
+      Effect.gen(function* () {
+        const f = yield* fixture(scenario(turnRule([complete()])));
+        yield* f.launch();
+        const pending = yield* f
+          .start({
+            worktree: f.repo,
+            newWorktree: true,
+            ...(budgetMs === undefined ? {} : { budgetMs }),
+            setup: `trap 'exit 0' TERM; /bin/sh -c 'trap "printf stopped > ${f.root}/stopped; exit 0" TERM; printf ready > ${f.root}/ready; while :; do :; done' & wait`,
+          })
+          .pipe(Effect.result, Effect.forkChild);
+        while (!(yield* f.fs.exists(`${f.root}/ready`))) yield* Effect.yieldNow;
+        yield* TestClock.adjust(budgetMs ?? 600_000);
+        expect(yield* Fiber.join(pending)).toMatchObject({
+          _tag: "Failure",
+          failure: { _tag: "WorktreeInvalid", detail: expect.stringContaining("timed out") },
+        });
+        expect(yield* f.fs.readFileString(`${f.root}/stopped`)).toBe("stopped");
+        expect(yield* f.fs.exists(`${f.repo}/.claude/worktrees/unit`)).toBe(false);
+        expect((yield* f.git(f.repo, ["branch", "--list", "forman/unit"])).stdout).toBe("");
+        expect(yield* f.readLog).toEqual([]);
+        expect(yield* f.start({ worktree: f.repo, newWorktree: true })).toMatchObject({
+          _tag: "Started",
+        });
+        yield* f.wait();
+      }).pipe(Effect.provide(platform)),
+  );
+
   it.live("archive preserves unmerged commits when the source branch has been deleted", () =>
     Effect.gen(function* () {
       const f = yield* fixture(scenario(turnRule([complete()])));
