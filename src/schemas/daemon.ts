@@ -253,7 +253,7 @@ export const WaitOutcome = Schema.Struct({
 });
 
 export const DaemonResult = Schema.TaggedUnion({
-  Pong: { version: Schema.String, pid: Schema.Int },
+  Pong: { version: Schema.String, pid: Schema.Int, build: Schema.optionalKey(Schema.String) },
   Started: { name: RunName, runDir: Schema.String },
   Archived: { name: RunName, archivePath: Schema.String },
   Digests: { digests: Schema.Array(Digest) },

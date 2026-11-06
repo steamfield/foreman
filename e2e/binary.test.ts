@@ -1,9 +1,11 @@
 import { expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { copyFile, cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Schema } from "effect";
+import { responseJson } from "../src/daemon/protocol";
 import { DaemonResult } from "../src/schemas/daemon";
 import { DoctorResult } from "../src/schemas/doctor";
 import { PackageInfo } from "../src/schemas/package";
@@ -14,6 +16,108 @@ const metadata = Schema.decodeUnknownSync(PackageInfo)(
 );
 
 const binary = resolve("dist", metadata.name);
+
+const pong = (dataDir: string) =>
+  new Promise<Extract<DaemonResult, { _tag: "Pong" }>>((resolve, reject) => {
+    const socket = createConnection(join(dataDir, "forman.sock"));
+    let buffer = "";
+    socket.setTimeout(5000, () => socket.destroy(new Error("Ping timed out")));
+    socket.on("error", reject);
+    socket.on("connect", () => socket.write('{"id":1,"body":{"_tag":"Ping"}}\n'));
+    socket.on("data", (chunk) => {
+      buffer += chunk.toString();
+      if (!buffer.includes("\n")) return;
+      socket.end();
+      try {
+        const response = Schema.decodeUnknownSync(responseJson)(
+          buffer.slice(0, buffer.indexOf("\n")),
+        );
+        if (!("result" in response) || response.result._tag !== "Pong")
+          throw new Error("Expected Pong");
+        resolve(response.result);
+      } catch (error) {
+        reject(error);
+      }
+    });
+  });
+
+async function buildCopy(root: string) {
+  const project = join(root, "build");
+  await mkdir(join(project, "scripts"), { recursive: true });
+  await cp(resolve("src"), join(project, "src"), { recursive: true });
+  for (const file of ["package.json", "bun.lock", "scripts/build.ts"]) {
+    await copyFile(resolve(file), join(project, file));
+  }
+  await symlink(resolve("node_modules"), join(project, "node_modules"));
+  const rebuild = async () => {
+    const child = Bun.spawn([process.execPath, "run", "build"], {
+      cwd: project,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [status, stdout, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ]);
+    expect({ status, stdout, stderr }).toMatchObject({ status: 0 });
+    return join(project, "dist", metadata.name);
+  };
+  return { project, rebuild };
+}
+
+test("compiled identities survive identical rebuilds and replace idle daemons after a source edit", async () => {
+  const root = await mkdtemp("/tmp/fm-b-");
+  const env = { HOME: root, FORMAN_DATA_DIR: join(root, "d"), LOG_LEVEL: "none" };
+  const { project, rebuild } = await buildCopy(root);
+  const run = async (args: string[], fromSource = false) => {
+    const executable = fromSource
+      ? [process.execPath, join(project, "src/bin.ts")]
+      : [join(project, "dist", metadata.name)];
+    const child = Bun.spawn([...executable, ...args], {
+      cwd: root,
+      env,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [status, stdout, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ]);
+    return { status, stdout, stderr };
+  };
+  try {
+    await rebuild();
+    expect(await run(["status", "--json"])).toMatchObject({ status: 0, stderr: "" });
+    const first = await pong(env.FORMAN_DATA_DIR);
+    expect(first.build).toMatch(/^[a-f0-9]{64}$/);
+    await rebuild();
+    expect(await run(["status", "--json"])).toMatchObject({ status: 0, stderr: "" });
+    expect(await pong(env.FORMAN_DATA_DIR)).toEqual(first);
+    const source = join(project, "src/bin.ts");
+    await writeFile(source, `${await readFile(source, "utf8")}\n// Changed build input.\n`);
+    await rebuild();
+    expect(await run(["status", "--json"])).toMatchObject({ status: 0, stderr: "" });
+    const second = await pong(env.FORMAN_DATA_DIR);
+    expect(second.pid).not.toBe(first.pid);
+    expect(second.build).not.toBe(first.build);
+    expect(await run(["status", "--json"], true)).toMatchObject({ status: 0, stderr: "" });
+    const dev = await pong(env.FORMAN_DATA_DIR);
+    expect(dev.build).toBe(`dev-${second.build}`);
+    expect(await run(["status", "--json"], true)).toMatchObject({ status: 0, stderr: "" });
+    expect(await pong(env.FORMAN_DATA_DIR)).toEqual(dev);
+    await writeFile(source, `${await readFile(source, "utf8")}\n// Changed dev input.\n`);
+    expect(await run(["status", "--json"], true)).toMatchObject({ status: 0, stderr: "" });
+    const editedDev = await pong(env.FORMAN_DATA_DIR);
+    expect(editedDev.pid).not.toBe(dev.pid);
+    expect(editedDev.build).not.toBe(dev.build);
+  } finally {
+    expect((await run(["daemon", "stop"])).status).toBe(0);
+    await rm(root, { recursive: true, force: true });
+  }
+}, 30_000);
+
 test("compiled wait-all commands continue through question, timeout, done and none", async () => {
   const root = await mkdtemp("/tmp/fm-w-");
   const repo = join(root, "repo");
@@ -46,8 +150,14 @@ test("compiled wait-all commands continue through question, timeout, done and no
   await writeFile(env.FAKE_APP_SERVER_SCENARIO, JSON.stringify(askOrchestrator()));
   const contract = join(root, "contract.md");
   await writeFile(contract, "Do the work.\n- May change: `result.txt`");
-  const run = async (args: string[]) => {
-    const child = Bun.spawn([binary, ...args], { cwd: repo, env, stdout: "pipe", stderr: "pipe" });
+  let currentBinary = binary;
+  const run = async (args: string[], executable = currentBinary) => {
+    const child = Bun.spawn([executable, ...args], {
+      cwd: repo,
+      env,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
     const [stdout, stderr, status] = await Promise.all([
       new Response(child.stdout).text(),
       new Response(child.stderr).text(),
@@ -67,6 +177,19 @@ test("compiled wait-all commands continue through question, timeout, done and no
     const attention = await run(["wait", "--all", "--timeout", "9m"]);
     expect(attention).toMatchObject({ status: 0, stderr: "" });
     expect(attention.stdout).toContain("question    unit q1");
+    const busy = await pong(env.FORMAN_DATA_DIR);
+    const { project, rebuild } = await buildCopy(root);
+    const source = join(project, "src/bin.ts");
+    await writeFile(source, `${await readFile(source, "utf8")}\n// Busy upgrade build.\n`);
+    const upgraded = await rebuild();
+    const outdated = await run(["status", "--json"], upgraded);
+    expect(outdated.status).toBe(0);
+    expect(outdated.stderr).toBe("Daemon is outdated; it will be replaced once its runs finish.\n");
+    expect(Schema.decodeUnknownSync(DaemonResult)(JSON.parse(outdated.stdout))).toMatchObject({
+      _tag: "Digests",
+      digests: [{ name: "unit", state: "waiting" }],
+    });
+    expect(await pong(env.FORMAN_DATA_DIR)).toEqual(busy);
     const status = await run(["status"]);
     expect(status).toMatchObject({ status: 0, stderr: "" });
     expect(status.stdout.trimEnd().split("\n")).toHaveLength(1);
@@ -86,6 +209,11 @@ test("compiled wait-all commands continue through question, timeout, done and no
     expect(done).toMatchObject({ status: 0, stderr: "" });
     expect(done.stdout).toContain("done        unit turn 1");
     expect(done.stdout).toContain("No hand-off available.");
+    currentBinary = upgraded;
+    expect(await run(["status", "--json"])).toMatchObject({ status: 0, stderr: "" });
+    const replaced = await pong(env.FORMAN_DATA_DIR);
+    expect(replaced.pid).not.toBe(busy.pid);
+    expect(replaced.build).not.toBe(busy.build);
     const none = await run([...next(done.stdout), "--json"]);
     expect(none).toMatchObject({ status: 0, stderr: "" });
     const result = Schema.decodeUnknownSync(DaemonResult)(JSON.parse(none.stdout));
@@ -117,7 +245,7 @@ test("compiled wait-all commands continue through question, timeout, done and no
     expect((await run(["daemon", "stop"])).status).toBe(0);
     await rm(root, { recursive: true, force: true });
   }
-});
+}, 30_000);
 
 test("compiled output, config precedence, log records, errors, and no dotenv autoload", async () => {
   const home = await mkdtemp(join(tmpdir(), "cli-binary-"));

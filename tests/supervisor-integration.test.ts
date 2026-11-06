@@ -35,6 +35,7 @@ const platform = Layer.mergeAll(
   Host.layer({
     name: "forman",
     version: "test",
+    build: "test",
     platform: "node",
     compiled: false,
     executable: [process.execPath],

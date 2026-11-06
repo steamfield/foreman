@@ -1,6 +1,8 @@
+import { fileURLToPath } from "node:url";
 import { BunServices, BunSocket, BunSocketServer } from "@effect/platform-bun";
 import { Effect, Layer, Schema } from "effect";
 import rawMetadata from "../package.json";
+import { buildIdentity } from "./daemon/build";
 import { DaemonSockets } from "./daemon/sockets";
 import { jsonRequested, main } from "./main";
 import { AppLayer, runInvocation } from "./runtime";
@@ -20,7 +22,11 @@ process.stderr.on("error", () => {});
 const args = process.argv.slice(2);
 const metadata = Schema.decodeUnknownSync(PackageInfo)(rawMetadata);
 declare const COMPILED: boolean;
+declare const BUILD: string;
 const compiled = typeof COMPILED !== "undefined" && COMPILED;
+const build = compiled
+  ? BUILD
+  : `dev-${await buildIdentity(fileURLToPath(new URL("..", import.meta.url)), Bun.version)}`;
 const platform = Layer.mergeAll(
   BunServices.layer,
   DaemonSockets.layer({
@@ -30,6 +36,7 @@ const platform = Layer.mergeAll(
   Host.layer({
     name: metadata.name,
     version: metadata.version ?? "dev",
+    build,
     platform: process.platform,
     compiled,
     executable: compiled ? [process.execPath] : [process.execPath, import.meta.filename],

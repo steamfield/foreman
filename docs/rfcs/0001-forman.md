@@ -298,6 +298,8 @@ New tags in `errorTable`. The error envelope gains an optional `detail` field ho
 
 ## Protocol types and versioning
 
+Forman identifies a build by a SHA-256 of sorted source paths and contents under `src/`, `package.json`, `bun.lock`, the build script and the Bun version. Identical inputs preserve the identity. Source invocations compute this hash at startup with a `dev-` prefix, so source edits replace dev daemons too. The CLI checks `Pong.build` with one Ping on its existing connection, reusing a Ping command's own reply; a missing field means outdated. On a mismatch, Shutdown lets an idle daemon exit before the normal spawn-on-demand path starts the caller's build. A busy daemon refuses shutdown: the command continues with one stderr notice, and a later CLI call retries replacement. A connection closed during replacement gets one handshake retry before the command is sent; commands are never replayed. Explicit shutdown stops the daemon without starting a replacement.
+
 The generated protocol is 467 JSON Schema files (5.8 MB), too large to commit for a reference, so `src/codex/protocol.ts` records the Codex version and a SHA-256 of the `generate-json-schema --experimental` output instead (generation is deterministic; two runs were identical). `tests/fixtures/codex-0.166.0.jsonl` holds one real recorded message of each shape forman reads. The client decodes only the messages forman uses, through Schemas in `src/schemas/codex.ts`, accepting the open `string | object` arms of `CodexErrorInfo`. Codex is still `0.x`, so a version comparison says nothing about compatibility; instead the daemon regenerates the schema at startup and compares its hash. A mismatch is shown by `doctor` and in the output of every `start` until resolved.
 
 ## Testing

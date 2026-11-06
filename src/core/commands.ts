@@ -2,12 +2,17 @@ import { Effect } from "effect";
 import { AppConfig } from "../config";
 import { call } from "../daemon/client";
 import type { DaemonRequestBody, QuestionId, RunName } from "../schemas/daemon";
+import { Output } from "../services/output";
 import { durationMs, type MessageInput, messageText, readText, realPath } from "./command-input";
 
 const request = Effect.fn("commands.request")(function* (body: DaemonRequestBody) {
   const config = yield* AppConfig;
   yield* config.load;
-  return yield* call(body, { dataDir: config.dataDir });
+  const output = yield* Output;
+  return yield* call(body, {
+    dataDir: config.dataDir,
+    onOutdated: output.note("Daemon is outdated; it will be replaced once its runs finish."),
+  });
 });
 
 interface StartInput {

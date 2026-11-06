@@ -65,6 +65,7 @@ export async function runCli(
     Host.layer({
       name: "test-cli",
       version: "dev",
+      build: "test",
       platform: "test",
       compiled: false,
       executable: [process.execPath],
