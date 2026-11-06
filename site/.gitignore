@@ -8,6 +8,8 @@ node_modules/
 
 # Test output
 coverage/
+playwright-report/
+test-results/
 
 # Environment
 .env
