@@ -26,7 +26,7 @@ import { computeWorktreeFields } from "../src/core/runs/worktree";
 import { call } from "../src/daemon/client";
 import { daemon } from "../src/daemon/server";
 import { DaemonSockets } from "../src/daemon/sockets";
-import { RunConflict } from "../src/errors";
+import { ErrorEnvelope, RunConflict } from "../src/errors";
 import { entry, type LogEntry } from "../src/logging";
 import { jsonRequested, main } from "../src/main";
 import { AppLayer } from "../src/runtime";
@@ -41,6 +41,7 @@ import { makeRegistry } from "../src/supervisor/registry";
 import { makeTurns } from "../src/supervisor/turns";
 import { type Rule, Scenario, type Step } from "./fixtures/fake-app-server/scenario";
 import { repoHooks, successfulTurn } from "./fixtures/fake-app-server/scenarios";
+import { runCli } from "./helpers/cli";
 
 const fake = fileURLToPath(new URL("./fixtures/fake-app-server/main.mjs", import.meta.url));
 it("limits ask_orchestrator to blockers and consequential decisions, with progress in the hand-off", () => {
@@ -423,6 +424,61 @@ const queuedAnswersFixture = Effect.fnUntraced(function* () {
 });
 
 describe("supervisor over the real daemon socket", () => {
+  it.live("diagnostics: waiting followup names the question and valid actions", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario(turnRule([question(), { awaitResponse: "q" }])));
+      yield* f.launch();
+      yield* f.start();
+      yield* f.untilState("waiting");
+      for (const json of [false, true]) {
+        const result = yield* Effect.promise(() =>
+          runCli(["followup", "unit", "continue", ...(json ? ["--json"] : [])], {
+            env: { ...f.env, LOG_LEVEL: "none" },
+          }),
+        );
+        expect(result.status).toBe(8);
+        expect(result.stdout).toBe("");
+        expect(result.stderr).toContain("answer or defer q1");
+        expect(result.stderr).toContain("interrupt");
+        expect(result.stderr).not.toContain("steer");
+        if (json) Schema.decodeUnknownSync(ErrorEnvelope)(JSON.parse(result.stderr));
+      }
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("diagnostics: Codex launch failure names the executable and recovery", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario(turnRule()));
+      f.env.CODEX_BIN = `${f.root}/missing-codex`;
+      yield* f.launch();
+      const contract = `${f.root}/contract.md`;
+      yield* f.fs.writeFileString(contract, "PRIVATE_CONTRACT_CONTENT");
+      for (const json of [false, true]) {
+        const result = yield* Effect.promise(() =>
+          runCli(
+            [
+              "start",
+              "unit",
+              "--worktree",
+              f.worktree,
+              "--contract",
+              contract,
+              ...(json ? ["--json"] : []),
+            ],
+            { env: { ...f.env, LOG_LEVEL: "none" } },
+          ),
+        );
+        expect(result.status).toBe(5);
+        expect(result.stdout).toBe("");
+        expect(result.stderr).toContain(f.env.CODEX_BIN);
+        expect(result.stderr).toContain("Install Codex or set CODEX_BIN");
+        expect(result.stderr).toContain("forman doctor");
+        expect(result.stderr).not.toContain("PRIVATE_CONTRACT_CONTENT");
+        if (json) Schema.decodeUnknownSync(ErrorEnvelope)(JSON.parse(result.stderr));
+      }
+    }).pipe(Effect.provide(platform)),
+  );
+
   it.effect("review: each queued answer waits for its own delivered turn", () =>
     Effect.gen(function* () {
       const f = yield* queuedAnswersFixture();

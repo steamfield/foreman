@@ -14,7 +14,7 @@ import {
 it("maps every declared tag to its stable code and safe envelope", () => {
   expect(errorClasses.map((Class) => new Class()._tag)).toEqual(Object.keys(errorTable));
   expect(errorClasses.map((Class) => exitCodeFor(new Class()))).toEqual([
-    2, 3, 6, 0, 130, 1, 4, 5, 7, 8, 9, 10,
+    2, 3, 6, 0, 130, 1, 4, 5, 7, 8, 9, 10, 2,
   ]);
   for (const Class of errorClasses) {
     const error = new Class();

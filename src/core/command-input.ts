@@ -1,5 +1,5 @@
 import { Effect, FileSystem, Path, type PlatformError, Schema } from "effect";
-import { PermissionDenied, Usage, WorktreeInvalid } from "../errors";
+import { InputError, PermissionDenied, Usage, WorktreeInvalid } from "../errors";
 import { DurationText, Milliseconds } from "../schemas/commands";
 
 export const durationMs = Effect.fnUntraced(function* (text: string) {
@@ -33,9 +33,23 @@ export const realPath = Effect.fnUntraced(function* (value: string) {
 
 export const readText = Effect.fnUntraced(function* (file: string) {
   const fs = yield* FileSystem.FileSystem;
-  return yield* fs
-    .readFileString(yield* realPath(file))
-    .pipe(Effect.mapError((error) => inputError(file, error)));
+  const path = yield* Path.Path;
+  const absolute = path.resolve(file);
+  const label = JSON.stringify(absolute);
+  return yield* fs.readFileString(absolute).pipe(
+    Effect.mapError((error) => {
+      if (error.reason._tag === "PermissionDenied")
+        return new PermissionDenied({
+          detail: `Cannot read input file ${label}. Grant read access or choose another file.`,
+        });
+      return new InputError({
+        detail:
+          error.reason._tag === "NotFound"
+            ? `Input file not found: ${label}. Create the file or correct its path.`
+            : `Cannot read input file ${label}. Choose a readable file and retry.`,
+      });
+    }),
+  );
 });
 
 export interface MessageInput {

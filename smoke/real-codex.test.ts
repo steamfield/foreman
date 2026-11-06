@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { DateTime, Schema } from "effect";
-import { QuestionLine } from "../src/schemas/daemon";
+import { QuestionId, QuestionLine } from "../src/schemas/daemon";
 import { DoctorResult } from "../src/schemas/doctor";
 import { type Fixture, fixture } from "./helpers";
 
@@ -47,7 +47,7 @@ const ask =
 function questionId(output: string) {
   const id = /^question +smoke (q\d+)\b/m.exec(output)?.[1];
   if (!id) throw new Error(`Missing question id:\n${output}`);
-  return id;
+  return Schema.decodeUnknownSync(QuestionId)(id);
 }
 
 smoke("1 delegation wakes with hand-off, digest, result and archive", async (f) => {

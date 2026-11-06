@@ -676,7 +676,12 @@ describe("command requests through the real parser and daemon", () => {
     const result = await f.run([...args, "--json"], { LOG_LEVEL: "none" });
     expect(result.status).toBe(2);
     expect(result.stdout).toBe("");
-    expect(JSON.parse(result.stderr)).toEqual(errorEnvelope(new Usage()));
+    const durationIndex = args.findIndex((arg) => arg === "--budget" || arg === "--timeout");
+    const detail =
+      durationIndex < 0
+        ? undefined
+        : `Invalid ${args[durationIndex]} value ${JSON.stringify(args[durationIndex + 1])}. Use a nonnegative whole number with ms, s, m or h, such as 5m, within the supported range.`;
+    expect(JSON.parse(result.stderr)).toEqual(errorEnvelope(new Usage({ detail })));
     expect(f.requests).toEqual([]);
   });
 
@@ -699,20 +704,23 @@ describe("command requests through the real parser and daemon", () => {
               input === "contract" ? missing : contract,
             ];
       const result = await f.run([...args, "--json"], { LOG_LEVEL: "none" });
-      expect(result.status).toBe(9);
+      const code = input === "worktree" ? 9 : 2;
+      expect(result.status).toBe(code);
       expect(result.stdout).toBe("");
       expect(JSON.parse(result.stderr)).toMatchObject({
         error: {
-          tag: "WorktreeInvalid",
+          tag: input === "worktree" ? "WorktreeInvalid" : "InputError",
           detail: expect.stringContaining(missing),
           retryable: false,
         },
       });
       const human = await f.run(args, { LOG_LEVEL: "none" });
-      expect(human.status).toBe(9);
+      expect(human.status).toBe(code);
       expect(human.stdout).toBe("");
       expect(human.stderr).toContain(missing);
-      expect(human.stderr).toContain("Input not found:");
+      expect(human.stderr).toContain(
+        input === "worktree" ? "Input not found:" : "Input file not found:",
+      );
       expect(human.stderr).not.toContain("Permission denied");
       expect(f.requests).toEqual([]);
     },
@@ -731,7 +739,13 @@ describe("command requests through the real parser and daemon", () => {
     expect(result).toEqual({
       status: 6,
       stdout: "",
-      stderr: `${JSON.stringify(errorEnvelope(new PermissionDenied()))}\n`,
+      stderr: `${JSON.stringify(
+        errorEnvelope(
+          new PermissionDenied({
+            detail: `Cannot read input file ${JSON.stringify(contract)}. Grant read access or choose another file.`,
+          }),
+        ),
+      )}\n`,
     });
     expect(f.requests).toEqual([]);
   });

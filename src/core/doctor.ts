@@ -5,7 +5,7 @@ import { openConnection } from "../codex/client";
 import { appServerEnvironment } from "../codex/environment";
 import { AppConfig } from "../config";
 import { probe } from "../daemon/client";
-import { errorTable, WorktreeInvalid } from "../errors";
+import { errorText, WorktreeInvalid } from "../errors";
 import type { DoctorResult, RepoHookTrust } from "../schemas/doctor";
 import { Host } from "../services/host";
 import { formanExecutable } from "./command-output";
@@ -170,7 +170,7 @@ export const doctor = Effect.fn("doctor")(function* (cwd = ".") {
   const host = yield* Host;
   const settings = yield* config.load.pipe(
     Effect.as({ configError: null }),
-    Effect.catch((error) => Effect.succeed({ configError: errorTable[error._tag].message })),
+    Effect.catch((error) => Effect.succeed({ configError: errorText(error) })),
   );
   yield* Effect.logDebug("configuration checked");
   if (settings.configError) yield* Effect.logWarning("configuration unavailable");

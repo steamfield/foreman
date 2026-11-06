@@ -75,13 +75,26 @@ export const main = Effect.fn("main")(function* (
   const started = yield* Clock.currentTimeMillis;
   const runId = `${started}-${(yield* Random.next).toString(36).slice(2)}`;
   const invocation = Invocation.make();
+  const argv = [...args];
+  for (let index = 0; index < argv.length; index++) {
+    const flag = argv[index];
+    if (flag === "--") break;
+    const value = argv[index + 1];
+    // Effect lexes negative durations such as -1s as clustered short flags.
+    if (
+      (flag === "--timeout" || flag === "--budget" || flag === "--question-timeout") &&
+      value !== undefined &&
+      /^-\d/.test(value)
+    )
+      argv.splice(index, 2, `${flag}=${value}`);
+  }
   return yield* Effect.uninterruptibleMask((restore) =>
     Effect.gen(function* () {
       const exit = yield* Effect.exit(
         restore(
           (
             program ??
-            Command.runWith(cli(host.name), { version: host.version, renderErrors: false })(args)
+            Command.runWith(cli(host.name), { version: host.version, renderErrors: false })(argv)
           ).pipe(
             Effect.provide(invocation.layer),
             Effect.provideService(Console.Console, console),

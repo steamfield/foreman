@@ -30,7 +30,7 @@ mkdir -p "$HOME/.claude/skills"
 cp -R skills/forman "$HOME/.claude/skills/forman"
 ```
 
-Open Claude Code in the repo and ask: "Use the forman skill to delegate this task to Codex, then review its work." The [skill procedure](skills/forman/SKILL.md) covers contracts and supervision. The walkthrough below uses the CLI directly so you can see each step.
+Open Claude Code in the repo and ask: "Use the forman skill to delegate this task to Codex, then review its work." The [skill procedure](skills/forman/SKILL.md) covers contracts and supervision.
 
 ## One-time repo setup
 
@@ -110,7 +110,7 @@ After the work is merged and the worktree is clean:
 forman archive doctor-help
 ```
 
-Archive preserves records and frees the name. Managed cleanup requires a clean worktree with no untracked files, and a branch with no new commits or a tip merged into its source branch. Use `forman archive doctor-help --keep-worktree` to retain unfinished work. Status and doctor list retained `forman/*` worktrees as orphans.
+Archive preserves records and frees the name. Managed cleanup requires a clean worktree with no untracked files, and a branch with no new commits or a tip merged into its source branch. Use `forman archive doctor-help --keep-worktree` to retain unfinished work. Status and doctor report existing worktrees under `<main>/.claude/worktrees/` on `forman/*` branches when no current run record refers to them. Retained worktrees elsewhere are not reported as orphans.
 
 ## Supervise a run
 
@@ -127,9 +127,13 @@ Names are global within `FORMAN_HOME`. Unnamed `status` and `wait --all` select 
 | An inactive run needs more work | `followup` continues its saved thread; it refuses while answers are queued |
 | Work should stop | `interrupt` requests interruption and cancels pending questions; read the resulting state before reusing the worktree |
 
-Answer another pending question before a late answer or correction; its text can carry both decisions. Deferred questions remain in status and wait digests until answered or superseded by explicit steer or followup. Superseded and cancelled ids still accept answers. Inactive runs need a saved thread and existing worktree to continue.
+If a different question is pending, answer it first. Include the late answer or correction in that response. Deferred questions remain in status and wait digests until answered or superseded by explicit steer or followup. Superseded and cancelled ids still accept answers. Inactive runs need a saved thread and existing worktree to continue.
 
-`start`, `answer`, `defer`, `steer`, `followup` and `interrupt` accept `--wait` and `--timeout`. Mutation waits target the **named run only**, even when peers are active. Start returns `Started` without waiting, or `Waited` with start metadata. The other commands normally return `Accepted` with a cursor, next command and, for answers, delivery route; text prints `ok` and `next:`. With `--wait` they return `Waited`. Interrupting start preflight instead returns `Ok`, without a cursor or wait, even with `--wait`. A queued answer's cursor tracks its own delivered turn.
+`start`, `answer`, `defer`, `steer`, `followup` and `interrupt` accept `--wait` and `--timeout`. Mutation waits target the **named run only**, even when peers are active. Start returns `Started` without waiting, or `Waited` with start metadata.
+
+Without `--wait`, the other commands normally print `ok` and a command to wait for the run. JSON responses use `Accepted` and include a cursor; answers also identify their delivery route. With `--wait` they return `Waited`.
+
+Interrupting start preflight instead returns `Ok`, without a cursor or wait, even with `--wait`. A queued answer's cursor tracks its own delivered turn.
 
 Use the printed `next:` command. A question suggests `answer`, or `defer` while pending; replace the answer placeholder with your decision. Ordinary wait continuations use `--after` to avoid repeated attention and preserve an explicit timeout. A mutation without `--wait` does not carry its timeout into `next:`. Commands use `forman` if it resolves to the running executable on `PATH`, otherwise an absolute invocation, and prefix FORMAN_HOME only for a nondefault home.
 
@@ -144,7 +148,7 @@ All commands accept `--json` and `--help`. Commands below follow `forman`; angle
 | `start <name> --new-worktree --contract <file>` | Create a worktree and start; accepts `--from`, `--setup`, `--write`, `--model`, `--effort`, `--tier`, `--budget`, `--question-timeout`, `--skip-deps-check` |
 | `start <name> --worktree <path> --contract <file>` | Use a prepared linked worktree inside the main checkout; forman never removes it or its branch |
 | `status [<name>]` | Full digest for one run, or a line per run in the group; both JSON forms return `Digests` |
-| `events <name> [--after <n>] [--limit <n>] [--verbose]` | Read a page, default 100 stored events; text hides protocol chatter and token usage unless verbose; JSON includes the complete page |
+| `events <name> [--after <n>] [--limit <n>] [--verbose]` | Read up to 100 stored events by default. Text hides protocol chatter and token usage unless `--verbose` is set. JSON includes every event in the selected page. |
 | `answer <name> <question-id> [<text>] [--file <path>]` | Answer now, send a late answer or correct a previous answer |
 | `defer <name> <question-id> [<note>]` | Release a pending question early |
 | `steer <name> [<message>] [--file <path>]` | Change the running turn |
@@ -180,11 +184,11 @@ On `failed` or `lost`, read status, result, events and the worktree before conti
 | --- | --- |
 | 0 | Success, including wait outcomes and doctor with unavailable probes |
 | 1 | Internal error |
-| 2 | Invalid command or arguments |
+| 2 | Invalid command, arguments or input file |
 | 3 | Invalid configuration |
 | 4 | Daemon unavailable |
 | 5 | Codex unavailable |
-| 6 | Permission denied |
+| 6 | Permission denied, including unreadable input files |
 | 7 | Run or question not found |
 | 8 | Run state conflict |
 | 9 | Invalid worktree or missing dependencies |

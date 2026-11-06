@@ -357,6 +357,13 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
     );
   });
   const reserveFollowup = Effect.fnUntraced(function* (run: Run) {
+    if (run.record.state === "waiting") {
+      const pending = Store.pendingQuestions(yield* Store.readQuestions(run.dir))[0];
+      if (pending)
+        return yield* new RunConflict({
+          detail: `${run.record.name} is waiting; answer or defer ${pending.id}, or interrupt the run before sending a followup.`,
+        });
+    }
     if (activeStates.has(run.record.state))
       return yield* new RunConflict({
         detail: `${run.record.name} is ${run.record.state}; answer, steer or interrupt the active turn first.`,

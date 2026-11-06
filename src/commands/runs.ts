@@ -4,6 +4,7 @@ import { durationMs } from "../core/command-input";
 import { formanExecutable, renderResult } from "../core/command-output";
 import * as programs from "../core/commands";
 import { Defect } from "../errors";
+import { redactDiagnosticText } from "../logging";
 import { EventLimit, EventSequence } from "../schemas/commands";
 import { Cursor, DaemonResult, QuestionId, RunName } from "../schemas/daemon";
 import { Invocation } from "../services/invocation";
@@ -20,11 +21,13 @@ const duration = (flag: string, description: string) =>
   Flag.String(flag).pipe(
     Flag.withDescription(description),
     Flag.mapEffect((value) =>
-      durationMs(value).pipe(
-        Effect.mapError(() => new CliError.ValidationError({ message: "Invalid duration." })),
-      ),
+      durationMs(value).pipe(Effect.mapError(() => invalidDuration(flag, value))),
     ),
   );
+const invalidDuration = (flag: string, value: string) =>
+  new CliError.ValidationError({
+    message: `Invalid --${flag} value ${JSON.stringify(redactDiagnosticText(value))}. Use a nonnegative whole number with ms, s, m or h, such as 5m, within the supported range.`,
+  });
 const optionalDuration = (flag: string, description: string) =>
   duration(flag, description).pipe(Flag.optional, Flag.map(Option.getOrUndefined));
 const timeout = Flag.String("timeout").pipe(
@@ -32,7 +35,7 @@ const timeout = Flag.String("timeout").pipe(
   Flag.mapEffect((value) =>
     durationMs(value).pipe(
       Effect.as(value),
-      Effect.mapError(() => new CliError.ValidationError({ message: "Invalid duration." })),
+      Effect.mapError(() => invalidDuration("timeout", value)),
     ),
   ),
   Flag.optional,
