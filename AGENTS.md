@@ -4,7 +4,7 @@ Instructions for coding agents working in this repository. Keep this file under 
 
 ## Overview
 
-forman lets Claude Code delegate coding tasks to OpenAI's Codex and supervise them while they run: start a Codex agent in a git worktree, watch what it does, steer or interrupt it, and answer questions Codex asks mid-turn. It drives `codex app-server` over JSON-RPC and uses the Codex CLI's own ChatGPT login, never an API key. It is a TypeScript CLI on Effect 4, compiled to one binary with Bun; an MCP server wrapping the CLI comes later. The command is `forman`; npm publication as `@steamfield/forman` is pending.
+forman lets Claude Code delegate coding tasks to OpenAI's Codex and supervise them while they run: start a Codex agent in a git worktree, watch what it does, steer or interrupt it, and answer questions Codex asks mid-turn. It drives `codex app-server` over JSON-RPC and uses the Codex CLI's own ChatGPT login, never an API key. It is a TypeScript CLI on Effect 4, compiled to one binary with Bun; an MCP server wrapping the CLI comes later. The command is `forman`; npm installs use `@steamfield/forman`.
 
 The CLI and bridge are implemented: the daemon supervises Codex turns, questions, budgets and repo hooks. See [README repo setup](README.md#one-time-repo-setup) before delegating into another repo.
 
@@ -25,6 +25,8 @@ Run these from the repo root. They are the only supported way to build, test, an
 | `bun run format` | Biome formatting and safe fixes |
 | `bun run typecheck` | `tsc --noEmit` |
 | `bun run build` | Compile `dist/forman` for this host |
+| `bun run build:npm` | Build the main and four platform npm packages under `dist/npm/` |
+| `bun run build --npm-host` | Build the main and host platform npm packages for packaging tests |
 | `bun run check` | lint, typecheck, test and e2e: the gate before a commit |
 | `bun run clean` | Remove `dist/`, `coverage/`, `logs/`, `.dev/` |
 | `stacks verify` | The scaffold's definition of done (every check above plus doc and hook checks) |
@@ -129,17 +131,18 @@ lefthook runs Biome on staged files at pre-commit (fixes are re-staged), `bun ru
 
 `.github/workflows/ci.yml` runs one `ci-ok` job on pushes to `main`, pull requests and manual dispatch: frozen install, lint, typecheck, coverage, then e2e, uploading logs and coverage on failure. Actions are pinned by commit SHA with the tag in a comment; Dependabot (`.github/dependabot.yml`) proposes weekly grouped updates for actions and bun dependencies, or resolve a new SHA with `git ls-remote --tags`.
 
+`.github/workflows/release.yml` runs the full checks on `v*` tags, verifies the package version, cross-compiles all four platform packages and publishes them before the main npm package with provenance. It uses the `NPM_TOKEN` repository secret.
+
 ## Build workarounds
 
 None yet.
 
 ## Deferred
 
-The MCP server wrapper, npm publishing and a release workflow.
+The MCP server wrapper.
 
 ## Pending user actions
 
-- Create the GitHub repository and push. Confirm with `git remote -v`.
 - Require the `ci-ok` check in the branch ruleset once the repository exists.
 Repo trust and hook approval are done for this repo. For other repos, follow [README repo setup](README.md#one-time-repo-setup).
 
