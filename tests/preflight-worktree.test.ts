@@ -2,7 +2,10 @@ import { execFileSync } from "node:child_process";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem, Path } from "effect";
+import { ChildProcess } from "effect/process";
+import { commandResult } from "../src/core/preflight/command";
 import { validateWorktree } from "../src/core/preflight/worktree";
+import { groupFor } from "../src/supervisor/wait";
 
 const setup = Effect.fnUntraced(function* () {
   const fs = yield* FileSystem.FileSystem;
@@ -50,6 +53,29 @@ it.effect("preserves meaningful trailing whitespace in a linked worktree path", 
       mainCheckout: main,
       baseCommit: git("rev-parse", "HEAD"),
     });
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("groups alias and linked worktree paths by the canonical main checkout", () =>
+  Effect.gen(function* () {
+    const { fs, path, root, main, worktree } = yield* setup();
+    const alias = path.join(root, "main-alias");
+    yield* fs.symlink(main, alias);
+    const expected = yield* fs.realPath(main);
+    expect(yield* groupFor(alias)).toBe(expected);
+    expect(yield* groupFor(worktree)).toBe(expected);
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("collects stdout, stderr and a nonzero exit without blocking on either pipe", () =>
+  Effect.gen(function* () {
+    const result = yield* commandResult(
+      ChildProcess.make(process.execPath, [
+        "-e",
+        "process.stdout.write('out'); process.stderr.write('err'); process.exitCode = 7",
+      ]),
+    );
+    expect(result).toEqual({ stdout: "out", stderr: "err", code: 7 });
   }).pipe(Effect.provide(NodeServices.layer)),
 );
 

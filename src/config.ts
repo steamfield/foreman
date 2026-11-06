@@ -42,6 +42,10 @@ export class AppConfig extends Context.Service<
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
+        const cwd = path.resolve(".");
+        const absolute = (value: string) => path.resolve(cwd, value);
+        const executablePath = (value: string) =>
+          value.includes("/") || value.includes(path.sep) ? absolute(value) : value;
         const host = yield* Host;
         const prefix = host.name.toUpperCase().replace(/[^A-Z0-9]/g, "_");
         const provider = ConfigProvider.fromEnvRecord(
@@ -57,9 +61,9 @@ export class AppConfig extends Context.Service<
         const base = yield* text("XDG_CONFIG_HOME", path.join(home, ".config"));
         const configFile = path.join(base, host.name, "config.json");
         const dataHome = yield* text("XDG_DATA_HOME", path.join(home, ".local/share"));
-        const dataDir = yield* text(`${prefix}_DATA_DIR`, path.join(dataHome, host.name));
+        const dataDir = absolute(yield* text(`${prefix}_DATA_DIR`, path.join(dataHome, host.name)));
         const environmentCodexBin = yield* text("CODEX_BIN");
-        const codexHome = yield* text("CODEX_HOME", path.join(home, ".codex"));
+        const codexHome = absolute(yield* text("CODEX_HOME", path.join(home, ".codex")));
         const file = yield* Effect.cached(
           fs.readFileString(configFile).pipe(
             Effect.catch((error) =>
@@ -85,7 +89,7 @@ export class AppConfig extends Context.Service<
                 error instanceof PermissionDenied ? error : new InvalidConfig(),
               ),
             );
-            return { codexBin: environmentCodexBin || config.codexBin || "codex" };
+            return { codexBin: executablePath(environmentCodexBin || config.codexBin || "codex") };
           }),
         );
         const codexBin = yield* file.pipe(
@@ -94,8 +98,10 @@ export class AppConfig extends Context.Service<
               value,
             ),
           ),
-          Effect.map((settings) => environmentCodexBin || settings.codexBin || "codex"),
-          Effect.orElseSucceed(() => environmentCodexBin || "codex"),
+          Effect.map((settings) =>
+            executablePath(environmentCodexBin || settings.codexBin || "codex"),
+          ),
+          Effect.orElseSucceed(() => executablePath(environmentCodexBin || "codex")),
         );
         const logging = Effect.gen(function* () {
           const config = yield* file.pipe(
@@ -111,10 +117,11 @@ export class AppConfig extends Context.Service<
             Effect.orElseSucceed(() => "warn" as const),
           );
           const format = yield* text(`${prefix}_LOG_FORMAT`);
+          const logFile = yield* text(`${prefix}_LOG_FILE`);
           return {
             level: levels[level],
             format: format === "json" ? ("json" as const) : ("pretty" as const),
-            file: yield* text(`${prefix}_LOG_FILE`),
+            file: logFile === "" ? "" : absolute(logFile),
           };
         });
         return {

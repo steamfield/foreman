@@ -1,4 +1,13 @@
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { join, relative } from "node:path";
 import { NodeServices, NodeSocket, NodeSocketServer } from "@effect/platform-node";
 import { Effect, Fiber, Layer, ManagedRuntime, Schema } from "effect";
@@ -461,18 +470,52 @@ describe("command requests through the real parser and daemon", () => {
     expect(f.requests).toEqual([]);
   });
 
+  it.each(["worktree", "contract", "message"])(
+    "names a missing %s input without dispatch",
+    async (input) => {
+      const f = await fixture();
+      const missing = join(f.dataDir, "missing");
+      const contract = join(f.dataDir, "contract.md");
+      await writeFile(contract, "Do the work.");
+      const args =
+        input === "message"
+          ? ["followup", "unit-a", "--file", missing]
+          : [
+              "start",
+              "unit-a",
+              "--worktree",
+              input === "worktree" ? missing : f.dataDir,
+              "--contract",
+              input === "contract" ? missing : contract,
+            ];
+      const result = await f.run([...args, "--json"], { LOG_LEVEL: "none" });
+      expect(result.status).toBe(9);
+      expect(result.stdout).toBe("");
+      expect(JSON.parse(result.stderr)).toMatchObject({
+        error: {
+          tag: "WorktreeInvalid",
+          detail: expect.stringContaining(missing),
+          retryable: false,
+        },
+      });
+      const human = await f.run(args, { LOG_LEVEL: "none" });
+      expect(human.status).toBe(9);
+      expect(human.stdout).toBe("");
+      expect(human.stderr).toContain(missing);
+      expect(human.stderr).toContain("Input not found:");
+      expect(human.stderr).not.toContain("Permission denied");
+      expect(f.requests).toEqual([]);
+    },
+  );
+
   it("maps an unreadable contract to PermissionDenied without a daemon request", async () => {
     const f = await fixture();
+    const contract = join(f.dataDir, "private.md");
+    await writeFile(contract, "private");
+    await chmod(contract, 0);
+    onTestFinished(() => chmod(contract, 0o600));
     const result = await f.run(
-      [
-        "start",
-        "unit-a",
-        "--worktree",
-        f.dataDir,
-        "--contract",
-        join(f.dataDir, "missing"),
-        "--json",
-      ],
+      ["start", "unit-a", "--worktree", f.dataDir, "--contract", contract, "--json"],
       { LOG_LEVEL: "none" },
     );
     expect(result).toEqual({

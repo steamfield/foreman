@@ -164,11 +164,15 @@ Settings come from environment variables, then the optional file `$XDG_CONFIG_HO
 
 The config file is closed: an unknown key makes it invalid, which `doctor` reports.
 
+Relative `FORMAN_DATA_DIR`, `FORMAN_LOG_FILE`, `CODEX_HOME` and executable paths in `CODEX_BIN` resolve from the caller's directory. Bare executable names such as `codex` use `PATH`.
+
 forman uses the Codex CLI's ChatGPT login and never passes API key variables from the caller's environment to Codex.
 
 ## State and logs
 
 `FORMAN_DATA_DIR` defaults to `$XDG_DATA_HOME/forman` or `~/.local/share/forman`. It holds `forman.sock`, the daemon lock, and `runs/<name>/` with the run record, contract, normalized events, question history, raw Codex traffic and `turns/<n>.md` hand-offs. Replacing an inactive run archives its previous directory under `runs/.archive/`. Names are global within the data directory; status without a name and wait with `--all` select the current repo's group.
+
+The daemon runs from the data directory, so removing the worktree that launched it does not prevent later app-server starts. At startup it creates or tightens the data directory to mode `0700`, restricting access to its owner.
 
 The daemon starts automatically when a run command needs it and exits after 30 idle minutes. `logs/daemon.jsonl` and `logs/app-server.log` under the data directory hold daemon diagnostics and app-server stderr, rotated past 5 MB. Setting `FORMAN_LOG_FILE` overrides the daemon JSON log path, including for development runs; app-server stderr stays in `logs/app-server.log`. CLI logs go to stderr and optionally the same `FORMAN_LOG_FILE`. Development runs also append `logs/cli.jsonl` and `logs/cli.log` in this checkout.
 

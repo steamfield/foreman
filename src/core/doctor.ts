@@ -1,14 +1,15 @@
-import { Effect, FileSystem, Stream } from "effect";
+import { Effect, FileSystem } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import { checkProtocol, codexVersion } from "../codex/check";
 import { openConnection } from "../codex/client";
 import { appServerEnvironment } from "../codex/environment";
 import { AppConfig } from "../config";
 import { call } from "../daemon/client";
-import { errorTable } from "../errors";
+import { errorTable, WorktreeInvalid } from "../errors";
 import type { DoctorResult, RepoHookTrust } from "../schemas/doctor";
 import { Host } from "../services/host";
 import { formanExecutable } from "./command-output";
+import { mainCheckout as discoverMainCheckout } from "./main-checkout";
 import { hasRepoHooks, inspectHookTrust } from "./preflight/hooks";
 
 const probeTimeout = "5 seconds";
@@ -31,29 +32,6 @@ const daemonState = Effect.fnUntraced(
   Effect.orElseSucceed(() => ({ state: "not running" as const })),
 );
 
-const listWorktrees = Effect.fnUntraced(function* (cwd: string) {
-  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-  const handle = yield* spawner.spawn(
-    ChildProcess.make("git", ["worktree", "list", "--porcelain", "-z"], {
-      cwd,
-      env: { LC_ALL: "C" },
-      extendEnv: true,
-      stdout: "pipe",
-      stderr: "pipe",
-      forceKillAfter: "2 seconds",
-    }),
-  );
-  const [stdout, stderr, code] = yield* Effect.all(
-    [
-      Stream.mkString(Stream.decodeText(handle.stdout)),
-      Stream.mkString(Stream.decodeText(handle.stderr)),
-      handle.exitCode,
-    ],
-    { concurrency: "unbounded" },
-  );
-  return { stdout, stderr, code };
-}, Effect.scoped);
-
 const repoHookTrust = Effect.fnUntraced(function* (
   config: AppConfig["Service"],
   env: Readonly<Record<string, string>>,
@@ -62,31 +40,17 @@ const repoHookTrust = Effect.fnUntraced(function* (
 ) {
   let mainCheckout: string | null = null;
   return yield* Effect.gen(function* () {
-    const listing = yield* listWorktrees(cwd);
-    const first = listing.stdout.split("\0")[0];
-    if (listing.code !== 0) {
-      // Git uses exit 128 for both absence and failures such as corrupt configuration.
-      const outsideRepo = listing.stderr.startsWith(
-        "fatal: not a git repository (or any of the parent directories): .git",
-      );
+    mainCheckout = yield* discoverMainCheckout(cwd);
+    if (mainCheckout === null) {
       return {
-        state: outsideRepo ? "not applicable" : "unknown",
+        state: "not applicable",
         mainCheckout,
         hooks: [],
         acceptsStart: null,
-        detail: outsideRepo ? null : "Could not discover repo hooks: git worktree list failed.",
+        detail: null,
       } satisfies typeof RepoHookTrust.Type;
     }
-    if (!first?.startsWith("worktree "))
-      return {
-        state: "unknown",
-        mainCheckout,
-        hooks: [],
-        acceptsStart: null,
-        detail: "Could not find main checkout.",
-      } satisfies typeof RepoHookTrust.Type;
     const fs = yield* FileSystem.FileSystem;
-    mainCheckout = yield* fs.realPath(first.slice("worktree ".length));
     if (!(yield* hasRepoHooks(mainCheckout)))
       return {
         state: "not applicable",
@@ -109,13 +73,16 @@ const repoHookTrust = Effect.fnUntraced(function* (
   }).pipe(
     Effect.scoped,
     Effect.timeout(probeTimeout),
-    Effect.catch(() =>
+    Effect.catch((error) =>
       Effect.succeed({
         state: "unknown" as const,
         mainCheckout,
         hooks: [],
         acceptsStart: null,
-        detail: "Could not query Codex hook trust.",
+        detail:
+          error instanceof WorktreeInvalid
+            ? (error.detail ?? "Could not discover main checkout.")
+            : "Could not query Codex hook trust.",
       }),
     ),
   );

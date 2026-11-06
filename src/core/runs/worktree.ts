@@ -1,7 +1,8 @@
-import { Effect, FileSystem, Path, type PlatformError, Stream } from "effect";
-import { ChildProcess, ChildProcessSpawner } from "effect/process";
+import { Effect, FileSystem, Path, type PlatformError } from "effect";
+import { ChildProcess, type ChildProcessSpawner } from "effect/process";
 import { WorktreeInvalid } from "../../errors";
 import type { Digest } from "../../schemas/daemon";
+import { commandResult } from "../process";
 
 export type WorktreeFields = Pick<Digest, "filesWritten" | "newInGitStatus" | "outsideMayChange">;
 
@@ -17,25 +18,12 @@ export const gitStatusCommand = (worktree: string) =>
 const commandOutput = Effect.fn("runs.commandOutput")(function* (
   command: ChildProcess.StandardCommand,
 ) {
-  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-  return yield* Effect.scoped(
-    Effect.gen(function* () {
-      const handle = yield* spawner.spawn(command);
-      const [stdout, stderr, code] = yield* Effect.all(
-        [
-          Stream.mkString(Stream.decodeText(handle.stdout)),
-          Stream.mkString(Stream.decodeText(handle.stderr)),
-          handle.exitCode,
-        ],
-        { concurrency: "unbounded" },
-      );
-      if (code !== 0)
-        return yield* new WorktreeInvalid({
-          detail: `${command.command} exited ${code} in ${command.options.cwd}: ${stderr.trim()}`,
-        });
-      return stdout;
-    }),
-  );
+  const { stdout, stderr, code } = yield* commandResult(command);
+  if (code !== 0)
+    return yield* new WorktreeInvalid({
+      detail: `${command.command} exited ${code} in ${command.options.cwd}: ${stderr.trim()}`,
+    });
+  return stdout;
 });
 
 const sortedLines = (text: string) =>
