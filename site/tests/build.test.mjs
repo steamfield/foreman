@@ -47,11 +47,11 @@ test("the landing page owns the root and links the shared privacy page", () => {
   );
   assert.equal(
     page.querySelector('link[rel="canonical"]')?.getAttribute("href"),
-    "https://forman.steamfield.io/",
+    "https://foreman.steamfield.io/",
   );
   assert.equal(
     page.querySelector('meta[property="og:url"]')?.getAttribute("content"),
-    "https://forman.steamfield.io/",
+    "https://foreman.steamfield.io/",
   );
   assert.ok(
     page.querySelector('footer a[href="https://steamfield.io/privacy"]'),
@@ -81,7 +81,7 @@ test("every page carries the brand pack: favicon, touch icon, manifest and the s
     ])
       assert.equal(
         href(meta, "content"),
-        "https://forman.steamfield.io/og/index.webp",
+        "https://foreman.steamfield.io/og/index.webp",
       );
     const logo = page.querySelector('header a[href="/"] svg[role="img"]');
     assert.equal(logo?.getAttribute("aria-label"), "foreman");
@@ -111,7 +111,7 @@ for (const path of ["index.html", "blog.html", "404.html"]) {
     for (const path of paths) {
       assert.equal(path.getAttribute("fill"), "currentColor");
     }
-    assert.ok(getByText(footer, "forman is MIT licensed.", { exact: true }));
+    assert.ok(getByText(footer, "foreman is MIT licensed.", { exact: true }));
     assert.doesNotMatch(footer.textContent, /A Steamfield project\./);
   });
 }
@@ -130,7 +130,7 @@ test("production has an empty blog and RSS, no draft page, and only the landing 
     [...read("sitemap-0.xml").matchAll(/<loc>(.*?)<\/loc>/g)].map(
       (match) => match[1],
     ),
-    ["https://forman.steamfield.io/"],
+    ["https://foreman.steamfield.io/"],
   );
 });
 test("the error page tells readers how to recover and stays out of search", () => {
@@ -150,8 +150,8 @@ test("only a keyed build ships analytics and consent JavaScript", () => {
 test("llms.txt includes the install command and every exit code", () => {
   assert.ok(existsSync("dist/llms.txt"));
   const text = read("llms.txt");
-  assert.match(text, /^# forman\n/);
-  assert.ok(text.includes("npm i -g @steamfield/forman"));
+  assert.match(text, /^# foreman\n/);
+  assert.ok(text.includes("npm i -g @steamfield/foreman"));
   for (const code of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 130]) {
     assert.match(text, new RegExp(`^\\| ${code} \\| .+ \\|$`, "m"));
   }
@@ -216,13 +216,13 @@ test("a production build hides drafts and renders unlisted posts without listing
     assert.ok(published.querySelector("time")?.getAttribute("datetime"));
     assert.equal(
       published.querySelector('link[rel="canonical"]')?.getAttribute("href"),
-      "https://forman.steamfield.io/blog/welcome",
+      "https://foreman.steamfield.io/blog/welcome",
     );
     assert.equal(
       published
         .querySelector('meta[property="og:url"]')
         ?.getAttribute("content"),
-      "https://forman.steamfield.io/blog/welcome",
+      "https://foreman.steamfield.io/blog/welcome",
     );
     assert.ok(published.querySelector("astro-island"));
     assert.match(

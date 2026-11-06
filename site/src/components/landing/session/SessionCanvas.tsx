@@ -294,7 +294,7 @@ function Drawing({
         size={19}
         className="fill-console-fg font-semibold"
       >
-        forman
+        foreman
       </Text>
       <Text
         x={board.x + 106}

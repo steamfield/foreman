@@ -192,7 +192,7 @@ describe("SessionDiagram", () => {
     expect(document.querySelector("svg")?.textContent).toContain(
       "Held call · site-commands · q1",
     );
-    expect(document.querySelector("svg")?.textContent).toContain("gpt-6-astra");
+    expect(document.querySelector("svg")?.textContent).toContain("gpt-astra");
     expect(
       screen.getByText(
         /Each lane's commands are sampled from its delegate's recording/,

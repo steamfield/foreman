@@ -20,6 +20,7 @@ test("the lifecycle includes the question loop and all four wait endings", () =>
     "failed",
     "interrupted",
     "lost",
+    "recover",
     "review",
     "archive",
   ]);
@@ -32,6 +33,18 @@ test("the lifecycle includes the question loop and all four wait endings", () =>
     from: "question",
     to: "running",
     label: "answer / timeout",
+  });
+  // Only a done turn reaches review; every other ending goes back to Claude.
+  expect(
+    model.edges.filter((edge) => edge.to === "review").map((e) => e.from),
+  ).toEqual(["done"]);
+  expect(
+    model.edges.filter((edge) => edge.to === "recover").map((e) => e.from),
+  ).toEqual(["failed", "interrupted", "lost"]);
+  expect(model.edges).toContainEqual({
+    from: "recover",
+    to: "running",
+    label: "followup",
   });
   for (const edge of model.edges) {
     expect(model.nodes.some((node) => node.id === edge.from)).toBe(true);
@@ -63,6 +76,7 @@ test("question uses q1 verbatim and unrecorded states never fabricate output", (
     "failed",
     "interrupted",
     "lost",
+    "recover",
     "review",
   ]) {
     expect(nodes.find((node) => node.id === id)?.excerpt).toBeUndefined();
@@ -103,13 +117,25 @@ describe("lifecycle tour", () => {
 
   it("walks real edges, asking once and ending each loop a different way", () => {
     const routes = tourRoutes(model);
-    expect(routes.map((route) => route.at(-3))).toEqual([
-      "done",
+    expect(routes.map((route) => route[3])).toEqual([
+      "question",
       "failed",
       "interrupted",
       "lost",
     ]);
-    expect(routes[0]).toContain("question");
+    // A failed, interrupted or lost turn goes back to Claude, whose follow-up
+    // turn then finishes; no route reviews or archives anything but a done turn.
+    for (const route of routes.slice(1))
+      expect(route.slice(3)).toEqual([
+        route[3],
+        "recover",
+        "running",
+        "done",
+        "review",
+        "archive",
+      ]);
+    for (const route of routes)
+      expect(route[route.indexOf("review") - 1]).toBe("done");
     expect(routes.slice(1).some((route) => route.includes("question"))).toBe(
       false,
     );

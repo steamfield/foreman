@@ -19,7 +19,7 @@ test("server HTML contains every detail in order without hidden panels or inert 
       .getAllByRole("heading", { level: 3 })
       .map((heading) => heading.textContent),
   ).toEqual(model.nodes.map((node) => node.label));
-  expect(view.getAllByRole("listitem")).toHaveLength(10);
+  expect(view.getAllByRole("listitem")).toHaveLength(model.nodes.length);
   expect(view.queryByRole("tab")).not.toBeInTheDocument();
   expect(root.querySelector("[hidden]")).toBeNull();
   for (const node of model.nodes) {

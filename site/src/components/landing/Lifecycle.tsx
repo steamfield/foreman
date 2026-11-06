@@ -31,11 +31,16 @@ const positions: Record<
     classes: "order-12 lg:col-start-4 lg:row-start-4",
   },
   lost: { x: 700, y: 288, classes: "order-14 lg:col-start-4 lg:row-start-5" },
-  review: { x: 900, y: 160, classes: "order-16 lg:col-start-5 lg:row-start-3" },
+  recover: {
+    x: 900,
+    y: 224,
+    classes: "order-16 lg:col-start-5 lg:row-start-4",
+  },
+  review: { x: 900, y: 96, classes: "order-18 lg:col-start-5 lg:row-start-2" },
   archive: {
     x: 1100,
-    y: 160,
-    classes: "order-18 lg:col-start-6 lg:row-start-3",
+    y: 96,
+    classes: "order-20 lg:col-start-6 lg:row-start-2",
   },
 };
 
@@ -48,8 +53,9 @@ const panelOrder: Record<LifecycleId, string> = {
   failed: "order-11",
   interrupted: "order-13",
   lost: "order-15",
-  review: "order-17",
-  archive: "order-19",
+  recover: "order-17",
+  review: "order-19",
+  archive: "order-21",
 };
 
 // The tour's ring takes the stage's state color, distinct from the selected style.
@@ -66,6 +72,8 @@ const tourRing: Record<LifecycleNode["state"], string> = {
 function edgePath(from: LifecycleId, to: LifecycleId) {
   if (to === "question") return "M465 136 V56";
   if (from === "question") return "M535 56 V136";
+  // The follow-up loops back under the diagram, in its own lane below Lost.
+  if (from === "recover") return "M900 248 V336 H500 V184";
   const a = positions[from];
   const b = positions[to];
   return `M${a.x + 84} ${a.y} H${(a.x + b.x) / 2} V${b.y} H${b.x - 84}`;
@@ -77,7 +85,7 @@ function Detail({ node }: { node: LifecycleNode }) {
       <h3 className="text-ink mb-4 text-lg font-semibold">{node.label}</h3>
       <div className="grid min-w-0 gap-6 lg:grid-cols-2">
         <div className="min-w-0">
-          <h4 className="text-ink mb-2 font-semibold">forman reports</h4>
+          <h4 className="text-ink mb-2 font-semibold">foreman reports</h4>
           <p className="text-ink-2 text-sm leading-relaxed">
             <Inline text={node.reports} />
           </p>
@@ -125,9 +133,9 @@ function Connections({
   return (
     <svg
       aria-hidden="true"
-      viewBox="0 0 1200 320"
+      viewBox="0 0 1200 352"
       preserveAspectRatio="none"
-      className="pointer-events-none absolute inset-x-0 top-0 hidden h-80 w-full overflow-visible lg:block"
+      className="pointer-events-none absolute inset-x-0 top-0 hidden h-[22rem] w-full overflow-visible lg:block"
     >
       <defs>
         <marker
@@ -184,6 +192,14 @@ function Connections({
         className="fill-ink-3 font-mono text-xs"
       >
         timeout
+      </text>
+      <text
+        x="700"
+        y="330"
+        textAnchor="middle"
+        className="fill-ink-3 font-mono text-xs"
+      >
+        followup
       </text>
     </svg>
   );
@@ -262,7 +278,7 @@ export function Lifecycle({ model }: { model: LifecycleModel }) {
             const node = model.nodes.find((entry) => entry.id === value);
             setAnnouncement(`${node?.label ?? value} details shown.`);
           }}
-          className="relative grid min-w-0 grid-cols-1 gap-y-2 lg:grid-cols-6 lg:grid-rows-[repeat(5,4rem)_auto] lg:gap-y-0"
+          className="relative grid min-w-0 grid-cols-1 gap-y-2 lg:grid-cols-6 lg:grid-rows-[repeat(5,4rem)_2rem_auto] lg:gap-y-0"
         >
           <TabList aria-label="Run lifecycle" className="contents">
             {model.nodes.map((node) => (
@@ -288,7 +304,7 @@ export function Lifecycle({ model }: { model: LifecycleModel }) {
             <TabPanel
               key={node.id}
               value={node.id}
-              className={`${panelOrder[node.id]} min-w-0 lg:col-span-6 lg:col-start-1 lg:row-start-6 lg:mt-6`}
+              className={`${panelOrder[node.id]} min-w-0 lg:col-span-6 lg:col-start-1 lg:row-start-7 lg:mt-6`}
             >
               <Detail node={node} />
             </TabPanel>

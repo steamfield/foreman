@@ -22,7 +22,7 @@ describe("work order", () => {
       screen.getByText("May change", { exact: true, selector: "span" }),
     ).toBeVisible();
     expect(screen.getAllByLabelText("Excerpt omitted")).toHaveLength(2);
-    expect(screen.getByText(`forman status ${handoffRun.name}`)).toBeVisible();
+    expect(screen.getByText(`foreman status ${handoffRun.name}`)).toBeVisible();
     expect(container.querySelector("figure code")?.textContent).toBe(
       handoffRun.digest,
     );
@@ -62,7 +62,7 @@ describe("question timeline", () => {
     expect(screen.getByText(/answered by Claude · 19s later/)).toBeVisible();
     expect(
       screen.getByText(
-        /auto-answered by forman after the timeout · 15m00s later/,
+        /auto-answered by foreman after the timeout · 15m00s later/,
       ),
     ).toBeVisible();
     const hook = run.events.find((event) => event.kind === "hook-blocked");
@@ -145,7 +145,7 @@ describe("parallel runs", () => {
     ]);
     expect(screen.getByText(parallel.caption)).toBeVisible();
     expect(screen.getByText(run.baseCommit)).toBeVisible();
-    expect(screen.getByText("forman wait --all")).toBeVisible();
+    expect(screen.getByText("foreman wait --all")).toBeVisible();
   });
 
   it("server-renders the chart and accessible figures in their final state", () => {

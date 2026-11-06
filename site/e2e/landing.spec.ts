@@ -172,7 +172,6 @@ test.describe("without JavaScript", () => {
     }
     const lifecycle = page.locator('#lifecycle ol[aria-label="Run lifecycle"]');
     await expect(lifecycle).toBeVisible();
-    await expect(lifecycle.locator("li")).toHaveCount(10);
     const source = readFileSync(
       new URL("../src/data/lifecycle.ts", import.meta.url),
       "utf8",
@@ -181,7 +180,8 @@ test.describe("without JavaScript", () => {
     const labels = [...nodes.matchAll(/label: "([^"]+)"/g)].map(
       (match) => match[1],
     );
-    expect(labels).toHaveLength(10);
+    expect(labels).toContain("Claude decides");
+    await expect(lifecycle.locator("li")).toHaveCount(labels.length);
     for (let i = 0; i < labels.length; i++) {
       await expect(lifecycle.locator("li").nth(i)).toContainText(
         labels[i] ?? "",
@@ -227,30 +227,21 @@ test("keyboard reaches the skip link, header and main controls with visible focu
     await expect(link).toBeFocused();
     await expectFocusRing(link);
   }
-  await page
-    .locator("main a[href], main button")
-    .evaluateAll((elements) =>
-      elements.forEach((element, index) =>
-        element.setAttribute("data-e2e-control", String(index)),
-      ),
-    );
-  // Traverse the actual tab sequence, including controls as lazy islands enter view.
-  const seen = new Set<string>();
+  // Traverse the actual tab sequence, marking each control as focus reaches it. Lazy
+  // islands render controls as they enter view (the hero's "Show all" toggles appear
+  // only after it measures its lines), so marks are applied on focus, not up front.
   for (let i = 0; i < 200; i++) {
     await page.keyboard.press("Tab");
-    const focus = await page.evaluate(() => {
+    const inMain = await page.evaluate(() => {
       const el = document.activeElement;
-      if (!(el instanceof HTMLElement) || !el.closest("main")) return null;
-      return {
-        key: el.getAttribute("data-e2e-control"),
-        section: el.closest("section")?.id || "hero",
-      };
+      if (!(el instanceof HTMLElement) || !el.closest("main")) return false;
+      el.setAttribute("data-e2e-reached", "");
+      return true;
     });
-    if (!focus) break;
+    if (!inMain) break;
     await expectFocusRing(page.locator(":focus"));
-    if (focus.key !== null) seen.add(focus.key);
   }
-  const expected = await page
+  const missing = await page
     .locator("main a[href], main button")
     .evaluateAll((elements) =>
       elements
@@ -260,14 +251,15 @@ test("keyboard reaches the skip link, header and main controls with visible focu
             el.getClientRects().length > 0 &&
             (!el.closest('[role="tablist"]') ||
               el.getAttribute("aria-selected") === "true") &&
-            !el.hasAttribute("disabled"),
+            !el.hasAttribute("disabled") &&
+            !el.hasAttribute("data-e2e-reached"),
         )
-        .map((el) => el.getAttribute("data-e2e-control") ?? ""),
+        .map(
+          (el) =>
+            `${el.closest("section")?.id || "hero"}: ${el.getAttribute("aria-label") ?? el.textContent?.trim()}`,
+        ),
     );
-  expect(
-    expected.filter((key) => !seen.has(key)),
-    "Main controls missing from tab order",
-  ).toEqual([]);
+  expect(missing, "Main controls missing from tab order").toEqual([]);
   for (const list of await page.locator('main [role="tablist"]').all()) {
     const tabs = list.getByRole("tab");
     const count = await tabs.count();

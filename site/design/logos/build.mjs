@@ -179,7 +179,7 @@ for (const logo of logos) {
       join(here, `${logo.file}${suffix}.svg`),
       svg(
         logo.viewBox ?? "0 0 32 32",
-        `forman: ${logo.name}`,
+        `foreman: ${logo.name}`,
         logo.draw(colors),
       ),
     );
@@ -200,6 +200,6 @@ const groups = [...new Set(logos.map((l) => l.concept))].map((concept) => ({
 }));
 writeFileSync(
   join(here, "variants.js"),
-  `window.VARIANTS = ${JSON.stringify({ projectName: "forman", brandName: "forman", concepts: groups }, null, 2)};\n`,
+  `window.VARIANTS = ${JSON.stringify({ projectName: "foreman", brandName: "foreman", concepts: groups }, null, 2)};\n`,
 );
 console.log(`wrote ${logos.length * 2} SVGs`);

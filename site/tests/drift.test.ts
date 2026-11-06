@@ -33,7 +33,7 @@ function codexVersion(text: string) {
     .match(/Codex (?:CLI )?(\d+\.\d+\.\d+)/)?.[1];
 }
 
-// The README's Install section names the Codex version forman is checked against.
+// The README's Install section names the Codex version foreman is checked against.
 const requirements = readme.split("## Install\n")[1]?.split("\n## ")[0] ?? "";
 
 describe("landing copy agrees with the repository README", () => {

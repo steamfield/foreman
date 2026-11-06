@@ -1,6 +1,6 @@
-// Formatting that matches what forman prints, so page text and recordings agree.
+// Formatting that matches what foreman prints, so page text and recordings agree.
 
-/** `70m30s`, `24m46s`, `19s`: forman's elapsed format (minutes never roll into hours). */
+/** `70m30s`, `24m46s`, `19s`: foreman's elapsed format (minutes never roll into hours). */
 export function formatElapsed(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
   const minutes = Math.floor(total / 60);
@@ -9,7 +9,7 @@ export function formatElapsed(ms: number): string {
   return `${minutes}m${String(seconds).padStart(2, "0")}s`;
 }
 
-/** `37.4M`, `174.8K`, `912`: forman's token counts. */
+/** `37.4M`, `174.8K`, `912`: foreman's token counts. */
 export function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;

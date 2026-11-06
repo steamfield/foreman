@@ -134,7 +134,7 @@ describe("SupervisionConsole", () => {
       await act(() => vi.advanceTimersByTimeAsync(target - position));
       position = target;
       if (hold.label === "q1 Resolved") {
-        expect(claude).toHaveTextContent("forman answer fix-supervisor q1");
+        expect(claude).toHaveTextContent("foreman answer fix-supervisor q1");
         expect(codex).toHaveTextContent("running");
       }
       if (hold.label === "q2 Asked") {

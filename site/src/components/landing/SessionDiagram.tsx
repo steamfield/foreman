@@ -23,7 +23,7 @@ export function SessionDiagram({ session }: { session: Session }) {
     <div className="min-w-0" data-session-diagram>
       <p className="sr-only">
         Claude Code writes three contracts and starts Codex delegates on astra,
-        sol and terra in separate worktrees. The forman daemon routes their
+        sol and terra in separate worktrees. The foreman daemon routes their
         events. It holds site-commands' question while the other two work, wakes
         Claude and releases the call after Claude answers. Claude steers
         site-e2e, reviews site-console, starts a second turn on the same thread,

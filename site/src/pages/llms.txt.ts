@@ -14,7 +14,7 @@ import {
 const commandTable = `| Command | Purpose |
 | --- | --- |
 | \`start <name> --new-worktree --contract <file>\` | Create a worktree and start; accepts \`--from\`, \`--setup\`, \`--write\`, \`--model\`, \`--effort\`, \`--tier\`, \`--budget\`, \`--question-timeout\`, \`--skip-deps-check\` |
-| \`start <name> --worktree <path> --contract <file>\` | Use a prepared linked worktree inside the main checkout; forman never removes it or its branch |
+| \`start <name> --worktree <path> --contract <file>\` | Use a prepared linked worktree inside the main checkout; foreman never removes it or its branch |
 | \`status [<name>]\` | Full digest for one run, or a line per run in the group; both JSON forms return \`Digests\` |
 | \`events <name> [--after <n>] [--limit <n>] [--verbose]\` | Read a page, default 100 stored events; text hides protocol chatter and token usage unless verbose; JSON includes the complete page |
 | \`answer <name> <question-id> [<text>] [--file <path>]\` | Answer now, send a late answer or correct a previous answer |
@@ -36,7 +36,7 @@ function table(head: readonly string[], rows: readonly (readonly string[])[]) {
 
 export function GET() {
   const body = [
-    "# forman",
+    "# foreman",
     `> ${hero.title}`,
     "## What it does",
     hero.lede,
@@ -66,7 +66,7 @@ export function GET() {
     `## ${guardrails.title}`,
     ...guardrails.rows.map(([label, meaning]) => `- ${label}: ${meaning}`),
     "## Reference",
-    "- [README on GitHub](https://github.com/steamfield/forman#readme): Full usage, configuration and command reference.",
+    "- [README on GitHub](https://github.com/steamfield/foreman#readme): Full usage, configuration and command reference.",
   ].join("\n\n");
   return new Response(`${body}\n`, {
     headers: { "Content-Type": "text/plain; charset=utf-8" },

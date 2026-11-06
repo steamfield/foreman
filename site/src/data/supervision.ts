@@ -128,7 +128,7 @@ export function buildConsoleScript(run: Run): ConsoleScript {
       id: "start",
       t: 0,
       kind: "tool",
-      text: `forman start ${run.name} --new-worktree --setup "bun install" --contract ${run.name}.md --write --wait`,
+      text: `foreman start ${run.name} --new-worktree --setup "bun install" --contract ${run.name}.md --write --wait`,
       backgroundUntil:
         run.questions.find((question) => question._tag === "Asked")?.t ??
         durationMs,
@@ -168,7 +168,7 @@ export function buildConsoleScript(run: Run): ConsoleScript {
         id: `${question.id}-answer`,
         t: question.t,
         kind: "tool",
-        text: `forman answer ${run.name} ${question.id} "${question.text}" --wait`,
+        text: `foreman answer ${run.name} ${question.id} "${question.text}" --wait`,
         backgroundUntil:
           run.questions.find(
             (next) => next._tag === "Asked" && next.t > question.t,
@@ -192,7 +192,7 @@ export function buildConsoleScript(run: Run): ConsoleScript {
         id: `${question.id}-timeout`,
         t: question.t,
         kind: "note",
-        text: "The 15-minute question timeout expired. forman told Codex to proceed and record its choice.",
+        text: "The 15-minute question timeout expired. foreman told Codex to proceed and record its choice.",
       });
     }
   }

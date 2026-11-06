@@ -1,6 +1,6 @@
 window.VARIANTS = {
-  projectName: "forman",
-  brandName: "forman",
+  projectName: "foreman",
+  brandName: "foreman",
   concepts: [
     {
       name: "Chevrons",

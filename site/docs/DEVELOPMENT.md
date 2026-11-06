@@ -1,6 +1,6 @@
 # Developing the blog
 
-`src/config.ts` owns the public site metadata at https://forman.steamfield.io.
+`src/config.ts` owns the public site metadata at https://foreman.steamfield.io.
 Canonical and Open Graph URLs use explicit routes, so a file
 build's `.html` suffix never becomes the canonical URL.
 
