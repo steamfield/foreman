@@ -29,6 +29,7 @@ import { DaemonSockets } from "../src/daemon/sockets";
 import { DaemonUnavailable, Defect, detailFor, errorClasses } from "../src/errors";
 import type { DaemonResult } from "../src/schemas/daemon";
 import { Host } from "../src/services/host";
+import { runCli } from "./helpers/cli";
 
 const sockets = DaemonSockets.layer({
   connect: (path) => NodeSocket.makeNet({ path }),
@@ -59,6 +60,18 @@ const options = (dataDir: string, extra: Partial<DaemonOptions> = {}): DaemonOpt
   ...extra,
 });
 const ping = (dataDir: string) => call({ _tag: "Ping" }, { dataDir, connectOnly: true });
+const waitForExit = Effect.fnUntraced(function* (pid: number) {
+  const gone = Effect.sync(() => {
+    try {
+      process.kill(pid, 0);
+      return false;
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ESRCH") return true;
+      throw error;
+    }
+  });
+  while (!(yield* gone)) yield* Effect.sleep(20);
+}, Effect.timeout("5 seconds"));
 const ready = Effect.fnUntraced(function* (dataDir: string) {
   while (true) {
     const result = yield* Effect.result(ping(dataDir));
@@ -211,19 +224,45 @@ describe("daemon lifecycle and protocol", () => {
         } else {
           assert.notStrictEqual(result.pid, Number(child.pid));
           assert.strictEqual(result.build, "test");
+          yield* waitForExit(Number(child.pid));
           assert.strictEqual(yield* child.exitCode, 0);
         }
         if (mode === "busy") {
           // One warning per invocation. Ping above is a second invocation.
           assert.strictEqual(notices, 2);
           yield* fs.writeFileString(`${dataDir}/idle`, "");
-          const replaced = yield* ping(dataDir).pipe(Effect.provide(client));
+          const replaced = yield* call({ _tag: "Ping" }, { dataDir }).pipe(Effect.provide(client));
           assert.strictEqual(replaced._tag, "Pong");
           if (replaced._tag === "Pong") assert.notStrictEqual(replaced.pid, result.pid);
+          yield* waitForExit(result.pid);
         } else assert.strictEqual(notices, 0);
       }).pipe(Effect.timeout("10 seconds"), Effect.provide(platform)),
     );
   }
+
+  it.live("daemon stop through the CLI makes the daemon pid disappear within five seconds", () =>
+    Effect.gen(function* () {
+      const dataDir = yield* temp();
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+      const bun = (yield* spawner.string(ChildProcess.make("which", ["bun"]))).trim();
+      const child = yield* spawner.spawn(
+        ChildProcess.make(
+          bun,
+          [fileURLToPath(new URL("./fixtures/daemon/entry.ts", import.meta.url)), dataDir],
+          { stdout: "ignore", stderr: "inherit", forceKillAfter: "2 seconds" },
+        ),
+      );
+      yield* ready(dataDir).pipe(Effect.timeout("3 seconds"));
+      const result = yield* Effect.promise(() =>
+        runCli(["daemon", "stop"], {
+          home: dataDir,
+          env: { TEST_CLI_DATA_DIR: dataDir },
+        }),
+      );
+      assert.deepStrictEqual(result, { status: 0, stdout: "Daemon stopped.\n", stderr: "" });
+      yield* waitForExit(Number(child.pid));
+    }).pipe(Effect.provide(platform)),
+  );
 
   it.live("serves Ping itself and decodes a handler result", () =>
     Effect.gen(function* () {

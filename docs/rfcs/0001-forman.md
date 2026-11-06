@@ -124,6 +124,12 @@ Normalized events cover what the digest and `forman events` need: turn started a
 
 All commands take `--json` and then print exactly one JSON value on stdout. Without it they print short text meant for Claude to read. Every message argument also accepts `--file <path>`, since follow-up contracts are files.
 
+`start`, `answer`, `followup` and `steer` accept `--wait [--timeout <dur>]`. They send their request and then wait on the same run with the standalone wait's 60-minute default. `start --wait` prints the run name and directory followed by the wait result and its `next:` line. Its JSON is one `Waited` value with `started: {name, runDir}`; the other three return the wait result directly instead of `ok`. Without `--wait`, start behaves as before.
+
+The daemon acknowledges `answer`, `followup` and `steer` with `Accepted {cursor}`. The cursor includes the run identity and event position, captured under its lock after acceptance and before queued Codex notifications can advance it. Without `--wait`, the CLI adds `next` to this JSON acknowledgement and prints `ok` followed by `next: <executable> wait <name> --after <cursor>` in text. Interrupt keeps `Ok`, as do shutdown and other requests without this continuation.
+
+An outdated daemon stays in service while busy. Before sending these three requests to a different build, the client captures its run position through a nonblocking `Wait`. If that build returns the older `Ok` acknowledgement, the client uses the captured cursor as `Accepted`; if it returns `Accepted`, the daemon's cursor takes precedence. Capturing before dispatch preserves immediate continuations without retrying a mutation. A daemon that cannot provide the cursor is refused before the request is sent.
+
 | Command | Does |
 | --- | --- |
 | `forman start <name> --worktree <path> --contract <file> [--write] [--model] [--effort] [--tier] [--budget <dur>] [--question-timeout <dur>]` | Validates the worktree, starts a thread with `ask_orchestrator` registered, sends the preamble and contract as the first turn, prints the run name and directory, ends with `next: <executable> wait <name>` |
@@ -135,11 +141,13 @@ All commands take `--json` and then print exactly one JSON value on stdout. With
 | `forman answer <name> <question-id> <text>` | Answers a pending question; refused if the question is no longer pending |
 | `forman result <name>` | The digest and the hand-off, saying which turn it came from and whether the latest turn ended without one |
 | `forman wait [<name>...] [--all] [--after <cursor>] [--timeout <dur>]` | Blocks until a run needs Claude or the timeout passes; prints outcomes, digests, terminal turn hand-offs and the next wait command |
-| `forman doctor` | Existing command, extended with the Codex version and schema check, login state and daemon status |
+| `forman doctor` | Codex version and schema check, login state and daemon status, including its build and whether it matches this CLI |
 
 `steer` and `followup` are separate. umum's single `message` picks steer or a new turn based on whether a turn is active, which turns a race at turn completion into a silently started turn. With two commands, losing that race is an error Claude sees.
 
 Printed `next:` commands use `forman` only when the first executable named `forman` on the invoking CLI's inherited `PATH` resolves to the running binary by real path. Otherwise they use its absolute path, quoted for the shell when needed; source invocations include `FORMAN_DATA_DIR` so continuations from `bun run dev` keep using development state. Wait JSON carries the same command, preserving names, cursor and timeout. `doctor` reports this comparison as `formanOnPath` in JSON and as `forman on PATH is this binary` in text.
+
+`Pong` carries the daemon's build identity. Doctor only probes it; it never replaces an outdated daemon. A running daemon's JSON has `build` and `buildMatches`; both are null when an older daemon omits its build. Text reports unknown for those values. With no daemon, it reports `not running` and starts nothing.
 
 `start` defaults: the newest `gpt-<version>-sol` model listed in `models_cache.json` (visibility "list", no variant suffix, fallback `gpt-6.1-sol`), effort `high`, tier `priority`, `approvalPolicy: "never"`, budget 60 minutes, question timeout 15 minutes. `--write` selects `danger-full-access`; without it the sandbox is `read-only`. `workspace-write` is not offered, because the gate can't pass inside it (hand-off section 4, item 2).
 
@@ -212,7 +220,7 @@ Any other dynamic tool call or server request gets a JSON-RPC error response, so
 
 Each result prints a cursor line (`cursor: <opaque>`) and ends with the exact continuation command: `next: <executable> wait <same names, or --all> --after <cursor>`, followed by `--timeout <dur>` if supplied. The invoking CLI selects the executable as described above. This applies to `timeout` and `none` too. JSON `Waited` includes the command in `next`. The daemon keeps no per-reader state, so a `status` from another session or a `wait` killed mid-print loses nothing.
 
-Claude's loop is: `start` the units; run the printed `next:` command (or `forman wait --all` for the group) as a background Bash task; when it exits, read what it printed, then `answer`, `steer` or `followup` as needed; run the new `next:` command while any run is active. Terminal outcomes carry the turn's hand-off, so reading it needs no separate `result` call. `result` remains available to reread hand-offs and can fall back to an earlier turn; wait carries null when its completed turn has no hand-off.
+Claude starts a single delegation with `start --wait` as a background Bash task. If it asks a question, `answer <name> <id> <text> --wait` resumes and waits in one more call. A delegation needing no answer is one call; one question is two. `steer --wait` and `followup --wait` use the same loop. On timeout, run the printed `next:` command. For several units, start without `--wait` and use `forman wait --all` for the group. After a request without `--wait`, use its acknowledgement's `next:` command, whose cursor skips attention from before acceptance. Terminal outcomes carry the turn's hand-off, so reading it needs no separate `result` call. `result` remains available to reread hand-offs and can fall back to an earlier turn; wait carries null when its completed turn has no hand-off.
 
 `wait` exits 0 whenever it returns an outcome and prints one line per run that needs attention, followed by each one's digest. `done`, `failed` and `interrupted` print `Hand-off (turn N):` and the full hand-off after that run's digest, or `No hand-off available.`. Questions retain their full text. An abbreviated example:
 

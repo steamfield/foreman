@@ -106,6 +106,8 @@ export function renderResult(result: DaemonResult, compact = false, executable =
       ].join("\n");
     case "Ok":
       return "ok";
+    case "Accepted":
+      return `ok\nnext: ${result.next}`;
     case "Result":
       return [
         renderDigest(result.digest),
@@ -116,6 +118,7 @@ export function renderResult(result: DaemonResult, compact = false, executable =
       ].join("\n\n");
     case "Waited":
       return [
+        ...(result.started ? [result.started.name, result.started.runDir] : []),
         ...(result.outcome === "events"
           ? result.runs.map(
               ({ kind, name, summary }) => `${kind.padEnd(12)}${name} ${oneLine(summary)}`,

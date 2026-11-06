@@ -40,7 +40,9 @@ Read the output even when the exit code is 0. Check the Codex executable, versio
 match and login. Each project hook should be `trusted` or `managed`, followed by
 `forman start will accept runs here (hook trust).` Without project hooks, `no repo hooks apply`
 is expected. An unavailable probe or hook state `unknown` needs attention before starting.
-Doctor never starts a daemon or a Codex turn; its hook check does not validate a worktree's
+Doctor reports the running daemon's build and whether it matches this CLI; an old daemon
+without a build reports unknown. It never starts or replaces a daemon or starts a Codex turn;
+its hook check does not validate a worktree's
 dependencies. Set `CODEX_BIN` to the real executable if a version-manager shim fails.
 
 Worktrees inside the main checkout inherit its approved hooks. Changes to the main checkout's
@@ -93,12 +95,14 @@ refusal. Codex's own runtime session and log writes there are fine.
 ## Start and supervise
 
 ```sh
-forman start <name> --worktree .claude/worktrees/<name> --contract <contract-path> --write --model <model>
+forman start <name> --worktree .claude/worktrees/<name> --contract <contract-path> --write --model <model> --wait
 ```
 
-Start returns after starting the turn and prints `next: forman wait <name>`. Run that wait
-command with Claude Code's Bash `run_in_background: true`, so Claude remains available.
-For several runs use `forman wait --all`, also in the background. Run up to five delegates at
+Run `start --wait` with Claude Code's Bash `run_in_background: true`, so Claude remains
+available. It prints the start lines followed by the next question or terminal outcome and
+hand-off. A delegation needing no answer takes one call. Without `--wait`, start returns
+after starting the turn and prints `next: forman wait <name>`; run that command in the
+background. For several runs use `forman wait --all`, also in the background. Run up to five delegates at
 once, each with its own worktree and independent scope. Names are global within forman's data
 directory; choose distinct names across repos. `--all` covers the current repo and its linked
 worktrees, not every repo.
@@ -117,15 +121,16 @@ When wait returns, read its outcome and each digest. All wait outcomes exit 0:
 
 After handling attention, run the final `next:` command as another background task. It carries
 the cursor (`--after`) that prevents repeated attention and preserves any explicit `--timeout`.
-Don't rebuild it from memory. For a foreground wait, use `--timeout 9m` to stay below Claude
-Code's foreground limit. Repeat the loop after an answer or follow-up.
+Don't rebuild it from memory. `start`, `answer`, `followup` and `steer` accept `--wait` with
+the same 60-minute default as standalone wait. For a foreground call, use `--timeout 9m`
+to stay below Claude Code's foreground limit.
 
 These commands apply at different states:
 
 ```sh
-forman answer <name> <question-id> "The decision the delegate needs."
-forman steer <name> "A correction to the active task."
-forman followup <name> --file <followup-contract-path>
+forman answer <name> <question-id> "The decision the delegate needs." --wait
+forman steer <name> "A correction to the active task." --wait
+forman followup <name> --file <followup-contract-path> --wait
 forman result <name>
 ```
 
@@ -135,6 +140,13 @@ with no pending question. Use `followup` on an inactive run to continue its Code
 one text argument or `--file <path>`, never both. Ask the user only for a decision you cannot
 make from the contract and repo. Delegates use `ask_orchestrator` for blockers or consequential
 decisions; progress, findings and corrections belong in the hand-off.
+
+Run these `--wait` calls in the background too. One question takes exactly two calls:
+`start --wait`, then `answer --wait`. Without `--wait`, answer, steer and followup print `ok`
+and a `next:` wait command with the run's cursor at acceptance. Use that command to hear
+the next outcome without replaying earlier attention. With `--json`, the acknowledgement is
+`Accepted` with `cursor` and `next`; `--wait` returns `Waited`. Start's combined JSON result
+also carries `started: {name, runDir}` in the same value.
 
 ## Review and land the work
 
@@ -217,10 +229,9 @@ For example, if the selected visible model is `gpt-6.1-sol`, set
 `{REVIEW MODEL}` to that literal name and start:
 
 ```sh
-forman start doctor-help --worktree .claude/worktrees/doctor-help --contract <filled-contract-path> --write --model gpt-6.1-sol
-forman wait doctor-help
+forman start doctor-help --worktree .claude/worktrees/doctor-help --contract <filled-contract-path> --write --model gpt-6.1-sol --wait
 ```
 
-Run wait in the background, confirm the model in its digest header and follow each `next:`
+Run it in the background, confirm the model in its digest header and follow each `next:`
 command. Read the hand-off and diff, refactor, run `bun run check`, commit and merge. Remove
 the worktree, verify and delete the merged branch, then `forman archive doctor-help`.

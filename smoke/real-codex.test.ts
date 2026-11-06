@@ -51,11 +51,11 @@ function questionId(output: string) {
 }
 
 smoke("1 delegation wakes with hand-off, digest, result and archive", async (f) => {
-  const start = await f.start(
+  const done = await f.start(
     "Write result.txt with exactly SMOKE-WRITE followed by a newline. Finish with exactly one line: DELEGATION-OK",
-    ["--write"],
+    ["--write", "--wait"],
   );
-  const done = await f.until(start, "done");
+  expect(done).toContain("done        smoke turn 1");
   expect(done).toContain("DELEGATION-OK");
   expect(done).toContain("result.txt");
   expect(await readFile(join(f.worktree, "result.txt"), "utf8")).toBe("SMOKE-WRITE\n");
@@ -74,11 +74,12 @@ smoke("1 delegation wakes with hand-off, digest, result and archive", async (f) 
   expect(await f.json(["status"])).toMatchObject({ _tag: "Digests", digests: [] });
 });
 
-smoke("2 answer releases a held question and reaches done", async (f) => {
-  const question = await f.until(await f.start(ask), "question");
+smoke("2 one question completes in two delegation calls with --wait", async (f) => {
+  const question = await f.start(ask, ["--wait"]);
   expect((await f.events()).some(({ event }) => event._tag === "Command")).toBe(false);
-  await f.ok(["answer", "smoke", questionId(question), "ANSWER-PINEAPPLE"]);
-  expect(await f.until(question, "done")).toContain("ANSWER-PINEAPPLE");
+  const done = await f.ok(["answer", "smoke", questionId(question), "ANSWER-PINEAPPLE", "--wait"]);
+  expect(done).toContain("done        smoke turn 1");
+  expect(done).toContain("ANSWER-PINEAPPLE");
   expect((await f.result()).handoff?.text).toContain("ANSWER-PINEAPPLE");
 });
 
@@ -101,12 +102,12 @@ smoke("3 steer during slow commands changes the final answer", async (f) => {
     if (/^(done|failed|interrupted|question) +smoke\b/m.test(printed))
       throw new Error(`Turn ended before steer:\n${printed}`);
   }
-  await f.ok([
+  const steered = await f.ok([
     "steer",
     "smoke",
     "Replace the final answer with exactly STEER-APPLIED. Continue the remaining slow commands.",
   ]);
-  expect(await f.until(printed, "done")).toContain("STEER-APPLIED");
+  expect(await f.until(steered, "done")).toContain("STEER-APPLIED");
   const result = await f.result();
   expect(result.handoff?.text.trim()).toBe("STEER-APPLIED");
   expect(result.digest.commands).toMatchObject({ total: 4, failed: 0 });
@@ -119,29 +120,29 @@ smoke("3 steer during slow commands changes the final answer", async (f) => {
 smoke("4 interrupt cancels a question, refuses its answer and permits followup", async (f) => {
   const question = await f.until(await f.start(ask), "question");
   await f.ok(["interrupt", "smoke"]);
-  const interrupted = await f.until(question, "interrupted");
+  await f.until(question, "interrupted");
   const refused = await f.run(["answer", "smoke", questionId(question), "TOO-LATE", "--json"]);
   expect(refused.status).toBe(8);
   expect(refused.stdout).toBe("");
   expect(refused.stderr).toContain("RunConflict");
-  await f.ok([
+  const followup = await f.ok([
     "followup",
     "smoke",
     "Run no commands and ask no questions. Reply exactly FOLLOWUP-OK.",
     "--effort",
     "low",
   ]);
-  expect(await f.until(interrupted, "done")).toContain("FOLLOWUP-OK");
+  expect(await f.until(followup, "done")).toContain("FOLLOWUP-OK");
 });
 
 smoke("5 restart resumes the read-only sandbox and preserves ask_orchestrator", async (f) => {
-  const done = await f.until(await f.start("Run no commands. Reply exactly RESUME-READY."), "done");
+  await f.until(await f.start("Run no commands. Reply exactly RESUME-READY."), "done");
   const before = await f.record();
   await f.ok(["daemon", "stop"]);
-  await f.ok(["followup", "smoke", ask, "--effort", "low"]);
-  const question = await f.until(done, "question");
-  await f.ok(["answer", "smoke", questionId(question), "RESUME-TOOL-OK"]);
-  expect(await f.until(question, "done")).toContain("RESUME-TOOL-OK");
+  const followup = await f.ok(["followup", "smoke", ask, "--effort", "low"]);
+  const question = await f.until(followup, "question");
+  const answered = await f.ok(["answer", "smoke", questionId(question), "RESUME-TOOL-OK"]);
+  expect(await f.until(answered, "done")).toContain("RESUME-TOOL-OK");
   expect((await f.record()).threadId).toBe(before.threadId);
   const resume = (await f.wire("in")).find((rpc) => rpc.method === "thread/resume");
   expect(resume).toBeDefined();
@@ -158,20 +159,20 @@ smoke("5 restart resumes the read-only sandbox and preserves ask_orchestrator", 
 });
 
 smoke("10 restart resumes write access and writes a file", async (f) => {
-  const done = await f.until(
+  await f.until(
     await f.start("Run no commands. Reply exactly WRITE-RESUME-READY.", ["--write"]),
     "done",
   );
   const before = await f.record();
   await f.ok(["daemon", "stop"]);
-  await f.ok([
+  const followup = await f.ok([
     "followup",
     "smoke",
     "Write result.txt with exactly WRITE-RESUMED followed by a newline. Finish with WRITE-RESUMED.",
     "--effort",
     "low",
   ]);
-  expect(await f.until(done, "done")).toContain("WRITE-RESUMED");
+  expect(await f.until(followup, "done")).toContain("WRITE-RESUMED");
   expect(await readFile(join(f.worktree, "result.txt"), "utf8")).toBe("WRITE-RESUMED\n");
   expect((await f.record()).threadId).toBe(before.threadId);
   const resume = (await f.wire("in")).find((rpc) => rpc.method === "thread/resume");
@@ -207,14 +208,14 @@ smoke("6 budget expiry collects a read-only hand-off and restores write on follo
   ).toBe(true);
   const starts = (await f.wire("in")).filter((rpc) => rpc.method === "turn/start");
   expect(starts.at(-1)?.params).toMatchObject({ sandboxPolicy: { type: "readOnly" } });
-  await f.ok([
+  const followup = await f.ok([
     "followup",
     "smoke",
     "Write result.txt with exactly WRITE-RESTORED followed by a newline. Finish with WRITE-RESTORED.",
     "--effort",
     "low",
   ]);
-  expect(await f.until(interrupted, "done")).toContain("WRITE-RESTORED");
+  expect(await f.until(followup, "done")).toContain("WRITE-RESTORED");
   expect(await readFile(join(f.worktree, "result.txt"), "utf8")).toBe("WRITE-RESTORED\n");
   expect(
     (await f.wire("in")).filter((rpc) => rpc.method === "turn/start").at(-1)?.params,

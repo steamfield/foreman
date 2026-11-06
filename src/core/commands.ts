@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { AppConfig } from "../config";
 import { call } from "../daemon/client";
-import type { DaemonRequestBody, QuestionId, RunName } from "../schemas/daemon";
+import type { DaemonRequestBody, DaemonResult, QuestionId, RunName } from "../schemas/daemon";
 import { Output } from "../services/output";
 import { durationMs, type MessageInput, messageText, readText, realPath } from "./command-input";
 import { formanExecutable } from "./command-output";
@@ -16,7 +16,29 @@ const request = Effect.fn("commands.request")(function* (body: DaemonRequestBody
   });
 });
 
-interface StartInput {
+interface WaitOptions {
+  readonly wait?: boolean;
+  readonly timeout?: string | undefined;
+}
+
+const afterAccepted = Effect.fnUntraced(function* (
+  result: DaemonResult,
+  name: RunName,
+  options: WaitOptions,
+) {
+  if (result._tag !== "Accepted") return result;
+  if (options.wait)
+    return yield* wait({
+      names: [name],
+      all: false,
+      after: result.cursor,
+      timeout: options.timeout,
+    });
+  const executable = yield* formanExecutable();
+  return { ...result, next: `${executable.command} wait ${name} --after ${result.cursor}` };
+});
+
+interface StartInput extends WaitOptions {
   readonly name: RunName;
   readonly worktree: string;
   readonly contract: string;
@@ -30,7 +52,7 @@ interface StartInput {
 }
 
 export const start = Effect.fn("commands.start")(function* (input: StartInput) {
-  return yield* request({
+  const started = yield* request({
     _tag: "Start",
     name: input.name,
     write: input.write,
@@ -45,6 +67,11 @@ export const start = Effect.fn("commands.start")(function* (input: StartInput) {
       ? {}
       : { questionTimeoutMs: input.questionTimeoutMs }),
   });
+  if (!input.wait || started._tag !== "Started") return started;
+  const result = yield* wait({ names: [input.name], all: false, timeout: input.timeout });
+  return result._tag === "Waited"
+    ? { ...result, started: { name: started.name, runDir: started.runDir } }
+    : result;
 });
 
 export const status = Effect.fn("commands.status")(function* (name: RunName | undefined) {
@@ -64,34 +91,41 @@ export const events = (input: { name: RunName; after?: number; limit?: number })
   });
 
 export const steer = Effect.fn("commands.steer")(function* (
-  input: MessageInput & { name: RunName },
+  input: MessageInput & WaitOptions & { name: RunName },
 ) {
-  return yield* request({ _tag: "Steer", name: input.name, message: yield* messageText(input) });
+  const result = yield* request({
+    _tag: "Steer",
+    name: input.name,
+    message: yield* messageText(input),
+  });
+  return yield* afterAccepted(result, input.name, input);
 });
 
 export const followup = Effect.fn("commands.followup")(function* (
-  input: MessageInput & { name: RunName; budgetMs?: number; effort?: string },
+  input: MessageInput & WaitOptions & { name: RunName; budgetMs?: number; effort?: string },
 ) {
-  return yield* request({
+  const result = yield* request({
     _tag: "Followup",
     name: input.name,
     message: yield* messageText(input),
     ...(input.budgetMs === undefined ? {} : { budgetMs: input.budgetMs }),
     ...(input.effort === undefined ? {} : { effort: input.effort }),
   });
+  return yield* afterAccepted(result, input.name, input);
 });
 
 export const interrupt = (name: RunName) => request({ _tag: "Interrupt", name });
 
 export const answer = Effect.fn("commands.answer")(function* (
-  input: MessageInput & { name: RunName; question: QuestionId },
+  input: MessageInput & WaitOptions & { name: RunName; question: QuestionId },
 ) {
-  return yield* request({
+  const result = yield* request({
     _tag: "Answer",
     name: input.name,
     question: input.question,
     text: yield* messageText(input),
   });
+  return yield* afterAccepted(result, input.name, input);
 });
 
 export const result = (name: RunName) => request({ _tag: "Result", name });

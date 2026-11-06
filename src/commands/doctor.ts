@@ -39,6 +39,12 @@ export const doctorCommand = Command.make(
         result.daemon.state === "running"
           ? `Daemon: running ${result.daemon.version} (pid ${result.daemon.pid})`
           : "Daemon: not running",
+        ...(result.daemon.state === "running"
+          ? [
+              `Daemon build: ${result.daemon.build ?? "unknown"}`,
+              `Daemon build matches this CLI: ${result.daemon.buildMatches ?? "unknown"}`,
+            ]
+          : []),
       ].join("\n"),
     );
   }),

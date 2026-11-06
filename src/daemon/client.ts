@@ -123,6 +123,30 @@ const exchange = Effect.fn("daemon.exchange")(
   Effect.catchTag("SchemaError", () => Effect.fail(new Defect())),
 );
 
+const exchangeRunRequest = Effect.fn("daemon.exchangeRunRequest")(function* (
+  body: DaemonRequestBody,
+  socket: Socket.Socket,
+  reader: Socket.Reader,
+  outdated: boolean,
+) {
+  if (!outdated || (body._tag !== "Answer" && body._tag !== "Followup" && body._tag !== "Steer"))
+    return yield* exchange(body, socket, reader);
+  // Busy older builds acknowledge with Ok. Capture their position before sending the
+  // mutation, so even an immediate continuation is visible to the subsequent wait.
+  const before = yield* exchange(
+    { _tag: "Wait", names: [body.name], all: false, cwd: "", timeoutMs: 0 },
+    socket,
+    reader,
+  );
+  if (before._tag !== "Waited")
+    return yield* new DaemonUnavailable({
+      detail:
+        "Outdated daemon cannot provide a wait cursor; the request was not sent. Finish its active runs and restart the daemon.",
+    });
+  const result = yield* exchange(body, socket, reader);
+  return result._tag === "Ok" ? { _tag: "Accepted" as const, cursor: before.cursor } : result;
+});
+
 export const call = Effect.fn("daemon.call")(function* (
   body: DaemonRequestBody,
   options: CallOptions,
@@ -136,6 +160,8 @@ export const call = Effect.fn("daemon.call")(function* (
   const check = Effect.gen(function* () {
     const pong = yield* exchange({ _tag: "Ping" }, connection.socket, connection.reader);
     if (pong._tag !== "Pong") return yield* new Defect();
+    // Diagnostics must inspect an old daemon without replacing or launching one.
+    if (body._tag === "Ping" && options.connectOnly) return pong;
     if (pong.build !== host.build) {
       replacing = true;
       const stopped = yield* stopConnected(
@@ -169,7 +195,14 @@ export const call = Effect.fn("daemon.call")(function* (
     connection = yield* connect(socketPath, { ...options, connectOnly: false });
     return yield* exchange(body, connection.socket, connection.reader);
   }
-  return body._tag === "Ping" ? pong : yield* exchange(body, connection.socket, connection.reader);
+  return body._tag === "Ping"
+    ? pong
+    : yield* exchangeRunRequest(
+        body,
+        connection.socket,
+        connection.reader,
+        pong.build !== host.build,
+      );
 }, Effect.scoped);
 
 const stopConnected = Effect.fn("daemon.stopConnected")(

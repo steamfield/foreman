@@ -22,7 +22,7 @@ import { handleNotification } from "./notifications";
 import { makeQuestions } from "./questions";
 import { makeRegistry } from "./registry";
 import { makeTurns } from "./turns";
-import { groupFor, wait } from "./wait";
+import { acceptedCursor, groupFor, wait } from "./wait";
 
 const requestFailure = (error: unknown) => {
   if (error instanceof CodexRpcError)
@@ -114,7 +114,7 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
   > {
     switch (body._tag) {
       case "Ping":
-        return { _tag: "Pong", version: host.version, pid: host.pid };
+        return { _tag: "Pong", version: host.version, pid: host.pid, build: host.build };
       case "Shutdown":
         return yield* registry.starts.withPermits(1)(
           Effect.gen(function* () {
@@ -136,8 +136,12 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
           Effect.gen(function* () {
             yield* acceptingStarts;
             const run = yield* registry.lookup(body.name);
-            yield* run.lock.withPermits(1)(turns.followup(run, body));
-            return { _tag: "Ok" as const };
+            return yield* run.lock.withPermits(1)(
+              Effect.gen(function* () {
+                yield* turns.followup(run, body);
+                return { _tag: "Accepted" as const, cursor: yield* acceptedCursor(run) };
+              }),
+            );
           }),
         );
       }
@@ -190,7 +194,7 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
                 break;
               case "Interrupt":
                 yield* turns.interrupt(run, yield* servers.get, "orchestrator");
-                break;
+                return { _tag: "Ok" };
               case "Answer":
                 yield* questions.resolve(
                   run,
@@ -201,7 +205,7 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
                 );
                 break;
             }
-            return { _tag: "Ok" };
+            return { _tag: "Accepted", cursor: yield* acceptedCursor(run) };
           }),
         );
       }

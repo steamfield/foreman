@@ -22,6 +22,20 @@ const duration = (flag: string) =>
   );
 const optionalDuration = (flag: string) =>
   duration(flag).pipe(Flag.optional, Flag.map(Option.getOrUndefined));
+const timeout = Flag.String("timeout").pipe(
+  Flag.mapEffect((value) =>
+    durationMs(value).pipe(
+      Effect.as(value),
+      Effect.mapError(() => new CliError.ValidationError({ message: "Invalid duration." })),
+    ),
+  ),
+  Flag.optional,
+  Flag.map(Option.getOrUndefined),
+);
+const waiting = {
+  wait: Flag.Boolean("wait").pipe(Flag.withDefault(false)),
+  timeout,
+};
 const message = {
   message: Argument.String("message").pipe(Argument.optional, Argument.map(Option.getOrUndefined)),
   file: optionalText("file"),
@@ -54,6 +68,7 @@ export const startCommand = Command.make(
     budgetMs: optionalDuration("budget"),
     questionTimeoutMs: optionalDuration("question-timeout"),
     skipDepsCheck: Flag.Boolean("skip-deps-check").pipe(Flag.withDefault(false)),
+    ...waiting,
   },
   (input) => print("start", programs.start(input)),
 ).pipe(Command.withDescription("Start a Codex run in a prepared worktree."));
@@ -82,13 +97,19 @@ export const eventsCommand = Command.make(
   (input) => print("events", programs.events(input)),
 ).pipe(Command.withDescription("Read normalized run events after a sequence number."));
 
-export const steerCommand = Command.make("steer", { name, ...message }, (input) =>
+export const steerCommand = Command.make("steer", { name, ...message, ...waiting }, (input) =>
   print("steer", programs.steer(input)),
 ).pipe(Command.withDescription("Send a change to the active turn."));
 
 export const followupCommand = Command.make(
   "followup",
-  { name, ...message, budgetMs: optionalDuration("budget"), effort: optionalText("effort") },
+  {
+    name,
+    ...message,
+    ...waiting,
+    budgetMs: optionalDuration("budget"),
+    effort: optionalText("effort"),
+  },
   (input) => print("followup", programs.followup(input)),
 ).pipe(Command.withDescription("Start a follow-up turn with a message or file."));
 
@@ -102,6 +123,7 @@ export const answerCommand = Command.make(
     name,
     question: Argument.String("question-id").pipe(Argument.withSchema(QuestionId)),
     ...message,
+    ...waiting,
     message: Argument.String("text").pipe(Argument.optional, Argument.map(Option.getOrUndefined)),
   },
   (input) => print("answer", programs.answer(input)),
@@ -125,7 +147,7 @@ export const waitCommand = Command.make(
       Flag.optional,
       Flag.map(Option.getOrUndefined),
     ),
-    timeout: optionalText("timeout"),
+    timeout,
   },
   (input) => print("wait", programs.wait(input)),
 ).pipe(Command.withDescription("Wait for attention; default timeout is 60 minutes."));

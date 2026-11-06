@@ -13,6 +13,7 @@ import { computeWorktreeFields } from "../src/core/runs/worktree";
 import { call } from "../src/daemon/client";
 import { daemon } from "../src/daemon/server";
 import { DaemonSockets } from "../src/daemon/sockets";
+import { RunConflict } from "../src/errors";
 import { jsonRequested, main } from "../src/main";
 import { AppLayer } from "../src/runtime";
 import * as Codex from "../src/schemas/codex";
@@ -111,8 +112,10 @@ const LogMessage = Schema.Struct({
   error: Schema.optionalKey(Codex.RpcError),
 });
 
-const fixture = Effect.fnUntraced(function* (script: Scenario) {
+const fixture = Effect.fnUntraced(function* (script: Scenario, legacy = false) {
   const fs = yield* FileSystem.FileSystem;
+  const host = yield* Host;
+  const daemonHost = Host.layer({ ...host, build: legacy ? "old" : host.build });
   const root = yield* fs.realPath(
     yield* fs.makeTempDirectoryScoped({ directory: "/tmp", prefix: "fm-s-" }),
   );
@@ -153,7 +156,8 @@ const fixture = Effect.fnUntraced(function* (script: Scenario) {
     FAKE_APP_SERVER_SCENARIO: scenarioFile,
     FAKE_APP_SERVER_LOG: log,
   };
-  const request = (body: D.DaemonRequestBody) => call(body, { dataDir, connectOnly: true });
+  const request = (body: D.DaemonRequestBody) =>
+    call(body, { dataDir, connectOnly: true }).pipe(Effect.provide(daemonHost));
   const cli = Effect.fnUntraced(function* (args: readonly string[]) {
     let stdout = "";
     let stderr = "";
@@ -171,7 +175,11 @@ const fixture = Effect.fnUntraced(function* (script: Scenario) {
         ),
       ),
     );
-    expect({ status, stderr }).toEqual({ status: 0, stderr: "" });
+    const notice = "Daemon is outdated; it will be replaced once its runs finish.\n";
+    expect({ status, stderr }).toEqual({
+      status: 0,
+      stderr: legacy ? notice.repeat(args.includes("--wait") ? 2 : 1) : "",
+    });
     return stdout;
   });
   const ready = Effect.gen(function* () {
@@ -188,9 +196,21 @@ const fixture = Effect.fnUntraced(function* (script: Scenario) {
       Effect.provide(AppConfig.layer(env)),
       Scope.provide(scope),
     );
+    const handler = (body: D.DaemonRequestBody) => {
+      // An old busy daemon remains in service and acknowledges mutations without a cursor.
+      if (legacy && body._tag === "Shutdown")
+        return Effect.fail(new RunConflict({ detail: "Active legacy runs" }));
+      return supervisor
+        .handler(body)
+        .pipe(
+          Effect.map((result) =>
+            legacy && result._tag === "Accepted" ? { _tag: "Ok" as const } : result,
+          ),
+        );
+    };
     const fiber = yield* Effect.raceFirst(
       supervisor.failed,
-      daemon({ dataDir, version: "test", ...supervisor }),
+      daemon({ dataDir, version: "test", ...supervisor, handler }).pipe(Effect.provide(daemonHost)),
     ).pipe(Effect.forkIn(scope));
     yield* ready;
     return { supervisor, stop: Scope.close(scope, Exit.void), fiber };
@@ -290,6 +310,137 @@ const fixture = Effect.fnUntraced(function* (script: Scenario) {
 });
 
 describe("supervisor over the real daemon socket", () => {
+  for (const json of [false, true]) {
+    for (const kind of ["done", "question"] as const) {
+      it.live(`start --wait returns ${kind}, json=${json}`, () =>
+        Effect.gen(function* () {
+          const f = yield* fixture(
+            scenario(
+              turnRule(
+                kind === "question"
+                  ? [question()]
+                  : [complete("completed", [message("Finished work.")])],
+              ),
+            ),
+          );
+          yield* f.launch();
+          const contract = `${f.root}/contract.md`;
+          yield* f.fs.writeFileString(contract, "Do the work.");
+          const stdout = yield* f.cli([
+            "start",
+            "unit",
+            "--worktree",
+            f.worktree,
+            "--contract",
+            contract,
+            "--wait",
+            "--timeout",
+            "2s",
+            ...(json ? ["--json"] : []),
+          ]);
+          if (json) {
+            const result = Schema.decodeUnknownSync(Schema.fromJsonString(D.DaemonResult))(stdout);
+            expect(result).toMatchObject({
+              _tag: "Waited",
+              runs: [{ kind }],
+              started: { name, runDir: f.runDir },
+            });
+            if (kind === "done")
+              expect(result).toMatchObject({ runs: [{ handoff: { text: "Finished work." } }] });
+          } else {
+            expect(stdout).toContain(`unit\n${f.runDir}\n${kind.padEnd(12)}unit`);
+            expect(stdout).not.toContain("next: forman wait unit\n");
+            if (kind === "done") expect(stdout).toContain("Hand-off (turn 1):\nFinished work.");
+          }
+          expect(stdout).toContain(" --timeout 2s");
+        }).pipe(Effect.provide(platform)),
+      );
+    }
+    for (const command of ["answer", "followup", "steer"] as const) {
+      for (const waiting of [false, true]) {
+        it.live.each([false, true])(
+          `${command} ${waiting ? "--wait returns" : "prints a wait for"} fresh attention, json=${json}, legacy=%s`,
+          (legacy) =>
+            Effect.gen(function* () {
+              const scripts = {
+                answer: scenario(
+                  turnRule([
+                    question(),
+                    { awaitResponse: "q" },
+                    question("second", { question: "Next decision?" }),
+                  ]),
+                ),
+                followup: scenario(turnRule([complete()]), turnRule([question()])),
+                steer: scenario(
+                  turnRule([complete()]),
+                  turnRule([
+                    { awaitRequest: Codex.Method.turnSteer },
+                    complete("completed", [message("Steered work.")]),
+                  ]),
+                  {
+                    method: Codex.Method.turnSteer,
+                    respond: { result: { turnId: "{{turn}}" } },
+                  },
+                ),
+              };
+              const f = yield* fixture(scripts[command], legacy);
+              yield* f.launch();
+              yield* f.start();
+              yield* f.wait();
+              if (command === "steer") {
+                yield* f.request({ _tag: "Followup", name, message: "Continue" });
+                yield* f.untilState("running");
+              }
+              const stdout = yield* f.cli([
+                command,
+                "unit",
+                ...(command === "answer" ? ["q1"] : []),
+                "Proceed",
+                ...(waiting ? ["--wait", "--timeout", "2s"] : []),
+                ...(json ? ["--json"] : []),
+              ]);
+              let outcome = stdout;
+              if (!waiting) {
+                const next = json
+                  ? Schema.decodeUnknownSync(Schema.Struct({ next: Schema.String }))(
+                      JSON.parse(stdout),
+                    ).next
+                  : stdout.trimEnd().split("\n").at(-1)?.slice("next: ".length);
+                expect(next).toMatch(/^forman wait unit --after \S+$/);
+                if (!json) expect(stdout).toMatch(/^ok\nnext: /);
+                outcome = yield* f.cli([
+                  ...(next ?? "").slice("forman ".length).split(" "),
+                  "--timeout",
+                  "2s",
+                  ...(json ? ["--json"] : []),
+                ]);
+              }
+              const kind = command === "steer" ? "done" : "question";
+              if (json) {
+                const result = Schema.decodeUnknownSync(Schema.fromJsonString(D.DaemonResult))(
+                  outcome,
+                );
+                expect(result).toMatchObject({
+                  _tag: "Waited",
+                  runs: [{ kind, digest: { turn: command === "answer" ? 1 : 2 } }],
+                });
+                if (command === "answer")
+                  expect(result).toMatchObject({
+                    runs: [{ summary: "q2 (question): Next decision?" }],
+                  });
+              } else {
+                expect(outcome).toContain(`${kind.padEnd(12)}unit`);
+                if (command === "answer") {
+                  expect(outcome).toContain("q2 (question): Next decision?");
+                  expect(outcome).not.toContain("q1");
+                } else expect(outcome).toMatch(/turn: +2 \(followup\)/);
+              }
+            }).pipe(Effect.provide(platform)),
+        );
+      }
+    }
+  }
+
   it.live.each(["failed", "interrupted"])("includes the %s turn's own hand-off", (status) =>
     Effect.gen(function* () {
       const f = yield* fixture(
