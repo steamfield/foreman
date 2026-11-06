@@ -1,5 +1,11 @@
 import { DateTime } from "effect";
-import type { Digest, QuestionLine, RunEvent, RunRecord } from "../../schemas/daemon";
+import {
+  activeStates,
+  type Digest,
+  type QuestionLine,
+  type RunEvent,
+  type RunRecord,
+} from "../../schemas/daemon";
 import { pendingQuestions } from "./store";
 import type { WorktreeFields } from "./worktree";
 
@@ -30,10 +36,13 @@ export function buildDigest(
 ): Digest {
   const commands = events.map((entry) => entry.event).filter((event) => event._tag === "Command");
   const last = commands.at(-1);
+  const endedAt =
+    events.findLast(({ event }) => event._tag === "StateChanged")?.at ?? run.updatedAt;
+  const elapsedUntil = activeStates.has(run.state) ? now : DateTime.toEpochMillis(endedAt);
   return {
     name: run.name,
     state: run.state,
-    elapsedMs: Math.max(0, Math.trunc(now - DateTime.toEpochMillis(run.createdAt))),
+    elapsedMs: Math.max(0, Math.trunc(elapsedUntil - DateTime.toEpochMillis(run.createdAt))),
     model: run.model,
     effort: run.effort,
     tier: run.tier,
@@ -105,6 +114,19 @@ function files(
 function commandPreview(command: string): string {
   const first = command.split(/\r?\n/, 1)[0] ?? "";
   return first.length > 160 ? `${first.slice(0, 159)}…` : first;
+}
+
+export function renderStatus(digest: Digest): string {
+  return [
+    digest.name,
+    digest.state,
+    `turn ${digest.turn}${digest.turnKind === null ? "" : ` (${digest.turnKind})`}`,
+    duration(digest.elapsedMs),
+    ...digest.questions.map(({ id }) => `${id} pending`),
+    ...(digest.warnings.some((warning) => warning.startsWith("worktree removed: "))
+      ? ["worktree removed"]
+      : []),
+  ].join("  ");
 }
 
 export function renderDigest(digest: Digest): string {

@@ -30,13 +30,14 @@ const message = {
 const print = Effect.fnUntraced(function* <E, R>(
   command: string,
   program: Effect.Effect<DaemonResult, E, R>,
+  compact = false,
 ) {
   yield* (yield* Invocation).named(command);
   const result = yield* program;
   const encoded = yield* Schema.encodeEffect(DaemonResult)(result).pipe(
     Effect.mapError(() => new Defect()),
   );
-  yield* (yield* Output).result(encoded, renderResult(result));
+  yield* (yield* Output).result(encoded, renderResult(result, compact));
 });
 
 export const startCommand = Command.make(
@@ -59,8 +60,8 @@ export const startCommand = Command.make(
 export const statusCommand = Command.make(
   "status",
   { name: name.pipe(Argument.optional, Argument.map(Option.getOrUndefined)) },
-  ({ name }) => print("status", programs.status(name)),
-).pipe(Command.withDescription("Show run digests for a name or the current group."));
+  ({ name }) => print("status", programs.status(name), name === undefined),
+).pipe(Command.withDescription("Show a run digest or one line per run in the current group."));
 
 export const eventsCommand = Command.make(
   "events",
@@ -123,7 +124,7 @@ export const waitCommand = Command.make(
       Flag.optional,
       Flag.map(Option.getOrUndefined),
     ),
-    timeoutMs: duration("timeout").pipe(Flag.withDefault(9 * 60_000)),
+    timeout: optionalText("timeout"),
   },
   (input) => print("wait", programs.wait(input)),
-).pipe(Command.withDescription("Wait for attention; default timeout is 9 minutes."));
+).pipe(Command.withDescription("Wait for attention; default timeout is 60 minutes."));

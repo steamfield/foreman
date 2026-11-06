@@ -1,16 +1,124 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Schema } from "effect";
+import { DaemonResult } from "../src/schemas/daemon";
 import { DoctorResult } from "../src/schemas/doctor";
 import { PackageInfo } from "../src/schemas/package";
+import { askOrchestrator } from "../tests/fixtures/fake-app-server/scenarios";
 
 const metadata = Schema.decodeUnknownSync(PackageInfo)(
   JSON.parse(await readFile("package.json", "utf8")),
 );
 
 const binary = resolve("dist", metadata.name);
+test("compiled wait-all commands continue through question, timeout, done and none", async () => {
+  const root = await mkdtemp("/tmp/fm-w-");
+  const repo = join(root, "repo");
+  const worktree = join(repo, "work");
+  // The fake's env-node shebang uses this runner without consulting a user's version manager.
+  await symlink(process.execPath, join(root, "node"));
+  const env = {
+    HOME: root,
+    CODEX_HOME: join(root, "codex"),
+    PATH: `${root}:/usr/bin:/bin`,
+    CODEX_BIN: resolve("tests/fixtures/fake-app-server/main.mjs"),
+    FORMAN_DATA_DIR: join(root, "d"),
+    FAKE_APP_SERVER_SCENARIO: join(root, "scenario.json"),
+    LOG_LEVEL: "none",
+  };
+  await mkdir(repo);
+  const git = (args: string[]) => execFileSync("git", args, { cwd: repo, env, stdio: "pipe" });
+  git(["init", "-q"]);
+  git([
+    "-c",
+    "user.name=Test",
+    "-c",
+    "user.email=test@example.invalid",
+    "commit",
+    "--allow-empty",
+    "-qm",
+    "initial",
+  ]);
+  git(["worktree", "add", "-qb", "unit", worktree]);
+  await writeFile(env.FAKE_APP_SERVER_SCENARIO, JSON.stringify(askOrchestrator()));
+  const contract = join(root, "contract.md");
+  await writeFile(contract, "Do the work.\n- May change: `result.txt`");
+  const run = async (args: string[]) => {
+    const child = Bun.spawn([binary, ...args], { cwd: repo, env, stdout: "pipe", stderr: "pipe" });
+    const [stdout, stderr, status] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    return { status, stdout, stderr };
+  };
+  const next = (stdout: string) => {
+    const line = stdout.trimEnd().split("\n").at(-1);
+    expect(line).toMatch(/^next: forman wait /);
+    return (line ?? "").slice("next: forman ".length).split(" ");
+  };
+  try {
+    const started = await run(["start", "unit", "--worktree", worktree, "--contract", contract]);
+    expect(started).toMatchObject({ status: 0, stderr: "" });
+    expect(next(started.stdout)).toEqual(["wait", "unit"]);
+    const attention = await run(["wait", "--all", "--timeout", "9m"]);
+    expect(attention).toMatchObject({ status: 0, stderr: "" });
+    expect(attention.stdout).toContain("question    unit q1");
+    const status = await run(["status"]);
+    expect(status).toMatchObject({ status: 0, stderr: "" });
+    expect(status.stdout.trimEnd().split("\n")).toHaveLength(1);
+    expect(status.stdout).toMatch(/^unit {2}waiting {2}turn 1 \(start\) {2}\S+ {2}q1 pending\n$/);
+    const command = next(attention.stdout);
+    expect(command.slice(0, 2)).toEqual(["wait", "--all"]);
+    const timed = await run([...command.slice(0, -2), "--timeout", "0ms"]);
+    expect(timed).toMatchObject({ status: 0, stderr: "" });
+    expect(timed.stdout.split("\n")[0]).toBe("timeout");
+    expect(next(timed.stdout).slice(-2)).toEqual(["--timeout", "0ms"]);
+    expect(await run(["answer", "unit", "q1", "Proceed"])).toEqual({
+      status: 0,
+      stdout: "ok\n",
+      stderr: "",
+    });
+    const done = await run(command);
+    expect(done).toMatchObject({ status: 0, stderr: "" });
+    expect(done.stdout).toContain("done        unit turn 1");
+    expect(done.stdout).toContain("No hand-off available.");
+    const none = await run([...next(done.stdout), "--json"]);
+    expect(none).toMatchObject({ status: 0, stderr: "" });
+    const result = Schema.decodeUnknownSync(DaemonResult)(JSON.parse(none.stdout));
+    expect(result).toMatchObject({
+      outcome: "none",
+      runs: [],
+      next: expect.stringMatching(/^forman wait --all --after \S+ --timeout 9m$/),
+    });
+    git(["worktree", "remove", worktree]);
+    expect((await run(["status"])).stdout).toMatch(
+      /^unit {2}idle {2}turn 1 \(start\) {2}\S+ {2}worktree removed\n$/,
+    );
+    const named = await run(["status", "unit", "--json"]);
+    expect(named).toMatchObject({ status: 0, stderr: "" });
+    expect(Schema.decodeUnknownSync(DaemonResult)(JSON.parse(named.stdout))).toMatchObject({
+      _tag: "Digests",
+      digests: [
+        {
+          name: "unit",
+          state: "idle",
+          warnings: expect.arrayContaining([expect.stringContaining("worktree removed:")]),
+        },
+      ],
+    });
+  } finally {
+    const answered = await run(["answer", "unit", "q1", "Proceed"]);
+    expect([0, 7, 8]).toContain(answered.status);
+    expect([0, 7]).toContain((await run(["wait", "unit", "--timeout", "1s"])).status);
+    expect((await run(["daemon", "stop"])).status).toBe(0);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("compiled output, config precedence, log records, errors, and no dotenv autoload", async () => {
   const home = await mkdtemp(join(tmpdir(), "cli-binary-"));
   const prefix = metadata.name.toUpperCase().replace(/[^A-Z0-9]/g, "_");

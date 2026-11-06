@@ -247,7 +247,7 @@ describe("command requests through the real parser and daemon", () => {
     },
     { args: ["result", "unit-a"], body: { _tag: "Result", name } },
     { args: ["archive", "unit-a"], body: { _tag: "Archive", name } },
-    { args: ["wait"], body: { _tag: "Wait", names: [], all: false, timeoutMs: 540000 } },
+    { args: ["wait"], body: { _tag: "Wait", names: [], all: false, timeoutMs: 3600000 } },
     {
       args: ["wait", "unit-a", "unit-b", "--after", "opaque:42", "--timeout", "90s"],
       body: { _tag: "Wait", names: [name, "unit-b"], all: false, after: cursor, timeoutMs: 90000 },
@@ -380,7 +380,7 @@ const outputCases: { label: string; args: string[]; response: DaemonResult; text
     label: "started",
     args: ["start", "unit-a", "--worktree", ".", "--contract", "README.md"],
     response: { _tag: "Started", name, runDir: "/tmp/runs/unit-a" },
-    text: ["unit-a\n/tmp/runs/unit-a\n"],
+    text: ["unit-a\n/tmp/runs/unit-a\nnext: forman wait unit-a\n"],
   },
   {
     label: "digests",
@@ -390,11 +390,24 @@ const outputCases: { label: string; args: string[]; response: DaemonResult; text
       digests: [digest, { ...digest, name: Schema.decodeUnknownSync(RunName)("unit-b") }],
     },
     text: [
-      "run:       unit-a",
-      "\n\nrun:       unit-b",
-      "q2 (blocked)",
-      "warning:   protocol mismatch",
+      "unit-a  waiting  turn 2 (followup)  2m03s  q2 pending\n",
+      "unit-b  waiting  turn 2 (followup)  2m03s  q2 pending\n",
     ],
+  },
+  {
+    label: "named digest",
+    args: ["status", "unit-a"],
+    response: { _tag: "Digests", digests: [digest] },
+    text: ["run:       unit-a", "q2 (blocked)", "warning:   protocol mismatch"],
+  },
+  {
+    label: "removed worktree summary",
+    args: ["status"],
+    response: {
+      _tag: "Digests",
+      digests: [{ ...digest, warnings: ["worktree removed: /tmp/worktree"] }],
+    },
+    text: ["unit-a  waiting  turn 2 (followup)  2m03s  q2 pending  worktree removed\n"],
   },
   {
     label: "empty digests",
@@ -443,13 +456,18 @@ const outputCases: { label: string; args: string[]; response: DaemonResult; text
       _tag: "Waited",
       outcome: "events",
       cursor,
+      next: "forman wait --all --after opaque:42",
       runs: [
-        { name, kind: "question", summary: "q2 (blocked): Which API?", digest },
+        { name, kind: "question", summary: "q2 (blocked): Which API?", digest, handoff: null },
         ...(["done", "failed", "interrupted", "lost"] as const).map((kind) => ({
           name: Schema.decodeUnknownSync(RunName)(`unit-${kind}`),
           kind,
           summary: "turn 1",
           digest: { ...digest, name: Schema.decodeUnknownSync(RunName)(`unit-${kind}`) },
+          handoff:
+            kind === "done" || kind === "failed"
+              ? { turn: 1, text: "The full hand-off.\nChecks." }
+              : null,
         })),
       ],
     },
@@ -457,14 +475,22 @@ const outputCases: { label: string; args: string[]; response: DaemonResult; text
       "question    unit-a q2 (blocked): Which API?\ndone        unit-done turn 1\nfailed      unit-failed turn 1\ninterrupted unit-interrupted turn 1\nlost        unit-lost turn 1",
       "q2 (blocked) pending 1m10s: Which API?",
       "run:       unit-lost",
-      "cursor: opaque:42\n",
+      "Hand-off (turn 1):\nThe full hand-off.\nChecks.",
+      "No hand-off available.",
+      "cursor: opaque:42\nnext: forman wait --all --after opaque:42\n",
     ],
   },
   ...(["timeout", "none"] as const).map((outcome) => ({
     label: outcome,
     args: ["wait", "--all"],
-    response: { _tag: "Waited" as const, outcome, runs: [], cursor },
-    text: [`${outcome}\ncursor: opaque:42\n`],
+    response: {
+      _tag: "Waited" as const,
+      outcome,
+      runs: [],
+      cursor,
+      next: "forman wait --all --after opaque:42",
+    },
+    text: [`${outcome}\ncursor: opaque:42\nnext: forman wait --all --after opaque:42\n`],
   })),
 ];
 
@@ -477,7 +503,17 @@ describe("daemon result rendering", () => {
       expect(human.status).toBe(0);
       expect(human.stderr).toBe("");
       for (const part of text) expect(human.stdout).toContain(part);
-      if (response._tag === "Waited") expect(human.stdout).not.toContain("\n\n\n");
+      if (response._tag === "Waited") {
+        expect(human.stdout).not.toContain("\n\n\n");
+        expect(human.stdout.trimEnd().split("\n").at(-1)).toBe(`next: ${response.next}`);
+      }
+      if (response._tag === "Started")
+        expect(human.stdout.trimEnd().split("\n").at(-1)).toBe("next: forman wait unit-a");
+      if (response._tag === "Digests" && args.length === 1) {
+        expect(human.stdout.trimEnd().split("\n")).toHaveLength(
+          Math.max(1, response.digests.length),
+        );
+      }
       const json = await f.run([...args, "--json"]);
       expect(json.status).toBe(0);
       expect(json.stderr).toBe("");

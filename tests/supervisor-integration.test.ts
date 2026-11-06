@@ -13,7 +13,7 @@ import { computeWorktreeFields } from "../src/core/runs/worktree";
 import { call } from "../src/daemon/client";
 import { daemon } from "../src/daemon/server";
 import { DaemonSockets } from "../src/daemon/sockets";
-import { main } from "../src/main";
+import { jsonRequested, main } from "../src/main";
 import { AppLayer } from "../src/runtime";
 import * as Codex from "../src/schemas/codex";
 import * as D from "../src/schemas/daemon";
@@ -144,6 +144,26 @@ const fixture = Effect.fnUntraced(function* (script: Scenario) {
     FAKE_APP_SERVER_LOG: log,
   };
   const request = (body: D.DaemonRequestBody) => call(body, { dataDir, connectOnly: true });
+  const cli = Effect.fnUntraced(function* (args: readonly string[]) {
+    let stdout = "";
+    let stderr = "";
+    const status = yield* main(args).pipe(
+      Effect.provide(
+        AppLayer(
+          env,
+          jsonRequested(args),
+          async (text) => {
+            stdout += text;
+          },
+          async (text) => {
+            stderr += text;
+          },
+        ),
+      ),
+    );
+    expect({ status, stderr }).toEqual({ status: 0, stderr: "" });
+    return stdout;
+  });
   const ready = Effect.gen(function* () {
     while (true) {
       const ping = yield* request({ _tag: "Ping" }).pipe(Effect.result);
@@ -246,6 +266,7 @@ const fixture = Effect.fnUntraced(function* (script: Scenario) {
     git,
     launch,
     request,
+    cli,
     ready,
     start,
     wait,
@@ -259,6 +280,112 @@ const fixture = Effect.fnUntraced(function* (script: Scenario) {
 });
 
 describe("supervisor over the real daemon socket", () => {
+  it.live.each(["failed", "interrupted"])("includes the %s turn's own hand-off", (status) =>
+    Effect.gen(function* () {
+      const f = yield* fixture(
+        scenario(turnRule([complete(status, [message("Partial work.\nNext steps.")])])),
+      );
+      yield* f.launch();
+      yield* f.start();
+      expect((yield* f.wait()).runs).toMatchObject([
+        { kind: status, handoff: { turn: 1, text: "Partial work.\nNext steps." } },
+      ]);
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("preserves multiple wait names and continues their cursor through the real CLI", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario(turnRule([complete()]), turnRule([question()])));
+      const otherName = Schema.decodeUnknownSync(D.RunName)("other");
+      const otherWorktree = `${f.repo}/work/other`;
+      yield* f.git(f.repo, ["worktree", "add", "-qb", "other", otherWorktree]);
+      yield* f.launch();
+      yield* f.start();
+      yield* f.untilState("idle");
+      yield* f.start({ name: otherName, worktree: otherWorktree });
+      yield* f.wait({ names: [otherName] });
+      const first = yield* f.cli(["wait", "unit", "other"]);
+      const next = first.trimEnd().split("\n").at(-1);
+      expect(next).toMatch(/^next: forman wait unit other --after \S+$/);
+      const continued = yield* f.cli([
+        ...(next ?? "").slice("next: forman ".length).split(" "),
+        "--timeout",
+        "0ms",
+        "--json",
+      ]);
+      const result = Schema.decodeUnknownSync(D.DaemonResult)(JSON.parse(continued));
+      expect(result).toMatchObject({
+        outcome: "timeout",
+        runs: [],
+        next: expect.stringMatching(/^forman wait unit other --after \S+ --timeout 0ms$/),
+      });
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live(
+    "continues from printed named wait commands through timeout, question and done without replay",
+    () =>
+      Effect.gen(function* () {
+        const longQuestion = `${"Full question text. ".repeat(400)}\nChoose A or B?`;
+        const f = yield* fixture(
+          scenario(
+            turnRule([
+              question("q", { question: longQuestion, kind: "blocked" }),
+              { awaitResponse: "q" },
+              complete("completed", [message("Finished.\nAll checks passed.")]),
+            ]),
+          ),
+        );
+        yield* f.launch();
+        yield* f.start();
+        yield* f.untilState("waiting");
+        const first = yield* f.cli(["wait", "unit", "--timeout", "0ms"]);
+        expect(first).toContain(longQuestion);
+        const continuation = (text: string) => {
+          const line = text.trimEnd().split("\n").at(-1);
+          expect(line).toMatch(/^next: forman wait unit --after \S+ --timeout 0ms$/);
+          return (line ?? "").slice("next: forman ".length).split(" ");
+        };
+        const next = continuation(first);
+        const timed = yield* f.cli(next);
+        expect(timed.split("\n")[0]).toBe("timeout");
+        expect(continuation(timed)).toEqual(next);
+        yield* f.cli(["answer", "unit", "q1", "A"]);
+        yield* f.untilState("idle");
+        const done = yield* f.cli(continuation(timed));
+        expect(done).toContain("done        unit turn 1");
+        expect(done).toContain("Hand-off (turn 1):\nFinished.\nAll checks passed.");
+        expect(done).not.toContain("question    unit");
+        const afterDone = yield* f.cli([...continuation(done), "--json"]);
+        expect(Schema.decodeUnknownSync(D.DaemonResult)(JSON.parse(afterDone))).toMatchObject({
+          outcome: "timeout",
+          runs: [],
+          next: expect.stringMatching(/^forman wait unit --after \S+ --timeout 0ms$/),
+        });
+      }).pipe(Effect.provide(platform)),
+  );
+
+  it.effect("measures active time and freezes inactive time through TestClock", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(
+        scenario(turnRule(), {
+          method: Codex.Method.turnInterrupt,
+          respond: { result: {} },
+          steps: [complete("interrupted")],
+        }),
+      );
+      const { supervisor } = yield* f.launch();
+      yield* f.start();
+      yield* f.untilState("running");
+      yield* TestClock.adjust("65 seconds");
+      expect((yield* f.status()).elapsedMs).toBe(65_000);
+      yield* f.request({ _tag: "Interrupt", name });
+      yield* f.untilState("interrupted");
+      yield* TestClock.adjust("1 hour");
+      const stopped = yield* supervisor.handler({ _tag: "Status", name, cwd: f.worktree });
+      expect(stopped).toMatchObject({ digests: [{ elapsedMs: 65_000 }] });
+    }).pipe(Effect.provide(platform)),
+  );
   it.live.each(["notification", "request"])(
     "review: archive invalidates a queued Codex %s and public reads without stopping other runs",
     (kind) =>
@@ -1246,6 +1373,7 @@ if (process.argv.includes("generate-json-schema")) {
           outcome: "timeout",
           runs: [],
           cursor: asked.cursor,
+          next: `forman wait unit --after ${asked.cursor}`,
         });
         expect(
           yield* f
@@ -1432,6 +1560,7 @@ if (process.argv.includes("generate-json-schema")) {
             name,
             kind: "done",
             summary: "turn 1",
+            handoff: { turn: 1, text: "Created result.txt." },
             digest: {
               state: "idle",
               effort: "xhigh",
@@ -1447,6 +1576,7 @@ if (process.argv.includes("generate-json-schema")) {
           outcome: "none",
           runs: [],
           cursor: waited.cursor,
+          next: `forman wait --all --after ${waited.cursor}`,
         });
         const log = yield* f.readLog;
         const thread = Schema.decodeUnknownSync(Codex.ThreadStartParams)(
@@ -1863,6 +1993,7 @@ if (process.argv.includes("generate-json-schema")) {
         yield* f.launch();
         yield* f.start();
         yield* f.untilState("idle");
+        const firstWait = yield* f.wait();
         yield* f.request({ _tag: "Followup", name, message: "continue", effort: "medium" });
         expect(yield* f.status()).toMatchObject({
           turn: 2,
@@ -1876,6 +2007,12 @@ if (process.argv.includes("generate-json-schema")) {
         });
         yield* f.request({ _tag: "Interrupt", name });
         yield* f.untilState("interrupted");
+        expect((yield* f.wait({ after: firstWait.cursor })).runs).toMatchObject([
+          { kind: "interrupted", handoff: null },
+        ]);
+        expect(yield* f.cli(["wait", "unit", "--after", firstWait.cursor])).toContain(
+          "No hand-off available.",
+        );
         expect(yield* f.request({ _tag: "Result", name })).toMatchObject({
           handoff: { turn: 1, text: "first handoff" },
           latestTurnWithoutHandoff: true,

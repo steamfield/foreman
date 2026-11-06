@@ -122,7 +122,7 @@ All commands take `--json` and then print exactly one JSON value on stdout. With
 
 | Command | Does |
 | --- | --- |
-| `forman start <name> --worktree <path> --contract <file> [--write] [--model] [--effort] [--tier] [--budget <dur>] [--question-timeout <dur>]` | Validates the worktree, starts a thread with `ask_orchestrator` registered, sends the preamble and contract as the first turn, prints the run name and run directory, returns |
+| `forman start <name> --worktree <path> --contract <file> [--write] [--model] [--effort] [--tier] [--budget <dur>] [--question-timeout <dur>]` | Validates the worktree, starts a thread with `ask_orchestrator` registered, sends the preamble and contract as the first turn, prints the run name and directory, ends with `next: forman wait <name>` |
 | `forman status [<name>]` | One run's digest, or a one-line summary of every run in the current group |
 | `forman events <name> [--after <seq>] [--limit <n>]` | Normalized events after a sequence number, with `gap: true` if older events were dropped |
 | `forman steer <name> <message>` | `turn/steer` on the turn in progress. Refused if no turn is in progress, or if a question is pending ("answer q2 first; the answer can carry the change"), because the model won't see a steer until the question is answered |
@@ -130,7 +130,7 @@ All commands take `--json` and then print exactly one JSON value on stdout. With
 | `forman interrupt <name>` | `turn/interrupt` on the turn in progress |
 | `forman answer <name> <question-id> <text>` | Answers a pending question; refused if the question is no longer pending |
 | `forman result <name>` | The digest and the hand-off, saying which turn it came from and whether the latest turn ended without one |
-| `forman wait [<name>...] [--all] [--after <cursor>] [--timeout <dur>]` | Blocks until a run needs Claude or the timeout passes |
+| `forman wait [<name>...] [--all] [--after <cursor>] [--timeout <dur>]` | Blocks until a run needs Claude or the timeout passes; prints outcomes, digests, terminal turn hand-offs and the next wait command |
 | `forman doctor` | Existing command, extended with the Codex version and schema check, login state and daemon status |
 
 `steer` and `followup` are separate. umum's single `message` picks steer or a new turn based on whether a turn is active, which turns a race at turn completion into a silently started turn. With two commands, losing that race is an error Claude sees.
@@ -204,32 +204,33 @@ Any other dynamic tool call or server request gets a JSON-RPC error response, so
 
 `forman wait` returns when one of the named runs (or any run in the group, with `--all`) has something newer than its cursor: a question pending, a turn completed, failed or interrupted, or the run lost. With `--all` and no active run in the group, it returns at once with `none`. Without `--after` it returns anything that happened since the run started that Claude hasn't been given a cursor past.
 
-Each result ends with a cursor line (`cursor: <opaque>`), and Claude passes it to the next `wait --after`. The daemon keeps no per-reader state, so a `status` from another session or a `wait` killed mid-print loses nothing.
+Each result prints a cursor line (`cursor: <opaque>`) and ends with the exact continuation command: `next: forman wait <same names, or --all> --after <cursor>`, followed by `--timeout <dur>` if supplied. This applies to `timeout` and `none` too. JSON `Waited` includes the command in `next`. The daemon keeps no per-reader state, so a `status` from another session or a `wait` killed mid-print loses nothing.
 
-Claude's loop is: `start` the units; run `forman wait --all` as a background Bash task; when it exits, read what it printed, then `answer`, `steer`, `followup` or `result`; run `wait --all --after <cursor>` again while any run is active.
+Claude's loop is: `start` the units; run the printed `next:` command (or `forman wait --all` for the group) as a background Bash task; when it exits, read what it printed, then `answer`, `steer` or `followup` as needed; run the new `next:` command while any run is active. Terminal outcomes carry the turn's hand-off, so reading it needs no separate `result` call. `result` remains available to reread hand-offs and can fall back to an earlier turn; wait carries null when its completed turn has no hand-off.
 
-`wait` exits 0 whenever it returns an outcome and prints one line per run that needs attention, followed by each one's digest:
+`wait` exits 0 whenever it returns an outcome and prints one line per run that needs attention, followed by each one's digest. `done`, `failed` and `interrupted` print `Hand-off (turn N):` and the full hand-off after that run's digest, or `No hand-off available.`. Questions retain their full text. An abbreviated example:
 
 ```
 question  unit-a q2 (blocked): lint rejects the CLI-help test's runtime imports under src/
 done      unit-b turn 1
 cursor:   7f3a…
+next: forman wait --all --after 7f3a…
 ```
 
 The other first words are `failed`, `interrupted`, `lost`, `timeout` and `none`. meight's scheme (1 timeout, 2 failed, 3 question) is not used because 2 and 3 already mean usage error and invalid config in this project's error table. Claude reads a background task's output either way, so the exit code only separates "here is something" from "forman itself broke".
 
-`--timeout` defaults to 9 minutes, under Claude Code's 10-minute cap on foreground Bash calls.
+`--timeout` defaults to 60 minutes for background Bash tasks, which have no foreground time cap. Use `--timeout 9m` for foreground calls to stay under Claude Code's 10-minute cap.
 
 The scaffold logs a `command` record to stderr on every run at the configured level (default `warn`), which would end every `wait` result Claude reads. forman logs it at `debug` instead, with a matching change to `docs/acceptance/typescript-cli.md` and its test.
 
 ## The digest
 
-`status`, `wait` and `result` show the same digest:
+`status <name>`, `wait` and `result` show the same digest:
 
 ```
 run:       unit-a  running  12m04s  (gpt-6.1-sol, high, priority, write)
 dir:       ~/.local/share/forman/runs/unit-a
-worktree:  /Users/riley/Projects/opendata/.claude/worktrees/unit-a
+worktree:  /repo/.claude/worktrees/unit-a
 turn:      2 (followup)
 question:  q2 (blocked) pending 1m10s: lint rejects the CLI-help test's runtime imports under src/
 commands:  84 (3 failed, 1 blocked by repo hooks)
@@ -239,6 +240,8 @@ outside May change:  (none)
 new in git status since start:  ?? src/commands/run.ts
 tokens:    4.1M in (96% cached), 31K out
 ```
+
+Without a name, `status` prints one line per run: `unit-a  waiting  turn 2 (followup)  12m04s  q2 pending`. Each pending question gets its own marker; removed worktrees add `worktree removed`. Both named and unnamed JSON status keep the `Digests` shape. Elapsed time in the digest header and status line runs from creation to now while active, and from creation to the last state change while inactive. If there is no state-change event, the record's update time is the fallback.
 
 Event fields come from `events.jsonl` and are cheap. The three file fields come from the worktree and are computed when a turn ends and when `status` or `result` asks, never per event:
 

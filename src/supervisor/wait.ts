@@ -1,7 +1,7 @@
 import { Clock, DateTime, Effect, Schema } from "effect";
 import { ChildProcess } from "effect/process";
 import { commandResult } from "../core/preflight/command";
-import { readEvents } from "../core/runs/store";
+import { readEvents, readHandoff } from "../core/runs/store";
 import { Usage } from "../errors";
 import {
   activeStates,
@@ -67,6 +67,7 @@ const attention = Effect.fnUntraced(function* (registry: Registry, run: Run, aft
           kind: "question",
           summary: `${event.id} (${event.kind}): ${event.question}`,
           digest,
+          handoff: null,
         });
     } else if (event._tag === "TurnCompleted") {
       // The interrupted working turn belongs to the budget transition, not a hand-off yet.
@@ -76,13 +77,21 @@ const attention = Effect.fnUntraced(function* (registry: Registry, run: Run, aft
       if (event.status === "failed" || (current && digest.state === "failed")) kind = "failed";
       else if (event.status === "interrupted" || (current && digest.state === "interrupted"))
         kind = "interrupted";
-      outcomes.push({ name: run.record.name, kind, summary: `turn ${event.turn}`, digest });
+      const { handoff } = yield* readHandoff(run.dir, event.turn);
+      outcomes.push({
+        name: run.record.name,
+        kind,
+        summary: `turn ${event.turn}`,
+        digest,
+        handoff: handoff?.turn === event.turn ? handoff : null,
+      });
     } else if (event._tag === "StateChanged")
       outcomes.push({
         name: run.record.name,
         kind: "lost",
         summary: "app server or daemon went away",
         digest,
+        handoff: null,
       });
   }
   const latest = outcomes.at(-1);
@@ -103,12 +112,18 @@ export const wait = Effect.fn("supervisor.wait")(function* (
   const positions = yield* decodeCursor(body.after);
   const group = body.all ? yield* groupFor(body.cwd) : "";
   const deadline = (yield* Clock.currentTimeMillis) + body.timeoutMs;
-  const timeout: Extract<DaemonResult, { _tag: "Waited" }> = {
+  const result = (
+    outcome: "events" | "timeout" | "none",
+    runs: readonly (typeof WaitOutcome.Type)[],
+    cursor: Cursor,
+  ): Extract<DaemonResult, { _tag: "Waited" }> => ({
     _tag: "Waited",
-    outcome: "timeout",
-    runs: [],
-    cursor: body.after ?? encode(positions),
-  };
+    outcome,
+    runs,
+    cursor,
+    next: `forman wait ${body.all ? "--all" : body.names.join(" ")} --after ${cursor}`,
+  });
+  const timeout = () => result("timeout", [], body.after ?? encode(positions));
   const consider = Effect.gen(function* () {
     while (true) {
       const change = yield* registry.change;
@@ -134,28 +149,16 @@ export const wait = Effect.fn("supervisor.wait")(function* (
             active ||= activeStates.has(run.record.state);
           }),
         );
-      if (outcomes.length > 0)
-        return {
-          _tag: "Waited" as const,
-          outcome: "events" as const,
-          runs: outcomes,
-          cursor: encode(next),
-        };
-      if (body.all && !active)
-        return {
-          _tag: "Waited" as const,
-          outcome: "none" as const,
-          runs: [],
-          cursor: encode(next),
-        };
+      if (outcomes.length > 0) return result("events", outcomes, encode(next));
+      if (body.all && !active) return result("none", [], encode(next));
       // Ready attention includes a worktree refresh; only waiting for a change can time out.
       const remaining = deadline - (yield* Clock.currentTimeMillis);
-      if (remaining <= 0) return timeout;
+      if (remaining <= 0) return timeout();
       const changed = yield* change.pipe(
         Effect.as(true),
         Effect.timeoutOrElse({ duration: remaining, orElse: () => Effect.succeed(false) }),
       );
-      if (!changed) return timeout;
+      if (!changed) return timeout();
     }
   });
   return yield* consider;
