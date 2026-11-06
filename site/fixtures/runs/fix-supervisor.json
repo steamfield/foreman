@@ -1,0 +1,3170 @@
+{
+  "name": "fix-supervisor",
+  "model": "gpt-6.1-sol",
+  "effort": "high",
+  "tier": "priority",
+  "write": true,
+  "branch": "forman/fix-supervisor",
+  "baseCommit": "39aec16",
+  "createdAt": "2026-11-06T03:39:39.491Z",
+  "durationMs": 4230594,
+  "tokens": {
+    "input": 37381243,
+    "cachedInput": 37113600,
+    "output": 174784,
+    "reasoningOutput": 121010
+  },
+  "contract": "# Contract: release fixes, part B: supervisor state, persistence and recovery\n\n## Goal\n\nforman's first release is blocked on findings from three architecture reviews. This unit fixes the supervisor and the run store: B1, B2 (with C11 and O2, the same Unicode cursor bug), B5, C3, C5, C6, C7, C10, C13, O3, O5, O6, O7 and O8.\n\nNotes on the larger ones:\n\n- B1: an unreadable run directory must never be deleted by a later Start of that name; quarantine it by rename or refuse the name, and keep automatic deletion to identifiable unpublished staging directories.\n- B5: add an explicit storage format version to `run.json` and the JSONL records, decode supported versions, and refuse (without rewriting or appending) a run written by a newer, unsupported format. Version 1 is today's format; no migration code beyond reading version 1 and unversioned records as version 1.\n- C3: never release a worktree reservation while Codex may still be running in it. Reconcile or interrupt the turn; if termination can't be confirmed, retire that app-server connection before releasing.\n- C6 and C7: a pending question remembers the connection (generation) it arrived on and is answered only there; an accepted Answer completes its bookkeeping even if the CLI disconnects.\n- C10: a crash between `run.json` and its event must not lose a `wait` outcome; reconcile on startup.\n- O5 and O6: keep the reason an app-server connection ended and the context of background failures, log them once with run identities, and record a safe loss reason on each affected run. O5 needs the termination reason from `src/codex/client.ts`; you may change that file for this only.\n- O7 and O8: decide and implement a sanitisation policy for what's persisted from Codex (stderr, raw traffic, command output tails), make raw traffic capture bounded, bound the CLI log sink, stream event reads instead of decoding the whole history, and document archive retention and cleanup in the RFC (the docs unit later updates the README).\n\n## Scope\n\n- May change: `src/supervisor/` (except the daemon shutdown entry point in `index.ts`, which part A may touch; coordinate by keeping your changes to `index.ts` away from shutdown), `src/core/runs/`, `src/codex/client.ts` (termination reason only), `src/logging.ts`, `src/schemas/daemon.ts`, `tests/supervisor-*.test.ts`, `tests/run-*.test.ts`, `tests/daemon-logging.test.ts`, `tests/codex-client.test.ts`, `tests/config-logging.test.ts` (log sink bound only), `docs/rfcs/0001-forman.md` (Runs, Failure handling).\n- Owned by other units: `src/daemon/`, `src/commands/`, `src/core/managed-worktree.ts`, `src/core/process.ts`, `src/core/doctor.ts`, `src/core/command-output.ts`, `src/core/commands.ts`, `src/schemas/codex.ts`, `README.md`, `npm/`, `.github/`.\n\n## How to work\n\nThe findings are in `/tmp/scratch` (outside the repo; read it, don't copy it into a tracked file). Each finding has a location, a failure scenario and a proposed fix. The reviewers read the code carefully but could be wrong: confirm each finding against the code before fixing it, and if one is wrong, say so with evidence in the hand-off instead of changing code. If a proposed fix isn't the simplest conventional one, use the better fix and say why.\n\nRead first, in this repo: `AGENTS.md` (all of it, especially Testing and Error handling), `README.md`, `docs/rfcs/0001-forman.md`, the repo rules (`.claude/rules/effect.md`, `.claude/rules/src/cli.md`, `.claude/rules/src/effect-services.md`, `.claude/rules/src/typescript.md`, `.claude/rules/src/testing.md`, `.claude/rules/src/verification.md`) and the docs each one links, and `docs/guidance/effect/api.md`.\n\nThree other delegates fix other findings in parallel from the same `main` commit, each owning different files (see Scope). Stay inside yours; where a finding needs a file another unit owns, do your side, describe the other side precisely in the hand-off, and the orchestrator will reconcile at merge. Don't ask about this through `ask_orchestrator` unless you're actually blocked.\n\n## Acceptance\n\nReal services, processes, sockets and git repos with the fake app server; no real inference in `tests/` or `e2e/` (AGENTS.md \"Testing\"). Every finding you fix starts with a test that fails before the fix and passes after, revert-verified; concurrency findings need tests that force the interleaving deterministically (barriers, `TestClock`, fault injection), never sleeps. Run each new or changed test file at least three times, `bun run lint`, `bun run typecheck`, `bun run e2e`, and `bun run test` once at the end; report the counts. Don't run `bun run check`. If your area has a real-Codex path, run `FORMAN_SMOKE=1 FORMAN_SMOKE_SHORT=1 bun run smoke` once after building (a development check; credits are not a concern).\n\nQA as the first user of what you changed, with the built binary and a temporary `FORMAN_HOME`, reproducing each blocker's failure scenario before and after where you can. Fix the friction you find (a bug gets a regression test first).\n\n## Do not\n\n- commit or push (leave the changes for review)\n- disable a lint rule, weaken a test or add a cast to get green; split an over-complex function into named steps instead\n- add features, options, abstractions or mechanisms the findings don't need\n- remove any worktree, branch or run data that could hold work, in code or in tests outside temp directories\n- add real-Codex tests anywhere `bun run check`, git hooks or CI would run them\n- edit `~/.codex` config, hooks, trust or auth, or touch the real `~/.forman`\n- use `ask_orchestrator` for progress reports; use it only when blocked or when a decision is needed\n- mention any repository outside this one in a tracked file\n\n## Skills to apply\n\nThe `ce` skills and agents come from the Claude Code `claude-essentials` marketplace. Find the newest installed copy with:\n\n```bash\nce=$(ls -d \"$HOME\"/.claude/plugins/cache/*/ce/*/ | sort -V | tail -1)\n```\n\nRead each skill that applies and use it on this task; your hand-off says where it changed what you did.\n\n- `${ce}skills/writing-tests/SKILL.md`: for every test you write, before writing any. Where it and the repo's own testing rules differ, the repo wins. Also read its `references/waiting-typescript.md` for any test that waits on a process, socket, timer or file, and `references/flaky-tests.md` before you call a test done: run each new test file at least three times, and once in the full suite, since this repo has had tests that pass alone and fail under load. The hand-off's Checks section says which tests you wrote, what behaviour each pins down, and which failed before the fix.\n- `${ce}skills/architecting-systems/SKILL.md`, with its `references/structure.md`, `coupling.md`, `boundaries.md` and `concurrency.md`: before adding a module.\n- `${ce}skills/handling-errors/SKILL.md`: for any error handling you add.\n- `${ce}skills/effect/SKILL.md`: for all Effect code.\n- `.claude/skills/effect-development/SKILL.md` in this repo.\n\n## Review before hand-off\n\nOnce the acceptance checks pass, get one independent code review and fix what it finds. The reviewer is the `ce:code-reviewer` agent (`${ce}agents/code-reviewer.md`) extended by the repo's `.claude/agents/code-reviewer.md` when it exists. This repo's command guard refuses compound shell commands, so run the review as separate simple commands:\n\n1. `mktemp -d` and note the directory it prints, below `<review>`.\n2. Write `<review>/prompt.md` with your file-writing tool (not a shell heredoc), containing: the `ce:code-reviewer` agent body without its frontmatter; the repo reviewer's body if that file exists; then these lines: \"Skills: <ce>skills/architecting-systems/SKILL.md, <ce>skills/writing-tests/SKILL.md, <ce>skills/handling-errors/SKILL.md. The base branch is main; review the uncommitted work in <worktree>. Your sandbox is read-only, so don't run the tests; the author already ran the checks. The task's contract:\" followed by this contract's text, from `/tmp/scratch`.\n3. `codex exec --ephemeral --sandbox read-only -m gpt-6.1-sol -c model_reasoning_effort=high -c service_tier=priority -o <review>/review.md - < <review>/prompt.md`\n\nFix every finding in `review.md`, or say in the hand-off why a finding is wrong. A finding that is a bug gets a regression test in the repo before its fix, revert-verified. Then rerun the acceptance checks. One review pass only.\n\n## Hand-off\n\nYou're done when the review's findings are resolved and the acceptance checks pass, or when you're blocked. Leave everything uncommitted and end with this report as your final message; the orchestrator works from it, so be specific and name files and symbols.\n\n1. Summary: what you built, in two or three sentences.\n2. Files: each file created or changed, with one line on why.\n3. Decisions: choices the contract left open and why you made them; any deviation from the design or contract and the reason; where the skills changed your approach. Name every new mechanism you added and the acceptance test or contract line that needed it.\n4. Checks: each command you ran and its result (test counts, not just \"passed\"), and the QA: what you ran, what you judged and what you changed.\n5. Review: the review file's path, each finding in a line, and how you resolved it (fixed, or why not).\n6. Look closer at: the places most likely to be wrong.\n7. Open: what's left undone or blocked, and the questions you'd ask.\n",
+  "events": [
+    {
+      "seq": 1,
+      "t": 2582,
+      "kind": "state",
+      "from": "starting",
+      "to": "running"
+    },
+    {
+      "seq": 3,
+      "t": 2618,
+      "kind": "turn-started",
+      "turn": 1,
+      "turnKind": "start"
+    },
+    {
+      "seq": 4,
+      "t": 5152,
+      "kind": "message",
+      "text": "I’ll confirm the findings against the code, add reproducing tests, and make the fixes within the owned files. Then I’ll run the required checks, binary QA, smoke run and independent review. I’ll leave all changes uncommitted."
+    },
+    {
+      "seq": 6,
+      "t": 8594,
+      "kind": "command",
+      "command": "pwd",
+      "exitCode": 0,
+      "output": "."
+    },
+    {
+      "seq": 7,
+      "t": 9684,
+      "kind": "command",
+      "command": "git status --short",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 8,
+      "t": 9789,
+      "kind": "command",
+      "command": "cat AGENTS.md README.md docs/rfcs/0001-forman.md .claude/rules/effect.md .claude/rules/src/cli.md .claude/rules/src/effect-services.md .claude/rules/src/typescript.md .claude/rules/src/testing.md .claude/rules/src/verification.md docs/guidance/effect/api.md",
+      "exitCode": 0,
+      "output": "…dio({ name, version, protocols, registrations })`, `McpServer.layerHttp`, `registerToolkit`, `registerResource`, `registerPrompt`) and `Tool`/`Toolkit` for the planned MCP server. `effect/rpc` (`RpcGroup`, `RpcServer`, `RpcClient`, `RpcSerialization.jsonRpc`) could carry the daemon protocol. Both are marked unstable; verify against their declarations and add entries here when the code adopts them."
+    },
+    {
+      "seq": 9,
+      "t": 9879,
+      "kind": "command",
+      "command": "ls -d ~/.claude/plugins/cache/*/ce/*/",
+      "exitCode": 0,
+      "output": "~/.claude/plugins/cache/claude-essentials/ce/5.1.0/\n~/.claude/plugins/cache/claude-essentials/ce/5.1.1/\n~/.claude/plugins/cache/claude-essentials/ce/5.2.0/"
+    },
+    {
+      "seq": 10,
+      "t": 9962,
+      "kind": "command",
+      "command": "cat /tmp/scratch",
+      "exitCode": 0,
+      "output": "…md:84), `src/core/runs/worktree.ts:58`. The example’s `May change:` line lacks the required leading bullet and backticked paths. **Failure scenario:** copying the first-run example produces no parsed scope, so the digest cannot report out-of-scope changes. **Fix:** use ``- May change: `src/commands/doctor.ts`.`` and explain the required format beside the example.\n\nRelease verdict: **NEEDS FIXES**."
+    },
+    {
+      "seq": 13,
+      "t": 13985,
+      "kind": "command",
+      "command": "cat .claude/rules/effect.md .claude/rules/src/cli.md .claude/rules/src/effect-services.md .claude/rules/src/typescript.md .claude/rules/src/testing.md .claude/rules/src/verification.md .claude/skills/effect-development/SKILL.md",
+      "exitCode": 0,
+      "output": "… declarations; the declarations win when they disagree. Until the reference exists, write it as the shared guidance describes, and update it on every Effect upgrade.\n\nUse fresh test layers, observe forked failures, and drive time through the test clock (`tests/effect-testkit.test.ts` shows each). Keep runtime execution at program boundaries. Schema is part of `effect`, not a standalone dependency."
+    },
+    {
+      "seq": 14,
+      "t": 14074,
+      "kind": "command",
+      "command": "ls -d ~/.claude/plugins/cache/*/ce/*/",
+      "exitCode": 0,
+      "output": "~/.claude/plugins/cache/claude-essentials/ce/5.1.0/\n~/.claude/plugins/cache/claude-essentials/ce/5.1.1/\n~/.claude/plugins/cache/claude-essentials/ce/5.2.0/"
+    },
+    {
+      "seq": 15,
+      "t": 14173,
+      "kind": "command",
+      "command": "rg --files src/supervisor src/core/runs tests | rg '(supervisor|run-|daemon-logging|codex-client|config-logging)'",
+      "exitCode": 0,
+      "output": "tests/supervisor-integration.test.ts\ntests/supervisor-stress.test.ts\ntests/daemon-logging.test.ts\ntests/run-normalize.test.ts"
+    },
+    {
+      "seq": 17,
+      "t": 16117,
+      "kind": "message",
+      "text": "I’m applying the testing, error-handling and Effect skills, plus the repo’s Effect development guidance. The contract also requires an independent reviewer after the acceptance checks pass."
+    },
+    {
+      "seq": 19,
+      "t": 20334,
+      "kind": "command",
+      "command": "cat ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/writing-tests/SKILL.md ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/writing-tests/references/waiting-typescript.md ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/writing-tests/references/flaky-tests.md ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/handling-errors/SKILL.md ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/effect/SKILL.md",
+      "exitCode": 0,
+      "output": "| `effect/cli` commands, flags, parser errors, help | [references/cli.md](references/cli.md) |\n| `Config`, `ConfigProvider`, `Redacted`, loggers, annotations, spans | [references/config-observability.md](references/config-observability.md) |\n\nFor a topic not listed (streams, PubSub, batching, child processes, AI, cluster), start from the matching entry in `node_modules/effect/AGENTS.md`."
+    },
+    {
+      "seq": 20,
+      "t": 20421,
+      "kind": "command",
+      "command": "cat docs/guidance/effect/index.md docs/guidance/effect/effect.md docs/guidance/typescript-cli/cli.md docs/guidance/typescript-cli/effect-services.md docs/guidance/typescript-cli/typescript.md docs/guidance/typescript-cli/testing.md docs/guidance/typescript-cli/verification.md",
+      "exitCode": 0,
+      "output": "…li.jsonl` (structured; `jq -c 'select(.level == \"error\" or .level == \"warn\")' logs/cli.jsonl`) and `logs/cli.log` (the whole stderr) before guessing. Stop only processes you started.\n- A green commit isn't a complete one: after a hook-running commit, check `git status` for files a hook rewrote and left unstaged.\n- Don't report a cause you didn't observe. Quote the error output you're basing it on."
+    },
+    {
+      "seq": 21,
+      "t": 20506,
+      "kind": "command",
+      "command": "cat src/core/runs/store.ts",
+      "exitCode": 0,
+      "output": "      return { handoff: { turn, text }, latestTurnWithoutHandoff: turn < latestTurn };\n  }\n  return { handoff: null, latestTurnWithoutHandoff: latestTurn > 0 };\n});"
+    },
+    {
+      "seq": 22,
+      "t": 20591,
+      "kind": "command",
+      "command": "cat src/supervisor/registry.ts",
+      "exitCode": 0,
+      "output": "    change: Effect.suspend(() => Effect.succeed(Deferred.await(changed))),\n  };\n});\nexport type Registry = Effect.Success<ReturnType<typeof makeRegistry>>;"
+    },
+    {
+      "seq": 25,
+      "t": 23423,
+      "kind": "command",
+      "command": "cat src/supervisor/index.ts src/supervisor/app-server.ts src/supervisor/questions.ts",
+      "exitCode": 0,
+      "output": "  });\n  return { resolve, receive };\n});\nexport type Questions = Effect.Success<ReturnType<typeof makeQuestions>>;"
+    },
+    {
+      "seq": 26,
+      "t": 23507,
+      "kind": "command",
+      "command": "cat src/supervisor/turns.ts",
+      "exitCode": 0,
+      "output": "  });\n  return { start, reserveFollowup, followup, begin, armBudget, handoff, interrupt, steer };\n});\nexport type Turns = Effect.Success<ReturnType<typeof makeTurns>>;"
+    },
+    {
+      "seq": 27,
+      "t": 23591,
+      "kind": "command",
+      "command": "cat src/supervisor/wait.ts src/core/runs/store.ts",
+      "exitCode": 0,
+      "output": "      return { handoff: { turn, text }, latestTurnWithoutHandoff: turn < latestTurn };\n  }\n  return { handoff: null, latestTurnWithoutHandoff: latestTurn > 0 };\n});"
+    },
+    {
+      "seq": 30,
+      "t": 25722,
+      "kind": "command",
+      "command": "cat src/supervisor/turns.ts",
+      "exitCode": 0,
+      "output": "  });\n  return { start, reserveFollowup, followup, begin, armBudget, handoff, interrupt, steer };\n});\nexport type Turns = Effect.Success<ReturnType<typeof makeTurns>>;"
+    },
+    {
+      "seq": 33,
+      "t": 28030,
+      "kind": "command",
+      "command": "cat src/schemas/daemon.ts src/logging.ts",
+      "exitCode": 0,
+      "output": "      };\n    }),\n  );\n}"
+    },
+    {
+      "seq": 34,
+      "t": 28113,
+      "kind": "command",
+      "command": "cat src/codex/client.ts src/supervisor/questions.ts src/supervisor/notifications.ts",
+      "exitCode": 0,
+      "output": "    case Codex.Method.mcpStartupStatus:\n      break;\n  }\n});"
+    },
+    {
+      "seq": 37,
+      "t": 32530,
+      "kind": "command",
+      "command": "cat tests/run-store.test.ts",
+      "exitCode": 0,
+      "output": "    yield* fs.rename(dir, `${root}/runs/.tmp-unit-a-crash`);\n    expect(yield* Store.readAllRuns(root)).toEqual({ runs: [], skipped: [] });\n  }).pipe(Effect.provide(NodeServices.layer)),\n);"
+    },
+    {
+      "seq": 38,
+      "t": 32616,
+      "kind": "command",
+      "command": "sed -n '1,220p' tests/supervisor-integration.test.ts",
+      "exitCode": 0,
+      "output": "        return Effect.fail(new RunConflict({ detail: \"Active legacy runs\" }));\n      return supervisor\n        .handler(body)\n        .pipe("
+    },
+    {
+      "seq": 39,
+      "t": 32704,
+      "kind": "command",
+      "command": "rg -n '\"'^B[125]|''^C[3567]|''^C10|''^C13|''^O[35678]'\"' /tmp/scratch",
+      "exitCode": 0,
+      "output": "…og sink never rotates. Event pagination also reads and decodes the complete history. **Failure scenario:** repeated runs or verbose follow-ups steadily consume disk, while large histories make status/wait increasingly expensive. **Fix:** bound raw traffic and CLI logs, stream event reads, and document an explicit archive-retention/cleanup procedure that preserves worktrees and requested hand-offs."
+    },
+    {
+      "seq": 41,
+      "t": 50310,
+      "kind": "message",
+      "text": "The reviewed failure paths are present: Start deletes directories skipped during loading, unknown-state expiry releases ownership without stopping Codex, and answers use the current connection. I’ll make unreadable names refuse reuse, retire the connection before unknown expiry releases ownership, and bind each question to its originating server."
+    },
+    {
+      "seq": 43,
+      "t": 51573,
+      "kind": "command",
+      "command": "cat docs/guidance/effect/effect.md docs/guidance/typescript-cli/effect-services.md docs/guidance/typescript-cli/testing.md docs/guidance/typescript-cli/verification.md node_modules/effect/AGENTS.md",
+      "exitCode": 0,
+      "output": "The cluster modules let you model stateful services as entities and distribute\nthem across multiple machines.\n\n- **[Defining cluster entities](./ai-docs/src/80_cluster/10_entities.ts)**: Define distributed entity RPCs and run them in a cluster."
+    },
+    {
+      "seq": 44,
+      "t": 51649,
+      "kind": "command",
+      "command": "sed -n '220,430p' tests/supervisor-integration.test.ts",
+      "exitCode": 0,
+      "output": "    Effect.gen(function* () {\n      const f = yield* fixture(scenario(turnRule([complete()])));\n      yield* f.launch();\n      yield* f.start({ worktree: f.repo, newWorktree: true });"
+    },
+    {
+      "seq": 45,
+      "t": 51731,
+      "kind": "command",
+      "command": "rg -n 'unknown|cursor|disconnect|corrupt|background|answer|lost|timeout' tests/supervisor-integration.test.ts tests/supervisor-stress.test.ts tests/daemon-logging.test.ts",
+      "exitCode": 0,
+      "output": "…uns).toMatchObject([\ntests/supervisor-integration.test.ts:3331:        expect((yield* f.wait({ after: firstWait.cursor })).runs).toMatchObject([\ntests/supervisor-integration.test.ts:3334:        expect(yield* f.cli([\"wait\", \"unit\", \"--after\", firstWait.cursor])).toContain(\ntests/supervisor-integration.test.ts:3385:        expect((yield* f.wait({ after: asked.cursor })).runs.at(-1)).toMatchObject({"
+    },
+    {
+      "seq": 48,
+      "t": 69837,
+      "kind": "command",
+      "command": "cat docs/guidance/typescript-cli/typescript.md docs/guidance/typescript-cli/cli.md docs/guidance/effect/api.md",
+      "exitCode": 0,
+      "output": "…dio({ name, version, protocols, registrations })`, `McpServer.layerHttp`, `registerToolkit`, `registerResource`, `registerPrompt`) and `Tool`/`Toolkit` for the planned MCP server. `effect/rpc` (`RpcGroup`, `RpcServer`, `RpcClient`, `RpcSerialization.jsonRpc`) could carry the daemon protocol. Both are marked unstable; verify against their declarations and add entries here when the code adopts them."
+    },
+    {
+      "seq": 49,
+      "t": 69920,
+      "kind": "command",
+      "command": "sed -n '940,1030p' tests/supervisor-integration.test.ts",
+      "exitCode": 0,
+      "output": "      yield* f.fs.symlink(`${f.root}/missing-hooks`, `${f.repo}/.codex/hooks.json`);\n      yield* f.launch();\n      yield* f.start();\n      expect((yield* f.wait()).runs).toMatchObject(["
+    },
+    {
+      "seq": 50,
+      "t": 69999,
+      "kind": "command",
+      "command": "sed -n '1120,1210p' tests/supervisor-integration.test.ts",
+      "exitCode": 0,
+      "output": "  it.live.each([false, true])(\"resilience: interrupt continues after turn 1, wait=%s\", (waiting) =>\n    Effect.gen(function* () {\n      const f = yield* fixture(\n        scenario(turnRule([complete()]), turnRule(), {"
+    },
+    {
+      "seq": 51,
+      "t": 70080,
+      "kind": "command",
+      "command": "sed -n '2380,2475p' tests/supervisor-integration.test.ts",
+      "exitCode": 0,
+      "output": "    }).pipe(Effect.provide(platform)),\n  );\n\n  it.live(\"refuses a follow-up after its worktree has been removed\", () =>"
+    },
+    {
+      "seq": 54,
+      "t": 75449,
+      "kind": "command",
+      "command": "cat ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/architecting-systems/SKILL.md ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/architecting-systems/references/structure.md ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/architecting-systems/references/coupling.md ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/architecting-systems/references/boundaries.md ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/architecting-systems/references/concurrency.md",
+      "exitCode": 0,
+      "output": "| Scale within a single process | Producers and consumers scale independently |\n| Low operational overhead matters | Fault tolerance and retry logic matter |\n\nStart with in-process async. Move to queues when you need durability, independent scaling, or cross-service decoupling."
+    },
+    {
+      "seq": 55,
+      "t": 75529,
+      "kind": "command",
+      "command": "cat src/core/preflight/git.ts tests/daemon-logging.test.ts",
+      "exitCode": 1,
+      "output": "      ]);\n    }).pipe(Effect.provide(platform)),\n  );\n});"
+    },
+    {
+      "seq": 56,
+      "t": 75609,
+      "kind": "command",
+      "command": "sed -n '225,280p' tests/supervisor-integration.test.ts",
+      "exitCode": 0,
+      "output": "        .split(\"\\n\")\n        .filter(Boolean)\n        .map((line) => Schema.decodeUnknownSync(Schema.fromJsonString(LogMessage))(line)),\n    ),"
+    },
+    {
+      "seq": 59,
+      "t": 106035,
+      "kind": "command",
+      "command": "rg -n 'mainCheckout' src/core/preflight/worktree.ts; cat tests/config-logging.test.ts",
+      "exitCode": 0,
+      "output": "      expect.objectContaining({ msg: \"command\", level: \"debug\" }),\n    ]);\n  });\n});"
+    },
+    {
+      "seq": 60,
+      "t": 106124,
+      "kind": "command",
+      "command": "cat tests/codex-client.test.ts",
+      "exitCode": 0,
+      "output": "      expect((yield* hashSchemas(dir)).hash).not.toBe(expected);\n    }).pipe(Effect.provide(NodeServices.layer)),\n  );\n});"
+    },
+    {
+      "seq": 63,
+      "t": 131349,
+      "kind": "files",
+      "paths": ["tests/run-store.test.ts"]
+    },
+    {
+      "seq": 65,
+      "t": 131442,
+      "kind": "files",
+      "paths": ["tests/config-logging.test.ts"]
+    },
+    {
+      "seq": 133,
+      "t": 152153,
+      "kind": "command",
+      "command": "bun run test:unit tests/run-store.test.ts tests/config-logging.test.ts",
+      "exitCode": 1,
+      "output": "   Start at  21:42:09\n   Duration  2.20s (tests 73%, import 22%, transform 5%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 134,
+      "t": 161918,
+      "kind": "message",
+      "text": "I’ve added store tests for future-version refusal, atomic hand-offs, streamed event pages and diagnostic bounds. For sanitisation, I’m choosing to omit raw wire bodies, stderr text and command output tails from diagnostic persistence. Hand-offs and user-facing records will still contain their content and remain private run data."
+    },
+    {
+      "seq": 136,
+      "t": 162622,
+      "kind": "command",
+      "command": "cat tests/fixtures/fake-app-server/scenario.ts src/core/main-checkout.ts",
+      "exitCode": 0,
+      "output": "  if (!first?.startsWith(\"worktree \"))\n    return yield* new WorktreeInvalid({ detail: `Could not find main checkout: ${cwd}` });\n  return yield* (yield* FileSystem.FileSystem).realPath(first.slice(\"worktree \".length));\n});"
+    },
+    {
+      "seq": 137,
+      "t": 162702,
+      "kind": "command",
+      "command": "sed -n '2010,2070p' tests/supervisor-integration.test.ts",
+      "exitCode": 0,
+      "output": "      const before = yield* f.fs.readFileString(`${f.runDir}/run.json`);\n      const app = AppLayer(\n        f.env,\n        false,"
+    },
+    {
+      "seq": 141,
+      "t": 191608,
+      "kind": "files",
+      "paths": ["tests/supervisor-integration.test.ts"]
+    },
+    {
+      "seq": 146,
+      "t": 217625,
+      "kind": "files",
+      "paths": ["tests/supervisor-integration.test.ts"]
+    },
+    {
+      "seq": 165,
+      "t": 237443,
+      "kind": "command",
+      "command": "sed -n '1060,1125p' tests/supervisor-integration.test.ts",
+      "exitCode": 0,
+      "output": "          },\n        ),\n      );\n      yield* f.hooks;"
+    },
+    {
+      "seq": 166,
+      "t": 237533,
+      "kind": "command",
+      "command": "rg -n 'codex.jsonl|supervisor.run.failed' tests/supervisor-integration.test.ts",
+      "exitCode": 0,
+      "output": "…67:      while (!(yield* f.fs.readFileString(`${f.runDir}/codex.jsonl`)).includes(\"SessionStart\"))\n2665:      while (!(yield* f.fs.exists(`${f.runDir}/codex.jsonl`))) yield* Effect.yieldNow;\n2666:      while (!(yield* f.fs.readFileString(`${f.runDir}/codex.jsonl`)).includes(\"newCommandField\"))\n2975:        expect(yield* f.fs.readFileString(`${f.runDir}/codex.jsonl`)).toContain(\"changed upstream\");"
+    },
+    {
+      "seq": 167,
+      "t": 237620,
+      "kind": "command",
+      "command": "cat docs/guidance/effect-schema/index.md; sed -n '1,95p' docs/rfcs/0001-forman.md",
+      "exitCode": 0,
+      "output": "\n## Runs\n\nA run is one Codex thread working in one worktree. Claude names it (`[a-z0-9][a-z0-9._-]{0,63}`) and uses the name everywhere; the thread id is recorded for resume."
+    },
+    {
+      "seq": 171,
+      "t": 250721,
+      "kind": "command",
+      "command": "rg -n 'export const (splitLines|mapConcat|dropRight|mapAccum)' node_modules/effect/src/Stream.ts",
+      "exitCode": 0,
+      "output": "13440:export const mapAccumArray: {\n13584:export const mapAccumEffect: {\n13748:export const mapAccumArrayEffect: {\n16949:export const splitLines = <E, R>(self: Stream<string, E, R>): Stream<string, E, R> =>"
+    },
+    {
+      "seq": 254,
+      "t": 251806,
+      "kind": "command",
+      "command": "bun run test:unit tests/supervisor-integration.test.ts -t 'release'",
+      "exitCode": 1,
+      "output": "   Start at  21:43:17\n   Duration  33.58s (tests 99%, import 1%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 258,
+      "t": 283285,
+      "kind": "files",
+      "paths": ["src/schemas/daemon.ts"]
+    },
+    {
+      "seq": 260,
+      "t": 283399,
+      "kind": "files",
+      "paths": ["src/core/runs/store.ts"]
+    },
+    {
+      "seq": 265,
+      "t": 309712,
+      "kind": "files",
+      "paths": ["src/logging.ts"]
+    },
+    {
+      "seq": 267,
+      "t": 309818,
+      "kind": "files",
+      "paths": ["src/supervisor/wait.ts"]
+    },
+    {
+      "seq": 269,
+      "t": 309929,
+      "kind": "files",
+      "paths": ["src/supervisor/turns.ts"]
+    },
+    {
+      "seq": 271,
+      "t": 310034,
+      "kind": "files",
+      "paths": ["src/supervisor/index.ts"]
+    },
+    {
+      "seq": 273,
+      "t": 310135,
+      "kind": "files",
+      "paths": ["src/supervisor/questions.ts"]
+    },
+    {
+      "seq": 277,
+      "t": 327485,
+      "kind": "message",
+      "text": "The new regressions reproduced all eight supervisor failures tested so far, alongside eight store failures and the CLI log-bound failure. The fixes now cover follow-up cursor construction and give Answer a daemon-owned lifetime. For state/event consistency, I’m adding a persisted pending transition that startup can publish if the daemon stops between the two writes."
+    },
+    {
+      "seq": 279,
+      "t": 344241,
+      "kind": "files",
+      "paths": ["src/codex/client.ts"]
+    },
+    {
+      "seq": 281,
+      "t": 344360,
+      "kind": "files",
+      "paths": ["src/supervisor/app-server.ts"]
+    },
+    {
+      "seq": 283,
+      "t": 344481,
+      "kind": "files",
+      "paths": ["src/supervisor/registry.ts"]
+    },
+    {
+      "seq": 404,
+      "t": 346300,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 1,
+      "output": "  Type 'unknown' is not assignable to type 'Scope'.\ntests/supervisor-integration.test.ts(3514,7): error TS2322: Type 'Effect<void, unknown, unknown>' is not assignable to type 'Effect<void, unknown, Scope>'.\n  Type 'unknown' is not assignable to type 'Scope'.\nerror: script \"typecheck\" exited with code 1"
+    },
+    {
+      "seq": 408,
+      "t": 359489,
+      "kind": "files",
+      "paths": ["src/core/runs/store.ts"]
+    },
+    {
+      "seq": 410,
+      "t": 359622,
+      "kind": "files",
+      "paths": ["src/logging.ts"]
+    },
+    {
+      "seq": 412,
+      "t": 359752,
+      "kind": "files",
+      "paths": ["src/supervisor/app-server.ts"]
+    },
+    {
+      "seq": 414,
+      "t": 359826,
+      "kind": "files",
+      "paths": ["src/supervisor/registry.ts"]
+    },
+    {
+      "seq": 416,
+      "t": 359967,
+      "kind": "files",
+      "paths": ["tests/supervisor-integration.test.ts"]
+    },
+    {
+      "seq": 418,
+      "t": 360561,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "output": "$ tsc --noEmit"
+    },
+    {
+      "seq": 422,
+      "t": 387250,
+      "kind": "files",
+      "paths": ["tests/supervisor-integration.test.ts"]
+    },
+    {
+      "seq": 424,
+      "t": 387372,
+      "kind": "files",
+      "paths": ["tests/supervisor-integration.test.ts"]
+    },
+    {
+      "seq": 485,
+      "t": 392744,
+      "kind": "command",
+      "command": "bun run test:unit tests/run-store.test.ts tests/config-logging.test.ts tests/supervisor-integration.test.ts -t 'release|version 1|future .* format|publishes hand|pages committed|omits untrusted|rotates a full'",
+      "exitCode": 1,
+      "output": "   Start at  21:46:07\n   Duration  4.77s (tests 77%, import 19%, transform 3%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 487,
+      "t": 395845,
+      "kind": "command",
+      "command": "sed -n '13300,13380p' node_modules/effect/src/Stream.ts; sed -n '1,100p' src/core/runs/store.ts",
+      "exitCode": 0,
+      "output": "  contract: string,\n) {\n  const fs = yield* FileSystem.FileSystem;\n  const path = yield* Path.Path;"
+    },
+    {
+      "seq": 491,
+      "t": 400319,
+      "kind": "command",
+      "command": "rg -n 'export const (rechunk|flattenIter)' node_modules/effect/src/Stream.ts",
+      "exitCode": 0,
+      "output": "3846:export const flattenIterable = <A, E, R>(self: Stream<Iterable<A>, E, R>): Stream<A, E, R> =>\n12467:export const rechunk: {"
+    },
+    {
+      "seq": 492,
+      "t": 400386,
+      "kind": "files",
+      "paths": ["src/core/runs/store.ts"]
+    },
+    {
+      "seq": 500,
+      "t": 405379,
+      "kind": "command",
+      "command": "sed -n '95,200p' docs/rfcs/0001-forman.md",
+      "exitCode": 0,
+      "output": "\nEvery thread registers one dynamic tool:\n\n```json"
+    },
+    {
+      "seq": 501,
+      "t": 405473,
+      "kind": "command",
+      "command": "sed -n '200,310p' README.md",
+      "exitCode": 0,
+      "output": "\n## License\n\nMIT. See [LICENSE](LICENSE)."
+    },
+    {
+      "seq": 502,
+      "t": 405569,
+      "kind": "command",
+      "command": "cat ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/writer/SKILL.md",
+      "exitCode": 0,
+      "output": "- **Lead with the answer** - Conclusions first, evidence second\n- **Short paragraphs by default** - Vary length when the argument needs it (see Paragraph variation)\n- **Tables for comparisons** - Not prose\n- **Whitespace** - Let it breathe"
+    },
+    {
+      "seq": 520,
+      "t": 406135,
+      "kind": "command",
+      "command": "bun run test:unit tests/run-store.test.ts tests/supervisor-integration.test.ts -t 'release|pages committed|omits untrusted'",
+      "exitCode": 1,
+      "output": "   Start at  21:46:20\n   Duration  5.42s (tests 85%, import 13%, transform 1%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 522,
+      "t": 410488,
+      "kind": "files",
+      "paths": ["src/core/runs/store.ts"]
+    },
+    {
+      "seq": 542,
+      "t": 416896,
+      "kind": "command",
+      "command": "bun run test:unit tests/run-store.test.ts tests/supervisor-integration.test.ts -t 'release|pages committed|omits untrusted'",
+      "exitCode": 1,
+      "output": "   Start at  21:46:30\n   Duration  6.05s (tests 91%, import 8%, transform 1%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 544,
+      "t": 440123,
+      "kind": "files",
+      "paths": ["src/supervisor/questions.ts"]
+    },
+    {
+      "seq": 546,
+      "t": 440406,
+      "kind": "command",
+      "command": "python3 -c 'from pathlib import Path; p=Path(\\\"tests/supervisor-integration.test.ts\\\"); s=p.read_text(); a=s.index(\\\"  it.live(\\\\\\\"release C7:\\\"); b=s.index(\\\"\\\\n  it.live.each([false, true])\\\",a); s=s[:a]+\\\"\\\"\\\"  it.live(\\\"release C7: answer delivery completes bookkeeping despite caller interruption\\\", () =>\n    Effect.gen(function* () {\n      const f = yield* fixture(scenario());\n      const registry = yield* makeRegistry(f.dataDir);\n      const stored = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(D.RunRecord))(\n        yield* f.fs.readFileString(fileURLToPath(new URL(\\\"./fixtures/runs/run.json\\\", import.meta.url))),\n      );\n      const record = { ...stored, name, worktree: f.worktree };\n      yield* Store.createRun(f.dataDir, record, \\\"Work\\\");\n      const run = yield* registry.add(record);\n      const scope = yield* Scope.fork(yield* Effect.scope);\n      const opened = yield* openConnection({ codexBin: fake, env: f.env, version: \\\"test\\\", stderr: () => Effect.void }).pipe(Scope.provide(scope));\n      const delivered = yield* Deferred.make<void>();\n      const release = yield* Deferred.make<void>();\n      // Hold the third-party transport after its real response write, before local persistence.\n      const connection = { ...opened, respond: (id: Codex.RpcId, result: unknown) => opened.respond(id, result).pipe(\n        Effect.andThen(Deferred.succeed(delivered, undefined)),\n        Effect.andThen(Deferred.await(release)),\n      ) };\n      const server = { scope, connection, generation: Symbol(), loaded: new Set<string>() };\n      const params = Schema.decodeUnknownSync(Codex.ToolCallParams)({ threadId: \\\"thread-a\\\", turnId: \\\"turn-2\\\", callId: \\\"q\\\", namespace: null, tool: \\\"ask_orchestrator\\\", arguments: { question: \\\"Choose?\\\" } });\n      const questions = yield* makeQuestions(registry);\n      yield* questions.receive(run, server, { id: 42, method: Codex.Method.toolCall, params }, params);\n      const pending = yield* questions.resolve(run, server, q1, \\\"A\\\", \\\"answered\\\").pipe(Effect.forkChild);\n      yield* Deferred.await(delivered);\n      const disconnected = yield* Fiber.interrupt(pending).pipe(Effect.forkChild({ startImmediately: true }));\n      yield* Deferred.succeed(release, undefined);\n      yield* Fiber.join(disconnected);\n      expect(Store.pendingQuestions(yield* Store.readQuestions(run.dir))).toEqual([]);\n      expect(yield* Store.readQuestions(run.dir)).toMatchObject([{ _tag: \\\"Asked\\\" }, { resolution: \\\"answered\\\", text: \\\"A\\\" }]);\n    }).pipe(Effect.provide(platform)),\n  );\n\\\"\\\"\\\"+s[b:]; p.write_text(s)'",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 555,
+      "t": 446949,
+      "kind": "command",
+      "command": "sed -n '1910,1965p' tests/supervisor-integration.test.ts; sed -n '2340,2390p' tests/supervisor-integration.test.ts; sed -n '2640,2705p' tests/supervisor-integration.test.ts; sed -n '2950,2990p' tests/supervisor-integration.test.ts",
+      "exitCode": 0,
+      "output": "        _tag: \"Answer\",\n        name,\n        question: Schema.decodeUnknownSync(D.QuestionId)(\"q2\"),\n        text: \"two\","
+    },
+    {
+      "seq": 556,
+      "t": 447039,
+      "kind": "command",
+      "command": "cat ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/writer/references/architect.md ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/writer/references/forbidden-patterns.md",
+      "exitCode": 0,
+      "output": "\nDon't use em dashes. Use a comma, a colon, parentheses, or two sentences instead. Readers treat\nthe em dash as an AI signature, and a sentence that seems to need one usually reads better\nrestructured."
+    },
+    {
+      "seq": 557,
+      "t": 447133,
+      "kind": "command",
+      "command": "rg -n '\"'^## Failure|''^## '\"' docs/rfcs/0001-forman.md",
+      "exitCode": 0,
+      "output": "364:## Delegation plan\n376:## Deferred\n380:## Open questions\n385:## Deviations found while building"
+    },
+    {
+      "seq": 561,
+      "t": 450626,
+      "kind": "command",
+      "command": "rg -n -C 5 'SessionStart|newCommandField|changed upstream|codex.jsonl' tests/supervisor-integration.test.ts",
+      "exitCode": 0,
+      "output": "3024-  );\n3025-\n3026-  it.effect(\n3027-    \"marks a timed-out thread start unknown, refuses a duplicate, then loses it after five minutes\","
+    },
+    {
+      "seq": 572,
+      "t": 467090,
+      "kind": "files",
+      "paths": ["tests/run-store.test.ts"]
+    },
+    {
+      "seq": 574,
+      "t": 467220,
+      "kind": "files",
+      "paths": ["tests/supervisor-integration.test.ts"]
+    },
+    {
+      "seq": 722,
+      "t": 472919,
+      "kind": "command",
+      "command": "bun run lint",
+      "exitCode": 1,
+      "output": "  × Some errors were emitted while running checks.\n  \n\nerror: script \"lint\" exited with code 1"
+    },
+    {
+      "seq": 725,
+      "t": 500559,
+      "kind": "files",
+      "paths": ["tests/codex-client.test.ts"]
+    },
+    {
+      "seq": 733,
+      "t": 538982,
+      "kind": "command",
+      "command": "sed -n '1540,1585p' tests/supervisor-integration.test.ts; rg -n -C 6 'unregistered half' tests/supervisor-integration.test.ts; rg -n -C 2 'Supervisor operation failed' tests/supervisor-integration.test.ts",
+      "exitCode": 0,
+      "output": "1241-          state: \"unknown\",\n1242:          failure: { message: \"Supervisor operation failed\" },\n1243-        });\n1244-        expect((yield* Store.readRun(f.runDir)).activeTurnId).toBe(\"primary-turn\");"
+    },
+    {
+      "seq": 734,
+      "t": 539115,
+      "kind": "files",
+      "paths": ["src/logging.ts"]
+    },
+    {
+      "seq": 838,
+      "t": 541040,
+      "kind": "command",
+      "command": "bun run format",
+      "exitCode": 1,
+      "output": "  × Some errors were emitted while applying fixes.\n  \n\nerror: script \"format\" exited with code 1"
+    },
+    {
+      "seq": 841,
+      "t": 554367,
+      "kind": "message",
+      "text": "The targeted supervisor regressions pass. The broader tests also exposed assertions for behavior this contract changes: deleting half-created directories, retaining raw payloads and reporting only a generic failure message. I’m updating those assertions to check preservation, omission and safe diagnostic context."
+    },
+    {
+      "seq": 843,
+      "t": 559671,
+      "kind": "command",
+      "command": "sed -n '1605,1625p' tests/supervisor-integration.test.ts; sed -n '330,360p' tests/run-store.test.ts; sed -n '298,315p' docs/rfcs/0001-forman.md",
+      "exitCode": 0,
+      "output": "| A message fails to decode | Logged and recorded. `turn/started` and `turn/completed` fall back to a minimal decode of `threadId`, `turn.id` and `turn.status`, so a schema change can't leave a run `running` forever |\n| Unknown notification or item type | Recorded as a generic event |\n\n## Errors"
+    },
+    {
+      "seq": 844,
+      "t": 559801,
+      "kind": "files",
+      "paths": ["src/core/runs/store.ts"]
+    },
+    {
+      "seq": 846,
+      "t": 559938,
+      "kind": "files",
+      "paths": ["src/supervisor/turns.ts"]
+    },
+    {
+      "seq": 848,
+      "t": 560075,
+      "kind": "command",
+      "command": "python3 -c 'from pathlib import Path; p=Path(\\\"tests/run-store.test.ts\\\"); s=p.read_text(); a=s.index(\\\"      const value =\\\\n\\\",s.index(\\\"refuses a future\\\")); b=s.index(\\\"      const bytes\\\",a); s=s[:a]+\\\"\\\"\\\"      const values = {\n        \\\"run.json\\\": Schema.encodeSync(RunRecord)(run),\n        \\\"events.jsonl\\\": { seq: 1, at: \\\"1970-01-01T00:00:00Z\\\", event: { _tag: \\\"Other\\\", method: \\\"future\\\" } },\n        \\\"questions.jsonl\\\": { _tag: \\\"Asked\\\", id: \\\"q1\\\", turn: 1, kind: \\\"question\\\", question: \\\"future\\\", at: \\\"1970-01-01T00:00:00Z\\\" },\n        \\\"codex.jsonl\\\": { method: \\\"future\\\" },\n      };\n      const value = values[file];\n\\\"\\\"\\\"+s[b:]; p.write_text(s)'",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 849,
+      "t": 560171,
+      "kind": "command",
+      "command": "rg -n -A 12 'half-created run' tests/supervisor-integration.test.ts",
+      "exitCode": 0,
+      "output": "1743-  );\n1744-\n1745-  it.live.each([\"Followup\", \"Archive\"] as const)(\n1746-    \"resilience: a queued %s on a stalled Start does not delay unrelated runs\","
+    },
+    {
+      "seq": 854,
+      "t": 585796,
+      "kind": "files",
+      "paths": ["tests/supervisor-integration.test.ts"]
+    },
+    {
+      "seq": 856,
+      "t": 585857,
+      "kind": "files",
+      "paths": ["docs/rfcs/0001-forman.md"]
+    },
+    {
+      "seq": 859,
+      "t": 586787,
+      "kind": "command",
+      "command": "bun run format",
+      "exitCode": 0,
+      "output": "$ biome check --write .\nChecked 121 files in 725ms. Fixed 3 files."
+    },
+    {
+      "seq": 869,
+      "t": 587386,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 1,
+      "output": "  The types of 'connection.respond(...)' are incompatible between these types.\n    Type 'Effect<void, CodexUnavailable, never>' is not assignable to type 'Effect<undefined, CodexUnavailable, never>'.\n      Type 'void' is not assignable to type 'undefined'.\nerror: script \"typecheck\" exited with code 1"
+    },
+    {
+      "seq": 873,
+      "t": 595424,
+      "kind": "files",
+      "paths": ["tests/run-store.test.ts"]
+    },
+    {
+      "seq": 875,
+      "t": 595572,
+      "kind": "files",
+      "paths": ["tests/supervisor-integration.test.ts"]
+    },
+    {
+      "seq": 879,
+      "t": 601674,
+      "kind": "command",
+      "command": "git diff --stat",
+      "exitCode": 0,
+      "output": " tests/config-logging.test.ts         |  11 ++\n tests/run-store.test.ts              | 107 ++++++++++-\n tests/supervisor-integration.test.ts | 363 ++++++++++++++++++++++++++++++++++-\n 15 files changed, 820 insertions(+), 113 deletions(-)"
+    },
+    {
+      "seq": 912,
+      "t": 626719,
+      "kind": "command",
+      "command": "bun run test:unit tests/run-store.test.ts tests/config-logging.test.ts tests/supervisor-integration.test.ts",
+      "exitCode": 1,
+      "output": "   Start at  21:47:00\n   Duration  185.76s (tests 99%, import 1%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 913,
+      "t": 631676,
+      "kind": "command",
+      "command": "sed -n '20,85p' src/supervisor/wait.ts; sed -n '880,910p' tests/supervisor-integration.test.ts; rg -n 'atob' tests/supervisor-integration.test.ts",
+      "exitCode": 0,
+      "output": "          repoHooks(`${f.repo}/.claude/worktrees/unit`, `${f.repo}/.codex/hooks.json`, \"untrusted\"),\n        ),\n      );\n992:        )(atob(accepted.cursor.replaceAll(\"-\", \"+\").replaceAll(\"_\", \"/\")));"
+    },
+    {
+      "seq": 919,
+      "t": 643136,
+      "kind": "files",
+      "paths": ["tests/supervisor-integration.test.ts"]
+    },
+    {
+      "seq": 921,
+      "t": 643227,
+      "kind": "command",
+      "command": "rg -n -C 4 '项目|false, true|repoName' tests/supervisor-integration.test.ts",
+      "exitCode": 0,
+      "output": "3753-    Effect.gen(function* () {\n3754-      const command = notify(Codex.Method.itemStarted, {\n3755-        threadId: \"{{thread}}\",\n3756-        turnId: \"{{turn}}\","
+    },
+    {
+      "seq": 925,
+      "t": 648971,
+      "kind": "files",
+      "paths": ["tests/supervisor-integration.test.ts"]
+    },
+    {
+      "seq": 955,
+      "t": 650452,
+      "kind": "command",
+      "command": "bun run test:unit tests/supervisor-integration.test.ts -t 'legacy Latin-1'",
+      "exitCode": 1,
+      "output": "   Start at  21:50:28\n   Duration  1.04s (tests 50%, import 39%, transform 10%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 961,
+      "t": 683516,
+      "kind": "command",
+      "command": "python3 -c 'from pathlib import Path; p=Path(\\\"src/supervisor/wait.ts\\\"); s=p.read_text(); a=s.index(\\\"const encode =\\\"); b=s.index(\\\"\\\\nconst identity\\\",a); s=s[:a]+\\\"\\\"\\\"const encode = (positions: typeof Positions.Type, group?: string) => {\n  const json = Schema.encodeSync(CursorJson)(\n    group === undefined ? positions : { _tag: \\\"GroupCursor\\\", group, positions },\n  );\n  const bytes = new TextEncoder().encode(json);\n  const base64 = btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join(\\\"\\\"));\n  return Schema.decodeUnknownSync(Cursor)(\"'`u1.${base64.replaceAll(\"+\", \"-\").replaceAll(\"/\", \"_\").replace(/=+$/, \"\")}`);\n};\n\"\"\"+s[b:]; a=s.index(\"  const text = yield* Effect.try\",s.index(\"const decodeCursor\")); b=s.index(\"  const parsed =\",a); s=s[:a]+\"\"\"  const unicode = cursor.startsWith(\"u1.\");\n  const payload = unicode ? cursor.slice(3) : cursor;\n  const text = yield* Effect.try({\n    try: () => {\n      const binary = atob(payload.replaceAll(\"-\", \"+\").replaceAll(\"_\", \"/\"));\n      return unicode ? new TextDecoder(\"utf-8\", { fatal: true }).decode(Uint8Array.from(binary, (char) => char.charCodeAt(0))) : binary;\n    },\n    catch: () => new Usage(),\n  });\n\"\"\"+s[b:]; s=s.replace(\"(CursorJson)(decoded)\",\"(CursorJson)(text)\"); p.write_text(s)'\"'",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 962,
+      "t": 683639,
+      "kind": "files",
+      "paths": ["tests/supervisor-integration.test.ts"]
+    },
+    {
+      "seq": 966,
+      "t": 684557,
+      "kind": "command",
+      "command": "bun run format",
+      "exitCode": 0,
+      "output": "$ biome check --write .\nChecked 121 files in 696ms. Fixed 3 files."
+    },
+    {
+      "seq": 967,
+      "t": 685221,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "output": "$ tsc --noEmit"
+    },
+    {
+      "seq": 974,
+      "t": 708032,
+      "kind": "command",
+      "command": "sed -n '1,95p' src/logging.ts; sed -n '130,260p' src/supervisor/registry.ts; sed -n '50,165p' src/supervisor/app-server.ts",
+      "exitCode": 0,
+      "output": "    ).pipe(Effect.provide(context));\n  return { get, retire, protocolWarning, environment: env };\n});\nexport type AppServers = Effect.Success<ReturnType<typeof makeAppServer>>;"
+    },
+    {
+      "seq": 978,
+      "t": 724011,
+      "kind": "command",
+      "command": "ps -eo pid,ppid,etime,command",
+      "exitCode": 0,
+      "output": "43530 71381    16:31:00 /bin/zsh -l\n65724 71381    16:14:52 /bin/zsh -l\n69019 71381    13:32:49 /bin/zsh -l\n14266 71381    12:46:04 /bin/zsh -l"
+    },
+    {
+      "seq": 979,
+      "t": 724227,
+      "kind": "files",
+      "paths": ["src/core/runs/store.ts"]
+    },
+    {
+      "seq": 984,
+      "t": 727697,
+      "kind": "command",
+      "command": "pgrep -fl vitest",
+      "exitCode": 0,
+      "output": "….ts tests/daemon-logging.test.ts\n94357 ~/.local/share/mise/installs/node/26.13.0/bin/node --experimental-import-meta-resolve --require ~/src/forman/.claude/worktrees/fix-daemon/node_modules/vitest/suppress-warnings.cjs --conditions node --conditions development ~/src/forman/.claude/worktrees/fix-daemon/node_modules/vitest/dist/workers/forks.js"
+    },
+    {
+      "seq": 996,
+      "t": 738636,
+      "kind": "command",
+      "command": "bun run test:unit tests/supervisor-integration.test.ts -t 'archive invalidates|release|preserves an unregistered|notification persistence|null-turn|detailed shape has changed'",
+      "exitCode": 0,
+      "output": " Test Files  1 passed (1)\n      Tests  17 passed | 139 skipped (156)\n   Start at  21:51:47\n   Duration  10.57s (tests 93%, import 5%, transform 2%)"
+    },
+    {
+      "seq": 999,
+      "t": 741942,
+      "kind": "command",
+      "command": "bun run test:unit tests/run-store.test.ts tests/config-logging.test.ts tests/codex-client.test.ts tests/supervisor-integration.test.ts",
+      "exitCode": 143,
+      "output": "  lossReason: 'app server connection closed'\n}\n\nerror: script \"test:unit\" exited with code 143"
+    },
+    {
+      "seq": 1000,
+      "t": 741960,
+      "kind": "command",
+      "command": "kill -TERM 67789 68098",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 1001,
+      "t": 742098,
+      "kind": "files",
+      "paths": ["tests/config-logging.test.ts"]
+    },
+    {
+      "seq": 1003,
+      "t": 742246,
+      "kind": "files",
+      "paths": ["tests/supervisor-integration.test.ts"]
+    },
+    {
+      "seq": 1006,
+      "t": 743182,
+      "kind": "command",
+      "command": "bun run format",
+      "exitCode": 0,
+      "output": "$ biome check --write .\nChecked 121 files in 714ms. Fixed 3 files."
+    },
+    {
+      "seq": 1007,
+      "t": 743775,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "output": "$ tsc --noEmit"
+    },
+    {
+      "seq": 1010,
+      "t": 768941,
+      "kind": "message",
+      "text": "The Unicode checks caught a compatibility edge case: some legacy Latin-1 paths also form valid UTF-8 bytes, so fallback decoding can change the path silently. New cursors now have an explicit UTF-8 prefix; legacy cursors keep their original decoding. I also fixed a duplicate metadata read that stalled an existing FIFO-based archive test."
+    },
+    {
+      "seq": 1012,
+      "t": 772053,
+      "kind": "files",
+      "paths": ["src/supervisor/app-server.ts"]
+    },
+    {
+      "seq": 1014,
+      "t": 772124,
+      "kind": "files",
+      "paths": ["docs/rfcs/0001-forman.md"]
+    },
+    {
+      "seq": 1089,
+      "t": 773379,
+      "kind": "command",
+      "command": "bun run lint",
+      "exitCode": 1,
+      "output": "  × Some errors were emitted while running checks.\n  \n\nerror: script \"lint\" exited with code 1"
+    },
+    {
+      "seq": 1093,
+      "t": 789134,
+      "kind": "files",
+      "paths": ["tests/run-store.test.ts"]
+    },
+    {
+      "seq": 1096,
+      "t": 790012,
+      "kind": "command",
+      "command": "bun run format",
+      "exitCode": 0,
+      "output": "$ biome check --write .\nChecked 121 files in 676ms. Fixed 2 files."
+    },
+    {
+      "seq": 1103,
+      "t": 800738,
+      "kind": "command",
+      "command": "rg --files tests/fixtures/fake-app-server smoke | head -30",
+      "exitCode": 0,
+      "output": "smoke/helpers.ts\ntests/fixtures/fake-app-server/scenarios.ts\ntests/fixtures/fake-app-server/main.mjs\ntests/fixtures/fake-app-server/scenario.ts"
+    },
+    {
+      "seq": 1104,
+      "t": 800825,
+      "kind": "command",
+      "command": "sed -n '200,255p' src/supervisor/registry.ts; sed -n '20,85p' src/supervisor/questions.ts",
+      "exitCode": 0,
+      "output": "      kind,\n      question: args.success.question,\n      at: DateTime.makeUnsafe(yield* Clock.currentTimeMillis),\n    });"
+    },
+    {
+      "seq": 1106,
+      "t": 801901,
+      "kind": "command",
+      "command": "git diff -- src/supervisor/index.ts src/codex/client.ts",
+      "exitCode": 0,
+      "output": "+        if (body._tag === \"Start\" || body._tag === \"Followup\" || body._tag === \"Answer\") {\n           const exit = yield* Fiber.join(yield* registry.fork(Effect.exit(work)));\n           return Exit.isFailure(exit) ? yield* Effect.failCause(exit.cause) : exit.value;\n         }"
+    },
+    {
+      "seq": 1110,
+      "t": 820986,
+      "kind": "files",
+      "paths": ["tests/supervisor-integration.test.ts"]
+    },
+    {
+      "seq": 1140,
+      "t": 822305,
+      "kind": "command",
+      "command": "bun run test:unit tests/supervisor-integration.test.ts -t 'delivered answer cannot'",
+      "exitCode": 1,
+      "output": "   Start at  21:53:20\n   Duration  850ms (import 51%, tests 35%, transform 13%, setup 1%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 1144,
+      "t": 828587,
+      "kind": "files",
+      "paths": ["src/supervisor/questions.ts"]
+    },
+    {
+      "seq": 1146,
+      "t": 828721,
+      "kind": "files",
+      "paths": ["tests/supervisor-integration.test.ts"]
+    },
+    {
+      "seq": 1149,
+      "t": 829738,
+      "kind": "command",
+      "command": "bun run format",
+      "exitCode": 0,
+      "output": "$ biome check --write .\nChecked 121 files in 785ms. Fixed 2 files."
+    },
+    {
+      "seq": 1155,
+      "t": 830556,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 1,
+      "output": "        Type 'PlatformError' is not assignable to type 'CodexUnavailable'.\n          Types of property '_tag' are incompatible.\n            Type '\"PlatformError\"' is not assignable to type '\"CodexUnavailable\"'.\nerror: script \"typecheck\" exited with code 1"
+    },
+    {
+      "seq": 1160,
+      "t": 852559,
+      "kind": "files",
+      "paths": ["tests/supervisor-integration.test.ts"]
+    },
+    {
+      "seq": 1162,
+      "t": 853123,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "output": "$ tsc --noEmit"
+    },
+    {
+      "seq": 1174,
+      "t": 855061,
+      "kind": "command",
+      "command": "bun run test:unit tests/supervisor-integration.test.ts -t 'delivered answer cannot|answer delivery|release O7'",
+      "exitCode": 0,
+      "output": " Test Files  1 passed (1)\n      Tests  3 passed | 155 skipped (158)\n   Start at  21:53:52\n   Duration  1.64s (tests 72%, import 22%, transform 5%)"
+    },
+    {
+      "seq": 1181,
+      "t": 866603,
+      "kind": "command",
+      "command": "bun run test:unit tests/run-store.test.ts tests/config-logging.test.ts tests/codex-client.test.ts tests/supervisor-integration.test.ts",
+      "exitCode": 0,
+      "output": " Test Files  4 passed (4)\n      Tests  246 passed (246)\n   Start at  21:52:49\n   Duration  76.27s (tests 98%, import 2%)"
+    },
+    {
+      "seq": 1183,
+      "t": 884533,
+      "kind": "files",
+      "paths": ["src/core/runs/store.ts"]
+    },
+    {
+      "seq": 1185,
+      "t": 884668,
+      "kind": "files",
+      "paths": ["src/supervisor/registry.ts"]
+    },
+    {
+      "seq": 1189,
+      "t": 899255,
+      "kind": "message",
+      "text": "The broader run passed all 246 tests present at its start. A later targeted check also passes for a delivered Answer whose resolution write fails: retrying no longer sends the answer again. Next I’ll revert-verify the regressions and build a baseline binary for before/after QA, then run the acceptance checks."
+    },
+    {
+      "seq": 1196,
+      "t": 908716,
+      "kind": "command",
+      "command": "cat ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/agents/code-reviewer.md .claude/agents/code-reviewer.md",
+      "exitCode": 1,
+      "output": "…overage. Every diff gets checked against all the criteria in step 3\n- Compare with the codebase when unsure whether something is an established pattern. Matching an existing pattern doesn't exempt it: flag deviations from best practice even when the codebase shares them\n- Your review prepares code for human review - catch issues early\ncat: .claude/agents/code-reviewer.md: No such file or directory"
+    },
+    {
+      "seq": 1197,
+      "t": 908813,
+      "kind": "command",
+      "command": "mktemp -d",
+      "exitCode": 0,
+      "output": "/tmp/scratch"
+    },
+    {
+      "seq": 1198,
+      "t": 908907,
+      "kind": "command",
+      "command": "cat smoke/cleanup.ts smoke/helpers.ts",
+      "exitCode": 0,
+      "output": "  }\n}\n\nexport type Fixture = Awaited<ReturnType<typeof fixture>>;"
+    },
+    {
+      "seq": 1203,
+      "t": 909979,
+      "kind": "command",
+      "command": "python3 -c 'from pathlib import Path; import subprocess,tempfile,shutil,json; root=Path.cwd(); out=Path(tempfile.mkdtemp(prefix=\\\"forman-b-revert-\\\",dir=\\\"/tmp\\\")); files=subprocess.check_output([\\\"git\\\",\\\"diff\\\",\\\"--name-only\\\",\\\"--\\\",\\\"src\\\"],text=True).splitlines(); saved={f:(root/f).read_bytes() for f in files}; (out/\\\"files.json\\\").write_text(json.dumps(files)); print(out,flush=True)\ntry:\n for f in files:\n  target=out/\\\"fixed\\\"/f; target.parent.mkdir(parents=True,exist_ok=True); target.write_bytes(saved[f]); (root/f).write_bytes(subprocess.check_output([\\\"git\\\",\\\"show\\\",f\\\"HEAD:{f}\\\"]))\n with (out/\\\"baseline-build.log\\\").open(\\\"w\\\") as log: result=subprocess.run([\\\"bun\\\",\\\"run\\\",\\\"build\\\"],stdout=log,stderr=subprocess.STDOUT,timeout=120)\n print(\\\"baseline build\\\",result.returncode,flush=True)\n if result.returncode==0: shutil.copy2(root/\\\"dist/forman\\\",out/\\\"forman-before\\\")\n with (out/\\\"regressions-before.log\\\").open(\\\"w\\\") as log: result=subprocess.run([\\\"bun\\\",\\\"run\\\",\\\"test:unit\\\",\\\"tests/run-store.test.ts\\\",\\\"tests/config-logging.test.ts\\\",\\\"tests/codex-client.test.ts\\\",\\\"tests/supervisor-integration.test.ts\\\",\\\"-t\\\",\\\"release|version 1|future .* format|publishes hand|pages committed|omits untrusted|bounds diagnostic|rotates a full|replaces an oversized|preserves a connection exit\\\"],stdout=log,stderr=subprocess.STDOUT,timeout=120)\n print(\\\"baseline regressions\\\",result.returncode,flush=True)\nfinally:\n for f,data in saved.items(): (root/f).write_bytes(data)\n print(\\\"restored all changed source files\\\",flush=True)\n'",
+      "exitCode": 0,
+      "output": "/tmp/forman-b-revert-e7gjxev7\nbaseline build 0\nbaseline regressions 1\nrestored all changed source files"
+    },
+    {
+      "seq": 1205,
+      "t": 912500,
+      "kind": "command",
+      "command": "tail -35 /tmp/forman-b-revert-e7gjxev7/regressions-before.log",
+      "exitCode": 0,
+      "output": "   Start at  21:54:43\n   Duration  5.80s (tests 79%, import 20%, transform 1%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 1209,
+      "t": 921592,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "output": "$ tsc --noEmit"
+    },
+    {
+      "seq": 1227,
+      "t": 921859,
+      "kind": "command",
+      "command": "bun run lint",
+      "exitCode": 1,
+      "output": "  × Some errors were emitted while running checks.\n  \n\nerror: script \"lint\" exited with code 1"
+    },
+    {
+      "seq": 1232,
+      "t": 925917,
+      "kind": "command",
+      "command": "bun run format",
+      "exitCode": 0,
+      "output": "$ biome check --write .\nChecked 121 files in 685ms. Fixed 1 file."
+    },
+    {
+      "seq": 1234,
+      "t": 926521,
+      "kind": "command",
+      "command": "bun run lint",
+      "exitCode": 0,
+      "output": "$ biome check .\nChecked 121 files in 442ms. No fixes applied."
+    },
+    {
+      "seq": 1236,
+      "t": 927608,
+      "kind": "command",
+      "command": "git status --short",
+      "exitCode": 0,
+      "output": " M tests/codex-client.test.ts\n M tests/config-logging.test.ts\n M tests/run-store.test.ts\n M tests/supervisor-integration.test.ts"
+    },
+    {
+      "seq": 1239,
+      "t": 938555,
+      "kind": "command",
+      "command": "bun run e2e > /tmp/forman-b-revert-e7gjxev7/e2e.log 2>&1",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 1241,
+      "t": 957918,
+      "kind": "command",
+      "command": "tail -10 /tmp/forman-b-revert-e7gjxev7/e2e.log",
+      "exitCode": 0,
+      "output": " 8 pass\n 0 fail\n 169 expect() calls\nRan 8 tests across 1 file. [17.34s]"
+    },
+    {
+      "seq": 1242,
+      "t": 958035,
+      "kind": "command",
+      "command": "tail -8 /tmp/forman-b-revert-e7gjxev7/repeat1.log",
+      "exitCode": 0,
+      "output": "    failure: { message: 'Supervisor operation failed (PlatformError: open)' }\n  },\n  [cause]: undefined\n}"
+    },
+    {
+      "seq": 1244,
+      "t": 958297,
+      "kind": "command",
+      "command": "./dist/forman --version",
+      "exitCode": 0,
+      "output": "forman v0.1.0"
+    },
+    {
+      "seq": 1248,
+      "t": 966502,
+      "kind": "command",
+      "command": "rg -n 'FAIL|failed|Test Files|Tests|Duration' /tmp/forman-b-revert-e7gjxev7/repeat1.log",
+      "exitCode": 0,
+      "output": "76:    failure: { message: 'Supervisor operation failed (PlatformError: open)' }\n85:[21:55:25.128] ERROR (#52716): supervisor.run.failed {\n113:      message: 'Supervisor operation failed (PlatformError: writeFile)'\n118:    failure: { message: 'Supervisor operation failed (PlatformError: open)' }"
+    },
+    {
+      "seq": 1249,
+      "t": 966646,
+      "kind": "files",
+      "paths": ["tests/supervisor-integration.test.ts"]
+    },
+    {
+      "seq": 1254,
+      "t": 996348,
+      "kind": "files",
+      "paths": ["/tmp/forman-b-revert-e7gjxev7/qa.py"]
+    },
+    {
+      "seq": 1261,
+      "t": 997946,
+      "kind": "command",
+      "command": "python3 /tmp/forman-b-revert-e7gjxev7/qa.py",
+      "exitCode": 1,
+      "output": "  File \"~/.local/share/mise/installs/python/3.13.16/lib/python3.13/pathlib/_local.py\", line 537, in open\n    return io.open(self, mode, buffering, encoding, errors, newline)\n           ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nFileNotFoundError: [Errno 2] No such file or directory: '/tmp/fm-bq-8lj23_ir/d/runs/damaged/last-message.md'"
+    },
+    {
+      "seq": 1262,
+      "t": 1004481,
+      "kind": "command",
+      "command": "bun run test:unit tests/run-store.test.ts tests/config-logging.test.ts tests/codex-client.test.ts tests/supervisor-integration.test.ts > /tmp/forman-b-revert-e7gjxev7/repeat1.log 2>&1",
+      "exitCode": 1,
+      "output": ""
+    },
+    {
+      "seq": 1264,
+      "t": 1038539,
+      "kind": "command",
+      "command": "python3 -c 'from pathlib import Path; p=Path(\\\"/tmp/forman-b-revert-e7gjxev7/qa.py\\\"); s=p.read_text().replace(\\\"def fixture(binary, label):\\\", \\\"def fixture(binary, label, codex=FAKE):\\\").replace(\\\"str(FAKE), \\\\x27PATH\\\\x27\\\", \\\"str(codex), \\\\x27PATH\\\\x27\\\").replace(\\\"text=True, timeout=20\\\", \\\"text=True, timeout=400\\\"); a=s.index(\\\"\\\\nresults = []\\\"); s=s[:a]+\\\"\\\\ndef main():\\\\n\\\"+\\\"\\\\n\\\".join(\\\"    \\\"+line if line else \\\"\\\" for line in s[a+1:].splitlines())+\\\"\\\\n\\\\nif __name__ == \\\\x27__main__\\\\x27:\\\\n    main()\\\\n\\\"; p.write_text(s)'",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 1265,
+      "t": 1038650,
+      "kind": "files",
+      "paths": ["/tmp/forman-b-revert-e7gjxev7/qa-unknown.py"]
+    },
+    {
+      "seq": 1270,
+      "t": 1047298,
+      "kind": "command",
+      "command": "python3 -c 'from pathlib import Path; p=Path(\\\"/tmp/forman-b-revert-e7gjxev7/qa.py\\\"); s=p.read_text().replace(\\\"(damaged / \\\\x27last-message.md\\\\x27).read_text() == \\\\x27irreplaceable work\\\\x27\\\", \\\"(damaged / \\\\x27last-message.md\\\\x27).exists() and (damaged / \\\\x27last-message.md\\\\x27).read_text() == \\\\x27irreplaceable work\\\\x27\\\"); p.write_text(s)'",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 1271,
+      "t": 1048589,
+      "kind": "command",
+      "command": "tail -14 /tmp/forman-b-revert-e7gjxev7/repeat1.log",
+      "exitCode": 0,
+      "output": "   Start at  21:55:00\n   Duration  83.19s (tests 98%, import 2%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 1273,
+      "t": 1049575,
+      "kind": "command",
+      "command": "bun run format",
+      "exitCode": 0,
+      "output": "$ biome check --write .\nChecked 121 files in 731ms. Fixed 1 file."
+    },
+    {
+      "seq": 1275,
+      "t": 1050642,
+      "kind": "command",
+      "command": "python3 /tmp/forman-b-revert-e7gjxev7/qa.py",
+      "exitCode": 0,
+      "output": "    \"wireContainsSentinel\": false,\n    \"eventsContainSentinel\": false\n  }\n]"
+    },
+    {
+      "seq": 1279,
+      "t": 1057673,
+      "kind": "command",
+      "command": "tail -18 /tmp/forman-b-revert-e7gjxev7/smoke.log",
+      "exitCode": 0,
+      "output": "[exit 0]\nDaemon stopped.\n\n10 restart resumes write access and writes a file: 16.7s"
+    },
+    {
+      "seq": 1280,
+      "t": 1057759,
+      "kind": "command",
+      "command": "tail -8 /tmp/forman-b-revert-e7gjxev7/qa-unknown.log",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 1281,
+      "t": 1058854,
+      "kind": "command",
+      "command": "git diff --check",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 1283,
+      "t": 1059393,
+      "kind": "command",
+      "command": "bun run lint",
+      "exitCode": 0,
+      "output": "$ biome check .\nChecked 121 files in 402ms. No fixes applied."
+    },
+    {
+      "seq": 1284,
+      "t": 1059929,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "output": "$ tsc --noEmit"
+    },
+    {
+      "seq": 1288,
+      "t": 1068433,
+      "kind": "command",
+      "command": "cat ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/agents/code-reviewer.md",
+      "exitCode": 0,
+      "output": "\n- Change size limits time spent, not coverage. Every diff gets checked against all the criteria in step 3\n- Compare with the codebase when unsure whether something is an established pattern. Matching an existing pattern doesn't exempt it: flag deviations from best practice even when the codebase shares them\n- Your review prepares code for human review - catch issues early"
+    },
+    {
+      "seq": 1289,
+      "t": 1068522,
+      "kind": "command",
+      "command": "cat /tmp/scratch",
+      "exitCode": 0,
+      "output": "4. Checks: each command you ran and its result (test counts, not just \"passed\"), and the QA: what you ran, what you judged and what you changed.\n5. Review: the review file's path, each finding in a line, and how you resolved it (fixed, or why not).\n6. Look closer at: the places most likely to be wrong.\n7. Open: what's left undone or blocked, and the questions you'd ask."
+    },
+    {
+      "seq": 1290,
+      "t": 1068587,
+      "kind": "files",
+      "paths": ["/tmp/scratch"]
+    },
+    {
+      "seq": 1295,
+      "t": 1083169,
+      "kind": "command",
+      "command": "rg -n 'export (class|const|interface|type)' node_modules/effect/src/PlatformError.ts",
+      "exitCode": 0,
+      "output": "163:export class PlatformError extends Data.TaggedError(\"PlatformError\")<{\n216:export const isPlatformError = (u: unknown): u is PlatformError => Predicate.hasProperty(u, TypeId)\n230:export const systemError = (options: {\n252:export const badArgument = (options: {"
+    },
+    {
+      "seq": 1296,
+      "t": 1083258,
+      "kind": "command",
+      "command": "tail -8 /tmp/forman-b-revert-e7gjxev7/repeat2.log",
+      "exitCode": 0,
+      "output": "$ node node_modules/vitest/vitest.mjs run tests/run-store.test.ts tests/config-logging.test.ts tests/codex-client.test.ts tests/supervisor-integration.test.ts\n\n RUN  v5.1.0 ."
+    },
+    {
+      "seq": 1297,
+      "t": 1083347,
+      "kind": "command",
+      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/qa-unknown.log",
+      "exitCode": 0,
+      "output": "before start 5 state unknown\nafter start 5 state unknown"
+    },
+    {
+      "seq": 1300,
+      "t": 1107446,
+      "kind": "message",
+      "text": "Binary QA confirms the baseline deletes the damaged run’s history and fails a Unicode wait. The fixed binary preserves the history, refuses reuse, completes the Unicode continuation and omits the diagnostic sentinel. The real-time ownership QA is now waiting through the five-minute unknown deadline, alongside the smoke run and full suite."
+    },
+    {
+      "seq": 1302,
+      "t": 1109112,
+      "kind": "command",
+      "command": "tail -12 /tmp/forman-b-revert-e7gjxev7/full-test.log",
+      "exitCode": 0,
+      "output": "\n ❯ tests/daemon-logging.test.ts (5 tests | 1 failed) 475ms\n   ❯ daemon file logging (5)\n     × logs one platform request failure with request and run annotations 140ms"
+    },
+    {
+      "seq": 1303,
+      "t": 1109202,
+      "kind": "command",
+      "command": "tail -8 /tmp/forman-b-revert-e7gjxev7/repeat2.log",
+      "exitCode": 0,
+      "output": "$ node node_modules/vitest/vitest.mjs run tests/run-store.test.ts tests/config-logging.test.ts tests/codex-client.test.ts tests/supervisor-integration.test.ts\n\n RUN  v5.1.0 ."
+    },
+    {
+      "seq": 1304,
+      "t": 1109292,
+      "kind": "command",
+      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/smoke.log",
+      "exitCode": 0,
+      "output": "[exit 0]\nDaemon stopped.\n\n10 restart resumes write access and writes a file: 16.7s"
+    },
+    {
+      "seq": 1308,
+      "t": 1118277,
+      "kind": "command",
+      "command": "sed -n '32,66p' node_modules/effect/src/PlatformError.ts; sed -n '110,180p' node_modules/effect/src/PlatformError.ts; sed -n '225,250p' node_modules/effect/src/PlatformError.ts",
+      "exitCode": 0,
+      "output": " *\n * @stability unstable\n * @category constructors\n * @since 4.0.0"
+    },
+    {
+      "seq": 1309,
+      "t": 1118374,
+      "kind": "command",
+      "command": "tail -5 /tmp/forman-b-revert-e7gjxev7/qa-unknown.log",
+      "exitCode": 0,
+      "output": "before start 5 state unknown\nafter start 5 state unknown"
+    },
+    {
+      "seq": 1313,
+      "t": 1125299,
+      "kind": "files",
+      "paths": ["src/core/runs/store.ts"]
+    },
+    {
+      "seq": 1316,
+      "t": 1126229,
+      "kind": "command",
+      "command": "bun run format",
+      "exitCode": 0,
+      "output": "$ biome check --write .\nChecked 121 files in 723ms. Fixed 1 file."
+    },
+    {
+      "seq": 1325,
+      "t": 1127271,
+      "kind": "command",
+      "command": "bun run test:unit tests/daemon-logging.test.ts",
+      "exitCode": 0,
+      "output": " Test Files  1 passed (1)\n      Tests  5 passed (5)\n   Start at  21:58:25\n   Duration  754ms (import 54%, tests 38%, transform 7%, setup 1%)"
+    },
+    {
+      "seq": 1326,
+      "t": 1127804,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "output": "$ tsc --noEmit"
+    },
+    {
+      "seq": 1329,
+      "t": 1127942,
+      "kind": "command",
+      "command": "bun run test:unit tests/run-store.test.ts tests/config-logging.test.ts tests/codex-client.test.ts tests/supervisor-integration.test.ts > /tmp/forman-b-revert-e7gjxev7/repeat2.log 2>&1",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 1331,
+      "t": 1158236,
+      "kind": "command",
+      "command": "cat src/core/runs/digest.ts",
+      "exitCode": 0,
+      "output": "  }\n  for (const warning of digest.warnings) lines.push(`warning:   ${warning}`);\n  return lines.join(\"\\n\");\n}"
+    },
+    {
+      "seq": 1332,
+      "t": 1158338,
+      "kind": "command",
+      "command": "tail -8 /tmp/forman-b-revert-e7gjxev7/full-test.log; tail -8 /tmp/forman-b-revert-e7gjxev7/repeat2.log; tail -8 /tmp/forman-b-revert-e7gjxev7/repeat3.log",
+      "exitCode": 0,
+      "output": "\n$ node node_modules/vitest/vitest.mjs run tests/run-store.test.ts tests/config-logging.test.ts tests/codex-client.test.ts tests/supervisor-integration.test.ts\n\n RUN  v5.1.0 ."
+    },
+    {
+      "seq": 1335,
+      "t": 1162082,
+      "kind": "command",
+      "command": "bun run test > /tmp/forman-b-revert-e7gjxev7/full-test.log 2>&1",
+      "exitCode": 1,
+      "output": ""
+    },
+    {
+      "seq": 1337,
+      "t": 1165129,
+      "kind": "command",
+      "command": "tail -12 /tmp/forman-b-revert-e7gjxev7/full-test.log",
+      "exitCode": 0,
+      "output": "   Duration  78.47s (tests 93%, import 6%, transform 1%)\n\nerror: script \"test:unit\" exited with code 1\nerror: script \"test\" exited with code 1"
+    },
+    {
+      "seq": 1338,
+      "t": 1165220,
+      "kind": "command",
+      "command": "tail -5 /tmp/forman-b-revert-e7gjxev7/qa-unknown.log",
+      "exitCode": 0,
+      "output": "before start 5 state unknown\nafter start 5 state unknown"
+    },
+    {
+      "seq": 1339,
+      "t": 1165308,
+      "kind": "command",
+      "command": "tail -8 /tmp/forman-b-revert-e7gjxev7/smoke.log",
+      "exitCode": 0,
+      "output": "[exit 0]\nDaemon stopped.\n\n8 unapproved repo hooks refuse start before any turn and doctor explains: 2.7s"
+    },
+    {
+      "seq": 1340,
+      "t": 1165411,
+      "kind": "command",
+      "command": "rg -n 'fail|pass|real|hold' /tmp/forman-b-revert-e7gjxev7/smoke.log",
+      "exitCode": 0,
+      "output": "…output\":213,\"reasoningOutput\":0},\"failure\":null,\"warnings\":[]}]}\n715:      at <anonymous> (smoke/real-codex.test.ts:242:20)\n716:      at async <anonymous> (smoke/real-codex.test.ts:26:15)\n717:(fail) 7 codex exec self-review runs inside a forman thread [18409.93ms]"
+    },
+    {
+      "seq": 1343,
+      "t": 1184414,
+      "kind": "command",
+      "command": "bun run test:unit tests/run-store.test.ts tests/config-logging.test.ts tests/codex-client.test.ts tests/supervisor-integration.test.ts > /tmp/forman-b-revert-e7gjxev7/repeat3.log 2>&1",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 1345,
+      "t": 1206410,
+      "kind": "command",
+      "command": "tail -8 /tmp/forman-b-revert-e7gjxev7/repeat3.log",
+      "exitCode": 0,
+      "output": " Test Files  4 passed (4)\n      Tests  247 passed (247)\n   Start at  21:58:09\n   Duration  74.85s (tests 98%, import 2%)"
+    },
+    {
+      "seq": 1346,
+      "t": 1206558,
+      "kind": "command",
+      "command": "sed -n '232,246p' smoke/real-codex.test.ts",
+      "exitCode": 0,
+      "output": "  expect(commands).toContainEqual(\n    expect.objectContaining({ exitCode: 0, outputTail: expect.stringContaining(\"REVIEW-OK\") }),\n  );\n});"
+    },
+    {
+      "seq": 1349,
+      "t": 1220136,
+      "kind": "message",
+      "text": "The smoke run successfully executed the nested Codex review, returned `REVIEW-OK` and recorded exit 0. Its assertion then failed because it expects `REVIEW-OK` in `outputTail`, which the new policy deliberately omits. That assertion is outside this unit’s allowed files, so I need the orchestrator to resolve the scope conflict before I can make the smoke check green."
+    },
+    {
+      "seq": 1350,
+      "t": 1221994,
+      "kind": "question",
+      "id": "q1",
+      "text": "O7's implemented policy omits persisted command output tails. The real smoke self-review succeeded (nested codex exec exit 0 and hand-off REVIEW-OK), but smoke/real-codex.test.ts:242 requires REVIEW-OK in outputTail. smoke/ is outside this unit's May change scope, blocking green acceptance. May I change only this assertion to require exitCode: 0 and outputTail: \"\" (the preceding assertion already verifies REVIEW-OK in the completed hand-off), then rerun smoke?"
+    },
+    {
+      "seq": 1351,
+      "t": 1222003,
+      "kind": "state",
+      "from": "running",
+      "to": "waiting"
+    },
+    {
+      "seq": 1353,
+      "t": 1224997,
+      "kind": "command",
+      "command": "bun run e2e > /tmp/forman-b-revert-e7gjxev7/e2e-final.log 2>&1",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 1354,
+      "t": 1240950,
+      "kind": "question-resolved",
+      "id": "q1",
+      "resolution": "answered"
+    },
+    {
+      "seq": 1355,
+      "t": 1240952,
+      "kind": "state",
+      "from": "waiting",
+      "to": "running"
+    },
+    {
+      "seq": 1358,
+      "t": 1261298,
+      "kind": "command",
+      "command": "FORMAN_SMOKE=1 FORMAN_SMOKE_SHORT=1 bun run smoke > /tmp/forman-b-revert-e7gjxev7/smoke.log 2>&1",
+      "exitCode": 1,
+      "output": ""
+    },
+    {
+      "seq": 1359,
+      "t": 1296287,
+      "kind": "message",
+      "text": "The orchestrator wants command tails, stderr and bounded raw capture retained with best-effort redaction. I’ll apply that policy and document its limits in the RFC. The smoke assertion can then stay unchanged."
+    },
+    {
+      "seq": 1360,
+      "t": 1301401,
+      "kind": "command",
+      "command": "bun run test:unit tests/run-store.test.ts tests/config-logging.test.ts tests/codex-client.test.ts tests/supervisor-integration.test.ts > /tmp/forman-b-revert-e7gjxev7/repeat4.log 2>&1",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 1361,
+      "t": 1301416,
+      "kind": "command",
+      "command": "bun run test > /tmp/forman-b-revert-e7gjxev7/full-final.log 2>&1",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 1363,
+      "t": 1304410,
+      "kind": "files",
+      "paths": ["src/logging.ts"]
+    },
+    {
+      "seq": 1365,
+      "t": 1304543,
+      "kind": "files",
+      "paths": ["src/core/runs/store.ts"]
+    },
+    {
+      "seq": 1367,
+      "t": 1304672,
+      "kind": "files",
+      "paths": ["src/supervisor/app-server.ts"]
+    },
+    {
+      "seq": 1372,
+      "t": 1308732,
+      "kind": "command",
+      "command": "rg -n 'writeFileString|redact|encodeStored' src/core/runs/store.ts",
+      "exitCode": 0,
+      "output": "254:  yield* fs.writeFileString(file, `${text}\\n`, { flag: \"a\" });\n358:  const text = yield* encodeStored(Schema.Unknown, message, true);\n398:  yield* fs.writeFileString(`${file}.tmp`, redactDiagnosticText(text));\n401:  yield* fs.writeFileString(`${latest}.tmp`, redactDiagnosticText(text));"
+    },
+    {
+      "seq": 1373,
+      "t": 1308828,
+      "kind": "command",
+      "command": "rg -n -C 3 'omits untrusted|content is omitted|PRIVATE_SENTINEL|captures unfamiliar|stderr content|changed upstream|SessionStart|newCommandField' tests/run-store.test.ts tests/supervisor-integration.test.ts",
+      "exitCode": 0,
+      "output": "tests/supervisor-integration.test.ts:3280:          \"changed upstream\",\ntests/supervisor-integration.test.ts-3281-        );\ntests/supervisor-integration.test.ts-3282-      }).pipe(Effect.provide(platform)),\ntests/supervisor-integration.test.ts-3283-  );"
+    },
+    {
+      "seq": 1377,
+      "t": 1327371,
+      "kind": "command",
+      "command": "python3 -c 'from pathlib import Path; p=Path(\\\"tests/supervisor-integration.test.ts\\\"); s=p.read_text().replace(\\\"release O7: stderr content is omitted while command output never reaches disk\\\",\\\"release O7: diagnostic capture retains useful output and redacts token-shaped secrets\\\"); a=s.index(\\\"  it.live(\\\\\\\"release O7:\\\"); b=s.index(\\\"\\\\n  it.live\\\",a+5); part=s[a:b].replace(\\\"PRIVATE_SENTINEL\\\", \\\"sk-testPrivateSentinel\\\").replace(\\\"{ stderr: \\\\\\\"sk-testPrivateSentinel\\\\\\\" }\\\", \\\"{ stderr: \\\\\\\"useful stderr sk-testPrivateSentinel\\\\\\\" }\\\").replace(\\\"aggregatedOutput: \\\\\\\"sk-testPrivateSentinel\\\\\\\"\\\", \\\"aggregatedOutput: \\\\\\\"useful command output sk-testPrivateSentinel\\\\\\\"\\\").replace(\\\"toContain(\\\\\\\"content omitted\\\\\\\")\\\", \\\"toContain(\\\\\\\"useful stderr [redacted]\\\\\\\")\\\"); part=part.replace(\\\"      for (const file\\\", \\\"      expect(yield* f.fs.readFileString(\"'`${f.runDir}/events.jsonl`)).toContain('\"\\\\\\\"useful command output [redacted]\\\\\\\");\\\\n      expect(yield* f.fs.readFileString(\"'`${f.runDir}/codex.jsonl`)).toContain('\"\\\\\\\"useful command output [redacted]\\\\\\\");\\\\n      for (const file\\\"); s=s[:a]+part+s[b:]; s=s.replace(\\\"kind === \\\\\\\"notification\\\\\\\" ? \\\\\\\"stderr content omitted\\\\\\\" : \\\\\\\"barrier\\\\\\\"\\\", \\\"\\\\\\\"barrier\\\\\\\"\\\"); s=s.replace(\\\"includes(Codex.Method.hookStarted)\\\",\\\"includes(\\\\\\\"SessionStart\\\\\\\")\\\").replace(\\\"includes(Codex.Method.itemStarted)\\\",\\\"includes(\\\\\\\"newCommandField\\\\\\\")\\\"); s=s.replace(\\\".not.toContain(\\\\n          \\\\\\\"changed upstream\\\\\\\",\\\", \\\".toContain(\\\\n          \\\\\\\"changed upstream\\\\\\\",\\\"); p.write_text(s)\np=Path(\\\"tests/run-store.test.ts\\\"); s=p.read_text().replace(\\\"captures unfamiliar Codex method names while omitting their bodies\\\", \\\"captures unfamiliar Codex fields with an explicit storage version\\\").replace(\\\"JSON.stringify({ method: message.method, formatVersion: 1 })\\\", \\\"JSON.stringify({ ...message, formatVersion: 1 })\\\"); a=s.index(\\\"it.effect(\\\\\\\"omits untrusted\\\"); b=s.index(\\\"\\\\nit.effect\\\",a+5); s=s[:a]+\\\"\\\"\\\"it.effect.each([\n  \\\"sk-testPrivateSentinel\\\",\n  \\\"ghp_testPrivateSentinel\\\",\n  \\\"Bearer [REDACTED_SECRET]\\\",\n  \\\"API_KEY=[REDACTED_SECRET]\",\n  \\\"a1\\\".repeat(32),\n  \\\"QWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXo=\\\",\n])(\\\"redacts secret-looking values in wire capture and command tails: %s\\\", (secret) =>\n  Effect.gen(function* () {\n    const { fs, dir } = yield* setup();\n    yield* Store.appendCodexMessage(dir, { method: \\\"item/completed\\\", params: { output: \"'`useful ${secret}`, secret: \"[REDACTED_SECRET]\" } });\n    yield* Store.appendEvent(dir, { _tag: \"Command\", command: \"test\", status: \"failed\", exitCode: 1, outputTail: `useful ${secret}` });\n    for (const file of [\"codex.jsonl\", \"events.jsonl\"]) {\n      const text = yield* fs.readFileString(`${dir}/${file}`);\n      expect(text).not.toContain(secret);\n      expect(text).not.toContain(\"private-value\");\n      expect(text).toContain(\"useful \");\n      expect(text).toContain(\"[redacted]\");\n    }\n  }).pipe(Effect.provide(NodeServices.layer)),\n);\n\"\"\"+s[b:]; p.write_text(s)'\"'",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 1379,
+      "t": 1328312,
+      "kind": "command",
+      "command": "bun run format",
+      "exitCode": 0,
+      "output": "$ biome check --write .\nChecked 121 files in 716ms. Fixed 4 files."
+    },
+    {
+      "seq": 1384,
+      "t": 1328914,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 1,
+      "output": "src/logging.ts(115,22): error TS2769: No overload matches this call.\n  The last overload gave the following error.\n    Argument of type 'unknown' is not assignable to parameter of type '{}'.\nerror: script \"typecheck\" exited with code 1"
+    },
+    {
+      "seq": 1433,
+      "t": 1330834,
+      "kind": "command",
+      "command": "bun run test:unit tests/run-store.test.ts tests/supervisor-integration.test.ts -t 'secret-looking|release O7|captures unfamiliar'",
+      "exitCode": 1,
+      "output": "   Start at  22:01:48\n   Duration  1.12s (import 51%, tests 39%, transform 10%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 1435,
+      "t": 1356599,
+      "kind": "files",
+      "paths": ["src/logging.ts"]
+    },
+    {
+      "seq": 1437,
+      "t": 1356730,
+      "kind": "command",
+      "command": "python3 -c 'from pathlib import Path; p=Path(\\\"docs/rfcs/0001-forman.md\\\"); s=p.read_text().replace(\\\"bounded diagnostic metadata: method names, with wire bodies omitted\\\", \\\"bounded app-server notifications and requests, with secret-looking keys and values redacted\\\").replace(\\\"command executions (command, exit code, status)\\\", \\\"command executions (command, exit code, status, redacted output tail)\\\").replace(\\\"Persisted command output tails are empty.\\\", \\\"Command output tails retain their last 2 KB with best-effort redaction.\\\"); a=s.index(\\\"Diagnostic capture omits\\\"); b=s.index(\\\"\\\\n\\\\n\"'`codex.jsonl`\",a); s=s[:a]+\"\"\"Diagnostic persistence keeps useful stderr, raw wire bodies and command tails while redacting secret-looking keys using the logger’s secret/password/token/authorization/cookie/API-key/access-key rules. Text redaction also covers sk- and GitHub token shapes, Bearer values, secret KEY=value assignments, private-key blocks and long base64/hex-like blobs. UUID-shaped identifiers remain readable. Redaction is best effort: unknown credential formats can escape it, and ordinary opaque strings can be redacted. Review captures before sharing. The daemon keeps all of this under its private 0700 home, and diagnostic files are created with mode 0600. Existing captures are not rewritten. There is no unrestricted wire-capture mode.\n\nContracts, agent messages, questions, answers and hand-offs remain private run data, even when their diagnostic text has been redacted. Preserve requested hand-offs before cleanup.\"\"\"+s[b:]; p.write_text(s)'\"'",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 1439,
+      "t": 1357685,
+      "kind": "command",
+      "command": "bun run format",
+      "exitCode": 0,
+      "output": "$ biome check --write .\nChecked 121 files in 730ms. Fixed 1 file."
+    },
+    {
+      "seq": 1440,
+      "t": 1358199,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "output": "$ tsc --noEmit"
+    },
+    {
+      "seq": 1452,
+      "t": 1360230,
+      "kind": "command",
+      "command": "bun run test:unit tests/run-store.test.ts tests/supervisor-integration.test.ts -t 'secret-looking|release O7|captures unfamiliar|release C10'",
+      "exitCode": 0,
+      "output": " Test Files  2 passed (2)\n      Tests  9 passed | 180 skipped (189)\n   Start at  22:02:18\n   Duration  1.61s (tests 56%, import 39%, transform 4%)"
+    },
+    {
+      "seq": 1453,
+      "t": 1369970,
+      "kind": "command",
+      "command": "python3 /tmp/forman-b-revert-e7gjxev7/qa-unknown.py > /tmp/forman-b-revert-e7gjxev7/qa-unknown.log 2>&1",
+      "exitCode": 1,
+      "output": ""
+    },
+    {
+      "seq": 1455,
+      "t": 1376910,
+      "kind": "command",
+      "command": "tail -8 /tmp/forman-b-revert-e7gjxev7/smoke.log",
+      "exitCode": 0,
+      "output": " 1 fail\n 238 expect() calls\nRan 16 tests across 3 files. [294.56s]\nerror: script \"smoke\" exited with code 1"
+    },
+    {
+      "seq": 1456,
+      "t": 1377004,
+      "kind": "command",
+      "command": "cat /tmp/forman-b-revert-e7gjxev7/qa-unknown-results.json",
+      "exitCode": 1,
+      "output": "cat: /tmp/forman-b-revert-e7gjxev7/qa-unknown-results.json: No such file or directory"
+    },
+    {
+      "seq": 1457,
+      "t": 1377098,
+      "kind": "command",
+      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/full-final.log",
+      "exitCode": 0,
+      "output": " Test Files  32 passed (32)\n      Tests  802 passed (802)\n   Start at  21:59:44\n   Duration  96.09s (tests 92%, import 7%, transform 1%)"
+    },
+    {
+      "seq": 1458,
+      "t": 1377190,
+      "kind": "command",
+      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/repeat4.log",
+      "exitCode": 0,
+      "output": " Test Files  4 passed (4)\n      Tests  247 passed (247)\n   Start at  21:59:44\n   Duration  96.09s (tests 96%, import 4%)"
+    },
+    {
+      "seq": 1462,
+      "t": 1383288,
+      "kind": "command",
+      "command": "cat /tmp/forman-b-revert-e7gjxev7/qa-unknown.log",
+      "exitCode": 0,
+      "output": "               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^\n  File \"~/.local/share/mise/installs/python/3.13.16/lib/python3.13/json/decoder.py\", line 363, in raw_decode\n    raise JSONDecodeError(\"Expecting value\", s, err.value) from None\njson.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)"
+    },
+    {
+      "seq": 1466,
+      "t": 1385930,
+      "kind": "command",
+      "command": "python3 -c 'from pathlib import Path; import subprocess; root=Path.cwd(); out=Path(\\\"/tmp/forman-b-revert-e7gjxev7\\\"); files=subprocess.check_output([\\\"git\\\",\\\"diff\\\",\\\"--name-only\\\",\\\"--\\\",\\\"src\\\"],text=True).splitlines(); saved={f:(root/f).read_bytes() for f in files}\ntry:\n for f in files: (root/f).write_bytes(subprocess.check_output([\\\"git\\\",\\\"show\\\",f\\\"HEAD:{f}\\\"]))\n with (out/\\\"redaction-before.log\\\").open(\\\"w\\\") as log: result=subprocess.run([\\\"bun\\\",\\\"run\\\",\\\"test:unit\\\",\\\"tests/run-store.test.ts\\\",\\\"tests/supervisor-integration.test.ts\\\",\\\"-t\\\",\\\"secret-looking|release O7\\\"],stdout=log,stderr=subprocess.STDOUT,timeout=45)\n print(\\\"redaction baseline\\\",result.returncode)\nfinally:\n for f,data in saved.items(): (root/f).write_bytes(data)\n print(\\\"restored all fixed source\\\")\n'",
+      "exitCode": 0,
+      "output": "redaction baseline 1\nrestored all fixed source"
+    },
+    {
+      "seq": 1468,
+      "t": 1402964,
+      "kind": "command",
+      "command": "python3 -c 'from pathlib import Path; import json,os,subprocess; report=Path(\\\"/tmp/forman-b-revert-e7gjxev7\\\"); pid=int((report/\\\"qa-before-app.pid\\\").read_text()); os.kill(pid,0); records=[]\nfor f in Path(\\\"/tmp\\\").glob(\\\"fm-bq-*/d/runs/uncertain/run.json\\\"):\n data=json.loads(f.read_text()); root=f.parents[4]\n if str(root)==\\\"/tmp/fm-bq-50m8y60e\\\": continue\n result={\\\"binary\\\":\\\"before\\\",\\\"root\\\":str(root),\\\"state\\\":data[\\\"state\\\"],\\\"codexAliveAfterLoss\\\":True,\\\"pid\\\":pid}; records.append(result); print(json.dumps(result)); env={\\\"PATH\\\":os.environ[\\\"PATH\\\"],\\\"HOME\\\":str(root),\\\"FORMAN_HOME\\\":str(root/\\\"d\\\")}; stopped=subprocess.run([str(report/\\\"forman-before\\\"),\\\"daemon\\\",\\\"stop\\\",\\\"--json\\\"],env=env,capture_output=True,text=True); print(stopped.returncode,stopped.stdout,stopped.stderr)\n(report/\\\"qa-unknown-before-observed.json\\\").write_text(json.dumps(records,indent=2))'",
+      "exitCode": 1,
+      "output": "…ule>\n    from pathlib import Path; import json,os,subprocess; report=Path(\"/tmp/forman-b-revert-e7gjxev7\"); pid=int((report/\"qa-before-app.pid\").read_text()); os.kill(pid,0); records=[]\n                                                                                                                                                          ~~~~~~~^^^^^^^\nProcessLookupError: [Errno 3] No such process"
+    },
+    {
+      "seq": 1469,
+      "t": 1403053,
+      "kind": "command",
+      "command": "tail -7 /tmp/forman-b-revert-e7gjxev7/redaction-before.log",
+      "exitCode": 0,
+      "output": "   Start at  22:02:44\n   Duration  1.13s (import 57%, tests 39%, transform 3%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 1473,
+      "t": 1426542,
+      "kind": "command",
+      "command": "python3 -c 'from pathlib import Path; p=Path(\\\"/tmp/forman-b-revert-e7gjxev7/qa.py\\\"); s=p.read_text().replace(\\\"def fixture(binary, label, codex=FAKE):\\\", \\\"def fixture(binary, label, codex=FAKE, repo_name=\\\\x27项目\\\\x27):\\\").replace(\\\"repo = root / \\\\x27项目\\\\x27\\\", \\\"repo = root / repo_name\\\"); p.write_text(s); p=Path(\\\"/tmp/forman-b-revert-e7gjxev7/qa-unknown.py\\\"); s=p.read_text().replace(\\\"fixture(binary, label, wrapper)\\\", \\\"fixture(binary, label, wrapper, repo_name=\\\\x27repo\\\\x27)\\\").replace(\\\"[(\\\\x27before\\\\x27, REPORT / \\\\x27forman-before\\\\x27), (\\\\x27after\\\\x27, SOURCE / \\\\x27dist/forman\\\\x27)]\\\", \\\"[(\\\\x27before\\\\x27, REPORT / \\\\x27forman-before\\\\x27)]\\\"); p.write_text(s)'",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 1476,
+      "t": 1447163,
+      "kind": "command",
+      "command": "bun run e2e > /tmp/forman-b-revert-e7gjxev7/e2e-redacted.log 2>&1",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 1478,
+      "t": 1469341,
+      "kind": "files",
+      "paths": ["tests/run-store.test.ts"]
+    },
+    {
+      "seq": 1502,
+      "t": 1470525,
+      "kind": "command",
+      "command": "bun run test:unit tests/run-store.test.ts -t 'short-secret'",
+      "exitCode": 1,
+      "output": "   Start at  22:04:09\n   Duration  560ms (import 83%, tests 9%, transform 7%, setup 1%, worker 1%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 1503,
+      "t": 1470562,
+      "kind": "command",
+      "command": "tail -8 /tmp/forman-b-revert-e7gjxev7/e2e-redacted.log",
+      "exitCode": 0,
+      "output": " 8 pass\n 0 fail\n 169 expect() calls\nRan 8 tests across 1 file. [20.21s]"
+    },
+    {
+      "seq": 1504,
+      "t": 1470604,
+      "kind": "command",
+      "command": "tail -5 /tmp/forman-b-revert-e7gjxev7/redacted1.log",
+      "exitCode": 0,
+      "output": "$ node node_modules/vitest/vitest.mjs run tests/run-store.test.ts tests/config-logging.test.ts tests/codex-client.test.ts tests/supervisor-integration.test.ts\n\n RUN  v5.1.0 ."
+    },
+    {
+      "seq": 1508,
+      "t": 1483831,
+      "kind": "command",
+      "command": "sed -n '85,125p' src/logging.ts",
+      "exitCode": 0,
+      "output": "  return value;\n}\nexport function entry(input: {\n  date: Date;"
+    },
+    {
+      "seq": 1512,
+      "t": 1490704,
+      "kind": "files",
+      "paths": ["src/logging.ts"]
+    },
+    {
+      "seq": 1515,
+      "t": 1491797,
+      "kind": "command",
+      "command": "bun run format",
+      "exitCode": 0,
+      "output": "$ biome check --write .\nChecked 121 files in 705ms. Fixed 1 file."
+    },
+    {
+      "seq": 1525,
+      "t": 1492844,
+      "kind": "command",
+      "command": "bun run test:unit tests/run-store.test.ts -t 'secret-looking'",
+      "exitCode": 0,
+      "output": " Test Files  1 passed (1)\n      Tests  7 passed | 25 skipped (32)\n   Start at  22:04:31\n   Duration  700ms (import 64%, tests 31%, transform 4%, setup 1%)"
+    },
+    {
+      "seq": 1527,
+      "t": 1493046,
+      "kind": "command",
+      "command": "bun run build",
+      "exitCode": 0,
+      "output": "$ bun scripts/build.ts\n  [14ms]  minify  -5.87 MB (estimate)\n   [8ms]  bundle  359 modules\n  [80ms] compile  dist/forman"
+    },
+    {
+      "seq": 1532,
+      "t": 1502170,
+      "kind": "command",
+      "command": "bun run lint",
+      "exitCode": 0,
+      "output": "$ biome check .\nChecked 121 files in 514ms. No fixes applied."
+    },
+    {
+      "seq": 1533,
+      "t": 1502819,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "output": "$ tsc --noEmit"
+    },
+    {
+      "seq": 1534,
+      "t": 1502920,
+      "kind": "command",
+      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/redacted1.log",
+      "exitCode": 0,
+      "output": "$ node node_modules/vitest/vitest.mjs run tests/run-store.test.ts tests/config-logging.test.ts tests/codex-client.test.ts tests/supervisor-integration.test.ts\n\n RUN  v5.1.0 ."
+    },
+    {
+      "seq": 1535,
+      "t": 1503019,
+      "kind": "command",
+      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/full-redacted.log",
+      "exitCode": 0,
+      "output": "$ bun run test:unit\n$ node node_modules/vitest/vitest.mjs run\n\n RUN  v5.1.0 ."
+    },
+    {
+      "seq": 1538,
+      "t": 1517178,
+      "kind": "command",
+      "command": "bun run test:unit tests/run-store.test.ts tests/config-logging.test.ts tests/codex-client.test.ts tests/supervisor-integration.test.ts > /tmp/forman-b-revert-e7gjxev7/redacted1.log 2>&1",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 1539,
+      "t": 1517184,
+      "kind": "command",
+      "command": "bun run test > /tmp/forman-b-revert-e7gjxev7/full-redacted.log 2>&1",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 1541,
+      "t": 1535814,
+      "kind": "command",
+      "command": "rg -n 'readonly mode' node_modules/effect/dist/FileSystem.d.ts",
+      "exitCode": 0,
+      "output": "277:        readonly mode?: number | undefined;\n330:        readonly mode?: number | undefined;\n337:        readonly mode?: number | undefined;\n775:        readonly mode: number;"
+    },
+    {
+      "seq": 1542,
+      "t": 1535902,
+      "kind": "command",
+      "command": "tail -10 /tmp/forman-b-revert-e7gjxev7/redacted1.log",
+      "exitCode": 0,
+      "output": " Test Files  4 passed (4)\n      Tests  252 passed (252)\n   Start at  22:03:26\n   Duration  90.18s (tests 96%, import 4%, transform 1%)"
+    },
+    {
+      "seq": 1543,
+      "t": 1535998,
+      "kind": "command",
+      "command": "tail -10 /tmp/forman-b-revert-e7gjxev7/full-redacted.log",
+      "exitCode": 0,
+      "output": " Test Files  32 passed (32)\n      Tests  807 passed (807)\n   Start at  22:03:26\n   Duration  90.19s (tests 91%, import 8%, transform 1%)"
+    },
+    {
+      "seq": 1544,
+      "t": 1536092,
+      "kind": "command",
+      "command": "cat /tmp/forman-b-revert-e7gjxev7/qa-unknown-before.log",
+      "exitCode": 0,
+      "output": "before start 5 state unknown"
+    },
+    {
+      "seq": 1548,
+      "t": 1555592,
+      "kind": "command",
+      "command": "python3 -c 'from pathlib import Path; p=Path(\\\"docs/rfcs/0001-forman.md\\\"); s=p.read_text().replace(\\\"diagnostic files are created with mode 0600\\\", \\\"stderr and raw capture files are created with mode 0600\\\"); p.write_text(s); p=Path(\\\"/tmp/forman-b-revert-e7gjxev7/qa.py\\\"); s=p.read_text().replace(\\\"PRIVATE_SENTINEL\\\", \\\"sk-testPrivateSentinel\\\"); p.write_text(s)'",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 1551,
+      "t": 1560901,
+      "kind": "command",
+      "command": "python3 /tmp/forman-b-revert-e7gjxev7/qa.py > /tmp/forman-b-revert-e7gjxev7/qa-redacted.log 2>&1",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 1552,
+      "t": 1579138,
+      "kind": "message",
+      "text": "The redaction tests cover token shapes, Bearer values, secret assignments, quoted keys and long encoded blobs while checking that useful output remains. They fail against the baseline and pass with the fix. The first full run after the policy change passed 807 tests; I’m rerunning after the quoted-key addition. The fixed binary’s real-time unknown expiry also returned `lost` only after its Codex process was gone."
+    },
+    {
+      "seq": 1553,
+      "t": 1579417,
+      "kind": "command",
+      "command": "bun run e2e > /tmp/forman-b-revert-e7gjxev7/e2e-redacted-final.log 2>&1",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 1554,
+      "t": 1589716,
+      "kind": "command",
+      "command": "bun run test:unit tests/run-store.test.ts tests/config-logging.test.ts tests/codex-client.test.ts tests/supervisor-integration.test.ts > /tmp/forman-b-revert-e7gjxev7/redacted2.log 2>&1",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 1556,
+      "t": 1607134,
+      "kind": "command",
+      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/redacted2.log",
+      "exitCode": 0,
+      "output": " Test Files  4 passed (4)\n      Tests  253 passed (253)\n   Start at  22:04:39\n   Duration  89.24s (tests 98%, import 2%)"
+    },
+    {
+      "seq": 1557,
+      "t": 1607225,
+      "kind": "command",
+      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/redacted3.log",
+      "exitCode": 0,
+      "output": "$ node node_modules/vitest/vitest.mjs run tests/run-store.test.ts tests/config-logging.test.ts tests/codex-client.test.ts tests/supervisor-integration.test.ts\n\n RUN  v5.1.0 ."
+    },
+    {
+      "seq": 1558,
+      "t": 1607318,
+      "kind": "command",
+      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/full-redacted-final.log",
+      "exitCode": 0,
+      "output": "$ bun run test:unit\n$ node node_modules/vitest/vitest.mjs run\n\n RUN  v5.1.0 ."
+    },
+    {
+      "seq": 1559,
+      "t": 1607399,
+      "kind": "command",
+      "command": "cat /tmp/forman-b-revert-e7gjxev7/qa-unknown-before.log",
+      "exitCode": 0,
+      "output": "before start 5 state unknown"
+    },
+    {
+      "seq": 1560,
+      "t": 1607499,
+      "kind": "command",
+      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/smoke-redacted.log",
+      "exitCode": 0,
+      "output": "[exit 0]\nDaemon stopped.\n\n10 restart resumes write access and writes a file: 12.7s"
+    },
+    {
+      "seq": 1562,
+      "t": 1608601,
+      "kind": "command",
+      "command": "git diff --stat",
+      "exitCode": 0,
+      "output": " tests/config-logging.test.ts         |  24 ++\n tests/run-store.test.ts              | 132 +++++++++-\n tests/supervisor-integration.test.ts | 474 ++++++++++++++++++++++++++++++++++-\n 15 files changed, 1061 insertions(+), 120 deletions(-)"
+    },
+    {
+      "seq": 1565,
+      "t": 1651044,
+      "kind": "command",
+      "command": "bun run test:unit tests/run-store.test.ts tests/config-logging.test.ts tests/codex-client.test.ts tests/supervisor-integration.test.ts > /tmp/forman-b-revert-e7gjxev7/redacted3.log 2>&1",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 1566,
+      "t": 1651946,
+      "kind": "command",
+      "command": "bun run test > /tmp/forman-b-revert-e7gjxev7/full-redacted-final.log 2>&1",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 1568,
+      "t": 1660355,
+      "kind": "files",
+      "paths": ["tests/supervisor-integration.test.ts"]
+    },
+    {
+      "seq": 1579,
+      "t": 1661557,
+      "kind": "command",
+      "command": "bun run test:unit tests/supervisor-integration.test.ts -t 'answer delivery'",
+      "exitCode": 0,
+      "output": " Test Files  1 passed (1)\n      Tests  1 passed | 157 skipped (158)\n   Start at  22:07:20\n   Duration  861ms (import 51%, tests 36%, transform 12%, setup 1%)"
+    },
+    {
+      "seq": 1580,
+      "t": 1661586,
+      "kind": "command",
+      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/full-redacted-final.log",
+      "exitCode": 0,
+      "output": " Test Files  32 passed (32)\n      Tests  808 passed (808)\n   Start at  22:05:37\n   Duration  93.66s (tests 91%, import 8%, transform 1%)"
+    },
+    {
+      "seq": 1581,
+      "t": 1661674,
+      "kind": "command",
+      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/redacted3.log",
+      "exitCode": 0,
+      "output": " Test Files  4 passed (4)\n      Tests  253 passed (253)\n   Start at  22:05:36\n   Duration  93.94s (tests 98%, import 2%)"
+    },
+    {
+      "seq": 1582,
+      "t": 1661765,
+      "kind": "command",
+      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/qa-unknown-before.log",
+      "exitCode": 0,
+      "output": "before start 5 state unknown"
+    },
+    {
+      "seq": 1583,
+      "t": 1661855,
+      "kind": "command",
+      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/smoke-redacted.log",
+      "exitCode": 0,
+      "output": "[exit 0]\nDaemon stopped.\n\n6 budget expiry collects a read-only hand-off and restores write on followup: 58.0s"
+    },
+    {
+      "seq": 1586,
+      "t": 1671526,
+      "kind": "message",
+      "text": "The final-policy unit suite passed all 808 tests, and the changed-file runs passed 253 tests per run. The Answer interruption test now confirms the fake server received the response before interrupting the caller, so it checks the delivery-to-bookkeeping gap directly. The remaining pre-review work is the smoke run and the baseline ownership comparison’s five-minute deadline."
+    },
+    {
+      "seq": 1588,
+      "t": 1672557,
+      "kind": "command",
+      "command": "cat /tmp/forman-b-revert-e7gjxev7/qa-redacted.log",
+      "exitCode": 0,
+      "output": "    \"wireContainsSentinel\": false,\n    \"eventsContainSentinel\": false\n  }\n]"
+    },
+    {
+      "seq": 1589,
+      "t": 1672646,
+      "kind": "command",
+      "command": "tail -7 /tmp/forman-b-revert-e7gjxev7/e2e-redacted-final.log",
+      "exitCode": 0,
+      "output": " 8 pass\n 0 fail\n 169 expect() calls\nRan 8 tests across 1 file. [19.52s]"
+    },
+    {
+      "seq": 1590,
+      "t": 1673732,
+      "kind": "command",
+      "command": "git diff --check",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 1592,
+      "t": 1674427,
+      "kind": "command",
+      "command": "bun run lint",
+      "exitCode": 0,
+      "output": "$ biome check .\nChecked 121 files in 470ms. No fixes applied."
+    },
+    {
+      "seq": 1593,
+      "t": 1675077,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "output": "$ tsc --noEmit"
+    },
+    {
+      "seq": 1597,
+      "t": 1720280,
+      "kind": "command",
+      "command": "cat /tmp/forman-b-revert-e7gjxev7/qa-unknown-before.log",
+      "exitCode": 0,
+      "output": "before start 5 state unknown"
+    },
+    {
+      "seq": 1598,
+      "t": 1720363,
+      "kind": "command",
+      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/smoke-redacted.log",
+      "exitCode": 0,
+      "output": "[exit 0]\nDaemon stopped.\n\n8 unapproved repo hooks refuse start before any turn and doctor explains: 2.8s"
+    },
+    {
+      "seq": 1599,
+      "t": 1720458,
+      "kind": "command",
+      "command": "rg -n '\\\\(fail\\\\)|expect\\\\(|AssertionError' /tmp/forman-b-revert-e7gjxev7/smoke-redacted.log",
+      "exitCode": 1,
+      "output": ""
+    },
+    {
+      "seq": 1603,
+      "t": 1746860,
+      "kind": "command",
+      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/qa-unknown-before.log",
+      "exitCode": 0,
+      "output": "before start 5 state unknown"
+    },
+    {
+      "seq": 1604,
+      "t": 1746941,
+      "kind": "command",
+      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/smoke-redacted.log",
+      "exitCode": 0,
+      "output": "[exit 0]\nDaemon stopped.\n\n8 unapproved repo hooks refuse start before any turn and doctor explains: 2.8s"
+    },
+    {
+      "seq": 1607,
+      "t": 1751375,
+      "kind": "message",
+      "text": "The compiled suite passed all 8 tests, and the full unit suite passed 808. The smoke run has reached its timed question-hold case with no failures so far. Once that and the baseline ownership QA finish, I’ll run the independent review."
+    },
+    {
+      "seq": 1612,
+      "t": 1757898,
+      "kind": "command",
+      "command": "git diff -- src/core/runs/store.ts",
+      "exitCode": 0,
+      "output": "+  yield* fs.rename(`${latest}.tmp`, latest);\n });\n \n export const readHandoff = Effect.fn(\"runs.readHandoff\")(function* ("
+    },
+    {
+      "seq": 1615,
+      "t": 1758637,
+      "kind": "command",
+      "command": "python3 /tmp/forman-b-revert-e7gjxev7/qa-unknown.py > /tmp/forman-b-revert-e7gjxev7/qa-unknown-before.log 2>&1",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 1617,
+      "t": 1780450,
+      "kind": "command",
+      "command": "tail -8 /tmp/forman-b-revert-e7gjxev7/qa-unknown-before.log",
+      "exitCode": 0,
+      "output": "before start 5 state unknown\n{\"binary\": \"before\", \"root\": \"/tmp/fm-bq-38dr9a0m\", \"waitStatus\": 0, \"outcome\": \"lost\", \"codexAliveAfterLoss\": true}"
+    },
+    {
+      "seq": 1618,
+      "t": 1781491,
+      "kind": "command",
+      "command": "tail -8 /tmp/forman-b-revert-e7gjxev7/smoke-redacted.log",
+      "exitCode": 0,
+      "output": "[exit 0]\nDaemon stopped.\n\n8 unapproved repo hooks refuse start before any turn and doctor explains: 2.8s"
+    },
+    {
+      "seq": 1621,
+      "t": 1798846,
+      "kind": "command",
+      "command": "FORMAN_SMOKE=1 FORMAN_SMOKE_SHORT=1 bun run smoke > /tmp/forman-b-revert-e7gjxev7/smoke-redacted.log 2>&1",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 1623,
+      "t": 1836208,
+      "kind": "command",
+      "command": "tail -7 /tmp/forman-b-revert-e7gjxev7/smoke-redacted.log",
+      "exitCode": 0,
+      "output": " 16 pass\n 0 fail\n 238 expect() calls\nRan 16 tests across 3 files. [299.76s]"
+    },
+    {
+      "seq": 1624,
+      "t": 1837246,
+      "kind": "command",
+      "command": "cat /tmp/forman-b-revert-e7gjxev7/qa-unknown-results.json",
+      "exitCode": 0,
+      "output": "    \"outcome\": \"lost\",\n    \"codexAliveAfterLoss\": true\n  }\n]"
+    },
+    {
+      "seq": 1627,
+      "t": 1840131,
+      "kind": "message",
+      "text": "The smoke suite passed all 16 tests. The real-time QA also reproduced the ownership bug: the baseline reported `lost` while Codex was still alive; the fixed build reported `lost` after the process had exited. I’m starting the required independent review now."
+    },
+    {
+      "seq": 1632,
+      "t": 1894491,
+      "kind": "command",
+      "command": "tail -12 /tmp/forman-b-revert-e7gjxev7/review-exec.log",
+      "exitCode": 0,
+      "output": "      return { handoff: { turn, text }, latestTurnWithoutHandoff: turn < latestTurn };\n  }\n  return { handoff: null, latestTurnWithoutHandoff: latestTurn > 0 };\n});"
+    },
+    {
+      "seq": 1634,
+      "t": 1896504,
+      "kind": "command",
+      "command": "git diff --numstat",
+      "exitCode": 0,
+      "output": "12\t0\ttests/codex-client.test.ts\n24\t0\ttests/config-logging.test.ts\n130\t2\ttests/run-store.test.ts\n468\t7\ttests/supervisor-integration.test.ts"
+    },
+    {
+      "seq": 1635,
+      "t": 1897550,
+      "kind": "command",
+      "command": "cat /tmp/forman-b-revert-e7gjxev7/qa-after-unknown.json",
+      "exitCode": 0,
+      "output": "      \"stderr\": \"\"\n    }\n  ]\n}"
+    },
+    {
+      "seq": 1639,
+      "t": 1941158,
+      "kind": "command",
+      "command": "tail -14 /tmp/forman-b-revert-e7gjxev7/review-exec.log",
+      "exitCode": 0,
+      "output": "…md:84), `src/core/runs/worktree.ts:58`. The example’s `May change:` line lacks the required leading bullet and backticked paths. **Failure scenario:** copying the first-run example produces no parsed scope, so the digest cannot report out-of-scope changes. **Fix:** use ``- May change: `src/commands/doctor.ts`.`` and explain the required format beside the example.\n\nRelease verdict: **NEEDS FIXES**."
+    },
+    {
+      "seq": 1642,
+      "t": 1959204,
+      "kind": "message",
+      "text": "The reviewer is still checking the store and recovery paths. I’ll use its findings for the final corrections and rerun the required checks afterward."
+    },
+    {
+      "seq": 1644,
+      "t": 2040382,
+      "kind": "command",
+      "command": "tail -16 /tmp/forman-b-revert-e7gjxev7/review-exec.log",
+      "exitCode": 0,
+      "output": "   433\t      return { handoff: { turn, text }, latestTurnWithoutHandoff: turn < latestTurn };\n   434\t  }\n   435\t  return { handoff: null, latestTurnWithoutHandoff: latestTurn > 0 };\n   436\t});"
+    },
+    {
+      "seq": 1647,
+      "t": 2074810,
+      "kind": "message",
+      "text": "I found another ownership gap: Codex can return a turn ID, then saving that ID can fail. Recovery currently treats that as a failed run even though the turn started. I’m adding a deterministic regression that blocks the state write immediately after the app-server reply."
+    },
+    {
+      "seq": 1649,
+      "t": 2079850,
+      "kind": "files",
+      "paths": ["tests/supervisor-integration.test.ts"]
+    },
+    {
+      "seq": 1680,
+      "t": 2111393,
+      "kind": "command",
+      "command": "bun run test:unit tests/supervisor-integration.test.ts -t 'turn reply followed'",
+      "exitCode": 1,
+      "output": "   Start at  22:14:19\n   Duration  1.24s (tests 55%, import 36%, transform 9%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 1682,
+      "t": 2114514,
+      "kind": "command",
+      "command": "tail -10 /tmp/forman-b-revert-e7gjxev7/review-exec.log",
+      "exitCode": 0,
+      "output": "   *\n   * await Effect.runPromise(program)\n   * ```\n   *"
+    },
+    {
+      "seq": 1686,
+      "t": 2119560,
+      "kind": "files",
+      "paths": ["src/supervisor/turns.ts"]
+    },
+    {
+      "seq": 1689,
+      "t": 2122585,
+      "kind": "command",
+      "command": "bun run format",
+      "exitCode": 0,
+      "output": "$ biome check --write .\nChecked 121 files in 723ms. Fixed 1 file."
+    },
+    {
+      "seq": 1699,
+      "t": 2132918,
+      "kind": "command",
+      "command": "bun run test:unit tests/supervisor-integration.test.ts -t 'turn reply followed'",
+      "exitCode": 0,
+      "output": " Test Files  1 passed (1)\n      Tests  1 passed | 158 skipped (159)\n   Start at  22:14:54\n   Duration  1.18s (tests 56%, import 36%, transform 8%)"
+    },
+    {
+      "seq": 1700,
+      "t": 2133958,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "output": "$ tsc --noEmit"
+    },
+    {
+      "seq": 1703,
+      "t": 2137111,
+      "kind": "command",
+      "command": "codex exec --ephemeral --sandbox read-only -m gpt-6.1-sol -c model_reasoning_effort=high -c service_tier=priority -o /tmp/scratch - < /tmp/scratch > /tmp/forman-b-revert-e7gjxev7/review-exec.log 2>&1",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 1705,
+      "t": 2146863,
+      "kind": "command",
+      "command": "tail -12 /tmp/forman-b-revert-e7gjxev7/review-exec.log",
+      "exitCode": 0,
+      "output": "\n## Verdict\n\n**NEEDS FIXES** - Retirement can still release worktree ownership prematurely, and persistence, sanitization and regression-test defects remain."
+    },
+    {
+      "seq": 1709,
+      "t": 2152112,
+      "kind": "command",
+      "command": "cat /tmp/scratch",
+      "exitCode": 0,
+      "output": "\n## Verdict\n\n**NEEDS FIXES** - Retirement can still release worktree ownership prematurely, and persistence, sanitization and regression-test defects remain."
+    },
+    {
+      "seq": 1712,
+      "t": 2163513,
+      "kind": "message",
+      "text": "The review found six issues: repeated full-history scans, an unversioned oversized-capture marker, multiline PEM leakage on stderr, retirement callers that can return before cleanup finishes, journal reconciliation collecting the whole history, and a stderr test race. I’m adding regressions for these and fixing them before rerunning acceptance."
+    },
+    {
+      "seq": 1714,
+      "t": 2164775,
+      "kind": "command",
+      "command": "sed -n '740,800p' node_modules/effect/dist/FileSystem.d.ts; rg -n 'export const cached|memoize|once' node_modules/effect/dist/Effect.d.ts | head -15",
+      "exitCode": 0,
+      "output": "7796: * attempts schedule; later retries apply the step schedule at least once).\n7873:     * attempts schedule; later retries apply the step schedule at least once).\n7957:     * attempts schedule; later retries apply the step schedule at least once).\n11480: * This function provides multiple services at once by supplying a context"
+    },
+    {
+      "seq": 1715,
+      "t": 2165823,
+      "kind": "command",
+      "command": "cat src/supervisor/app-server.ts",
+      "exitCode": 0,
+      "output": "    ).pipe(Effect.andThen(Scope.close(server.scope, Exit.void)), Effect.provide(context));\n  return { get, retire, protocolWarning, environment: env };\n});\nexport type AppServers = Effect.Success<ReturnType<typeof makeAppServer>>;"
+    },
+    {
+      "seq": 1719,
+      "t": 2290777,
+      "kind": "command",
+      "command": "rg -n 'export const (cached|poll)' node_modules/effect/src/Effect.ts node_modules/effect/src/Fiber.ts",
+      "exitCode": 0,
+      "output": "node_modules/effect/src/Effect.ts:14530:export const cached: <A, E, R>(self: Effect<A, E, R>) => Effect<Effect<A, E, R>> = internal.cached\nnode_modules/effect/src/Effect.ts:14617:export const cachedWithTTL: {\nnode_modules/effect/src/Effect.ts:15026:export const cachedInvalidateWithTTL: {"
+    },
+    {
+      "seq": 1720,
+      "t": 2291837,
+      "kind": "command",
+      "command": "sed -n '1,24p' tests/supervisor-integration.test.ts",
+      "exitCode": 0,
+      "output": "import { openConnection } from \"../src/codex/client\";\nimport { AppConfig } from \"../src/config\";\nimport { commandResult } from \"../src/core/process\";\nimport * as Store from \"../src/core/runs/store\";"
+    },
+    {
+      "seq": 1724,
+      "t": 2346135,
+      "kind": "files",
+      "paths": ["tests/run-store.test.ts"]
+    },
+    {
+      "seq": 1726,
+      "t": 2348238,
+      "kind": "hook-blocked",
+      "feedback": "BLOCKED: possible secret in the write to supervisor-integration.test.ts.\n\nDetected:\n- Private key (PEM)\n\nRead credentials from environment variables (document them in .env.example) or a secrets manager.\nIf this is a deliberate fixture, ask the user, then mark the line with a \"pragma: allowlist secret\" comment.\nNever work around this block."
+    },
+    {
+      "seq": 1729,
+      "t": 2354194,
+      "kind": "message",
+      "text": "The repository’s secret-write hook blocked the synthetic PEM fixture. The hook requires explicit approval and an allowlist pragma for deliberate fixtures, so I need the orchestrator’s approval before adding that test."
+    },
+    {
+      "seq": 1730,
+      "t": 2356111,
+      "kind": "question",
+      "id": "q2",
+      "text": "The required independent review found multiline PEM leakage in stderr redaction. The patch hook blocked a regression fixture containing only a PEM BEGIN/END marker around the literal synthetic payload 'short-private-key-payload'. The hook explicitly requires approval plus a 'pragma: allowlist secret' comment for deliberate fixtures. May I add this synthetic fixture with that pragma, then implement and verify line-aware PEM redaction?"
+    },
+    {
+      "seq": 1731,
+      "t": 2356113,
+      "kind": "state",
+      "from": "running",
+      "to": "waiting"
+    },
+    {
+      "seq": 1744,
+      "t": 2512926,
+      "kind": "message",
+      "text": "The PEM fixture is still waiting on the hook-required approval. The other review fixes are ready to apply: reuse validated format checks, stream the journal search, and make retirement callers await one shared cleanup."
+    },
+    {
+      "seq": 1751,
+      "t": 2661158,
+      "kind": "message",
+      "text": "I’ll apply the independent review fixes while the PEM fixture approval is pending. I’ll leave the blocked fixture out until approval arrives."
+    },
+    {
+      "seq": 1753,
+      "t": 2666515,
+      "kind": "files",
+      "paths": ["tests/supervisor-integration.test.ts"]
+    },
+    {
+      "seq": 1758,
+      "t": 2668308,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 1,
+      "output": "$ tsc --noEmit\ntests/run-store.test.ts(455,75): error TS2694: Namespace '\"node_modules/effect/dist/FileSystem\"' has no exported member 'StreamOptions'.\nerror: script \"typecheck\" exited with code 1"
+    },
+    {
+      "seq": 1761,
+      "t": 2668515,
+      "kind": "command",
+      "command": "bun run test:unit tests/run-store.test.ts tests/supervisor-integration.test.ts -t 'versions the bounded|checks existing formats once|concurrent retirement joins|journal reconciliation stops' > /tmp/forman-b-revert-e7gjxev7/review-before.log 2>&1",
+      "exitCode": 1,
+      "output": ""
+    },
+    {
+      "seq": 1763,
+      "t": 2690837,
+      "kind": "files",
+      "paths": ["tests/run-store.test.ts"]
+    },
+    {
+      "seq": 1765,
+      "t": 2690922,
+      "kind": "command",
+      "command": "tail -14 /tmp/forman-b-revert-e7gjxev7/review-before.log",
+      "exitCode": 0,
+      "output": "   Start at  22:24:06\n   Duration  1.43s (tests 49%, import 42%, transform 9%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 1766,
+      "t": 2691033,
+      "kind": "files",
+      "paths": ["src/core/runs/store.ts"]
+    },
+    {
+      "seq": 1768,
+      "t": 2691141,
+      "kind": "files",
+      "paths": ["src/logging.ts"]
+    },
+    {
+      "seq": 1770,
+      "t": 2691620,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "output": "$ tsc --noEmit"
+    },
+    {
+      "seq": 1776,
+      "t": 2746724,
+      "kind": "files",
+      "paths": ["src/supervisor/app-server.ts"]
+    },
+    {
+      "seq": 1778,
+      "t": 2746822,
+      "kind": "files",
+      "paths": ["src/core/runs/store.ts"]
+    },
+    {
+      "seq": 1780,
+      "t": 2746921,
+      "kind": "files",
+      "paths": ["src/supervisor/registry.ts"]
+    },
+    {
+      "seq": 1783,
+      "t": 2747801,
+      "kind": "command",
+      "command": "bun run format",
+      "exitCode": 0,
+      "output": "$ biome check --write .\nChecked 121 files in 702ms. Fixed 5 files."
+    },
+    {
+      "seq": 1785,
+      "t": 2748307,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "output": "$ tsc --noEmit"
+    },
+    {
+      "seq": 1795,
+      "t": 2749835,
+      "kind": "command",
+      "command": "bun run test:unit tests/run-store.test.ts tests/supervisor-integration.test.ts -t 'versions the bounded|checks existing formats once|concurrent retirement joins|journal reconciliation stops'",
+      "exitCode": 0,
+      "output": " Test Files  2 passed (2)\n      Tests  4 passed | 191 skipped (195)\n   Start at  22:25:28\n   Duration  1.23s (import 45%, tests 45%, transform 10%)"
+    },
+    {
+      "seq": 1801,
+      "t": 2811112,
+      "kind": "files",
+      "paths": ["tests/supervisor-integration.test.ts"]
+    },
+    {
+      "seq": 1833,
+      "t": 2812860,
+      "kind": "command",
+      "command": "bun run test:unit tests/supervisor-integration.test.ts -t 'future formats refuse archive'",
+      "exitCode": 1,
+      "output": "   Start at  22:26:31\n   Duration  1.17s (tests 53%, import 38%, transform 9%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 1838,
+      "t": 2837860,
+      "kind": "files",
+      "paths": ["src/supervisor/registry.ts"]
+    },
+    {
+      "seq": 1841,
+      "t": 2839011,
+      "kind": "command",
+      "command": "bun run format",
+      "exitCode": 0,
+      "output": "$ biome check --write .\nChecked 121 files in 719ms. Fixed 1 file."
+    },
+    {
+      "seq": 1843,
+      "t": 2839539,
+      "kind": "command",
+      "command": "bun run lint",
+      "exitCode": 0,
+      "output": "$ biome check .\nChecked 121 files in 399ms. No fixes applied."
+    },
+    {
+      "seq": 1844,
+      "t": 2840094,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "output": "$ tsc --noEmit"
+    },
+    {
+      "seq": 1856,
+      "t": 2842299,
+      "kind": "command",
+      "command": "bun run test:unit tests/supervisor-integration.test.ts -t 'future formats refuse archive|turn reply followed|concurrent retirement joins'",
+      "exitCode": 0,
+      "output": " Test Files  1 passed (1)\n      Tests  3 passed | 159 skipped (162)\n   Start at  22:26:59\n   Duration  1.89s (tests 73%, import 22%, transform 5%)"
+    },
+    {
+      "seq": 1858,
+      "t": 2902350,
+      "kind": "files",
+      "paths": ["docs/rfcs/0001-forman.md"]
+    },
+    {
+      "seq": 1863,
+      "t": 2902995,
+      "kind": "command",
+      "command": "python3 -c 'from pathlib import Path; import subprocess; root=Path.cwd(); files=[\\\"src/core/runs/store.ts\\\",\\\"src/supervisor/app-server.ts\\\",\\\"src/supervisor/registry.ts\\\"]; saved={f:(root/f).read_text() for f in files}; out=Path(\\\"/tmp/forman-b-revert-e7gjxev7/review-revert.log\\\")\ntry:\n p=root/files[0]; s=saved[files[0]].replace(\\\"if (\"'!fresh && checks.get(fullPath) === stamp) continue;\", \"if (!fresh && false && checks.get(fullPath) === stamp) continue;\").replace(\"makeLogAppender(path.join(runDir, '\"\\\\\\\"codex.jsonl\\\\\\\"), 1)\\\", \\\"makeLogAppender(path.join(runDir, \\\\\\\"codex.jsonl\\\\\\\"))\\\"); p.write_text(s)\n p=root/files[1]; p.write_text(saved[files[1]].replace(\\\"if (completed) yield* completed;\\\", \\\"if (completed) yield* Effect.void;\\\"))\n p=root/files[2]; p.write_text(saved[files[2]].replace(\\\"if (\"'!(yield* Store.hasTransition(run.dir, pending.id)))\", \"if (!(yield* Store.readEvents(run.dir, 0, Number.MAX_SAFE_INTEGER)).events.some((entry) => entry.transitionId === pending.id))\"))\n with out.open(\"w\") as log: result=subprocess.run([\"bun\",\"run\",\"test:unit\",\"tests/run-store.test.ts\",\"tests/supervisor-integration.test.ts\",\"-t\",\"versions the bounded|checks existing formats once|concurrent retirement joins|journal reconciliation stops\"],stdout=log,stderr=subprocess.STDOUT,timeout=60)\n print(\"review revert exit\",result.returncode)\nfinally:\n for f,text in saved.items(): (root/f).write_text(text)\n print(\"restored reviewed fixes\")\n'\"'",
+      "exitCode": 0,
+      "output": "review revert exit 1\nrestored reviewed fixes"
+    },
+    {
+      "seq": 1867,
+      "t": 2923364,
+      "kind": "message",
+      "text": "The four new review regressions pass. They cover avoiding repeated log reads, versioning oversized-capture markers, joining concurrent cleanup, and stopping journal search after a match. A separate regression also confirmed that a future-format run could lose its managed worktree before archive refused it; the compatibility check now runs before cleanup."
+    },
+    {
+      "seq": 1869,
+      "t": 2927484,
+      "kind": "command",
+      "command": "tail -7 /tmp/forman-b-revert-e7gjxev7/review-revert.log",
+      "exitCode": 0,
+      "output": "   Start at  22:28:01\n   Duration  1.27s (tests 48%, import 47%, transform 5%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 1873,
+      "t": 2929472,
+      "kind": "command",
+      "command": "python3 -c 'from pathlib import Path; import subprocess; files=[Path(\\\"src/supervisor/turns.ts\\\"),Path(\\\"src/supervisor/registry.ts\\\")]; saved={p:p.read_text() for p in files}\ntry:\n p=files[0]; p.write_text(saved[p].replace(\\\"    run.record = { ...run.record, activeTurnId: response.turn.id };\\\\n\\\", \\\"\\\"))\n p=files[1]; p.write_text(saved[p].replace(\\\"          yield* Store.assertSupported(run.dir);\\\\n\\\", \\\"\\\"))\n with Path(\\\"/tmp/forman-b-revert-e7gjxev7/extra-revert.log\\\").open(\\\"w\\\") as log: result=subprocess.run([\\\"bun\\\",\\\"run\\\",\\\"test:unit\\\",\\\"tests/supervisor-integration.test.ts\\\",\\\"-t\\\",\\\"turn reply followed|future formats refuse archive\\\"],stdout=log,stderr=subprocess.STDOUT,timeout=30)\n print(\\\"additional revert exit\\\",result.returncode)\nfinally:\n for p,text in saved.items(): p.write_text(text)\n print(\\\"restored ownership and archive fixes\\\")\n'",
+      "exitCode": 0,
+      "output": "additional revert exit 1\nrestored ownership and archive fixes"
+    },
+    {
+      "seq": 1875,
+      "t": 3020682,
+      "kind": "files",
+      "paths": ["src/core/runs/store.ts"]
+    },
+    {
+      "seq": 1877,
+      "t": 3020804,
+      "kind": "files",
+      "paths": ["src/supervisor/registry.ts"]
+    },
+    {
+      "seq": 1880,
+      "t": 3022115,
+      "kind": "command",
+      "command": "bun run format",
+      "exitCode": 0,
+      "output": "$ biome check --write .\nChecked 121 files in 804ms. Fixed 1 file."
+    },
+    {
+      "seq": 1881,
+      "t": 3022561,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "output": "$ tsc --noEmit"
+    },
+    {
+      "seq": 1892,
+      "t": 3025298,
+      "kind": "command",
+      "command": "bun run test:unit tests/supervisor-integration.test.ts -t 'archive invalidates|future formats refuse archive'",
+      "exitCode": 0,
+      "output": " Test Files  1 passed (1)\n      Tests  3 passed | 159 skipped (162)\n   Start at  22:30:02\n   Duration  2.42s (tests 81%, import 17%, transform 2%)"
+    },
+    {
+      "seq": 1899,
+      "t": 3074387,
+      "kind": "command",
+      "command": "bun run e2e > /tmp/forman-b-revert-e7gjxev7/post-review-e2e.log 2>&1",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 1901,
+      "t": 3115360,
+      "kind": "command",
+      "command": "tail -8 /tmp/forman-b-revert-e7gjxev7/post-review-e2e.log",
+      "exitCode": 0,
+      "output": " 8 pass\n 0 fail\n 169 expect() calls\nRan 8 tests across 1 file. [18.56s]"
+    },
+    {
+      "seq": 1902,
+      "t": 3115447,
+      "kind": "command",
+      "command": "tail -8 /tmp/forman-b-revert-e7gjxev7/post-review-full.log",
+      "exitCode": 0,
+      "output": "$ bun run test:unit\n$ node node_modules/vitest/vitest.mjs run\n\n RUN  v5.1.0 ."
+    },
+    {
+      "seq": 1903,
+      "t": 3115537,
+      "kind": "command",
+      "command": "tail -8 /tmp/forman-b-revert-e7gjxev7/post-review-repeat1.log",
+      "exitCode": 0,
+      "output": "$ node node_modules/vitest/vitest.mjs run tests/run-store.test.ts tests/config-logging.test.ts tests/codex-client.test.ts tests/supervisor-integration.test.ts\n\n RUN  v5.1.0 ."
+    },
+    {
+      "seq": 1905,
+      "t": 3116211,
+      "kind": "command",
+      "command": "bun run lint",
+      "exitCode": 0,
+      "output": "$ biome check .\nChecked 121 files in 477ms. No fixes applied."
+    },
+    {
+      "seq": 1906,
+      "t": 3116750,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "output": "$ tsc --noEmit"
+    },
+    {
+      "seq": 1907,
+      "t": 3117838,
+      "kind": "command",
+      "command": "git diff --check",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 1910,
+      "t": 3120880,
+      "kind": "message",
+      "text": "The post-review binary tests passed all 8 cases. The full suite and three changed-file repetitions are running; I’m also rerunning the real-Codex smoke suite against the rebuilt binary. The PEM fixture approval remains the only unresolved review item."
+    },
+    {
+      "seq": 1912,
+      "t": 3124316,
+      "kind": "command",
+      "command": "python3 -c 'from pathlib import Path; p=Path(\\\"docs/rfcs/0001-forman.md\\\"); s=p.read_text().replace(\\\"private-key blocks and long base64/hex-like blobs\\\", \\\"complete private-key blocks within a record and long base64/hex-like blobs\\\"); p.write_text(s)'",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 1915,
+      "t": 3138280,
+      "kind": "command",
+      "command": "bun run test > /tmp/forman-b-revert-e7gjxev7/post-review-full.log 2>&1",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 1918,
+      "t": 3186641,
+      "kind": "command",
+      "command": "tail -7 /tmp/forman-b-revert-e7gjxev7/post-review-full.log",
+      "exitCode": 0,
+      "output": " Test Files  32 passed (32)\n      Tests  814 passed (814)\n   Start at  22:30:33\n   Duration  84.10s (tests 93%, import 7%)"
+    },
+    {
+      "seq": 1919,
+      "t": 3186736,
+      "kind": "command",
+      "command": "tail -7 /tmp/forman-b-revert-e7gjxev7/post-review-repeat1.log",
+      "exitCode": 0,
+      "output": " Test Files  4 passed (4)\n      Tests  259 passed (259)\n   Start at  22:30:36\n   Duration  82.59s (tests 96%, import 4%, transform 1%)"
+    },
+    {
+      "seq": 1920,
+      "t": 3186827,
+      "kind": "command",
+      "command": "tail -7 /tmp/forman-b-revert-e7gjxev7/post-review-repeat2.log",
+      "exitCode": 0,
+      "output": "$ node node_modules/vitest/vitest.mjs run tests/run-store.test.ts tests/config-logging.test.ts tests/codex-client.test.ts tests/supervisor-integration.test.ts\n\n RUN  v5.1.0 ."
+    },
+    {
+      "seq": 1921,
+      "t": 3186918,
+      "kind": "command",
+      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/post-review-smoke.log",
+      "exitCode": 0,
+      "output": "[exit 0]\nDaemon stopped.\n\n4 interrupt cancels a question, refuses its answer and permits followup: 7.6s"
+    },
+    {
+      "seq": 1925,
+      "t": 3256119,
+      "kind": "question-resolved",
+      "id": "q2",
+      "resolution": "auto-answered"
+    },
+    {
+      "seq": 1926,
+      "t": 3256120,
+      "kind": "state",
+      "from": "waiting",
+      "to": "running"
+    },
+    {
+      "seq": 1928,
+      "t": 3291561,
+      "kind": "command",
+      "command": "python3 -c 'from pathlib import Path; import subprocess; out=Path(\\\"/tmp/forman-b-revert-e7gjxev7\\\"); args=[\\\"bun\\\",\\\"run\\\",\\\"test:unit\\\",\\\"tests/run-store.test.ts\\\",\\\"tests/config-logging.test.ts\\\",\\\"tests/codex-client.test.ts\\\",\\\"tests/supervisor-integration.test.ts\\\"]\nfor n in range(1,4):\n with (out/f\\\"post-review-repeat{n}.log\\\").open(\\\"w\\\") as log: result=subprocess.run(args,stdout=log,stderr=subprocess.STDOUT,timeout=200)\n print(\\\"post-review repetition\\\",n,\\\"exit\\\",result.returncode,flush=True)\n if result.returncode: break\n'",
+      "exitCode": 0,
+      "output": "post-review repetition 1 exit 0\npost-review repetition 2 exit 0\npost-review repetition 3 exit 0"
+    },
+    {
+      "seq": 1930,
+      "t": 3335800,
+      "kind": "command",
+      "command": "tail -7 /tmp/forman-b-revert-e7gjxev7/post-review-repeat2.log",
+      "exitCode": 0,
+      "output": " Test Files  4 passed (4)\n      Tests  259 passed (259)\n   Start at  22:31:59\n   Duration  75.93s (tests 98%, import 2%)"
+    },
+    {
+      "seq": 1931,
+      "t": 3335889,
+      "kind": "command",
+      "command": "tail -7 /tmp/forman-b-revert-e7gjxev7/post-review-repeat3.log",
+      "exitCode": 0,
+      "output": " Test Files  4 passed (4)\n      Tests  259 passed (259)\n   Start at  22:33:15\n   Duration  75.74s (tests 98%, import 2%)"
+    },
+    {
+      "seq": 1932,
+      "t": 3335975,
+      "kind": "command",
+      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/post-review-smoke.log",
+      "exitCode": 0,
+      "output": "[exit 0]\nDaemon stopped.\n\n8 unapproved repo hooks refuse start before any turn and doctor explains: 2.8s"
+    },
+    {
+      "seq": 1938,
+      "t": 3420745,
+      "kind": "command",
+      "command": "FORMAN_SMOKE=1 FORMAN_SMOKE_SHORT=1 bun run smoke > /tmp/forman-b-revert-e7gjxev7/post-review-smoke.log 2>&1",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 1939,
+      "t": 3444967,
+      "kind": "message",
+      "text": "The PEM approval request timed out without an answer, so that fixture write remains blocked. I also found a redaction bug affecting normalized file paths: a long path can look like an encoded secret and get changed, which would break scope reporting. I’m adding a regression and preserving those path identities."
+    },
+    {
+      "seq": 1941,
+      "t": 3447117,
+      "kind": "files",
+      "paths": ["tests/run-store.test.ts"]
+    },
+    {
+      "seq": 1970,
+      "t": 3448208,
+      "kind": "command",
+      "command": "bun run test:unit tests/run-store.test.ts -t 'file-change identities'",
+      "exitCode": 1,
+      "output": "   Start at  22:37:07\n   Duration  523ms (import 84%, tests 9%, transform 6%, setup 1%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 1974,
+      "t": 3456082,
+      "kind": "files",
+      "paths": ["src/core/runs/store.ts"]
+    },
+    {
+      "seq": 1976,
+      "t": 3456226,
+      "kind": "command",
+      "command": "python3 -c 'from pathlib import Path; p=Path(\\\"docs/rfcs/0001-forman.md\\\"); s=p.read_text().replace(\\\"UUID-shaped identifiers remain readable.\\\", \\\"UUID-shaped identifiers remain readable. Normalized file-change paths remain exact because scope reporting uses them as identities.\\\"); p.write_text(s)'",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 1978,
+      "t": 3457110,
+      "kind": "command",
+      "command": "bun run format",
+      "exitCode": 0,
+      "output": "$ biome check --write .\nChecked 121 files in 700ms. No fixes applied."
+    },
+    {
+      "seq": 1988,
+      "t": 3457691,
+      "kind": "command",
+      "command": "bun run test:unit tests/run-store.test.ts -t 'file-change identities'",
+      "exitCode": 0,
+      "output": " Test Files  1 passed (1)\n      Tests  1 passed | 34 skipped (35)\n   Start at  22:37:16\n   Duration  360ms (import 79%, tests 12%, transform 8%, setup 1%)"
+    },
+    {
+      "seq": 1989,
+      "t": 3457772,
+      "kind": "command",
+      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/post-review-smoke.log",
+      "exitCode": 0,
+      "output": " 16 pass\n 0 fail\n 238 expect() calls\nRan 16 tests across 3 files. [297.67s]"
+    },
+    {
+      "seq": 1994,
+      "t": 3505942,
+      "kind": "command",
+      "command": "bun run lint",
+      "exitCode": 0,
+      "output": "$ biome check .\nChecked 121 files in 777ms. No fixes applied."
+    },
+    {
+      "seq": 1995,
+      "t": 3507101,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "output": "$ tsc --noEmit"
+    },
+    {
+      "seq": 1996,
+      "t": 3508217,
+      "kind": "command",
+      "command": "git diff --check",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 2002,
+      "t": 3512960,
+      "kind": "command",
+      "command": "python3 -c 'from pathlib import Path; import subprocess; out=Path(\\\"/tmp/forman-b-revert-e7gjxev7\\\")\nfor n in range(1,4):\n with (out/f\\\"final-run-store{n}.log\\\").open(\\\"w\\\") as log: result=subprocess.run([\\\"bun\\\",\\\"run\\\",\\\"test:unit\\\",\\\"tests/run-store.test.ts\\\"],stdout=log,stderr=subprocess.STDOUT,timeout=60)\n print(\\\"final store repetition\\\",n,\\\"exit\\\",result.returncode,flush=True)\n if result.returncode: break\n'",
+      "exitCode": 0,
+      "output": "final store repetition 1 exit 0\nfinal store repetition 2 exit 0\nfinal store repetition 3 exit 0"
+    },
+    {
+      "seq": 2003,
+      "t": 3523388,
+      "kind": "command",
+      "command": "bun run e2e > /tmp/forman-b-revert-e7gjxev7/final-e2e.log 2>&1",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 2004,
+      "t": 3584032,
+      "kind": "command",
+      "command": "bun run test > /tmp/forman-b-revert-e7gjxev7/final-unit.log 2>&1",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 2006,
+      "t": 3597672,
+      "kind": "command",
+      "command": "tail -7 /tmp/forman-b-revert-e7gjxev7/final-unit.log",
+      "exitCode": 0,
+      "output": " Test Files  32 passed (32)\n      Tests  815 passed (815)\n   Start at  22:38:03\n   Duration  79.85s (tests 92%, import 7%, transform 1%)"
+    },
+    {
+      "seq": 2007,
+      "t": 3597762,
+      "kind": "command",
+      "command": "tail -7 /tmp/forman-b-revert-e7gjxev7/final-e2e.log",
+      "exitCode": 0,
+      "output": " 8 pass\n 0 fail\n 169 expect() calls\nRan 8 tests across 1 file. [19.52s]"
+    },
+    {
+      "seq": 2008,
+      "t": 3597852,
+      "kind": "command",
+      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/final-run-store3.log",
+      "exitCode": 0,
+      "output": " Test Files  1 passed (1)\n      Tests  35 passed (35)\n   Start at  22:38:10\n   Duration  1.60s (tests 79%, import 19%, transform 1%)"
+    },
+    {
+      "seq": 2011,
+      "t": 3727030,
+      "kind": "message",
+      "text": "The path fix passes. The final unit suite passed all 815 tests, the rebuilt binary suite passed 8, and the store file passed three runs of 35 tests. Five review findings are resolved; multiline PEM handling remains blocked because the hook-required fixture approval was not received."
+    },
+    {
+      "seq": 2014,
+      "t": 3730749,
+      "kind": "command",
+      "command": "python3 -c 'from pathlib import Path; import subprocess; p=Path(\\\"src/core/runs/store.ts\\\"); saved=p.read_text()\ntry:\n p.write_text(saved.replace(\\\"entry, event._tag \"'!== '\"\\\\\\\"FileChange\\\\\\\"\\\", \\\"entry, true\\\"))\n with Path(\\\"/tmp/forman-b-revert-e7gjxev7/path-revert.log\\\").open(\\\"w\\\") as log: result=subprocess.run([\\\"bun\\\",\\\"run\\\",\\\"test:unit\\\",\\\"tests/run-store.test.ts\\\",\\\"-t\\\",\\\"file-change identities\\\"],stdout=log,stderr=subprocess.STDOUT,timeout=30)\n print(\\\"path identity revert exit\\\",result.returncode)\nfinally:\n p.write_text(saved)\n print(\\\"restored path identity fix\\\")\n'",
+      "exitCode": 0,
+      "output": "path identity revert exit 1\nrestored path identity fix"
+    },
+    {
+      "seq": 2016,
+      "t": 3731831,
+      "kind": "command",
+      "command": "git status --short",
+      "exitCode": 0,
+      "output": " M tests/codex-client.test.ts\n M tests/config-logging.test.ts\n M tests/run-store.test.ts\n M tests/supervisor-integration.test.ts"
+    },
+    {
+      "seq": 2020,
+      "t": 3794562,
+      "kind": "command",
+      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/final-smoke.log",
+      "exitCode": 0,
+      "output": "[exit 0]\nDaemon stopped.\n\n4 interrupt cancels a question, refuses its answer and permits followup: 8.2s"
+    },
+    {
+      "seq": 2022,
+      "t": 3795655,
+      "kind": "command",
+      "command": "git diff --stat",
+      "exitCode": 0,
+      "output": " tests/config-logging.test.ts         |  24 ++\n tests/run-store.test.ts              | 188 ++++++++++-\n tests/supervisor-integration.test.ts | 592 ++++++++++++++++++++++++++++++++++-\n 15 files changed, 1324 insertions(+), 131 deletions(-)"
+    },
+    {
+      "seq": 2026,
+      "t": 3956933,
+      "kind": "command",
+      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/final-smoke.log",
+      "exitCode": 0,
+      "output": "[exit 0]\nDaemon stopped.\n\n8 unapproved repo hooks refuse start before any turn and doctor explains: 2.6s"
+    },
+    {
+      "seq": 2027,
+      "t": 3957020,
+      "kind": "command",
+      "command": "tail -7 /tmp/forman-b-revert-e7gjxev7/path-revert.log",
+      "exitCode": 0,
+      "output": "   Start at  22:41:49\n   Duration  512ms (import 82%, tests 10%, transform 7%, setup 1%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 2028,
+      "t": 3958115,
+      "kind": "command",
+      "command": "git diff --check",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 2031,
+      "t": 4011205,
+      "kind": "command",
+      "command": "FORMAN_SMOKE=1 FORMAN_SMOKE_SHORT=1 bun run smoke > /tmp/forman-b-revert-e7gjxev7/final-smoke.log 2>&1",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 2032,
+      "t": 4032266,
+      "kind": "message",
+      "text": "The last smoke run is in its timed hold, with no failures so far. I’ll hand off the verified changes and mark the unit blocked on the synthetic PEM fixture approval. The fixture and its multiline stderr fix remain unwritten; I did not add an allowlist pragma without approval."
+    },
+    {
+      "seq": 2034,
+      "t": 4033660,
+      "kind": "command",
+      "command": "tail -6 /tmp/forman-b-revert-e7gjxev7/final-smoke.log",
+      "exitCode": 0,
+      "output": " 16 pass\n 0 fail\n 238 expect() calls\nRan 16 tests across 3 files. [282.61s]"
+    },
+    {
+      "seq": 2035,
+      "t": 4033757,
+      "kind": "command",
+      "command": "rg -n 'const assertSupported|const hasTransition|const formatChecks|const close =|stderr:|activeTurnId: response|beforeArchive|redactDiagnosticText' src/core/runs/store.ts src/supervisor/app-server.ts src/supervisor/turns.ts src/logging.ts",
+      "exitCode": 0,
+      "output": "src/core/runs/store.ts:249:  yield* beforeArchive;\nsrc/core/runs/store.ts:347:export const hasTransition = Effect.fnUntraced(function* (runDir: string, id: string) {\nsrc/core/runs/store.ts:470:  yield* fs.writeFileString(`${file}.tmp`, redactDiagnosticText(text));\nsrc/core/runs/store.ts:473:  yield* fs.writeFileString(`${latest}.tmp`, redactDiagnosticText(text));"
+    },
+    {
+      "seq": 2039,
+      "t": 4049845,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "output": "$ tsc --noEmit"
+    },
+    {
+      "seq": 2041,
+      "t": 4049911,
+      "kind": "command",
+      "command": "bun run lint",
+      "exitCode": 0,
+      "output": "$ biome check .\nChecked 121 files in 601ms. No fixes applied."
+    },
+    {
+      "seq": 2043,
+      "t": 4050192,
+      "kind": "command",
+      "command": "git status --short",
+      "exitCode": 0,
+      "output": " M tests/codex-client.test.ts\n M tests/config-logging.test.ts\n M tests/run-store.test.ts\n M tests/supervisor-integration.test.ts"
+    },
+    {
+      "seq": 2044,
+      "t": 4050198,
+      "kind": "command",
+      "command": "git diff --check",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 2048,
+      "t": 4229411,
+      "kind": "message",
+      "text": "**1. Summary**\n\nImplemented the supervisor state, persistence, recovery and diagnostic changes, with 38 new regression cases. Everything is uncommitted; nothing was pushed.\n\n**Part B remains blocked on review finding 3:** multiline PEM redaction needs a synthetic fixture that the repository’s secret-write hook refused without approval.\n\n**2. Files**\n\n| File | Change |\n|---|---|\n| `src/core/runs/store.ts` | Version fences, cached format validation, streamed reads, atomic hand-offs, bounded redacted capture and validated archive ordering. |\n| `src/supervisor/registry.ts` | Recoverable state journal, streamed reconciliation, safe background diagnostics and archive cleanup ordering. |\n| `src/supervisor/turns.ts` | Preserve unreadable names, retain acknowledged turn IDs across write failures and keep ownership until termination. |\n| `src/supervisor/app-server.ts` | Preserve disconnect reasons and join shared resource cleanup before retirement completes. |\n| `src/supervisor/questions.ts` | Bind questions to their originating connection; finish Answer bookkeeping despite caller interruption; prevent resending delivered answers. |\n| `src/supervisor/index.ts` | Cover follow-up cursor failures with recovery and give Answer a daemon-owned lifetime. |\n| `src/supervisor/wait.ts` | UTF-8 cursors with legacy decoding; preserve Git discovery failures. |\n| `src/codex/client.ts` | Expose the connection’s termination cause. |\n| `src/logging.ts` | Safe cause fields, diagnostic redaction and bounded rotating sinks. |\n| `src/schemas/daemon.ts` | Storage header, pending state transition and transition identifier schemas. |\n| `tests/run-store.test.ts` | Storage, compatibility, redaction, bounds, streaming, atomic publication and path-identity regressions. |\n| `tests/supervisor-integration.test.ts` | Ownership, recovery, cursor, connection, Answer and archive interleavings. |\n| `tests/codex-client.test.ts` | Preserve exit reason without pending RPCs. |\n| `tests/config-logging.test.ts` | CLI rotation and oversized-record bounds. |\n| `docs/rfcs/0001-forman.md` | Runs and Failure handling: formats, recovery, privacy, retention and cleanup. |\n\n**3. Decisions**\n\n- Storage writes use version 1; unversioned records remain readable. Unsupported versions fence mutations and archive cleanup.\n- `pendingStateEvent` and `transitionId` make state publication recoverable without duplicate attention.\n- Unknown expiry retires the connection and waits for its resource-cleanup completion. This can also end peer runs on that connection.\n- Questions retain their originating server. Accepted Answers use daemon-owned execution and an uninterruptible delivery/bookkeeping section.\n- New cursors use `u1.` plus UTF-8 encoding. Unprefixed cursors retain Latin-1 semantics, avoiding ambiguous legacy paths.\n- Per orchestrator direction, command tails, stderr and bounded raw capture are retained with best-effort redaction. Normalized file-change paths remain exact for scope reporting.\n- Format validation caches checked file metadata and records owned appends; opening a run still validates its complete history.\n- Archive cleanup runs only after storage compatibility checks. Archives have documented manual retention and cleanup.\n\nThe testing skills drove real-service tests with Deferred, TestClock, FIFO and transport barriers. Error-handling guidance shaped message-free defect traces and safe platform context. Effect guidance informed scoped ownership; architecture and writing guidance kept changes in existing modules and the RFC focused on concrete policy.\n\n**4. Checks**\n\n| Check | Result |\n|---|---|\n| `bun run lint` | Passed: 121 files. |\n| `bun run typecheck` | Passed. |\n| `bun run format` | Passed; latest run required no changes. |\n| `bun run test` | Final: **815 passed across 32 files**. |\n| Four changed test files | Three post-review runs: **259 passed each**. |\n| `bun run test:unit tests/run-store.test.ts` | After the final path fix: **35 passed, three times**. |\n| `bun run test:unit tests/daemon-logging.test.ts` | **5 passed**. |\n| `bun run e2e` | Final: **8 passed, 0 failed**. |\n| `FORMAN_SMOKE=1 FORMAN_SMOKE_SHORT=1 bun run smoke` | Final: **16 passed, 0 failed**. |\n| `bun run build` | Passed; binary reports `forman v0.1.0`. |\n| `git diff --check` | Passed. |\n\nRevert verification produced the expected failures: 24 in the original regression batch, 7 in the redaction batch, 4 review regressions, 2 additional ownership/archive regressions and the path-identity regression. Fixes were restored afterward. Legacy compatibility intentionally passes against the baseline.\n\nEarlier failures were corrected, including diagnostic path context, raw-capture assertions and the discarded tail-omission policy. The initial smoke run had one tail assertion failure; subsequent smoke runs passed all 16 cases. `bun run check` was not run.\n\nBuilt-binary QA with temporary homes confirmed:\n\n- Baseline Start deleted damaged history; the fix refuses reuse and preserves it.\n- Baseline Unicode waits failed; the fix completes waits and continuations.\n- Token-shaped diagnostic values persisted before and are redacted afterward.\n- After the real five-minute deadline, baseline state was `lost` while Codex remained alive. The fixed build reported `lost` after Codex exited.\n\nEvidence is under `/tmp/forman-b-revert-e7gjxev7/`.\n\n**5. Review**\n\nReview: [review.md](/tmp/scratch)\n\n1. Repeated full-log version scans: **fixed** with validated metadata caching.\n2. Unversioned oversized-capture marker: **fixed**.\n3. Multiline PEM leakage through stderr: **blocked**, described below.\n4. Concurrent retirement returning before cleanup: **fixed** with shared resource completion.\n5. Journal reconciliation collecting all history: **fixed** with a streaming search.\n6. Stderr test observing file creation before content: **fixed** by waiting for committed contents.\n\nOne independent review pass was performed, as requested.\n\n**6. Look closer at**\n\n- Format-cache invalidation and its serialized-writer assumption.\n- Resource-finalizer ordering in `makeAppServer.close`, especially when merging Part A’s shutdown changes.\n- `archiveRun`’s `beforeArchive` effect, which keeps compatibility validation ahead of worktree removal.\n\n**7. Open**\n\nApproval is needed for the synthetic PEM fixture with a `pragma: allowlist secret` comment. The pending fix belongs in the stderr handler at `src/supervisor/app-server.ts:127`: track private-key-block state across lines and suppress short payload lines until the END marker. Its regression must exercise the actual stderr transport.\n\nThe PreToolUse secret-write hook explicitly rejected the synthetic PEM markers and required approval plus the pragma. The orchestrator request timed out without an answer. I left that fixture and fix unwritten; short PEM payload lines can still persist, so this unit is not complete."
+    },
+    {
+      "seq": 2053,
+      "t": 4229549,
+      "kind": "turn-completed",
+      "turn": 1,
+      "status": "completed"
+    },
+    {
+      "seq": 2054,
+      "t": 4230595,
+      "kind": "state",
+      "from": "running",
+      "to": "idle"
+    }
+  ],
+  "questions": [
+    {
+      "_tag": "Asked",
+      "id": "q1",
+      "turn": 1,
+      "kind": "blocked",
+      "question": "O7's implemented policy omits persisted command output tails. The real smoke self-review succeeded (nested codex exec exit 0 and hand-off REVIEW-OK), but smoke/real-codex.test.ts:242 requires REVIEW-OK in outputTail. smoke/ is outside this unit's May change scope, blocking green acceptance. May I change only this assertion to require exitCode: 0 and outputTail: \"\" (the preceding assertion already verifies REVIEW-OK in the completed hand-off), then rerun smoke?",
+      "at": "2026-11-06T04:00:01.481Z",
+      "t": 1221990
+    },
+    {
+      "_tag": "Resolved",
+      "id": "q1",
+      "resolution": "answered",
+      "text": "No: don't drop command output tails. Losing them makes forman events useless exactly when a command fails. Use the conventional policy instead: keep the tails (and the stderr and raw capture you bound), but pass them through redaction of secret-looking values (reuse logging.ts's redaction rules: secret-like keys and token-shaped values such as sk-..., ghp_..., Bearer ..., long base64/hex blobs, KEY=value pairs whose key looks secret), and keep everything under the private 0700 home. Document the policy and its limits (redaction is best effort) in the RFC. Then the smoke assertion stays as it is. Add tests that a token-shaped value in command output is redacted in events.jsonl and codex.jsonl.",
+      "at": "2026-11-06T04:00:20.440Z",
+      "t": 1240949
+    },
+    {
+      "_tag": "Asked",
+      "id": "q2",
+      "turn": 1,
+      "kind": "blocked",
+      "question": "The required independent review found multiline PEM leakage in stderr redaction. The patch hook blocked a regression fixture containing only a PEM BEGIN/END marker around the literal synthetic payload 'short-private-key-payload'. The hook explicitly requires approval plus a 'pragma: allowlist secret' comment for deliberate fixtures. May I add this synthetic fixture with that pragma, then implement and verify line-aware PEM redaction?",
+      "at": "2026-11-06T04:18:55.602Z",
+      "t": 2356111
+    },
+    {
+      "_tag": "Resolved",
+      "id": "q2",
+      "resolution": "auto-answered",
+      "text": "No answer from the orchestrator. Proceed with your best judgment and note this question and your choice under Open in the hand-off.",
+      "at": "2026-11-06T04:33:55.609Z",
+      "t": 3256118
+    }
+  ],
+  "handoff": "**1. Summary**\n\nImplemented the supervisor state, persistence, recovery and diagnostic changes, with 38 new regression cases. Everything is uncommitted; nothing was pushed.\n\n**Part B remains blocked on review finding 3:** multiline PEM redaction needs a synthetic fixture that the repository’s secret-write hook refused without approval.\n\n**2. Files**\n\n| File | Change |\n|---|---|\n| `src/core/runs/store.ts` | Version fences, cached format validation, streamed reads, atomic hand-offs, bounded redacted capture and validated archive ordering. |\n| `src/supervisor/registry.ts` | Recoverable state journal, streamed reconciliation, safe background diagnostics and archive cleanup ordering. |\n| `src/supervisor/turns.ts` | Preserve unreadable names, retain acknowledged turn IDs across write failures and keep ownership until termination. |\n| `src/supervisor/app-server.ts` | Preserve disconnect reasons and join shared resource cleanup before retirement completes. |\n| `src/supervisor/questions.ts` | Bind questions to their originating connection; finish Answer bookkeeping despite caller interruption; prevent resending delivered answers. |\n| `src/supervisor/index.ts` | Cover follow-up cursor failures with recovery and give Answer a daemon-owned lifetime. |\n| `src/supervisor/wait.ts` | UTF-8 cursors with legacy decoding; preserve Git discovery failures. |\n| `src/codex/client.ts` | Expose the connection’s termination cause. |\n| `src/logging.ts` | Safe cause fields, diagnostic redaction and bounded rotating sinks. |\n| `src/schemas/daemon.ts` | Storage header, pending state transition and transition identifier schemas. |\n| `tests/run-store.test.ts` | Storage, compatibility, redaction, bounds, streaming, atomic publication and path-identity regressions. |\n| `tests/supervisor-integration.test.ts` | Ownership, recovery, cursor, connection, Answer and archive interleavings. |\n| `tests/codex-client.test.ts` | Preserve exit reason without pending RPCs. |\n| `tests/config-logging.test.ts` | CLI rotation and oversized-record bounds. |\n| `docs/rfcs/0001-forman.md` | Runs and Failure handling: formats, recovery, privacy, retention and cleanup. |\n\n**3. Decisions**\n\n- Storage writes use version 1; unversioned records remain readable. Unsupported versions fence mutations and archive cleanup.\n- `pendingStateEvent` and `transitionId` make state publication recoverable without duplicate attention.\n- Unknown expiry retires the connection and waits for its resource-cleanup completion. This can also end peer runs on that connection.\n- Questions retain their originating server. Accepted Answers use daemon-owned execution and an uninterruptible delivery/bookkeeping section.\n- New cursors use `u1.` plus UTF-8 encoding. Unprefixed cursors retain Latin-1 semantics, avoiding ambiguous legacy paths.\n- Per orchestrator direction, command tails, stderr and bounded raw capture are retained with best-effort redaction. Normalized file-change paths remain exact for scope reporting.\n- Format validation caches checked file metadata and records owned appends; opening a run still validates its complete history.\n- Archive cleanup runs only after storage compatibility checks. Archives have documented manual retention and cleanup.\n\nThe testing skills drove real-service tests with Deferred, TestClock, FIFO and transport barriers. Error-handling guidance shaped message-free defect traces and safe platform context. Effect guidance informed scoped ownership; architecture and writing guidance kept changes in existing modules and the RFC focused on concrete policy.\n\n**4. Checks**\n\n| Check | Result |\n|---|---|\n| `bun run lint` | Passed: 121 files. |\n| `bun run typecheck` | Passed. |\n| `bun run format` | Passed; latest run required no changes. |\n| `bun run test` | Final: **815 passed across 32 files**. |\n| Four changed test files | Three post-review runs: **259 passed each**. |\n| `bun run test:unit tests/run-store.test.ts` | After the final path fix: **35 passed, three times**. |\n| `bun run test:unit tests/daemon-logging.test.ts` | **5 passed**. |\n| `bun run e2e` | Final: **8 passed, 0 failed**. |\n| `FORMAN_SMOKE=1 FORMAN_SMOKE_SHORT=1 bun run smoke` | Final: **16 passed, 0 failed**. |\n| `bun run build` | Passed; binary reports `forman v0.1.0`. |\n| `git diff --check` | Passed. |\n\nRevert verification produced the expected failures: 24 in the original regression batch, 7 in the redaction batch, 4 review regressions, 2 additional ownership/archive regressions and the path-identity regression. Fixes were restored afterward. Legacy compatibility intentionally passes against the baseline.\n\nEarlier failures were corrected, including diagnostic path context, raw-capture assertions and the discarded tail-omission policy. The initial smoke run had one tail assertion failure; subsequent smoke runs passed all 16 cases. `bun run check` was not run.\n\nBuilt-binary QA with temporary homes confirmed:\n\n- Baseline Start deleted damaged history; the fix refuses reuse and preserves it.\n- Baseline Unicode waits failed; the fix completes waits and continuations.\n- Token-shaped diagnostic values persisted before and are redacted afterward.\n- After the real five-minute deadline, baseline state was `lost` while Codex remained alive. The fixed build reported `lost` after Codex exited.\n\nEvidence is under `/tmp/forman-b-revert-e7gjxev7/`.\n\n**5. Review**\n\nReview: [review.md](/tmp/scratch)\n\n1. Repeated full-log version scans: **fixed** with validated metadata caching.\n2. Unversioned oversized-capture marker: **fixed**.\n3. Multiline PEM leakage through stderr: **blocked**, described below.\n4. Concurrent retirement returning before cleanup: **fixed** with shared resource completion.\n5. Journal reconciliation collecting all history: **fixed** with a streaming search.\n6. Stderr test observing file creation before content: **fixed** by waiting for committed contents.\n\nOne independent review pass was performed, as requested.\n\n**6. Look closer at**\n\n- Format-cache invalidation and its serialized-writer assumption.\n- Resource-finalizer ordering in `makeAppServer.close`, especially when merging Part A’s shutdown changes.\n- `archiveRun`’s `beforeArchive` effect, which keeps compatibility validation ahead of worktree removal.\n\n**7. Open**\n\nApproval is needed for the synthetic PEM fixture with a `pragma: allowlist secret` comment. The pending fix belongs in the stderr handler at `src/supervisor/app-server.ts:127`: track private-key-block state across lines and suppress short payload lines until the END marker. Its regression must exercise the actual stderr transport.\n\nThe PreToolUse secret-write hook explicitly rejected the synthetic PEM markers and required approval plus the pragma. The orchestrator request timed out without an answer. I left that fixture and fix unwritten; short PEM payload lines can still persist, so this unit is not complete.",
+  "digest": "run:       fix-supervisor  idle  70m30s  (gpt-6.1-sol, high, priority, write)\ndir:       ~/.forman/runs/fix-supervisor\nworktree:  ~/src/forman/.claude/worktrees/fix-supervisor\nbranch:    forman/fix-supervisor (forman-created, base 39aec1625582d74b66751460b5fb66b6b1b27add)\nturn:      1 (start)\nquestion:  (none)\ncommands:  299 (34 failed, 1 blocked by repo hooks)\n  last:    /bin/zsh -lc 'git diff --check'  exit=0\nfiles written:\n  docs/rfcs/0001-forman.md\n  src/codex/client.ts\n  src/core/runs/store.ts\n  src/logging.ts\n  src/schemas/daemon.ts\n  src/supervisor/app-server.ts\n  src/supervisor/index.ts\n  src/supervisor/questions.ts\n  src/supervisor/registry.ts\n  src/supervisor/turns.ts\n  src/supervisor/wait.ts\n  tests/codex-client.test.ts\n  tests/config-logging.test.ts\n  tests/run-store.test.ts\n  tests/supervisor-integration.test.ts\noutside May change:\n  tests/run-store.test.ts\n  tests/supervisor-integration.test.ts\nnew in git status since start:\n  M  docs/rfcs/0001-forman.md\n  M  src/codex/client.ts\n  M  src/core/runs/store.ts\n  M  src/logging.ts\n  M  src/schemas/daemon.ts\n  M  src/supervisor/app-server.ts\n  M  src/supervisor/index.ts\n  M  src/supervisor/questions.ts\n  M  src/supervisor/registry.ts\n  M  src/supervisor/turns.ts\n  M  src/supervisor/wait.ts\n  M  tests/codex-client.test.ts\n  M  tests/config-logging.test.ts\n  M  tests/run-store.test.ts\n  M  tests/supervisor-integration.test.ts\ntokens:    37.4M in (99% cached), 174.8K out\n"
+}

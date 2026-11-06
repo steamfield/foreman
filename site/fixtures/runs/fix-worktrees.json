@@ -1,0 +1,1817 @@
+{
+  "name": "fix-worktrees",
+  "model": "gpt-6.1-sol",
+  "effort": "high",
+  "tier": "priority",
+  "write": true,
+  "branch": "forman/fix-worktrees",
+  "baseCommit": "39aec16",
+  "createdAt": "2026-11-06T03:39:46.410Z",
+  "durationMs": 1741595,
+  "tokens": {
+    "input": 16237843,
+    "cachedInput": 15998720,
+    "output": 69031,
+    "reasoningOutput": 39676
+  },
+  "contract": "# Contract: release fixes, part C: managed worktrees and setup\n\n## Goal\n\nforman's first release is blocked on findings from three architecture reviews. This unit fixes worktree creation, setup and rollback: C1, C8, C9 and B3.\n\n- C1: rollback must never remove a worktree or branch forman can't prove it created in that call. Track ownership of the branch and of the worktree separately; validate identity (path, branch, and that it's the worktree forman added) before any removal; never `--force` a removal of a worktree with changes; delete branches by expected OID.\n- C8: setup gets a deadline (a sensible default, configurable per start with a flag if the CLI needs one; say what you chose) and a cancellation path; on timeout or cancellation, terminate and join the process group, roll back safely, and release the reservation.\n- C9: bound what the process helper keeps from a command's output (a tail buffer), with an explicit limit and a visible overflow note for callers that need complete output.\n- B3: the daemon enforces Start's mode constraints itself (`setup` and `from` only with `newWorktree`; `newWorktree` and `worktree` exclusive) before any side effect, in a shared validator the CLI uses too.\n\n## Scope\n\n- May change: `src/core/managed-worktree.ts`, `src/core/process.ts`, `src/core/preflight/`, `src/supervisor/turns.ts` (Start's validation and setup sequence only), a new shared validator under `src/core/` or `src/schemas/`, `src/commands/runs.ts` (start flags only), `tests/` for these (new `tests/managed-worktree*.test.ts`, `tests/process*.test.ts`, and Start cases in `tests/supervisor-integration.test.ts`), `docs/rfcs/0001-forman.md` (the managed worktree section).\n- Owned by other units: the rest of `src/supervisor/`, `src/daemon/`, `src/core/runs/`, `src/core/doctor.ts`, `src/core/command-output.ts`, `src/core/commands.ts`, `src/schemas/codex.ts`, `README.md`, `npm/`, `.github/`.\n\n## How to work\n\nThe findings are in `/tmp/scratch` (outside the repo; read it, don't copy it into a tracked file). Each finding has a location, a failure scenario and a proposed fix. The reviewers read the code carefully but could be wrong: confirm each finding against the code before fixing it, and if one is wrong, say so with evidence in the hand-off instead of changing code. If a proposed fix isn't the simplest conventional one, use the better fix and say why.\n\nRead first, in this repo: `AGENTS.md` (all of it, especially Testing and Error handling), `README.md`, `docs/rfcs/0001-forman.md`, the repo rules (`.claude/rules/effect.md`, `.claude/rules/src/cli.md`, `.claude/rules/src/effect-services.md`, `.claude/rules/src/typescript.md`, `.claude/rules/src/testing.md`, `.claude/rules/src/verification.md`) and the docs each one links, and `docs/guidance/effect/api.md`.\n\nThree other delegates fix other findings in parallel from the same `main` commit, each owning different files (see Scope). Stay inside yours; where a finding needs a file another unit owns, do your side, describe the other side precisely in the hand-off, and the orchestrator will reconcile at merge. Don't ask about this through `ask_orchestrator` unless you're actually blocked.\n\n## Acceptance\n\nReal services, processes, sockets and git repos with the fake app server; no real inference in `tests/` or `e2e/` (AGENTS.md \"Testing\"). Every finding you fix starts with a test that fails before the fix and passes after, revert-verified; concurrency findings need tests that force the interleaving deterministically (barriers, `TestClock`, fault injection), never sleeps. Run each new or changed test file at least three times, `bun run lint`, `bun run typecheck`, `bun run e2e`, and `bun run test` once at the end; report the counts. Don't run `bun run check`. If your area has a real-Codex path, run `FORMAN_SMOKE=1 FORMAN_SMOKE_SHORT=1 bun run smoke` once after building (a development check; credits are not a concern).\n\nQA as the first user of what you changed, with the built binary and a temporary `FORMAN_HOME`, reproducing each blocker's failure scenario before and after where you can. Fix the friction you find (a bug gets a regression test first).\n\n## Do not\n\n- commit or push (leave the changes for review)\n- disable a lint rule, weaken a test or add a cast to get green; split an over-complex function into named steps instead\n- add features, options, abstractions or mechanisms the findings don't need\n- remove any worktree, branch or run data that could hold work, in code or in tests outside temp directories\n- add real-Codex tests anywhere `bun run check`, git hooks or CI would run them\n- edit `~/.codex` config, hooks, trust or auth, or touch the real `~/.forman`\n- use `ask_orchestrator` for progress reports; use it only when blocked or when a decision is needed\n- mention any repository outside this one in a tracked file\n\n## Skills to apply\n\nThe `ce` skills and agents come from the Claude Code `claude-essentials` marketplace. Find the newest installed copy with:\n\n```bash\nce=$(ls -d \"$HOME\"/.claude/plugins/cache/*/ce/*/ | sort -V | tail -1)\n```\n\nRead each skill that applies and use it on this task; your hand-off says where it changed what you did.\n\n- `${ce}skills/writing-tests/SKILL.md`: for every test you write, before writing any. Where it and the repo's own testing rules differ, the repo wins. Also read its `references/waiting-typescript.md` for any test that waits on a process, socket, timer or file, and `references/flaky-tests.md` before you call a test done: run each new test file at least three times, and once in the full suite, since this repo has had tests that pass alone and fail under load. The hand-off's Checks section says which tests you wrote, what behaviour each pins down, and which failed before the fix.\n- `${ce}skills/architecting-systems/SKILL.md`, with its `references/structure.md`, `coupling.md`, `boundaries.md` and `concurrency.md`: before adding a module.\n- `${ce}skills/handling-errors/SKILL.md`: for any error handling you add.\n- `${ce}skills/effect/SKILL.md`: for all Effect code.\n- `.claude/skills/effect-development/SKILL.md` in this repo.\n\n## Review before hand-off\n\nOnce the acceptance checks pass, get one independent code review and fix what it finds. The reviewer is the `ce:code-reviewer` agent (`${ce}agents/code-reviewer.md`) extended by the repo's `.claude/agents/code-reviewer.md` when it exists. This repo's command guard refuses compound shell commands, so run the review as separate simple commands:\n\n1. `mktemp -d` and note the directory it prints, below `<review>`.\n2. Write `<review>/prompt.md` with your file-writing tool (not a shell heredoc), containing: the `ce:code-reviewer` agent body without its frontmatter; the repo reviewer's body if that file exists; then these lines: \"Skills: <ce>skills/architecting-systems/SKILL.md, <ce>skills/writing-tests/SKILL.md, <ce>skills/handling-errors/SKILL.md. The base branch is main; review the uncommitted work in <worktree>. Your sandbox is read-only, so don't run the tests; the author already ran the checks. The task's contract:\" followed by this contract's text, from `/tmp/scratch`.\n3. `codex exec --ephemeral --sandbox read-only -m gpt-6.1-sol -c model_reasoning_effort=high -c service_tier=priority -o <review>/review.md - < <review>/prompt.md`\n\nFix every finding in `review.md`, or say in the hand-off why a finding is wrong. A finding that is a bug gets a regression test in the repo before its fix, revert-verified. Then rerun the acceptance checks. One review pass only.\n\n## Hand-off\n\nYou're done when the review's findings are resolved and the acceptance checks pass, or when you're blocked. Leave everything uncommitted and end with this report as your final message; the orchestrator works from it, so be specific and name files and symbols.\n\n1. Summary: what you built, in two or three sentences.\n2. Files: each file created or changed, with one line on why.\n3. Decisions: choices the contract left open and why you made them; any deviation from the design or contract and the reason; where the skills changed your approach. Name every new mechanism you added and the acceptance test or contract line that needed it.\n4. Checks: each command you ran and its result (test counts, not just \"passed\"), and the QA: what you ran, what you judged and what you changed.\n5. Review: the review file's path, each finding in a line, and how you resolved it (fixed, or why not).\n6. Look closer at: the places most likely to be wrong.\n7. Open: what's left undone or blocked, and the questions you'd ask.\n",
+  "events": [
+    {
+      "seq": 1,
+      "t": 3958,
+      "kind": "state",
+      "from": "starting",
+      "to": "running"
+    },
+    {
+      "seq": 3,
+      "t": 3990,
+      "kind": "turn-started",
+      "turn": 1,
+      "turnKind": "start"
+    },
+    {
+      "seq": 4,
+      "t": 6806,
+      "kind": "message",
+      "text": "I’ll read the findings, implementation and required guidance, then add reproducing tests before changing code. I’ll keep edits within the contract’s scope, run its checks and review, and leave everything uncommitted."
+    },
+    {
+      "seq": 6,
+      "t": 9706,
+      "kind": "command",
+      "command": "pwd",
+      "exitCode": 0,
+      "output": "."
+    },
+    {
+      "seq": 7,
+      "t": 10800,
+      "kind": "command",
+      "command": "git status --short",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 8,
+      "t": 10898,
+      "kind": "command",
+      "command": "ls -d ~/.claude/plugins/cache/*/ce/*/",
+      "exitCode": 0,
+      "output": "~/.claude/plugins/cache/claude-essentials/ce/5.1.0/\n~/.claude/plugins/cache/claude-essentials/ce/5.1.1/\n~/.claude/plugins/cache/claude-essentials/ce/5.2.0/"
+    },
+    {
+      "seq": 9,
+      "t": 10985,
+      "kind": "command",
+      "command": "cat AGENTS.md README.md docs/rfcs/0001-forman.md .claude/rules/effect.md .claude/rules/src/cli.md .claude/rules/src/effect-services.md .claude/rules/src/typescript.md .claude/rules/src/testing.md .claude/rules/src/verification.md",
+      "exitCode": 0,
+      "output": "  - \"scripts/**\"\n---\n\nRead [Before calling work done](../../../docs/guidance/typescript-cli/verification.md). This is the shared authoritative guidance for every selected agent."
+    },
+    {
+      "seq": 10,
+      "t": 11069,
+      "kind": "command",
+      "command": "cat /tmp/scratch",
+      "exitCode": 0,
+      "output": "…md:84), `src/core/runs/worktree.ts:58`. The example’s `May change:` line lacks the required leading bullet and backticked paths. **Failure scenario:** copying the first-run example produces no parsed scope, so the digest cannot report out-of-scope changes. **Fix:** use ``- May change: `src/commands/doctor.ts`.`` and explain the required format beside the example.\n\nRelease verdict: **NEEDS FIXES**."
+    },
+    {
+      "seq": 13,
+      "t": 19125,
+      "kind": "command",
+      "command": "cat ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/handling-errors/SKILL.md ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/effect/SKILL.md .claude/skills/effect-development/SKILL.md",
+      "exitCode": 0,
+      "output": "… declarations; the declarations win when they disagree. Until the reference exists, write it as the shared guidance describes, and update it on every Effect upgrade.\n\nUse fresh test layers, observe forked failures, and drive time through the test clock (`tests/effect-testkit.test.ts` shows each). Keep runtime execution at program boundaries. Schema is part of `effect`, not a standalone dependency."
+    },
+    {
+      "seq": 14,
+      "t": 19127,
+      "kind": "command",
+      "command": "cat src/core/managed-worktree.ts src/core/process.ts src/core/preflight/index.ts src/supervisor/turns.ts src/commands/runs.ts",
+      "exitCode": 1,
+      "output": "    timeout,\n  },\n  (input) => print(\"wait\", programs.wait(input)),\n).pipe(Command.withDescription(\"Wait for attention; default timeout is 60 minutes.\"));"
+    },
+    {
+      "seq": 15,
+      "t": 19128,
+      "kind": "command",
+      "command": "cat .claude/rules/effect.md .claude/rules/src/cli.md .claude/rules/src/effect-services.md .claude/rules/src/typescript.md .claude/rules/src/testing.md .claude/rules/src/verification.md",
+      "exitCode": 0,
+      "output": "  - \"scripts/**\"\n---\n\nRead [Before calling work done](../../../docs/guidance/typescript-cli/verification.md). This is the shared authoritative guidance for every selected agent."
+    },
+    {
+      "seq": 16,
+      "t": 19130,
+      "kind": "command",
+      "command": "cat ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/writing-tests/SKILL.md ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/writing-tests/references/waiting-typescript.md ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/writing-tests/references/flaky-tests.md",
+      "exitCode": 0,
+      "output": "\n## Confirming the fix\n\nRepeat the test many times in the configuration that failed (`pytest --count=20 -n auto`, or `jest` in parallel after `jest --runInBand` passes). A single green run proves little for an intermittent failure."
+    },
+    {
+      "seq": 17,
+      "t": 19131,
+      "kind": "command",
+      "command": "cat ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/architecting-systems/SKILL.md ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/architecting-systems/references/structure.md ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/architecting-systems/references/coupling.md ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/architecting-systems/references/boundaries.md ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/architecting-systems/references/concurrency.md",
+      "exitCode": 0,
+      "output": "| Scale within a single process | Producers and consumers scale independently |\n| Low operational overhead matters | Fault tolerance and retry logic matter |\n\nStart with in-process async. Move to queues when you need durability, independent scaling, or cross-service decoupling."
+    },
+    {
+      "seq": 19,
+      "t": 21302,
+      "kind": "message",
+      "text": "I’m applying the required testing, architecture, error handling and Effect skills. I’ll use real temporary git repos and processes, with explicit barriers for rollback races."
+    },
+    {
+      "seq": 21,
+      "t": 23302,
+      "kind": "command",
+      "command": "cat src/core/managed-worktree.ts src/core/process.ts src/core/preflight/index.ts",
+      "exitCode": 1,
+      "output": "      return { stdout, stderr, code };\n    }),\n  );\n});"
+    },
+    {
+      "seq": 22,
+      "t": 23388,
+      "kind": "command",
+      "command": "cat docs/guidance/effect/effect.md docs/guidance/typescript-cli/cli.md docs/guidance/typescript-cli/effect-services.md docs/guidance/typescript-cli/typescript.md docs/guidance/typescript-cli/testing.md docs/guidance/typescript-cli/verification.md",
+      "exitCode": 0,
+      "output": "…li.jsonl` (structured; `jq -c 'select(.level == \"error\" or .level == \"warn\")' logs/cli.jsonl`) and `logs/cli.log` (the whole stderr) before guessing. Stop only processes you started.\n- A green commit isn't a complete one: after a hook-running commit, check `git status` for files a hook rewrote and left unstaged.\n- Don't report a cause you didn't observe. Quote the error output you're basing it on."
+    },
+    {
+      "seq": 23,
+      "t": 23473,
+      "kind": "command",
+      "command": "cat docs/guidance/effect/api.md",
+      "exitCode": 0,
+      "output": "…dio({ name, version, protocols, registrations })`, `McpServer.layerHttp`, `registerToolkit`, `registerResource`, `registerPrompt`) and `Tool`/`Toolkit` for the planned MCP server. `effect/rpc` (`RpcGroup`, `RpcServer`, `RpcClient`, `RpcSerialization.jsonRpc`) could carry the daemon protocol. Both are marked unstable; verify against their declarations and add entries here when the code adopts them."
+    },
+    {
+      "seq": 25,
+      "t": 28340,
+      "kind": "command",
+      "command": "cat ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/handling-errors/SKILL.md ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/effect/SKILL.md .claude/skills/effect-development/SKILL.md",
+      "exitCode": 0,
+      "output": "… declarations; the declarations win when they disagree. Until the reference exists, write it as the shared guidance describes, and update it on every Effect upgrade.\n\nUse fresh test layers, observe forked failures, and drive time through the test clock (`tests/effect-testkit.test.ts` shows each). Keep runtime execution at program boundaries. Schema is part of `effect`, not a standalone dependency."
+    },
+    {
+      "seq": 26,
+      "t": 28432,
+      "kind": "command",
+      "command": "cat docs/guidance/typescript-cli/typescript.md docs/guidance/typescript-cli/testing.md docs/guidance/typescript-cli/verification.md",
+      "exitCode": 0,
+      "output": "…li.jsonl` (structured; `jq -c 'select(.level == \"error\" or .level == \"warn\")' logs/cli.jsonl`) and `logs/cli.log` (the whole stderr) before guessing. Stop only processes you started.\n- A green commit isn't a complete one: after a hook-running commit, check `git status` for files a hook rewrote and left unstaged.\n- Don't report a cause you didn't observe. Quote the error output you're basing it on."
+    },
+    {
+      "seq": 28,
+      "t": 28522,
+      "kind": "command",
+      "command": "rg -n 'start|newWorktree|setup|interrupt|detached' src/core/command-input.ts src/core/commands.ts src/schemas/daemon.ts src/supervisor/index.ts tests/managed-worktree* tests/supervisor-integration.test.ts tests/process* docs/rfcs/0001-forman.md",
+      "exitCode": 1,
+      "output": "zsh:1: no matches found: tests/managed-worktree*"
+    },
+    {
+      "seq": 29,
+      "t": 28614,
+      "kind": "command",
+      "command": "cat src/core/command-input.ts tests/managed-worktree.test.ts",
+      "exitCode": 1,
+      "output": "  if (message !== undefined) return message;\n  return yield* new Usage();\n});\ncat: tests/managed-worktree.test.ts: No such file or directory"
+    },
+    {
+      "seq": 32,
+      "t": 32659,
+      "kind": "command",
+      "command": "rg -n 'newWorktree|setup|interrupt|detach|Start' src/core/commands.ts src/schemas/daemon.ts src/supervisor/index.ts tests/supervisor-integration.test.ts docs/rfcs/0001-forman.md",
+      "exitCode": 0,
+      "output": "tests/supervisor-integration.test.ts:3399:          (entry) => entry.method === Codex.Method.turnStart,\ntests/supervisor-integration.test.ts:3411:      const command = notify(Codex.Method.itemStarted, {\ntests/supervisor-integration.test.ts:3423:      const hook = notify(Codex.Method.hookStarted, {\ntests/supervisor-integration.test.ts:3440:          steps: [complete(\"interrupted\")],"
+    },
+    {
+      "seq": 33,
+      "t": 32742,
+      "kind": "command",
+      "command": "cat tests/supervisor-integration.test.ts",
+      "exitCode": 0,
+      "output": "      expect((yield* f.status()).state).toBe(\"idle\");\n    }).pipe(Effect.provide(platform)),\n  );\n});"
+    },
+    {
+      "seq": 34,
+      "t": 32823,
+      "kind": "command",
+      "command": "cat docs/guidance/effect/index.md node_modules/effect/AGENTS.md",
+      "exitCode": 0,
+      "output": "The cluster modules let you model stateful services as entities and distribute\nthem across multiple machines.\n\n- **[Defining cluster entities](./ai-docs/src/80_cluster/10_entities.ts)**: Define distributed entity RPCs and run them in a cluster."
+    },
+    {
+      "seq": 35,
+      "t": 32902,
+      "kind": "command",
+      "command": "sed -n '1,150p' src/core/commands.ts",
+      "exitCode": 0,
+      "output": "});\n\nexport const answer = Effect.fn(\"commands.answer\")(function* (\n  input: MessageInput & WaitOptions & { name: RunName; question: QuestionId },"
+    },
+    {
+      "seq": 36,
+      "t": 32987,
+      "kind": "command",
+      "command": "cat src/core/preflight.ts src/supervisor/index.ts",
+      "exitCode": 1,
+      "output": "      Effect.mapError((error) => failure(Cause.fail(error))),\n    ),\n  };\n});"
+    },
+    {
+      "seq": 39,
+      "t": 44133,
+      "kind": "command",
+      "command": "sed -n '1,330p' tests/supervisor-integration.test.ts",
+      "exitCode": 0,
+      "output": "describe(\"supervisor over the real daemon socket\", () => {\n  it.live(\"archive preserves unmerged commits when the source branch has been deleted\", () =>\n    Effect.gen(function* () {\n      const f = yield* fixture(scenario(turnRule([complete()])));"
+    },
+    {
+      "seq": 40,
+      "t": 44214,
+      "kind": "command",
+      "command": "sed -n '320,465p' tests/supervisor-integration.test.ts",
+      "exitCode": 0,
+      "output": "  it.live(\"review: an advancing branch survives archive's checked-tip deletion\", () =>\n    Effect.gen(function* () {\n      const f = yield* fixture(scenario(turnRule([complete()])));\n      yield* f.launch();"
+    },
+    {
+      "seq": 41,
+      "t": 44293,
+      "kind": "command",
+      "command": "sed -n '619,730p' tests/supervisor-integration.test.ts",
+      "exitCode": 0,
+      "output": "                result: { turn: { id: \"peer-turn\", status: \"inProgress\", error: null, items: [] } },\n              },\n            },\n            turnRule(),"
+    },
+    {
+      "seq": 42,
+      "t": 44372,
+      "kind": "command",
+      "command": "rg -n -A10 -B3 'C1\\\\.|B3\\\\.' /tmp/scratch",
+      "exitCode": 0,
+      "output": "…ard and installs its daemon lock. A resumes, deletes B’s lock, creates another, and unlinks B’s socket during startup. Both supervisors can remain running.  \n58-   **Fix:** Use process-lifetime locking, or record guard-owner identity and reclaim only after confirmed owner death. An age threshold alone cannot provide mutual exclusion. Add a test that pauses a live reclaimer beyond the grace period."
+    },
+    {
+      "seq": 43,
+      "t": 44454,
+      "kind": "command",
+      "command": "rg -n 'stat|FileInfo' node_modules/effect/dist/FileSystem.d.ts",
+      "exitCode": 0,
+      "output": "717:     * stat operations.\n727:     * the stat operation with `BadArgument`. Deno reports these fields as\n899:    readonly register: (path: string, stat: File.Info, options?: WatchOptions) => Option.Option<Stream.Stream<WatchEvent, PlatformError>>;\n917: *   register: (path: string, stat: FileSystem.File.Info) => {"
+    },
+    {
+      "seq": 44,
+      "t": 44532,
+      "kind": "command",
+      "command": "rg -n 'kill|exitCode|process.kill' node_modules/@effect/platform-node/src/NodeChildProcessSpawner.ts",
+      "exitCode": 1,
+      "output": ""
+    },
+    {
+      "seq": 46,
+      "t": 56546,
+      "kind": "message",
+      "text": "The findings match the code: rollback uses `--force` and checks only the path, setup has no execution deadline, output is collected in full, and only the CLI validates Start modes.\n\nCancellation routing and new request fields need changes in files owned by other units. I’ll implement the cancellation and validation entry points within my scope and spell out the wiring the orchestrator needs to add."
+    },
+    {
+      "seq": 48,
+      "t": 59643,
+      "kind": "command",
+      "command": "sed -n '465,520p' tests/supervisor-integration.test.ts",
+      "exitCode": 0,
+      "output": "              threadId: \"peer\",\n              turn: { id: \"peer-turn\", status: \"completed\", error: null, items: [] },\n            }),\n          ],"
+    },
+    {
+      "seq": 49,
+      "t": 59727,
+      "kind": "command",
+      "command": "rg -n -A45 -B8 'setup|Setup exited' tests/supervisor-integration.test.ts",
+      "exitCode": 0,
+      "output": "941-          expect(error).toMatchObject({\n942-            detail: expect.stringContaining(\"forman archive unit --keep-worktree\"),\n943-          });\n944-          yield* f.request({ _tag: \"Archive\", name, keepWorktree: true });"
+    },
+    {
+      "seq": 50,
+      "t": 59810,
+      "kind": "command",
+      "command": "rg -n 'kill|exitCode|process.kill' node_modules/@effect/platform-node-shared/src/NodeChildProcessSpawner.ts",
+      "exitCode": 0,
+      "output": "824:        const kill = (options?: ChildProcess.KillOptions | undefined) =>\n825:          Effect.forEach([...handles].reverse(), (handle) => Effect.ignore(handle.kill(options)), { discard: true })\n836:          exitCode: handle.exitCode,\n838:          kill,"
+    },
+    {
+      "seq": 51,
+      "t": 59890,
+      "kind": "command",
+      "command": "sed -n '668,770p' node_modules/effect/dist/FileSystem.d.ts",
+      "exitCode": 0,
+      "output": "     */\n    interface Info {\n        readonly type: Type;\n        readonly mtime: Option.Option<Date>;"
+    },
+    {
+      "seq": 52,
+      "t": 59972,
+      "kind": "command",
+      "command": "cat ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/architecting-systems/references/concurrency.md ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/architecting-systems/references/boundaries.md ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/architecting-systems/references/coupling.md",
+      "exitCode": 0,
+      "output": "\n- **Pin versions** and update deliberately, not reactively\n- **Wrap libraries you might realistically replace** (unstable deps, vendor SDKs, libraries you're evaluating). Don't wrap stable utilities you'll use forever.\n- **Isolate vendor-specific code** in infrastructure layers"
+    },
+    {
+      "seq": 53,
+      "t": 60053,
+      "kind": "command",
+      "command": "cat ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/effect/references/resources-concurrency.md ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/effect/references/errors.md ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/effect/references/testing.md",
+      "exitCode": 0,
+      "output": "…EnvRecord({...})` through `ConfigProvider.layer`) so they never read the developer's environment. Replace a service with a test layer only for things the test can't own (a third-party API, the wall clock); a real implementation over a temporary resource tests more.\n\nDispose what a helper creates, from inside the helper, with Vitest's `onTestFinished` (a web handler's `dispose`, a scope's `close`)."
+    },
+    {
+      "seq": 56,
+      "t": 77223,
+      "kind": "command",
+      "command": "sed -n '570,625p' node_modules/@effect/platform-node-shared/src/NodeChildProcessSpawner.ts",
+      "exitCode": 0,
+      "output": "  ): Stream.Stream<Uint8Array, PlatformError.PlatformError> => {\n    const fromOption = from ?? \"stdout\"\n    switch (fromOption) {\n      case \"stdout\":"
+    },
+    {
+      "seq": 57,
+      "t": 77302,
+      "kind": "command",
+      "command": "sed -n '216,242p' src/schemas/daemon.ts",
+      "exitCode": 0,
+      "output": "    limit: Schema.optionalKey(Schema.Int),\n  },\n  Steer: { name: RunName, message: Schema.String },\n  Followup: {"
+    },
+    {
+      "seq": 58,
+      "t": 77389,
+      "kind": "command",
+      "command": "rg -n 'commandResult' src tests | head -50",
+      "exitCode": 0,
+      "output": "src/core/preflight/worktree.ts:11:  const result = yield* commandResult(\nsrc/core/managed-worktree.ts:6:import { commandResult } from \"./process\";\nsrc/core/managed-worktree.ts:10:  commandResult(ChildProcess.make(\"git\", args, { cwd, env: { LC_ALL: \"C\" }, extendEnv: true }));\nsrc/core/managed-worktree.ts:96:  const result = yield* commandResult("
+    },
+    {
+      "seq": 59,
+      "t": 77467,
+      "kind": "command",
+      "command": "sed -n '1,38p' src/supervisor/turns.ts",
+      "exitCode": 0,
+      "output": "  registry: Registry,\n  servers: AppServers,\n  config: AppConfig[\"Service\"],\n) {"
+    },
+    {
+      "seq": 60,
+      "t": 77545,
+      "kind": "command",
+      "command": "cat tests/effect-testkit.test.ts",
+      "exitCode": 0,
+      "output": "      assert.strictEqual(port, 8080);\n    }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown({ PORT: \"8080\" })))),\n  );\n});"
+    },
+    {
+      "seq": 63,
+      "t": 112947,
+      "kind": "files",
+      "paths": ["tests/managed-worktree.test.ts", "tests/process.test.ts"]
+    },
+    {
+      "seq": 68,
+      "t": 128543,
+      "kind": "files",
+      "paths": ["tests/supervisor-integration.test.ts"]
+    },
+    {
+      "seq": 255,
+      "t": 130885,
+      "kind": "command",
+      "command": "bun run test:unit tests/process.test.ts tests/managed-worktree.test.ts",
+      "exitCode": 1,
+      "output": "   Start at  21:41:55\n   Duration  1.59s (tests 57%, import 39%, transform 3%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 266,
+      "t": 142300,
+      "kind": "files",
+      "paths": ["src/core/process.ts"]
+    },
+    {
+      "seq": 271,
+      "t": 151706,
+      "kind": "message",
+      "text": "The new regressions fail against the original code: rollback deletes the foreign worktree and dirty files, and tail capture returns all two million output bytes. I’m changing ownership tracking so a failed `git worktree add` cannot authorize worktree removal."
+    },
+    {
+      "seq": 299,
+      "t": 160869,
+      "kind": "command",
+      "command": "bun run test:unit tests/supervisor-integration.test.ts -t 'socket Start refuses|setup deadline'",
+      "exitCode": 1,
+      "output": "   Start at  21:41:56\n   Duration  30.81s (tests 98%, import 1%, transform 1%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 301,
+      "t": 175281,
+      "kind": "files",
+      "paths": ["src/core/managed-worktree.ts"]
+    },
+    {
+      "seq": 303,
+      "t": 176054,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "output": "$ tsc --noEmit"
+    },
+    {
+      "seq": 307,
+      "t": 204226,
+      "kind": "files",
+      "paths": [
+        "src/commands/runs.ts",
+        "src/core/start-mode.ts",
+        "src/supervisor/turns.ts"
+      ]
+    },
+    {
+      "seq": 312,
+      "t": 204730,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 1,
+      "output": "$ tsc --noEmit\nsrc/supervisor/turns.ts(204,31): error TS2552: Cannot find name 'Exit'. Did you mean 'exit'?\nerror: script \"typecheck\" exited with code 1"
+    },
+    {
+      "seq": 325,
+      "t": 206338,
+      "kind": "command",
+      "command": "bun run test:unit tests/process.test.ts tests/managed-worktree.test.ts",
+      "exitCode": 0,
+      "output": " Test Files  2 passed (2)\n      Tests  8 passed (8)\n   Start at  21:43:11\n   Duration  1.34s (tests 55%, import 42%, transform 2%)"
+    },
+    {
+      "seq": 368,
+      "t": 207891,
+      "kind": "command",
+      "command": "bun run test:unit tests/supervisor-integration.test.ts -t 'socket Start refuses|setup deadline|managed worktrees roll back'",
+      "exitCode": 1,
+      "output": "   Start at  21:43:12\n   Duration  1.65s (tests 82%, import 15%, transform 3%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 370,
+      "t": 223059,
+      "kind": "files",
+      "paths": ["src/supervisor/turns.ts"]
+    },
+    {
+      "seq": 372,
+      "t": 223147,
+      "kind": "command",
+      "command": "sed -n '38,55p' src/supervisor/turns.ts",
+      "exitCode": 0,
+      "output": "    return true;\n  });\n  const fs = yield* FileSystem.FileSystem;\n  const settings = (run: Run) => ({"
+    },
+    {
+      "seq": 373,
+      "t": 223236,
+      "kind": "command",
+      "command": "cat src/core/preflight/worktree.ts src/core/main-checkout.ts",
+      "exitCode": 0,
+      "output": "  if (!first?.startsWith(\"worktree \"))\n    return yield* new WorktreeInvalid({ detail: `Could not find main checkout: ${cwd}` });\n  return yield* (yield* FileSystem.FileSystem).realPath(first.slice(\"worktree \".length));\n});"
+    },
+    {
+      "seq": 380,
+      "t": 229377,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "output": "$ tsc --noEmit"
+    },
+    {
+      "seq": 381,
+      "t": 229474,
+      "kind": "command",
+      "command": "rg -n 'timeoutOrElse|onExit' node_modules/effect/dist/Effect.d.ts | head",
+      "exitCode": 0,
+      "output": "8453: * const program = Effect.timeoutOrElse(Effect.never, {\n8471:export declare const timeoutOrElse: {\n8482:     * const program = Effect.timeoutOrElse(Effect.never, {\n8514:     * const program = Effect.timeoutOrElse(Effect.never, {"
+    },
+    {
+      "seq": 382,
+      "t": 229566,
+      "kind": "command",
+      "command": "rg -n 'Start|cancel|registry' src/supervisor/app-server.ts",
+      "exitCode": 0,
+      "output": "74:          if (run.serverGeneration === server.generation && registry.isCurrent(run))\n75:            yield* registry.lost(run);\n115:        registry.fork,\n122:        registry.fork,"
+    },
+    {
+      "seq": 391,
+      "t": 230730,
+      "kind": "command",
+      "command": "bun run test:unit tests/supervisor-integration.test.ts -t 'socket Start refuses|setup deadline|managed worktrees roll back'",
+      "exitCode": 0,
+      "output": " Test Files  1 passed (1)\n      Tests  6 passed | 142 skipped (148)\n   Start at  21:43:34\n   Duration  2.82s (tests 82%, import 16%, transform 2%)"
+    },
+    {
+      "seq": 393,
+      "t": 245886,
+      "kind": "files",
+      "paths": ["tests/supervisor-integration.test.ts"]
+    },
+    {
+      "seq": 398,
+      "t": 247662,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "output": "$ tsc --noEmit"
+    },
+    {
+      "seq": 407,
+      "t": 249680,
+      "kind": "command",
+      "command": "bun run test:unit tests/supervisor-integration.test.ts -t 'preflight cancellation|socket Start refuses|setup deadline|managed worktrees roll back'",
+      "exitCode": 0,
+      "output": " Test Files  1 passed (1)\n      Tests  7 passed | 142 skipped (149)\n   Start at  21:43:52\n   Duration  3.53s (tests 86%, import 11%, transform 2%)"
+    },
+    {
+      "seq": 408,
+      "t": 262564,
+      "kind": "message",
+      "text": "The rollback tests now pass: foreign worktrees, dirty files, changed identities and advancing branches survive cleanup. The setup deadline test also passes over the real daemon socket and confirms the reservation is released. I’m testing cancellation directly at the new `Turns.cancelStart` entry point; interrupt dispatch still needs the cross-unit wiring noted above."
+    },
+    {
+      "seq": 410,
+      "t": 266535,
+      "kind": "files",
+      "paths": [
+        "src/commands/runs.ts",
+        "src/supervisor/turns.ts",
+        "tests/supervisor-integration.test.ts"
+      ]
+    },
+    {
+      "seq": 412,
+      "t": 267814,
+      "kind": "command",
+      "command": "sed -n '324,420p' tests/supervisor-integration.test.ts",
+      "exitCode": 0,
+      "output": "      ]);\n      yield* f.git(f.repo, [\"branch\", \"-D\", \"source\"]);\n      expect(yield* f.request({ _tag: \"Archive\", name }).pipe(Effect.flip)).toMatchObject({\n        _tag: \"RunConflict\","
+    },
+    {
+      "seq": 528,
+      "t": 268830,
+      "kind": "command",
+      "command": "sed -n '164,176p' docs/rfcs/0001-forman.md",
+      "exitCode": 0,
+      "output": "`start` refuses, each with its own message, unless:\n\n1. The path is the top level of a git worktree (`git rev-parse --show-toplevel` equals the real path).\n2. It is a linked worktree: it is not the first entry of `git worktree list --porcelain`, which is the main checkout."
+    },
+    {
+      "seq": 2105,
+      "t": 283554,
+      "kind": "command",
+      "command": "bun run lint",
+      "exitCode": 1,
+      "output": "  × Some errors were emitted while running checks.\n  \n\nerror: script \"lint\" exited with code 1"
+    },
+    {
+      "seq": 2107,
+      "t": 283578,
+      "kind": "command",
+      "command": "cat src/errors.ts",
+      "exitCode": 0,
+      "output": "    if (CliError.isCliError(reason.error)) return new Usage();\n  }\n  return new Defect();\n}"
+    },
+    {
+      "seq": 2108,
+      "t": 283590,
+      "kind": "command",
+      "command": "cat ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/writer/SKILL.md",
+      "exitCode": 0,
+      "output": "- **Lead with the answer** - Conclusions first, evidence second\n- **Short paragraphs by default** - Vary length when the argument needs it (see Paragraph variation)\n- **Tables for comparisons** - Not prose\n- **Whitespace** - Let it breathe"
+    },
+    {
+      "seq": 2112,
+      "t": 300610,
+      "kind": "files",
+      "paths": ["tests/supervisor-integration.test.ts"]
+    },
+    {
+      "seq": 2142,
+      "t": 301619,
+      "kind": "command",
+      "command": "bun run test:unit tests/supervisor-integration.test.ts -t 'failed setup retains'",
+      "exitCode": 1,
+      "output": "   Start at  21:44:47\n   Duration  612ms (import 48%, tests 37%, transform 14%, setup 1%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 2143,
+      "t": 301638,
+      "kind": "command",
+      "command": "rg -n 'export declare const (combine|map)' node_modules/effect/dist/Cause.d.ts",
+      "exitCode": 0,
+      "output": "654:export declare const map: {\n754:export declare const combine: {"
+    },
+    {
+      "seq": 2144,
+      "t": 301655,
+      "kind": "command",
+      "command": "cat ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/writer/references/architect.md ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/writer/references/forbidden-patterns.md",
+      "exitCode": 0,
+      "output": "\nDon't use em dashes. Use a comma, a colon, parentheses, or two sentences instead. Readers treat\nthe em dash as an AI signature, and a sentence that seems to need one usually reads better\nrestructured."
+    },
+    {
+      "seq": 2147,
+      "t": 313218,
+      "kind": "message",
+      "text": "I’m using a ten-minute setup default and reusing an explicit `start --budget` value as the setup deadline too. The turn still receives that duration as its own budget. This avoids a new wire field; I’ll document the behavior in help and the RFC.\n\nI also found a diagnostic gap: dirty setup output survives rollback, but the caller sees only the setup exit error. A regression now covers reporting both the exit and the retained path."
+    },
+    {
+      "seq": 2149,
+      "t": 319654,
+      "kind": "files",
+      "paths": ["src/core/managed-worktree.ts", "src/supervisor/turns.ts"]
+    },
+    {
+      "seq": 2151,
+      "t": 320154,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "output": "$ tsc --noEmit"
+    },
+    {
+      "seq": 2153,
+      "t": 320987,
+      "kind": "command",
+      "command": "bun run format -- src/core/managed-worktree.ts src/core/process.ts src/core/start-mode.ts src/supervisor/turns.ts src/commands/runs.ts tests/managed-worktree.test.ts tests/process.test.ts tests/supervisor-integration.test.ts",
+      "exitCode": 0,
+      "output": "$ biome check --write . src/core/managed-worktree.ts src/core/process.ts src/core/start-mode.ts src/supervisor/turns.ts src/commands/runs.ts tests/managed-worktree.test.ts tests/process.test.ts tests/supervisor-integration.test.ts\nChecked 124 files in 646ms. Fixed 7 files."
+    },
+    {
+      "seq": 2160,
+      "t": 346088,
+      "kind": "files",
+      "paths": ["docs/rfcs/0001-forman.md"]
+    },
+    {
+      "seq": 2164,
+      "t": 352190,
+      "kind": "command",
+      "command": "git diff --stat",
+      "exitCode": 0,
+      "output": " src/core/process.ts                  |  58 +++++++++++++--\n src/supervisor/turns.ts              |  84 ++++++++++++++++++----\n tests/supervisor-integration.test.ts | 123 ++++++++++++++++++++++++++++++++\n 6 files changed, 379 insertions(+), 33 deletions(-)"
+    },
+    {
+      "seq": 2165,
+      "t": 352282,
+      "kind": "command",
+      "command": "cat src/core/managed-worktree.ts",
+      "exitCode": 0,
+      "output": "        return yield* Effect.failCause(cause);\n      }).pipe(Effect.uninterruptible),\n    ),\n  );"
+    },
+    {
+      "seq": 2171,
+      "t": 361372,
+      "kind": "command",
+      "command": "git status --short",
+      "exitCode": 0,
+      "output": " M tests/supervisor-integration.test.ts\n?? src/core/start-mode.ts\n?? tests/managed-worktree.test.ts\n?? tests/process.test.ts"
+    },
+    {
+      "seq": 2173,
+      "t": 362013,
+      "kind": "command",
+      "command": "bun run lint",
+      "exitCode": 0,
+      "output": "$ biome check .\nChecked 124 files in 446ms. No fixes applied."
+    },
+    {
+      "seq": 2174,
+      "t": 362586,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "output": "$ tsc --noEmit"
+    },
+    {
+      "seq": 2178,
+      "t": 373300,
+      "kind": "command",
+      "command": "ps -Ao pid,ppid,etime,command",
+      "exitCode": 0,
+      "output": "43530 71381    16:25:16 /bin/zsh -l\n65724 71381    16:09:08 /bin/zsh -l\n69019 71381    13:27:05 /bin/zsh -l\n14266 71381    12:40:20 /bin/zsh -l"
+    },
+    {
+      "seq": 2179,
+      "t": 373390,
+      "kind": "command",
+      "command": "cat vitest.config.ts",
+      "exitCode": 0,
+      "output": "    testTimeout: 30_000,\n    coverage: { provider: \"v8\", include: [\"src/**/*.ts\"], exclude: [\"src/bin.ts\"] },\n  },\n});"
+    },
+    {
+      "seq": 2180,
+      "t": 373485,
+      "kind": "command",
+      "command": "rg -n 'RunConflict|setup|interrupted' tests/supervisor-integration.test.ts | tail -25",
+      "exitCode": 0,
+      "output": "3490:              steps: [complete(\"interrupted\")],\n3498:        yield* f.untilState(\"interrupted\");\n3509:          kind: \"interrupted\",\n3563:          steps: [complete(\"interrupted\")],"
+    },
+    {
+      "seq": 2184,
+      "t": 378448,
+      "kind": "command",
+      "command": "ps -Ao pid,ppid,etime,command | rg 'vitest|fm-s-|fix-worktrees/tests|worktrees/fix-worktrees/src|while :'",
+      "exitCode": 0,
+      "output": "…vitest.mjs run\n87174 87172       00:32 ~/.local/share/mise/installs/node/26.13.0/bin/node --experimental-import-meta-resolve --require ~/src/forman/.claude/worktrees/fix-daemon/node_modules/vitest/suppress-warnings.cjs --conditions node --conditions development ~/src/forman/.claude/worktrees/fix-daemon/node_modules/vitest/dist/workers/forks.js"
+    },
+    {
+      "seq": 2196,
+      "t": 381903,
+      "kind": "command",
+      "command": "bun run test:unit tests/supervisor-integration.test.ts -t 'preflight cancellation|socket Start refuses|setup deadline|failed setup retains'",
+      "exitCode": 0,
+      "output": " Test Files  1 passed (1)\n      Tests  6 passed | 145 skipped (151)\n   Start at  21:46:05\n   Duration  3.16s (tests 87%, import 12%, transform 1%)"
+    },
+    {
+      "seq": 2198,
+      "t": 394136,
+      "kind": "files",
+      "paths": ["tests/process.test.ts", "tests/supervisor-integration.test.ts"]
+    },
+    {
+      "seq": 2201,
+      "t": 394425,
+      "kind": "command",
+      "command": "bun run build",
+      "exitCode": 0,
+      "output": "$ bun scripts/build.ts\n  [13ms]  minify  -5.87 MB (estimate)\n   [9ms]  bundle  360 modules\n  [84ms] compile  dist/forman"
+    },
+    {
+      "seq": 2208,
+      "t": 395340,
+      "kind": "command",
+      "command": "bun run test:unit tests/process.test.ts tests/managed-worktree.test.ts tests/supervisor-integration.test.ts",
+      "exitCode": 0,
+      "output": " Test Files  3 passed (3)\n      Tests  159 passed (159)\n   Start at  21:45:07\n   Duration  73.97s (tests 98%, import 2%)"
+    },
+    {
+      "seq": 2209,
+      "t": 395383,
+      "kind": "command",
+      "command": "cat package.json smoke/smoke.test.ts",
+      "exitCode": 1,
+      "output": "  },\n  \"packageManager\": \"bun@1.4.2\"\n}\ncat: smoke/smoke.test.ts: No such file or directory"
+    },
+    {
+      "seq": 2213,
+      "t": 405737,
+      "kind": "command",
+      "command": "rg -n 'DaemonRequest|Reply|Request' src/schemas/daemon.ts src/daemon/server.ts | head -35",
+      "exitCode": 0,
+      "output": "…chemas/daemon.ts:262:export const DaemonRequest = Schema.Struct({ id: Schema.Int, body: DaemonRequestBody });\nsrc/schemas/daemon.ts:263:export type DaemonRequest = typeof DaemonRequest.Type;\nsrc/daemon/server.ts:17:import type { DaemonRequestBody, DaemonResult } from \"../schemas/daemon\";\nsrc/daemon/server.ts:26:  readonly handler: (body: DaemonRequestBody) => Effect.Effect<DaemonResult, AppError>;"
+    },
+    {
+      "seq": 2214,
+      "t": 405851,
+      "kind": "command",
+      "command": "rg --files smoke",
+      "exitCode": 0,
+      "output": "smoke/bunfig.toml\nsmoke/real-codex.test.ts\nsmoke/codex-proxy.ts\nsmoke/helpers.ts"
+    },
+    {
+      "seq": 2215,
+      "t": 405944,
+      "kind": "command",
+      "command": "cat tests/fixtures/fake-app-server/scenarios.ts",
+      "exitCode": 0,
+      "output": "      },\n    },\n  ],\n});"
+    },
+    {
+      "seq": 2216,
+      "t": 406052,
+      "kind": "command",
+      "command": "sed -n '1,125p' src/daemon/server.ts",
+      "exitCode": 0,
+      "output": "                }),\n              );\n              const requests = yield* FiberSet.make<\n                void,"
+    },
+    {
+      "seq": 2217,
+      "t": 406251,
+      "kind": "command",
+      "command": "rg -n 'FORMAN_SMOKE_SHORT|setup|new-worktree|symlink' smoke",
+      "exitCode": 0,
+      "output": "smoke/real-codex.test.ts:10:const short = process.env.FORMAN_SMOKE_SHORT === \"1\";\nsmoke/real-codex.test.ts:56:    [\"--new-worktree\", \"--setup\", \"true\", \"--write\", \"--wait\"],\nsmoke/helpers.ts:105:      ...(extra.includes(\"--new-worktree\") ? [] : [\"--worktree\", worktree]),"
+    },
+    {
+      "seq": 2230,
+      "t": 426580,
+      "kind": "message",
+      "text": "The first complete run of the three changed test files passed: 159 tests. Lint and typecheck also pass. Repeated runs, compiled-binary checks and the requested real-Codex smoke check are underway."
+    },
+    {
+      "seq": 2232,
+      "t": 427793,
+      "kind": "command",
+      "command": "mktemp -d /tmp/forman-worktree-qa.XXXXXX",
+      "exitCode": 0,
+      "output": "/tmp/forman-worktree-qa.qBFiBF"
+    },
+    {
+      "seq": 2234,
+      "t": 428293,
+      "kind": "command",
+      "command": "bun run e2e",
+      "exitCode": 0,
+      "output": " 8 pass\n 0 fail\n 169 expect() calls\nRan 8 tests across 1 file. [17.10s]"
+    },
+    {
+      "seq": 2237,
+      "t": 428889,
+      "kind": "command",
+      "command": "git diff -- src/supervisor/turns.ts src/core/process.ts src/commands/runs.ts",
+      "exitCode": 0,
+      "output": "+    steer,\n+  };\n });\n export type Turns = Effect.Success<ReturnType<typeof makeTurns>>;"
+    },
+    {
+      "seq": 2244,
+      "t": 464232,
+      "kind": "files",
+      "paths": ["/tmp/forman-worktree-qa.qBFiBF/qa.py"]
+    },
+    {
+      "seq": 2249,
+      "t": 466055,
+      "kind": "command",
+      "command": "python3 /tmp/forman-worktree-qa.qBFiBF/qa.py ./dist/forman fixed",
+      "exitCode": 0,
+      "output": "    \"worktreeRetained\": false,\n    \"stopExit\": 0\n  }\n}"
+    },
+    {
+      "seq": 2271,
+      "t": 491327,
+      "kind": "command",
+      "command": "sed -n '2720,2790p' tests/supervisor-integration.test.ts",
+      "exitCode": 0,
+      "output": "      yield* f.untilState(\"idle\");\n      const otherName = Schema.decodeUnknownSync(D.RunName)(\"other\");\n      yield* f.start({ name: otherName, worktree: other.worktree });\n      while ((yield* f.status(otherName)).state !== \"idle\") yield* Effect.yieldNow;"
+    },
+    {
+      "seq": 2292,
+      "t": 498922,
+      "kind": "command",
+      "command": "bun run test:unit tests/process.test.ts tests/managed-worktree.test.ts tests/supervisor-integration.test.ts",
+      "exitCode": 1,
+      "output": "   Start at  21:46:38\n   Duration  86.33s (tests 98%, import 1%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 2294,
+      "t": 501495,
+      "kind": "command",
+      "command": "bun run test:unit tests/supervisor-integration.test.ts -t 'rebuilds the registry, cancels pending questions' --repeat-each 10",
+      "exitCode": 1,
+      "output": "    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:105:5)\n\nNode.js v26.13.0\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 2300,
+      "t": 510934,
+      "kind": "files",
+      "paths": ["src/core/process.ts"]
+    },
+    {
+      "seq": 2303,
+      "t": 511895,
+      "kind": "command",
+      "command": "bun run format",
+      "exitCode": 0,
+      "output": "$ biome check --write .\nChecked 124 files in 740ms. Fixed 1 file."
+    },
+    {
+      "seq": 2312,
+      "t": 513411,
+      "kind": "command",
+      "command": "bun run test:unit tests/process.test.ts tests/preflight-worktree.test.ts",
+      "exitCode": 0,
+      "output": " Test Files  2 passed (2)\n      Tests  9 passed (9)\n   Start at  21:48:18\n   Duration  1.19s (tests 50%, import 47%, transform 2%)"
+    },
+    {
+      "seq": 2317,
+      "t": 533778,
+      "kind": "files",
+      "paths": ["tests/supervisor-integration.test.ts"]
+    },
+    {
+      "seq": 2328,
+      "t": 540702,
+      "kind": "command",
+      "command": "bun run test:unit tests/supervisor-integration.test.ts -t 'preflight cancellation|setup deadline|failed setup retains'",
+      "exitCode": 0,
+      "output": " Test Files  1 passed (1)\n      Tests  4 passed | 147 skipped (151)\n   Start at  21:48:40\n   Duration  6.60s (tests 91%, import 7%, transform 2%)"
+    },
+    {
+      "seq": 2351,
+      "t": 565392,
+      "kind": "command",
+      "command": "bun run test",
+      "exitCode": 1,
+      "output": "   Duration  89.30s (tests 91%, import 8%, transform 1%)\n\nerror: script \"test:unit\" exited with code 1\nerror: script \"test\" exited with code 1"
+    },
+    {
+      "seq": 2352,
+      "t": 569720,
+      "kind": "message",
+      "text": "Compiled-binary QA passed in temporary repos: invalid socket setup left main untouched; the worktree race preserved foreign work; verbose setup reported truncation and kept its tail; and a 100 ms setup deadline rolled back and allowed the daemon to stop.\n\nThe full suite caught an output-shape compatibility issue, which I fixed while preserving bounded capture. A repeated supervisor run also hit an existing recovery/wait case; I’m investigating that separately."
+    },
+    {
+      "seq": 2355,
+      "t": 576140,
+      "kind": "command",
+      "command": "ps -Ao pid,ppid,etime,command | rg 'fix-worktrees/node_modules/vitest|vitest.mjs|forman smoke|fm-s-|dist/forman|while :'",
+      "exitCode": 0,
+      "output": "…aemon\n51013 84416       00:13 dist/forman wait smoke --timeout 3m\n53475 94852       00:00 /bin/zsh -c ps -Ao pid,ppid,etime,command | rg 'fix-worktrees/node_modules/vitest|vitest.mjs|forman smoke|fm-s-|dist/forman|while :'\n53477 53475       00:00 rg fix-worktrees/node_modules/vitest|vitest.mjs|forman smoke|fm-s-|dist/forman|while :"
+    },
+    {
+      "seq": 2362,
+      "t": 593911,
+      "kind": "files",
+      "paths": ["/tmp/forman-worktree-qa.qBFiBF/revert.py"]
+    },
+    {
+      "seq": 2368,
+      "t": 610503,
+      "kind": "command",
+      "command": "ls .claude/agents ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/agents",
+      "exitCode": 0,
+      "output": "code-reviewer.md\ncopywriter.md\ndevils-advocate.md\nlog-reader.md"
+    },
+    {
+      "seq": 2369,
+      "t": 610599,
+      "kind": "command",
+      "command": "cat ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/agents/code-reviewer.md",
+      "exitCode": 0,
+      "output": "\n- Change size limits time spent, not coverage. Every diff gets checked against all the criteria in step 3\n- Compare with the codebase when unsure whether something is an established pattern. Matching an existing pattern doesn't exempt it: flag deviations from best practice even when the codebase shares them\n- Your review prepares code for human review - catch issues early"
+    },
+    {
+      "seq": 2375,
+      "t": 624255,
+      "kind": "command",
+      "command": "tail -25 /tmp/forman-worktree-qa.qBFiBF/reverted-tests.log",
+      "exitCode": 0,
+      "output": "   × rollback retains an owned path after committed work changes its identity or contents 438ms\n   × rollback retains an owned path after branch work changes its identity or contents 352ms\n   × rollback retains an owned path after replacement work changes its identity or contents 410ms\n   × rollback uses the original branch OID when a concurrent commit arrives during removal 484ms"
+    },
+    {
+      "seq": 2376,
+      "t": 624412,
+      "kind": "command",
+      "command": "ps -Ao pid,ppid,etime,command | rg 'vitest.mjs|revert.py|fix-worktrees.*smoke|dist/forman|while :'",
+      "exitCode": 0,
+      "output": "…ration.test.ts\n73638 67298       00:27 /bin/sh -c trap 'exit 0' TERM; /bin/sh -c 'trap \"printf stopped > /private/tmp/fm-s-ZhCMBQ/stopped; exit 0\" TERM; printf ready > /private/tmp/fm-s-ZhCMBQ/ready; while :; do :; done' & wait\n73680 73638       00:27 /bin/sh -c trap \"printf stopped > /private/tmp/fm-s-ZhCMBQ/stopped; exit 0\" TERM; printf ready > /private/tmp/fm-s-ZhCMBQ/ready; while :; do :; done"
+    },
+    {
+      "seq": 2377,
+      "t": 624504,
+      "kind": "command",
+      "command": "sed -n '1,60p' src/core/process.ts",
+      "exitCode": 0,
+      "output": "      return { stdout, stderr, code };\n    }),\n  );\n});"
+    },
+    {
+      "seq": 2381,
+      "t": 627096,
+      "kind": "command",
+      "command": "python3 /tmp/forman-worktree-qa.qBFiBF/revert.py",
+      "exitCode": 0,
+      "output": "   Duration  32.78s (tests 96%, import 4%)\n\nerror: script \"test:unit\" exited with code 1\nRestored all four implementation files."
+    },
+    {
+      "seq": 2384,
+      "t": 651193,
+      "kind": "command",
+      "command": "tail -15 /tmp/forman-worktree-qa.qBFiBF/reverted-tests.log",
+      "exitCode": 0,
+      "output": "   Start at  21:49:40\n   Duration  32.78s (tests 96%, import 4%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 2388,
+      "t": 659472,
+      "kind": "command",
+      "command": "sed -n '1,90p' smoke/real-codex.test.ts",
+      "exitCode": 0,
+      "output": "});\n\nsmoke(\"3 steer during slow commands changes the final answer\", async (f) => {\n  const start = await f.start("
+    },
+    {
+      "seq": 2389,
+      "t": 659580,
+      "kind": "command",
+      "command": "rg -n '\"'^real|''^test|''^it|short|9 |11 '\"' smoke/real-codex.test.ts",
+      "exitCode": 0,
+      "output": "283:    const timeout = short ? \"1m\" : \"15m\";\n284:    const holdMs = (short ? 2 : 16) * 60_000;\n293:    const done = await f.until(question, \"done\", short ? \"2m\" : \"16m\");\n310:    ).toBeGreaterThanOrEqual((short ? 60_000 : 900_000) - 1000);"
+    },
+    {
+      "seq": 2396,
+      "t": 673764,
+      "kind": "command",
+      "command": "python3 -c 'import subprocess; from pathlib import Path; results=[]; log=Path(\\\"/tmp/forman-worktree-qa.qBFiBF/recovery-repeat.log\\\").open(\\\"w\\\"); args=[\\\"bun\\\",\\\"run\\\",\\\"test:unit\\\",\\\"tests/supervisor-integration.test.ts\\\",\\\"-t\\\",\\\"rebuilds the registry, cancels pending questions\\\"]; [(results.append(subprocess.run(args,stdout=log,stderr=subprocess.STDOUT).returncode),log.flush()) for _ in range(10)]; log.close(); print(\\\"Recovery regression repeated 10 times:\\\",results)'",
+      "exitCode": 0,
+      "output": "Recovery regression repeated 10 times: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0]"
+    },
+    {
+      "seq": 2398,
+      "t": 678731,
+      "kind": "command",
+      "command": "git diff --check",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 2421,
+      "t": 679666,
+      "kind": "command",
+      "command": "bun run lint",
+      "exitCode": 1,
+      "output": "  × Some errors were emitted while running checks.\n  \n\nerror: script \"lint\" exited with code 1"
+    },
+    {
+      "seq": 2422,
+      "t": 680103,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "output": "$ tsc --noEmit"
+    },
+    {
+      "seq": 2427,
+      "t": 688621,
+      "kind": "command",
+      "command": "rg -n -A12 -B4 'FAIL|Error|Tests ' /tmp/forman-worktree-qa.qBFiBF/recovery-repeat.log",
+      "exitCode": 0,
+      "output": "156:      Tests  1 passed | 150 skipped (151)\n157-   Start at  21:50:59\n158-   Duration  897ms (tests 63%, import 33%, transform 3%)\n159-"
+    },
+    {
+      "seq": 2428,
+      "t": 688710,
+      "kind": "command",
+      "command": "cat src/supervisor/wait.ts",
+      "exitCode": 0,
+      "output": "    }\n  });\n  return yield* consider;\n});"
+    },
+    {
+      "seq": 2429,
+      "t": 688806,
+      "kind": "command",
+      "command": "rg -n -A60 -B10 'recover|lost|load|readRun|StateChanged' src/supervisor/registry.ts",
+      "exitCode": 0,
+      "output": "402-    change: Effect.suspend(() => Effect.succeed(Deferred.await(changed))),\n403-  };\n404-});\n405-export type Registry = Effect.Success<ReturnType<typeof makeRegistry>>;"
+    },
+    {
+      "seq": 2431,
+      "t": 689588,
+      "kind": "command",
+      "command": "bun run format",
+      "exitCode": 0,
+      "output": "$ biome check --write .\nChecked 124 files in 636ms. Fixed 1 file."
+    },
+    {
+      "seq": 2438,
+      "t": 707203,
+      "kind": "command",
+      "command": "bun run lint",
+      "exitCode": 0,
+      "output": "$ biome check .\nChecked 124 files in 538ms. No fixes applied."
+    },
+    {
+      "seq": 2450,
+      "t": 715964,
+      "kind": "command",
+      "command": "FORMAN_SMOKE=1 FORMAN_SMOKE_SHORT=1 bun run smoke",
+      "exitCode": 1,
+      "output": " 1 fail\n 240 expect() calls\nRan 16 tests across 3 files. [306.17s]\nerror: script \"smoke\" exited with code 1"
+    },
+    {
+      "seq": 2451,
+      "t": 732035,
+      "kind": "message",
+      "text": "Revert verification is complete: restoring the original implementation made 13 selected regressions fail, covering all four findings. The fixes are restored.\n\nThe recovery/wait case failed once in ten isolated runs, then passed nine times. It observes `lost` state but receives no wait outcome, consistent with the state/event publication finding assigned elsewhere. I’ve left that code and test unchanged."
+    },
+    {
+      "seq": 2453,
+      "t": 735890,
+      "kind": "files",
+      "paths": ["docs/rfcs/0001-forman.md", "src/commands/runs.ts"]
+    },
+    {
+      "seq": 2457,
+      "t": 741987,
+      "kind": "command",
+      "command": "git diff --stat",
+      "exitCode": 0,
+      "output": " src/core/process.ts                  |  62 ++++++++++++++--\n src/supervisor/turns.ts              |  84 ++++++++++++++++++----\n tests/supervisor-integration.test.ts | 123 ++++++++++++++++++++++++++++++++\n 6 files changed, 381 insertions(+), 32 deletions(-)"
+    },
+    {
+      "seq": 2461,
+      "t": 748866,
+      "kind": "command",
+      "command": "sed -n '1,100p' smoke/regressions.test.ts smoke/codex-proxy.ts",
+      "exitCode": 0,
+      "output": "    `import { spawn } from \"node:child_process\";\nconst child = spawn(process.execPath, [\"-e\", \"process.stdin.resume()\"], { stdio: [\"pipe\", \"ignore\", \"inherit\"] });\nchild.on(\"spawn\", () => process.stdout.write(JSON.stringify({ pid: child.pid }) + \"\\\\n\"));\nprocess.stdin.resume();`,"
+    },
+    {
+      "seq": 2468,
+      "t": 749849,
+      "kind": "command",
+      "command": "bun run test:unit tests/process.test.ts tests/managed-worktree.test.ts tests/supervisor-integration.test.ts",
+      "exitCode": 0,
+      "output": " Test Files  3 passed (3)\n      Tests  159 passed (159)\n   Start at  21:50:46\n   Duration  89.91s (tests 98%, import 1%)"
+    },
+    {
+      "seq": 2471,
+      "t": 755254,
+      "kind": "command",
+      "command": "FORMAN_SMOKE=1 FORMAN_SMOKE_SHORT=1 bun run smoke -t 'proxy drains inherited stdout'",
+      "exitCode": 0,
+      "output": " 15 filtered out\n 0 fail\n 3 expect() calls\nRan 1 test across 3 files. [340.00ms]"
+    },
+    {
+      "seq": 2475,
+      "t": 767488,
+      "kind": "command",
+      "command": "rg -n 'dist/forman|bun run build' tests",
+      "exitCode": 1,
+      "output": ""
+    },
+    {
+      "seq": 2476,
+      "t": 767631,
+      "kind": "files",
+      "paths": ["/tmp/forman-worktree-qa.qBFiBF/baseline-qa.py"]
+    },
+    {
+      "seq": 2482,
+      "t": 778161,
+      "kind": "command",
+      "command": "ps -Ao pid,ppid,etime,command | rg 'vitest.mjs|fix-worktrees/tests/fixtures'",
+      "exitCode": 0,
+      "output": "…node tests/fixtures/fake-app-server/main.mjs app-server generate-json-schema --experimental --out /tmp/scratch\n99032 94852       00:00 /bin/zsh -c ps -Ao pid,ppid,etime,command | rg 'vitest.mjs|fix-worktrees/tests/fixtures'\n99034 99032       00:00 rg vitest.mjs|fix-worktrees/tests/fixtures"
+    },
+    {
+      "seq": 2483,
+      "t": 779247,
+      "kind": "command",
+      "command": "git diff --check",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 2484,
+      "t": 779332,
+      "kind": "command",
+      "command": "mktemp -d /tmp/forman-worktree-review.XXXXXX",
+      "exitCode": 0,
+      "output": "/tmp/forman-worktree-review.Sun8U9"
+    },
+    {
+      "seq": 2488,
+      "t": 787401,
+      "kind": "command",
+      "command": "cat ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/agents/code-reviewer.md",
+      "exitCode": 0,
+      "output": "\n- Change size limits time spent, not coverage. Every diff gets checked against all the criteria in step 3\n- Compare with the codebase when unsure whether something is an established pattern. Matching an existing pattern doesn't exempt it: flag deviations from best practice even when the codebase shares them\n- Your review prepares code for human review - catch issues early"
+    },
+    {
+      "seq": 2489,
+      "t": 787498,
+      "kind": "command",
+      "command": "cat /tmp/scratch",
+      "exitCode": 0,
+      "output": "4. Checks: each command you ran and its result (test counts, not just \"passed\"), and the QA: what you ran, what you judged and what you changed.\n5. Review: the review file's path, each finding in a line, and how you resolved it (fixed, or why not).\n6. Look closer at: the places most likely to be wrong.\n7. Open: what's left undone or blocked, and the questions you'd ask."
+    },
+    {
+      "seq": 2490,
+      "t": 787574,
+      "kind": "files",
+      "paths": ["/tmp/forman-worktree-review.Sun8U9/prompt.md"]
+    },
+    {
+      "seq": 2498,
+      "t": 790456,
+      "kind": "command",
+      "command": "bun run test",
+      "exitCode": 0,
+      "output": " Test Files  34 passed (34)\n      Tests  791 passed (791)\n   Start at  21:51:33\n   Duration  82.90s (tests 90%, import 8%, transform 1%)"
+    },
+    {
+      "seq": 2501,
+      "t": 794084,
+      "kind": "message",
+      "text": "The full unit suite now passes: 791 tests across 34 files. The changed files also passed another complete run of 159 tests.\n\nThe real-Codex smoke run finished with 15 passes and one failure in the unchanged stdout-proxy harness test (`EPIPE`). That test passed on an isolated rerun. Next I’ll compare the original built binary against the fixed one, then run the independent review."
+    },
+    {
+      "seq": 2511,
+      "t": 799519,
+      "kind": "command",
+      "command": "python3 /tmp/forman-worktree-qa.qBFiBF/baseline-qa.py",
+      "exitCode": 0,
+      "output": "  \"C8\": {\n    \"hungPast3s\": true\n  }\n}"
+    },
+    {
+      "seq": 2524,
+      "t": 809019,
+      "kind": "command",
+      "command": "bun run lint",
+      "exitCode": 0,
+      "output": "$ biome check .\nChecked 124 files in 459ms. No fixes applied."
+    },
+    {
+      "seq": 2525,
+      "t": 809589,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "output": "$ tsc --noEmit"
+    },
+    {
+      "seq": 2593,
+      "t": 825098,
+      "kind": "command",
+      "command": "bun run e2e",
+      "exitCode": 0,
+      "output": " 8 pass\n 0 fail\n 169 expect() calls\nRan 8 tests across 1 file. [17.57s]"
+    },
+    {
+      "seq": 2699,
+      "t": 850700,
+      "kind": "command",
+      "command": "git status --short",
+      "exitCode": 0,
+      "output": " M tests/supervisor-integration.test.ts\n?? src/core/start-mode.ts\n?? tests/managed-worktree.test.ts\n?? tests/process.test.ts"
+    },
+    {
+      "seq": 2700,
+      "t": 850784,
+      "kind": "command",
+      "command": "ls -l /tmp/forman-worktree-review.Sun8U9",
+      "exitCode": 0,
+      "output": "total 40\n-rw-r--r--@ 1 dev  wheel  16677 Nov  5 21:52 prompt.md"
+    },
+    {
+      "seq": 2787,
+      "t": 891946,
+      "kind": "command",
+      "command": "ls -l /tmp/forman-worktree-review.Sun8U9",
+      "exitCode": 0,
+      "output": "total 40\n-rw-r--r--@ 1 dev  wheel  16677 Nov  5 21:52 prompt.md"
+    },
+    {
+      "seq": 2790,
+      "t": 903595,
+      "kind": "message",
+      "text": "The original binary reproduced the failure scenarios: it modified main before refusing Start, deleted the racing foreign worktree, omitted the overflow note, and left setup running past its requested budget. The fixed binary is rebuilt, lint/typecheck and e2e pass, and the independent review is running."
+    },
+    {
+      "seq": 2793,
+      "t": 905835,
+      "kind": "command",
+      "command": "python3 /tmp/forman-worktree-qa.qBFiBF/qa.py ./dist/forman final",
+      "exitCode": 0,
+      "output": "    \"worktreeRetained\": false,\n    \"stopExit\": 0\n  }\n}"
+    },
+    {
+      "seq": 2822,
+      "t": 953547,
+      "kind": "command",
+      "command": "ls -l /tmp/forman-worktree-review.Sun8U9",
+      "exitCode": 0,
+      "output": "total 40\n-rw-r--r--@ 1 dev  wheel  16677 Nov  5 21:52 prompt.md"
+    },
+    {
+      "seq": 2870,
+      "t": 985406,
+      "kind": "command",
+      "command": "bun run test:unit tests/process.test.ts tests/managed-worktree.test.ts tests/supervisor-integration.test.ts",
+      "exitCode": 0,
+      "output": " Test Files  3 passed (3)\n      Tests  159 passed (159)\n   Start at  21:54:52\n   Duration  79.37s (tests 98%, import 2%)"
+    },
+    {
+      "seq": 2886,
+      "t": 1004034,
+      "kind": "command",
+      "command": "ls -l /tmp/forman-worktree-review.Sun8U9",
+      "exitCode": 0,
+      "output": "total 40\n-rw-r--r--@ 1 dev  wheel  16677 Nov  5 21:52 prompt.md"
+    },
+    {
+      "seq": 2891,
+      "t": 1017726,
+      "kind": "command",
+      "command": "git diff --check",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 2893,
+      "t": 1018835,
+      "kind": "command",
+      "command": "git diff --numstat",
+      "exitCode": 0,
+      "output": "120\t12\tsrc/core/managed-worktree.ts\n55\t7\tsrc/core/process.ts\n72\t12\tsrc/supervisor/turns.ts\n123\t0\ttests/supervisor-integration.test.ts"
+    },
+    {
+      "seq": 2909,
+      "t": 1040666,
+      "kind": "message",
+      "text": "The review is checking cancellation acknowledgements and ownership handoff. The three changed test files passed again, giving three successful complete runs of 159 tests, alongside the earlier recovery/wait failure. No additional changes are in progress while the reviewer finishes."
+    },
+    {
+      "seq": 2912,
+      "t": 1046193,
+      "kind": "command",
+      "command": "ls -l /tmp/forman-worktree-review.Sun8U9",
+      "exitCode": 0,
+      "output": "total 40\n-rw-r--r--@ 1 dev  wheel  16677 Nov  5 21:52 prompt.md"
+    },
+    {
+      "seq": 2921,
+      "t": 1054017,
+      "kind": "command",
+      "command": "codex exec --ephemeral --sandbox read-only -m gpt-6.1-sol -c model_reasoning_effort=high -c service_tier=priority -o /tmp/forman-worktree-review.Sun8U9/review.md - < /tmp/forman-worktree-review.Sun8U9/prompt.md",
+      "exitCode": 0,
+      "output": "\n## Verdict\n\n**NEEDS FIXES** — Cancellation can strand a created worktree or acknowledge an interrupt while allowing the run to start."
+    },
+    {
+      "seq": 2924,
+      "t": 1126784,
+      "kind": "message",
+      "text": "The review found two cancellation races: Start could lose its rollback handle after successful creation, and cancellation could return success after preflight had already won. I’ll add deterministic regressions for both, fix the ownership transfer and acknowledgement logic, then rerun the checks."
+    },
+    {
+      "seq": 2926,
+      "t": 1128186,
+      "kind": "command",
+      "command": "cat src/supervisor/app-server.ts",
+      "exitCode": 0,
+      "output": "  );\n  return { get, protocolWarning, environment: env };\n});\nexport type AppServers = Effect.Success<ReturnType<typeof makeAppServer>>;"
+    },
+    {
+      "seq": 2927,
+      "t": 1128275,
+      "kind": "command",
+      "command": "rg -n 'export (declare )?(const|interface|class|type)' node_modules/effect/dist/Scheduler.d.ts",
+      "exitCode": 0,
+      "output": "79:export declare const Scheduler: Context.Reference<Scheduler>;\n109:export declare class MixedScheduler implements Scheduler {\n179:export declare const MaxOpsBeforeYield: Context.Reference<number>;\n202:export declare const PreventSchedulerYield: Context.Reference<boolean>;"
+    },
+    {
+      "seq": 2928,
+      "t": 1128364,
+      "kind": "command",
+      "command": "rg -n -A30 -B5 'MaxOpsBeforeYield|makeControlled|Controlled' node_modules/effect/dist/Scheduler.d.ts",
+      "exitCode": 0,
+      "output": "201- */\n202-export declare const PreventSchedulerYield: Context.Reference<boolean>;\n203-export {};\n204-//# sourceMappingURL=Scheduler.d.ts.map"
+    },
+    {
+      "seq": 2932,
+      "t": 1165341,
+      "kind": "command",
+      "command": "cat node_modules/effect/dist/Scheduler.d.ts",
+      "exitCode": 0,
+      "output": " */\nexport declare const PreventSchedulerYield: Context.Reference<boolean>;\nexport {};\n//# sourceMappingURL=Scheduler.d.ts.map"
+    },
+    {
+      "seq": 2933,
+      "t": 1165435,
+      "kind": "command",
+      "command": "rg -n 'children|status|poll|currentOp|middleware' node_modules/effect/dist/Fiber.d.ts node_modules/effect/dist/Effect.d.ts | head -45",
+      "exitCode": 0,
+      "output": "…d.ts:6577:     *   statusCode: number\nnode_modules/effect/dist/Effect.d.ts:6585:     *   Effect.fail(new NetworkError({ statusCode: 504 }))\nnode_modules/effect/dist/Effect.d.ts:6588:     *   Effect.sync(() => { output.push(`expected error: ${error.statusCode}`) })\nnode_modules/effect/dist/Effect.d.ts:6592:     * output // => [\"expected error: 504\", Exit.fail(new NetworkError({ statusCode: 504 }))]"
+    },
+    {
+      "seq": 2937,
+      "t": 1204327,
+      "kind": "command",
+      "command": "rg -n 'starts.take|\\\\.release\\\\(1\\\\)|Semaphore|available' tests/supervisor-integration.test.ts node_modules/effect/dist/Semaphore.d.ts",
+      "exitCode": 0,
+      "output": "…view: an unavailable log sink does not stop the daemon\", () =>\ntests/supervisor-integration.test.ts:2672:        expect(yield* Fiber.join(pending)).toMatchObject({ _tag: \"CodexUnavailable\" });\ntests/supervisor-integration.test.ts:2956:        expect(yield* Fiber.join(pending)).toMatchObject({ _tag: \"CodexUnavailable\" });\ntests/supervisor-integration.test.ts:3458:          \"No hand-off available.\","
+    },
+    {
+      "seq": 2938,
+      "t": 1204455,
+      "kind": "command",
+      "command": "sed -n '320,400p' tests/supervisor-integration.test.ts",
+      "exitCode": 0,
+      "output": "\n  it.live.each([\"setup\", \"from\"] as const)(\n    \"socket Start refuses %s without managed mode before touching the repository\",\n    (option) =>"
+    },
+    {
+      "seq": 2942,
+      "t": 1221174,
+      "kind": "files",
+      "paths": ["tests/supervisor-integration.test.ts"]
+    },
+    {
+      "seq": 2977,
+      "t": 1222956,
+      "kind": "command",
+      "command": "bun run test:unit tests/supervisor-integration.test.ts -t 'review: cancellation'",
+      "exitCode": 1,
+      "output": "   Start at  22:00:07\n   Duration  1.45s (tests 54%, import 37%, transform 9%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 2979,
+      "t": 1230126,
+      "kind": "files",
+      "paths": ["tests/supervisor-integration.test.ts"]
+    },
+    {
+      "seq": 2984,
+      "t": 1250888,
+      "kind": "files",
+      "paths": ["src/core/managed-worktree.ts", "src/supervisor/turns.ts"]
+    },
+    {
+      "seq": 2989,
+      "t": 1252771,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "output": "$ tsc --noEmit"
+    },
+    {
+      "seq": 2998,
+      "t": 1255442,
+      "kind": "command",
+      "command": "bun run test:unit tests/supervisor-integration.test.ts -t 'review: cancellation|preflight cancellation|setup deadline'",
+      "exitCode": 0,
+      "output": " Test Files  1 passed (1)\n      Tests  5 passed | 148 skipped (153)\n   Start at  22:00:37\n   Duration  4.09s (tests 84%, import 13%, transform 3%)"
+    },
+    {
+      "seq": 3001,
+      "t": 1272603,
+      "kind": "command",
+      "command": "bun run format",
+      "exitCode": 0,
+      "output": "$ biome check --write .\nChecked 124 files in 737ms. Fixed 2 files."
+    },
+    {
+      "seq": 3002,
+      "t": 1272660,
+      "kind": "files",
+      "paths": ["docs/rfcs/0001-forman.md"]
+    },
+    {
+      "seq": 3007,
+      "t": 1293032,
+      "kind": "files",
+      "paths": ["tests/managed-worktree.test.ts"]
+    },
+    {
+      "seq": 3034,
+      "t": 1294885,
+      "kind": "command",
+      "command": "bun run test:unit tests/managed-worktree.test.ts -t 'original branch OID'",
+      "exitCode": 1,
+      "output": "   Start at  22:01:19\n   Duration  923ms (import 58%, tests 38%, transform 3%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 3036,
+      "t": 1316773,
+      "kind": "files",
+      "paths": ["src/core/managed-worktree.ts"]
+    },
+    {
+      "seq": 3038,
+      "t": 1316923,
+      "kind": "files",
+      "paths": ["/tmp/forman-worktree-qa.qBFiBF/review-revert.py"]
+    },
+    {
+      "seq": 3043,
+      "t": 1318551,
+      "kind": "command",
+      "command": "python3 /tmp/forman-worktree-qa.qBFiBF/review-revert.py",
+      "exitCode": 0,
+      "output": "   Duration  1.26s (tests 50%, import 44%, transform 5%)\n\nerror: script \"test:unit\" exited with code 1\nRestored both implementation files."
+    },
+    {
+      "seq": 3045,
+      "t": 1335626,
+      "kind": "command",
+      "command": "sed -n '418,455p' tests/supervisor-integration.test.ts",
+      "exitCode": 0,
+      "output": "        worktree: f.repo,\n        newWorktree: true,\n        contract: \"Do the work\",\n        write: false,"
+    },
+    {
+      "seq": 3047,
+      "t": 1336496,
+      "kind": "command",
+      "command": "bun run format",
+      "exitCode": 0,
+      "output": "$ biome check --write .\nChecked 124 files in 658ms. Fixed 1 file."
+    },
+    {
+      "seq": 3059,
+      "t": 1338524,
+      "kind": "command",
+      "command": "bun run test:unit tests/managed-worktree.test.ts tests/supervisor-integration.test.ts -t 'review: cancellation|original branch OID|failed setup retains'",
+      "exitCode": 0,
+      "output": " Test Files  2 passed (2)\n      Tests  4 passed | 155 skipped (159)\n   Start at  22:02:03\n   Duration  1.63s (tests 59%, import 37%, transform 3%)"
+    },
+    {
+      "seq": 3062,
+      "t": 1345826,
+      "kind": "command",
+      "command": "bun run lint",
+      "exitCode": 0,
+      "output": "$ biome check .\nChecked 124 files in 397ms. No fixes applied."
+    },
+    {
+      "seq": 3066,
+      "t": 1346454,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 1,
+      "output": "  Property 'detail' does not exist on type 'PlatformError'.\ntests/managed-worktree.test.ts(134,20): error TS2339: Property 'detail' does not exist on type 'PlatformError | WorktreeInvalid'.\n  Property 'detail' does not exist on type 'PlatformError'.\nerror: script \"typecheck\" exited with code 1"
+    },
+    {
+      "seq": 3072,
+      "t": 1359437,
+      "kind": "files",
+      "paths": ["tests/managed-worktree.test.ts"]
+    },
+    {
+      "seq": 3074,
+      "t": 1360036,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "output": "$ tsc --noEmit"
+    },
+    {
+      "seq": 3075,
+      "t": 1361417,
+      "kind": "files",
+      "paths": ["/tmp/forman-worktree-qa.qBFiBF/repeat-final.py"]
+    },
+    {
+      "seq": 3080,
+      "t": 1364165,
+      "kind": "command",
+      "command": "bun run e2e",
+      "exitCode": 0,
+      "output": " 8 pass\n 0 fail\n 169 expect() calls\nRan 8 tests across 1 file. [17.45s]"
+    },
+    {
+      "seq": 3095,
+      "t": 1433947,
+      "kind": "command",
+      "command": "git diff --check",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 3097,
+      "t": 1435042,
+      "kind": "command",
+      "command": "git status --short",
+      "exitCode": 0,
+      "output": " M tests/supervisor-integration.test.ts\n?? src/core/start-mode.ts\n?? tests/managed-worktree.test.ts\n?? tests/process.test.ts"
+    },
+    {
+      "seq": 3100,
+      "t": 1440864,
+      "kind": "message",
+      "text": "Both review fixes pass their regressions. Creation now transfers the rollback receipt inside its interruption mask, and cancellation returns whether it actually won. I also corrected a diagnostic that claimed a worktree was retained after removal succeeded but branch deletion failed.\n\nReverting these fixes reproduced all three failures. The fixes are restored; the final repeated tests, e2e and smoke checks are underway."
+    },
+    {
+      "seq": 3103,
+      "t": 1443127,
+      "kind": "command",
+      "command": "python3 /tmp/forman-worktree-qa.qBFiBF/qa.py ./dist/forman post-review",
+      "exitCode": 0,
+      "output": "    \"worktreeRetained\": false,\n    \"stopExit\": 0\n  }\n}"
+    },
+    {
+      "seq": 3154,
+      "t": 1444992,
+      "kind": "command",
+      "command": "bun run lint",
+      "exitCode": 1,
+      "output": "  × Some errors were emitted while running checks.\n  \n\nerror: script \"lint\" exited with code 1"
+    },
+    {
+      "seq": 3155,
+      "t": 1445076,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "output": "$ tsc --noEmit"
+    },
+    {
+      "seq": 3165,
+      "t": 1454043,
+      "kind": "command",
+      "command": "bun run format",
+      "exitCode": 0,
+      "output": "$ biome check --write .\nChecked 124 files in 671ms. Fixed 1 file."
+    },
+    {
+      "seq": 3167,
+      "t": 1454624,
+      "kind": "command",
+      "command": "bun run lint",
+      "exitCode": 0,
+      "output": "$ biome check .\nChecked 124 files in 427ms. No fixes applied."
+    },
+    {
+      "seq": 3168,
+      "t": 1454700,
+      "kind": "command",
+      "command": "cat src/core/start-mode.ts",
+      "exitCode": 0,
+      "output": "  Boolean(input.newWorktree) === (input.worktree !== undefined) ||\n  (!input.newWorktree && (input.from !== undefined || input.setup !== undefined))\n    ? Effect.fail(new Usage())\n    : Effect.void;"
+    },
+    {
+      "seq": 3169,
+      "t": 1454776,
+      "kind": "command",
+      "command": "sed -n '30,65p' src/supervisor/turns.ts",
+      "exitCode": 0,
+      "output": "    sandbox: run.record.sandbox,\n  });\n  const interrupt = Effect.fnUntraced(function* (\n    run: Run,"
+    },
+    {
+      "seq": 3170,
+      "t": 1454865,
+      "kind": "command",
+      "command": "sed -n '176,225p' src/supervisor/turns.ts",
+      "exitCode": 0,
+      "output": "      Effect.gen(function* () {\n        yield* accepting;\n        yield* available;\n        if (registry.runs.get(body.name) !== previous)"
+    },
+    {
+      "seq": 3179,
+      "t": 1519515,
+      "kind": "command",
+      "command": "git diff --check",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 3181,
+      "t": 1520616,
+      "kind": "command",
+      "command": "git diff --stat",
+      "exitCode": 0,
+      "output": " src/core/process.ts                  |  62 +++++++++--\n src/supervisor/turns.ts              |  86 +++++++++++++--\n tests/supervisor-integration.test.ts | 205 +++++++++++++++++++++++++++++++++++\n 6 files changed, 470 insertions(+), 32 deletions(-)"
+    },
+    {
+      "seq": 3190,
+      "t": 1563317,
+      "kind": "command",
+      "command": "tail -10 /tmp/forman-worktree-qa.qBFiBF/final-tests-2.log",
+      "exitCode": 0,
+      "output": " Test Files  3 passed (3)\n      Tests  161 passed (161)\n   Start at  22:03:51\n   Duration  79.73s (tests 98%, import 2%)"
+    },
+    {
+      "seq": 3194,
+      "t": 1594652,
+      "kind": "command",
+      "command": "env -i HOME=/private/tmp/fm-wq-u3jr3akq PATH=~/.local/share/mise/installs/node/26/bin:/usr/bin:/bin:/opt/homebrew/bin FORMAN_HOME=/private/tmp/fm-wq-u3jr3akq/d CODEX_HOME=/private/tmp/fm-wq-u3jr3akq/codex CODEX_BIN=tests/fixtures/fake-app-server/main.mjs FAKE_APP_SERVER_SCENARIO=/private/tmp/fm-wq-u3jr3akq/scenario.json ./dist/forman --version",
+      "exitCode": 0,
+      "output": "forman v0.1.0"
+    },
+    {
+      "seq": 3196,
+      "t": 1595767,
+      "kind": "command",
+      "command": "env -i HOME=/private/tmp/fm-wq-u3jr3akq PATH=~/.local/share/mise/installs/node/26/bin:/usr/bin:/bin:/opt/homebrew/bin FORMAN_HOME=/private/tmp/fm-wq-u3jr3akq/d CODEX_HOME=/private/tmp/fm-wq-u3jr3akq/codex CODEX_BIN=tests/fixtures/fake-app-server/main.mjs FAKE_APP_SERVER_SCENARIO=/private/tmp/fm-wq-u3jr3akq/scenario.json ./dist/forman doctor --json",
+      "exitCode": 0,
+      "output": "…3akq/d\",\"codexBin\":\"tests/fixtures/fake-app-server/main.mjs\",\"codexVersion\":null,\"protocolMatches\":null,\"loggedIn\":false,\"daemon\":{\"state\":\"not running\"},\"repoHooks\":{\"state\":\"unknown\",\"mainCheckout\":\"~/src/forman\",\"hooks\":[],\"acceptsStart\":null,\"detail\":\"Could not query Codex hook trust.\"},\"configError\":null}"
+    },
+    {
+      "seq": 3202,
+      "t": 1611646,
+      "kind": "command",
+      "command": "python3 /tmp/forman-worktree-qa.qBFiBF/repeat-final.py",
+      "exitCode": 0,
+      "output": " Test Files  3 passed (3)\n      Tests  161 passed (161)\n   Start at  22:05:11\n   Duration  86.56s (tests 99%, import 1%)"
+    },
+    {
+      "seq": 3205,
+      "t": 1617154,
+      "kind": "command",
+      "command": "env -i HOME=/private/tmp/fm-wq-u3jr3akq PATH=~/.local/share/mise/installs/node/26/bin:/usr/bin:/bin:/opt/homebrew/bin FORMAN_HOME=/private/tmp/fm-wq-u3jr3akq/d CODEX_HOME=/private/tmp/fm-wq-u3jr3akq/codex CODEX_BIN=tests/fixtures/fake-app-server/main.mjs FAKE_APP_SERVER_SCENARIO=/private/tmp/fm-wq-u3jr3akq/scenario.json dist/forman doctor --json",
+      "exitCode": 0,
+      "output": "…\":\"/private/tmp/fm-wq-u3jr3akq/d\",\"codexBin\":\"tests/fixtures/fake-app-server/main.mjs\",\"codexVersion\":null,\"protocolMatches\":null,\"loggedIn\":false,\"daemon\":{\"state\":\"not running\"},\"repoHooks\":{\"state\":\"not applicable\",\"mainCheckout\":\"/private/tmp/fm-wq-u3jr3akq/repo\",\"hooks\":[],\"acceptsStart\":null,\"detail\":null},\"configError\":null}"
+    },
+    {
+      "seq": 3209,
+      "t": 1626507,
+      "kind": "message",
+      "text": "The final versions of all three changed test files passed three consecutive runs: 161 tests each. The post-review e2e run passed all 8 tests, and compiled-binary QA passed again. The second smoke run is finishing its question-timeout hold; I’m running the final full unit suite now."
+    },
+    {
+      "seq": 3215,
+      "t": 1630622,
+      "kind": "command",
+      "command": "bun run lint",
+      "exitCode": 0,
+      "output": "$ biome check .\nChecked 124 files in 1047ms. No fixes applied."
+    },
+    {
+      "seq": 3216,
+      "t": 1631518,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "output": "$ tsc --noEmit"
+    },
+    {
+      "seq": 3217,
+      "t": 1632649,
+      "kind": "command",
+      "command": "git diff --check",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 3220,
+      "t": 1633784,
+      "kind": "command",
+      "command": "git diff -- src/core/managed-worktree.ts src/supervisor/turns.ts",
+      "exitCode": 0,
+      "output": "+    steer,\n+  };\n });\n export type Turns = Effect.Success<ReturnType<typeof makeTurns>>;"
+    },
+    {
+      "seq": 3228,
+      "t": 1648268,
+      "kind": "command",
+      "command": "FORMAN_SMOKE=1 FORMAN_SMOKE_SHORT=1 bun run smoke",
+      "exitCode": 0,
+      "output": " 16 pass\n 0 fail\n 238 expect() calls\nRan 16 tests across 3 files. [288.12s]"
+    },
+    {
+      "seq": 3232,
+      "t": 1682839,
+      "kind": "command",
+      "command": "git status --short",
+      "exitCode": 0,
+      "output": " M tests/supervisor-integration.test.ts\n?? src/core/start-mode.ts\n?? tests/managed-worktree.test.ts\n?? tests/process.test.ts"
+    },
+    {
+      "seq": 3235,
+      "t": 1689147,
+      "kind": "message",
+      "text": "The post-review smoke run passed all 16 tests, including the stdout-proxy regression that failed in the first run. Lint, typecheck, e2e, repeated test files and compiled-binary QA are green. Only the final full unit-suite result remains."
+    },
+    {
+      "seq": 3238,
+      "t": 1694905,
+      "kind": "command",
+      "command": "ps -Ao pid,ppid,etime,command | rg 'fix-worktrees/dist/forman|vitest.mjs run\"'$'\"'",
+      "exitCode": 0,
+      "output": "36189 94852       00:00 /bin/zsh -c ps -Ao pid,ppid,etime,command | rg 'fix-worktrees/dist/forman|vitest.mjs run$'\n36243 36189       00:00 rg fix-worktrees/dist/forman|vitest.mjs run$\n61826 61823       01:07 ~/.local/share/mise/installs/node/26/bin/node node_modules/vitest/vitest.mjs run"
+    },
+    {
+      "seq": 3239,
+      "t": 1695984,
+      "kind": "command",
+      "command": "git diff --check",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 3244,
+      "t": 1703826,
+      "kind": "command",
+      "command": "cat /tmp/forman-worktree-review.Sun8U9/review.md",
+      "exitCode": 0,
+      "output": "\n## Verdict\n\n**NEEDS FIXES** — Cancellation can strand a created worktree or acknowledge an interrupt while allowing the run to start."
+    },
+    {
+      "seq": 3246,
+      "t": 1704909,
+      "kind": "command",
+      "command": "git status --short",
+      "exitCode": 0,
+      "output": " M tests/supervisor-integration.test.ts\n?? src/core/start-mode.ts\n?? tests/managed-worktree.test.ts\n?? tests/process.test.ts"
+    },
+    {
+      "seq": 3255,
+      "t": 1707214,
+      "kind": "command",
+      "command": "bun run test",
+      "exitCode": 0,
+      "output": " Test Files  34 passed (34)\n      Tests  793 passed (793)\n   Start at  22:06:54\n   Duration  78.66s (tests 93%, import 6%)"
+    },
+    {
+      "seq": 3260,
+      "t": 1740465,
+      "kind": "message",
+      "text": "## 1. Summary\n\nImplemented safe rollback, bounded process output, setup deadlines and cancellation, and daemon Start-mode validation. Both independent-review findings are fixed, and final checks pass. Changes remain uncommitted; two integrations in other units’ files remain under Open.\n\n## 2. Files\n\n- `src/core/managed-worktree.ts`: separate ownership tracking, identity checks, expected-OID deletion, safe receipt transfer, setup deadline and rollback diagnostics.\n- `src/core/process.ts`: bounded output tails and visible overflow failures.\n- `src/core/start-mode.ts`: new shared mode validator.\n- `src/supervisor/turns.ts`: early validation, cancellable preflight and cancellation-outcome tracking.\n- `src/commands/runs.ts`: Start budget help text.\n- `tests/managed-worktree.test.ts`: six ownership, retention and concurrent-commit cases.\n- `tests/process.test.ts`: complete-output overflow and bounded tail cases.\n- `tests/supervisor-integration.test.ts`: eight Start/setup/cancellation cases.\n- `docs/rfcs/0001-forman.md`: managed-worktree behavior and limits.\n\n## 3. Decisions\n\n- Setup defaults to **10 minutes**. An explicit `start --budget` also sets its setup deadline; the turn receives a separate budget of that duration. No new flag or wire field.\n- Rollback requires the original directory, `.git` file and administration-directory identities, expected branch and unchanged HEAD. Removal never uses `--force`; branch deletion uses the original expected OID.\n- `createWorktree` transfers its ownership receipt before leaving its interruption mask. This addresses review finding 1.\n- Preflight cancellation uses cancel/completion deferreds and records which outcome won. `cancelStart` acknowledges only a cancellation that won, after cleanup and reservation release.\n- Complete output defaults to **1 MiB per stream**, with overflow failure. Setup requests **4096-byte tails per stream**, with an overflow note.\n- Testing skills drove real temporary repos/processes, FIFO barriers and TestClock. Effect and error-handling skills drove scoped process cleanup and preservation of original failures alongside rollback failures. Architecture guidance kept the shared validator small.\n\n## 4. Checks\n\n| Command | Result |\n|---|---|\n| `bun run test:unit tests/process.test.ts tests/managed-worktree.test.ts tests/supervisor-integration.test.ts` | Final versions passed **three consecutive runs: 161 tests each** |\n| `bun run test:unit tests/process.test.ts tests/preflight-worktree.test.ts` | **9 passed** |\n| `bun run test` | Final: **793 passed across 34 files** |\n| `bun run e2e` | **8 passed** in each of three runs |\n| `bun run lint` | Passed; 124 files checked |\n| `bun run typecheck` | Passed |\n| `bun run build` | Passed, including original/fixed QA builds |\n| `git diff --check` | Passed |\n| `FORMAN_SMOKE=1 FORMAN_SMOKE_SHORT=1 bun run smoke` | Final: **16 passed, 0 failed** |\n| Compiled `--version` and `doctor --json`, temporary home | Exit 0 |\n\nAll four findings were reproduced and revert-verified: restoring the original implementation caused **13 selected failures**. Reverting the review fixes and diagnostic correction caused **3 selected failures**.\n\nThe tests pin foreign-worktree preservation, dirty/committed/replaced-worktree retention, expected-OID deletion, bounded output, raw socket validation, default/custom setup deadlines, process-group cleanup, reservation reuse and cancellation correctness.\n\nBuilt-binary QA reproduced the original failures and confirmed the fixes:\n\n- Invalid socket setup modified main originally; fixed Start left it untouched.\n- The original rollback deleted foreign work; the fixed rollback preserved it.\n- Original setup hung beyond its requested budget; fixed setup timed out and allowed daemon shutdown.\n- Verbose setup now retains its tail and reports overflow.\n\nEarlier failures resolved during development included output-shape compatibility, formatting and type errors. Two intermittent cases remain relevant to the orchestrator: an existing recovery/wait test failed once in ten isolated runs, then passed nine times; the first smoke run had a proxy `EPIPE` failure, which passed individually and in the final full smoke run.\n\n## 5. Review\n\nReview: [review.md](/tmp/forman-worktree-review.Sun8U9/review.md).\n\n1. Lost ownership receipt during cancellation: **fixed** by transferring it inside the creation mask; regression and revert-verified.\n2. False cancellation acknowledgement after preflight wins: **fixed** by returning the recorded cancellation outcome; regression and revert-verified.\n\nOne independent review pass was performed.\n\n## 6. Look closer at\n\n- `createWorktree`, `removeCreatedWorktree` and the filesystem identity comparisons.\n- The choice to reuse explicit `start --budget` for setup.\n- Compatibility between the new complete-output limit and other units’ command callers.\n\n## 7. Open\n\nRequired merge wiring, left untouched because those files belong to other units:\n\n1. **`src/supervisor/index.ts`**: Interrupt dispatch must call `turns.cancelStart(body.name)` **before lookup or taking the run/name lock**. Return `Ok` when it returns true; otherwise continue through normal registered-run interruption.\n2. **`src/core/commands.ts`**: replace Start’s existing inline mode predicate with `yield* validateStartMode(input)`. The CLI currently retains its original validation; the daemon uses the shared helper.\n3. **`README.md`**: document the ten-minute setup default and explicit budget behavior.\n\nThe existing recovery/wait intermittency is consistent with the separately assigned state/event publication finding. Its diagnostic log is [recovery-repeat.log](/tmp/forman-worktree-qa.qBFiBF/recovery-repeat.log). No design questions remain."
+    },
+    {
+      "seq": 3265,
+      "t": 1740555,
+      "kind": "turn-completed",
+      "turn": 1,
+      "status": "completed"
+    },
+    {
+      "seq": 3266,
+      "t": 1741596,
+      "kind": "state",
+      "from": "running",
+      "to": "idle"
+    }
+  ],
+  "questions": [],
+  "handoff": "## 1. Summary\n\nImplemented safe rollback, bounded process output, setup deadlines and cancellation, and daemon Start-mode validation. Both independent-review findings are fixed, and final checks pass. Changes remain uncommitted; two integrations in other units’ files remain under Open.\n\n## 2. Files\n\n- `src/core/managed-worktree.ts`: separate ownership tracking, identity checks, expected-OID deletion, safe receipt transfer, setup deadline and rollback diagnostics.\n- `src/core/process.ts`: bounded output tails and visible overflow failures.\n- `src/core/start-mode.ts`: new shared mode validator.\n- `src/supervisor/turns.ts`: early validation, cancellable preflight and cancellation-outcome tracking.\n- `src/commands/runs.ts`: Start budget help text.\n- `tests/managed-worktree.test.ts`: six ownership, retention and concurrent-commit cases.\n- `tests/process.test.ts`: complete-output overflow and bounded tail cases.\n- `tests/supervisor-integration.test.ts`: eight Start/setup/cancellation cases.\n- `docs/rfcs/0001-forman.md`: managed-worktree behavior and limits.\n\n## 3. Decisions\n\n- Setup defaults to **10 minutes**. An explicit `start --budget` also sets its setup deadline; the turn receives a separate budget of that duration. No new flag or wire field.\n- Rollback requires the original directory, `.git` file and administration-directory identities, expected branch and unchanged HEAD. Removal never uses `--force`; branch deletion uses the original expected OID.\n- `createWorktree` transfers its ownership receipt before leaving its interruption mask. This addresses review finding 1.\n- Preflight cancellation uses cancel/completion deferreds and records which outcome won. `cancelStart` acknowledges only a cancellation that won, after cleanup and reservation release.\n- Complete output defaults to **1 MiB per stream**, with overflow failure. Setup requests **4096-byte tails per stream**, with an overflow note.\n- Testing skills drove real temporary repos/processes, FIFO barriers and TestClock. Effect and error-handling skills drove scoped process cleanup and preservation of original failures alongside rollback failures. Architecture guidance kept the shared validator small.\n\n## 4. Checks\n\n| Command | Result |\n|---|---|\n| `bun run test:unit tests/process.test.ts tests/managed-worktree.test.ts tests/supervisor-integration.test.ts` | Final versions passed **three consecutive runs: 161 tests each** |\n| `bun run test:unit tests/process.test.ts tests/preflight-worktree.test.ts` | **9 passed** |\n| `bun run test` | Final: **793 passed across 34 files** |\n| `bun run e2e` | **8 passed** in each of three runs |\n| `bun run lint` | Passed; 124 files checked |\n| `bun run typecheck` | Passed |\n| `bun run build` | Passed, including original/fixed QA builds |\n| `git diff --check` | Passed |\n| `FORMAN_SMOKE=1 FORMAN_SMOKE_SHORT=1 bun run smoke` | Final: **16 passed, 0 failed** |\n| Compiled `--version` and `doctor --json`, temporary home | Exit 0 |\n\nAll four findings were reproduced and revert-verified: restoring the original implementation caused **13 selected failures**. Reverting the review fixes and diagnostic correction caused **3 selected failures**.\n\nThe tests pin foreign-worktree preservation, dirty/committed/replaced-worktree retention, expected-OID deletion, bounded output, raw socket validation, default/custom setup deadlines, process-group cleanup, reservation reuse and cancellation correctness.\n\nBuilt-binary QA reproduced the original failures and confirmed the fixes:\n\n- Invalid socket setup modified main originally; fixed Start left it untouched.\n- The original rollback deleted foreign work; the fixed rollback preserved it.\n- Original setup hung beyond its requested budget; fixed setup timed out and allowed daemon shutdown.\n- Verbose setup now retains its tail and reports overflow.\n\nEarlier failures resolved during development included output-shape compatibility, formatting and type errors. Two intermittent cases remain relevant to the orchestrator: an existing recovery/wait test failed once in ten isolated runs, then passed nine times; the first smoke run had a proxy `EPIPE` failure, which passed individually and in the final full smoke run.\n\n## 5. Review\n\nReview: [review.md](/tmp/forman-worktree-review.Sun8U9/review.md).\n\n1. Lost ownership receipt during cancellation: **fixed** by transferring it inside the creation mask; regression and revert-verified.\n2. False cancellation acknowledgement after preflight wins: **fixed** by returning the recorded cancellation outcome; regression and revert-verified.\n\nOne independent review pass was performed.\n\n## 6. Look closer at\n\n- `createWorktree`, `removeCreatedWorktree` and the filesystem identity comparisons.\n- The choice to reuse explicit `start --budget` for setup.\n- Compatibility between the new complete-output limit and other units’ command callers.\n\n## 7. Open\n\nRequired merge wiring, left untouched because those files belong to other units:\n\n1. **`src/supervisor/index.ts`**: Interrupt dispatch must call `turns.cancelStart(body.name)` **before lookup or taking the run/name lock**. Return `Ok` when it returns true; otherwise continue through normal registered-run interruption.\n2. **`src/core/commands.ts`**: replace Start’s existing inline mode predicate with `yield* validateStartMode(input)`. The CLI currently retains its original validation; the daemon uses the shared helper.\n3. **`README.md`**: document the ten-minute setup default and explicit budget behavior.\n\nThe existing recovery/wait intermittency is consistent with the separately assigned state/event publication finding. Its diagnostic log is [recovery-repeat.log](/tmp/forman-worktree-qa.qBFiBF/recovery-repeat.log). No design questions remain.",
+  "digest": "run:       fix-worktrees  idle  29m01s  (gpt-6.1-sol, high, priority, write)\ndir:       ~/.forman/runs/fix-worktrees\nworktree:  ~/src/forman/.claude/worktrees/fix-worktrees\nbranch:    forman/fix-worktrees (forman-created, base 39aec1625582d74b66751460b5fb66b6b1b27add)\nturn:      1 (start)\nquestion:  (none)\ncommands:  186 (23 failed, 0 blocked by repo hooks)\n  last:    /bin/zsh -lc 'bun run test'  exit=0\nfiles written:\n  docs/rfcs/0001-forman.md\n  src/commands/runs.ts\n  src/core/managed-worktree.ts\n  src/core/process.ts\n  src/core/start-mode.ts\n  src/supervisor/turns.ts\n  tests/managed-worktree.test.ts\n  tests/process.test.ts\n  tests/supervisor-integration.test.ts\noutside May change:  (none)\nnew in git status since start:  (none)\ntokens:    16.2M in (99% cached), 69K out\n"
+}

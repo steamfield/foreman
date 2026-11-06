@@ -1,0 +1,2127 @@
+{
+  "name": "fix-daemon",
+  "model": "gpt-6.1-sol",
+  "effort": "high",
+  "tier": "priority",
+  "write": true,
+  "branch": "forman/fix-daemon",
+  "baseCommit": "39aec16",
+  "createdAt": "2026-11-06T03:39:35.943Z",
+  "durationMs": 1559337,
+  "tokens": {
+    "input": 17583622,
+    "cachedInput": 17325056,
+    "output": 57315,
+    "reasoningOutput": 25752
+  },
+  "contract": "# Contract: release fixes, part A: daemon lifecycle and locking\n\n## Goal\n\nforman's first release is blocked on findings from three architecture reviews. This unit fixes the daemon process lifecycle: C2, C4, C12, O1 and O4.\n\n- C2 and C12 together: replace the age-based reclaim guard and the bare PID liveness check with a lock that can't be held by two live daemons and can't be kept by a stale record. The conventional answer is an OS-managed lock tied to the process lifetime (an advisory lock on an open file, released by the kernel when the process dies), with the PID record kept only for diagnostics; use that unless you find a reason it doesn't work with Bun and Node here, and say what you found.\n- C4: the daemon's lock and socket must outlive everything the supervisor owns. Order shutdown: stop accepting connections, stop and join supervisor workers and subprocesses, finish persistence and rollback, then remove the socket and release the lock. This needs `src/commands/daemon.ts` and `src/daemon/server.ts`; if it also needs a change inside `src/supervisor/`, keep it to the shutdown entry point and describe it in the hand-off.\n- O1: bound the Ping and Shutdown exchanges, with an actionable `DaemonUnavailable` detail; never replay a mutation after an ambiguous timeout.\n- O4: fatal daemon errors are recorded in `daemon.jsonl` before the logger drains, with safe details; validate the socket path length in the caller too, so the user sees the real reason.\n\n## Scope\n\n- May change: `src/daemon/`, `src/commands/daemon.ts`, `src/supervisor/index.ts` (the shutdown entry point only), `tests/daemon-*.test.ts`, `tests/fixtures/daemon/`, `e2e/binary.test.ts` (daemon cases only), `docs/rfcs/0001-forman.md` (\"Starting and stopping the daemon\").\n- Owned by other units: the rest of `src/supervisor/`, `src/core/`, `src/schemas/`, `src/codex/`, `src/commands/` other than `daemon.ts`, `README.md`, `npm/`, `.github/`.\n\n## How to work\n\nThe findings are in `/tmp/scratch` (outside the repo; read it, don't copy it into a tracked file). Each finding has a location, a failure scenario and a proposed fix. The reviewers read the code carefully but could be wrong: confirm each finding against the code before fixing it, and if one is wrong, say so with evidence in the hand-off instead of changing code. If a proposed fix isn't the simplest conventional one, use the better fix and say why.\n\nRead first, in this repo: `AGENTS.md` (all of it, especially Testing and Error handling), `README.md`, `docs/rfcs/0001-forman.md`, the repo rules (`.claude/rules/effect.md`, `.claude/rules/src/cli.md`, `.claude/rules/src/effect-services.md`, `.claude/rules/src/typescript.md`, `.claude/rules/src/testing.md`, `.claude/rules/src/verification.md`) and the docs each one links, and `docs/guidance/effect/api.md`.\n\nThree other delegates fix other findings in parallel from the same `main` commit, each owning different files (see Scope). Stay inside yours; where a finding needs a file another unit owns, do your side, describe the other side precisely in the hand-off, and the orchestrator will reconcile at merge. Don't ask about this through `ask_orchestrator` unless you're actually blocked.\n\n## Acceptance\n\nReal services, processes, sockets and git repos with the fake app server; no real inference in `tests/` or `e2e/` (AGENTS.md \"Testing\"). Every finding you fix starts with a test that fails before the fix and passes after, revert-verified; concurrency findings need tests that force the interleaving deterministically (barriers, `TestClock`, fault injection), never sleeps. Run each new or changed test file at least three times, `bun run lint`, `bun run typecheck`, `bun run e2e`, and `bun run test` once at the end; report the counts. Don't run `bun run check`. If your area has a real-Codex path, run `FORMAN_SMOKE=1 FORMAN_SMOKE_SHORT=1 bun run smoke` once after building (a development check; credits are not a concern).\n\nQA as the first user of what you changed, with the built binary and a temporary `FORMAN_HOME`, reproducing each blocker's failure scenario before and after where you can. Fix the friction you find (a bug gets a regression test first).\n\n## Do not\n\n- commit or push (leave the changes for review)\n- disable a lint rule, weaken a test or add a cast to get green; split an over-complex function into named steps instead\n- add features, options, abstractions or mechanisms the findings don't need\n- remove any worktree, branch or run data that could hold work, in code or in tests outside temp directories\n- add real-Codex tests anywhere `bun run check`, git hooks or CI would run them\n- edit `~/.codex` config, hooks, trust or auth, or touch the real `~/.forman`\n- use `ask_orchestrator` for progress reports; use it only when blocked or when a decision is needed\n- mention any repository outside this one in a tracked file\n\n## Skills to apply\n\nThe `ce` skills and agents come from the Claude Code `claude-essentials` marketplace. Find the newest installed copy with:\n\n```bash\nce=$(ls -d \"$HOME\"/.claude/plugins/cache/*/ce/*/ | sort -V | tail -1)\n```\n\nRead each skill that applies and use it on this task; your hand-off says where it changed what you did.\n\n- `${ce}skills/writing-tests/SKILL.md`: for every test you write, before writing any. Where it and the repo's own testing rules differ, the repo wins. Also read its `references/waiting-typescript.md` for any test that waits on a process, socket, timer or file, and `references/flaky-tests.md` before you call a test done: run each new test file at least three times, and once in the full suite, since this repo has had tests that pass alone and fail under load. The hand-off's Checks section says which tests you wrote, what behaviour each pins down, and which failed before the fix.\n- `${ce}skills/architecting-systems/SKILL.md`, with its `references/structure.md`, `coupling.md`, `boundaries.md` and `concurrency.md`: before adding a module.\n- `${ce}skills/handling-errors/SKILL.md`: for any error handling you add.\n- `${ce}skills/effect/SKILL.md`: for all Effect code.\n- `.claude/skills/effect-development/SKILL.md` in this repo.\n\n## Review before hand-off\n\nOnce the acceptance checks pass, get one independent code review and fix what it finds. The reviewer is the `ce:code-reviewer` agent (`${ce}agents/code-reviewer.md`) extended by the repo's `.claude/agents/code-reviewer.md` when it exists. This repo's command guard refuses compound shell commands, so run the review as separate simple commands:\n\n1. `mktemp -d` and note the directory it prints, below `<review>`.\n2. Write `<review>/prompt.md` with your file-writing tool (not a shell heredoc), containing: the `ce:code-reviewer` agent body without its frontmatter; the repo reviewer's body if that file exists; then these lines: \"Skills: <ce>skills/architecting-systems/SKILL.md, <ce>skills/writing-tests/SKILL.md, <ce>skills/handling-errors/SKILL.md. The base branch is main; review the uncommitted work in <worktree>. Your sandbox is read-only, so don't run the tests; the author already ran the checks. The task's contract:\" followed by this contract's text, from `/tmp/scratch`.\n3. `codex exec --ephemeral --sandbox read-only -m gpt-6.1-sol -c model_reasoning_effort=high -c service_tier=priority -o <review>/review.md - < <review>/prompt.md`\n\nFix every finding in `review.md`, or say in the hand-off why a finding is wrong. A finding that is a bug gets a regression test in the repo before its fix, revert-verified. Then rerun the acceptance checks. One review pass only.\n\n## Hand-off\n\nYou're done when the review's findings are resolved and the acceptance checks pass, or when you're blocked. Leave everything uncommitted and end with this report as your final message; the orchestrator works from it, so be specific and name files and symbols.\n\n1. Summary: what you built, in two or three sentences.\n2. Files: each file created or changed, with one line on why.\n3. Decisions: choices the contract left open and why you made them; any deviation from the design or contract and the reason; where the skills changed your approach. Name every new mechanism you added and the acceptance test or contract line that needed it.\n4. Checks: each command you ran and its result (test counts, not just \"passed\"), and the QA: what you ran, what you judged and what you changed.\n5. Review: the review file's path, each finding in a line, and how you resolved it (fixed, or why not).\n6. Look closer at: the places most likely to be wrong.\n7. Open: what's left undone or blocked, and the questions you'd ask.\n",
+  "events": [
+    {
+      "seq": 1,
+      "t": 1740,
+      "kind": "state",
+      "from": "starting",
+      "to": "running"
+    },
+    {
+      "seq": 3,
+      "t": 1770,
+      "kind": "turn-started",
+      "turn": 1,
+      "turnKind": "start"
+    },
+    {
+      "seq": 4,
+      "t": 5877,
+      "kind": "message",
+      "text": "I’ll read the findings and required guidance, then add regressions before changing the lifecycle code. I’ll keep everything uncommitted in this worktree and finish with the checks, binary QA, and independent review."
+    },
+    {
+      "seq": 6,
+      "t": 8341,
+      "kind": "command",
+      "command": "pwd",
+      "exitCode": 0,
+      "output": "."
+    },
+    {
+      "seq": 7,
+      "t": 9435,
+      "kind": "command",
+      "command": "git status --short",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 8,
+      "t": 9540,
+      "kind": "command",
+      "command": "ls -d ~/.claude/plugins/cache/*/ce/*/",
+      "exitCode": 0,
+      "output": "~/.claude/plugins/cache/claude-essentials/ce/5.1.0/\n~/.claude/plugins/cache/claude-essentials/ce/5.1.1/\n~/.claude/plugins/cache/claude-essentials/ce/5.2.0/"
+    },
+    {
+      "seq": 9,
+      "t": 9629,
+      "kind": "command",
+      "command": "cat AGENTS.md README.md docs/rfcs/0001-forman.md .claude/rules/effect.md .claude/rules/src/cli.md .claude/rules/src/effect-services.md .claude/rules/src/typescript.md .claude/rules/src/testing.md .claude/rules/src/verification.md",
+      "exitCode": 0,
+      "output": "  - \"scripts/**\"\n---\n\nRead [Before calling work done](../../../docs/guidance/typescript-cli/verification.md). This is the shared authoritative guidance for every selected agent."
+    },
+    {
+      "seq": 10,
+      "t": 9716,
+      "kind": "command",
+      "command": "cat /tmp/scratch",
+      "exitCode": 0,
+      "output": "…md:84), `src/core/runs/worktree.ts:58`. The example’s `May change:` line lacks the required leading bullet and backticked paths. **Failure scenario:** copying the first-run example produces no parsed scope, so the digest cannot report out-of-scope changes. **Fix:** use ``- May change: `src/commands/doctor.ts`.`` and explain the required format beside the example.\n\nRelease verdict: **NEEDS FIXES**."
+    },
+    {
+      "seq": 13,
+      "t": 16483,
+      "kind": "command",
+      "command": "cat .claude/rules/effect.md .claude/rules/src/cli.md .claude/rules/src/effect-services.md .claude/rules/src/typescript.md .claude/rules/src/testing.md .claude/rules/src/verification.md",
+      "exitCode": 0,
+      "output": "  - \"scripts/**\"\n---\n\nRead [Before calling work done](../../../docs/guidance/typescript-cli/verification.md). This is the shared authoritative guidance for every selected agent."
+    },
+    {
+      "seq": 14,
+      "t": 16570,
+      "kind": "command",
+      "command": "cat ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/writing-tests/SKILL.md ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/writing-tests/references/waiting-typescript.md ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/writing-tests/references/flaky-tests.md ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/handling-errors/SKILL.md ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/effect/SKILL.md .claude/skills/effect-development/SKILL.md",
+      "exitCode": 0,
+      "output": "… declarations; the declarations win when they disagree. Until the reference exists, write it as the shared guidance describes, and update it on every Effect upgrade.\n\nUse fresh test layers, observe forked failures, and drive time through the test clock (`tests/effect-testkit.test.ts` shows each). Keep runtime execution at program boundaries. Schema is part of `effect`, not a standalone dependency."
+    },
+    {
+      "seq": 15,
+      "t": 16654,
+      "kind": "command",
+      "command": "cat src/daemon/lock.ts src/daemon/server.ts src/daemon/client.ts src/commands/daemon.ts src/supervisor/index.ts",
+      "exitCode": 0,
+      "output": "      Effect.mapError((error) => failure(Cause.fail(error))),\n    ),\n  };\n});"
+    },
+    {
+      "seq": 17,
+      "t": 20219,
+      "kind": "message",
+      "text": "I’m applying the Effect, testing, and error-handling skills. The code confirms the handshake timeouts and shutdown scope issue; I’m checking which process-lifetime lock works in both Bun and Node before choosing the implementation."
+    },
+    {
+      "seq": 19,
+      "t": 22513,
+      "kind": "command",
+      "command": "cat src/daemon/lock.ts src/daemon/server.ts",
+      "exitCode": 0,
+      "output": "      ? error\n      : new DaemonUnavailable({ detail: `Daemon startup or listener failed: ${error._tag}` }),\n  ),\n);"
+    },
+    {
+      "seq": 20,
+      "t": 22599,
+      "kind": "command",
+      "command": "cat src/daemon/client.ts",
+      "exitCode": 0,
+      "output": "    });\n  }\n  return yield* stopConnected(dataDir, opened.success.socket, opened.success.reader);\n}, Effect.scoped);"
+    },
+    {
+      "seq": 21,
+      "t": 22688,
+      "kind": "command",
+      "command": "cat docs/guidance/effect/effect.md docs/guidance/typescript-cli/cli.md docs/guidance/typescript-cli/effect-services.md docs/guidance/typescript-cli/typescript.md docs/guidance/typescript-cli/testing.md docs/guidance/typescript-cli/verification.md docs/guidance/effect/api.md",
+      "exitCode": 0,
+      "output": "…dio({ name, version, protocols, registrations })`, `McpServer.layerHttp`, `registerToolkit`, `registerResource`, `registerPrompt`) and `Tool`/`Toolkit` for the planned MCP server. `effect/rpc` (`RpcGroup`, `RpcServer`, `RpcClient`, `RpcSerialization.jsonRpc`) could carry the daemon protocol. Both are marked unstable; verify against their declarations and add entries here when the code adopts them."
+    },
+    {
+      "seq": 22,
+      "t": 22780,
+      "kind": "command",
+      "command": "rg --files tests | rg daemon",
+      "exitCode": 0,
+      "output": "tests/fixtures/daemon/legacy.ts\ntests/fixtures/daemon/entry.ts\ntests/daemon-logging.test.ts\ntests/daemon-lifecycle.test.ts"
+    },
+    {
+      "seq": 23,
+      "t": 22865,
+      "kind": "command",
+      "command": "cat package.json src/services/host.ts src/logging.ts",
+      "exitCode": 0,
+      "output": "      };\n    }),\n  );\n}"
+    },
+    {
+      "seq": 26,
+      "t": 29797,
+      "kind": "command",
+      "command": "cat tests/daemon-lifecycle.test.ts",
+      "exitCode": 0,
+      "output": "      assert.include(error.detail, \"100 ms\");\n    }).pipe(Effect.provide(platform)),\n  );\n});"
+    },
+    {
+      "seq": 27,
+      "t": 29885,
+      "kind": "command",
+      "command": "cat tests/daemon-logging.test.ts tests/fixtures/daemon/entry.ts src/daemon/sockets.ts",
+      "exitCode": 0,
+      "output": "  }\n>()(\"app/daemon/Sockets\") {\n  static layer = (value: DaemonSockets[\"Service\"]) => Layer.succeed(DaemonSockets, value);\n}"
+    },
+    {
+      "seq": 30,
+      "t": 30100,
+      "kind": "command",
+      "command": "node -e 'const fs = require(\\\"node:fs\\\"); console.log(process.version, Object.keys(fs).filter(k => /lock/i.test(k))); console.log(require(\\\"node:os\\\").platform())'",
+      "exitCode": 0,
+      "output": "v26.13.0 []\ndarwin"
+    },
+    {
+      "seq": 31,
+      "t": 30189,
+      "kind": "command",
+      "command": "rg -n 'flock|lock\\\\(' node_modules/effect/src/FileSystem.ts node_modules/@effect/platform-bun/src/BunFileSystem.ts node_modules/bun-types/ffi.d.ts",
+      "exitCode": 1,
+      "output": ""
+    },
+    {
+      "seq": 32,
+      "t": 30274,
+      "kind": "command",
+      "command": "cat ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/architecting-systems/SKILL.md ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/architecting-systems/references/structure.md ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/architecting-systems/references/coupling.md ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/architecting-systems/references/boundaries.md ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/architecting-systems/references/concurrency.md",
+      "exitCode": 0,
+      "output": "| Scale within a single process | Producers and consumers scale independently |\n| Low operational overhead matters | Fault tolerance and retry logic matter |\n\nStart with in-process async. Move to queues when you need durability, independent scaling, or cross-service decoupling."
+    },
+    {
+      "seq": 35,
+      "t": 39067,
+      "kind": "command",
+      "command": "ls /usr/bin/lockf /usr/bin/flock /usr/bin/shlock /usr/bin/python3",
+      "exitCode": 1,
+      "output": "ls: /usr/bin/flock: No such file or directory\n/usr/bin/lockf\n/usr/bin/python3\n/usr/bin/shlock"
+    },
+    {
+      "seq": 36,
+      "t": 39160,
+      "kind": "command",
+      "command": "cat docs/guidance/effect/effect.md docs/guidance/typescript-cli/effect-services.md docs/guidance/typescript-cli/testing.md docs/guidance/typescript-cli/verification.md",
+      "exitCode": 0,
+      "output": "…li.jsonl` (structured; `jq -c 'select(.level == \"error\" or .level == \"warn\")' logs/cli.jsonl`) and `logs/cli.log` (the whole stderr) before guessing. Stop only processes you started.\n- A green commit isn't a complete one: after a hook-running commit, check `git status` for files a hook rewrote and left unstaged.\n- Don't report a cause you didn't observe. Quote the error output you're basing it on."
+    },
+    {
+      "seq": 37,
+      "t": 39244,
+      "kind": "command",
+      "command": "sed -n '490,840p' tests/daemon-lifecycle.test.ts",
+      "exitCode": 0,
+      "output": "      const entered = yield* Deferred.make<void>();\n      const cancelled = yield* Deferred.make<void>();\n      const release = yield* Deferred.make<void>();\n      yield* start("
+    },
+    {
+      "seq": 38,
+      "t": 39324,
+      "kind": "command",
+      "command": "cat tests/daemon-logging.test.ts",
+      "exitCode": 0,
+      "output": "      ]);\n    }).pipe(Effect.provide(platform)),\n  );\n});"
+    },
+    {
+      "seq": 39,
+      "t": 39403,
+      "kind": "command",
+      "command": "cat src/daemon/protocol.ts src/bin.ts",
+      "exitCode": 0,
+      "output": "} finally {\n  process.off(\"SIGINT\", interrupt);\n  process.off(\"SIGTERM\", interrupt);\n}"
+    },
+    {
+      "seq": 42,
+      "t": 46254,
+      "kind": "command",
+      "command": "rg -n 'lock|FileDescriptor|fd' node_modules/effect/src/FileSystem.ts",
+      "exitCode": 0,
+      "output": "1027:    | \"BlockDevice\"\n1042:   * `dev`, `ino`, `rdev`, `nlink`, and `blocks` are `bigint` values, so\n1073:   *   blocks: Option.none()\n1105:    readonly blocks: Option.Option<bigint>"
+    },
+    {
+      "seq": 43,
+      "t": 46341,
+      "kind": "command",
+      "command": "rg -n 'lock|flock' node_modules/bun-types/*.d.ts",
+      "exitCode": 0,
+      "output": "…:10177:     * await view.scrollTo(\".item\", { block: \"nearest\" }); // minimal scroll\nnode_modules/bun-types/bun.d.ts:10660:   * The structure of Bun's lockfile, `bun.lock`\nnode_modules/bun-types/bun.d.ts:10663:    lockfileVersion: 0 | 1 | 2;\nnode_modules/bun-types/bun.d.ts:10714:    /** Names in `optionalDependencies` that did not resolve, listed when another package in the lockfile has the name */"
+    },
+    {
+      "seq": 44,
+      "t": 46424,
+      "kind": "command",
+      "command": "rg -n '\"'^C2|Starting and stopping|''^##|''^###'\"' docs/rfcs/0001-forman.md /tmp/scratch",
+      "exitCode": 0,
+      "output": "docs/rfcs/0001-forman.md:364:## Delegation plan\ndocs/rfcs/0001-forman.md:376:## Deferred\ndocs/rfcs/0001-forman.md:380:## Open questions\ndocs/rfcs/0001-forman.md:385:## Deviations found while building"
+    },
+    {
+      "seq": 45,
+      "t": 46506,
+      "kind": "command",
+      "command": "cat docs/guidance/typescript-cli/cli.md docs/guidance/typescript-cli/typescript.md .claude/skills/effect-development/SKILL.md node_modules/effect/AGENTS.md",
+      "exitCode": 0,
+      "output": "The cluster modules let you model stateful services as entities and distribute\nthem across multiple machines.\n\n- **[Defining cluster entities](./ai-docs/src/80_cluster/10_entities.ts)**: Define distributed entity RPCs and run them in a cluster."
+    },
+    {
+      "seq": 46,
+      "t": 46583,
+      "kind": "command",
+      "command": "sed -n '890,1110p' tests/daemon-lifecycle.test.ts",
+      "exitCode": 0,
+      "output": "\n  it.live(\"names its build for undecodable requests and continues on the same connection\", () =>\n    Effect.gen(function* () {\n      const dataDir = yield* temp();"
+    },
+    {
+      "seq": 49,
+      "t": 50618,
+      "kind": "command",
+      "command": "bun -e 'import { DatabaseSync } from \\\"node:sqlite\\\"; console.log(DatabaseSync)'",
+      "exitCode": 0,
+      "output": "[class DatabaseSync]"
+    },
+    {
+      "seq": 50,
+      "t": 50700,
+      "kind": "command",
+      "command": "cat biome-plugins/boundaries.grit .claude/hooks/guard-boundaries.ts",
+      "exitCode": 0,
+      "output": "  const reasons = written ? reasonsFor(file, codeLines(written), projectRoot()) : [];\n  if (reasons.length)\n    deny(`BLOCKED: src/${file} ${reasons.join(\"; \")}. See .claude/rules/src/cli.md.`);\n}"
+    },
+    {
+      "seq": 51,
+      "t": 50779,
+      "kind": "command",
+      "command": "sed -n '54,64p' /tmp/scratch",
+      "exitCode": 0,
+      "output": "…mand lasting over five minutes without further notifications. The deadline releases ownership, allowing another run to write in the same worktree while the original command continues.  \n   **Fix:** Retain the reservation until completion or confirmed process termination. Reconcile or interrupt the turn; if that cannot establish termination, retire its app-server process before releasing ownership."
+    },
+    {
+      "seq": 52,
+      "t": 50858,
+      "kind": "command",
+      "command": "sed -n '66,82p' docs/rfcs/0001-forman.md",
+      "exitCode": 0,
+      "output": "\nThe daemon logs to `$FORMAN_HOME/logs/daemon.jsonl` by default (it has no terminal), and the app server's stderr goes to `$FORMAN_HOME/logs/app-server.log`. Both are rotated like the CLI log.\n\n### The app server's environment"
+    },
+    {
+      "seq": 54,
+      "t": 70615,
+      "kind": "message",
+      "text": "Node 26, Bun, and Effect’s filesystem API here expose no `flock` operation. Both runtimes do provide `node:sqlite`, so I’ll use a held exclusive transaction for its OS-managed file lock, without adding a native dependency. The lock database will stay in place; `daemon.lock` will remain a removable PID record used only for diagnostics.\n\nI’ll also give the supervisor an explicit shutdown scope and make the daemon join it before releasing ownership."
+    },
+    {
+      "seq": 56,
+      "t": 73412,
+      "kind": "command",
+      "command": "cat docs/guidance/effect/index.md tests/effect-testkit.test.ts",
+      "exitCode": 0,
+      "output": "      assert.strictEqual(port, 8080);\n    }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown({ PORT: \"8080\" })))),\n  );\n});"
+    },
+    {
+      "seq": 57,
+      "t": 73494,
+      "kind": "command",
+      "command": "sed -n '125,220p' src/daemon/client.ts",
+      "exitCode": 0,
+      "output": "            if (options.onOutdated !== undefined) yield* options.onOutdated;\n            return false;\n          }),\n        ),"
+    },
+    {
+      "seq": 58,
+      "t": 73574,
+      "kind": "command",
+      "command": "sed -n '1,180p' src/supervisor/registry.ts src/supervisor/app-server.ts",
+      "exitCode": 0,
+      "output": "    return Predicate.hasProperty(error, \"_tag\") && typeof error._tag === \"string\"\n      ? error._tag\n      : \"Unknown\";\n  };"
+    },
+    {
+      "seq": 59,
+      "t": 73701,
+      "kind": "command",
+      "command": "node --input-type=module -e 'import {DatabaseSync} from \\\"node:sqlite\\\"; const a=new DatabaseSync(\\\"/tmp/forman-lock-probe.db\\\"); const b=new DatabaseSync(\\\"/tmp/forman-lock-probe.db\\\"); a.exec(\\\"BEGIN EXCLUSIVE\\\"); try { b.exec(\\\"BEGIN EXCLUSIVE\\\") } catch(e) { console.log(e.code,e.errcode,e.errstr) }; a.close(); b.exec(\\\"BEGIN EXCLUSIVE\\\"); console.log(\\\"reacquired\\\"); b.close()'",
+      "exitCode": 0,
+      "output": "ERR_SQLITE_ERROR 5 database is locked\nreacquired"
+    },
+    {
+      "seq": 60,
+      "t": 73787,
+      "kind": "command",
+      "command": "bun -e 'import {DatabaseSync} from \\\"node:sqlite\\\"; const a=new DatabaseSync(\\\"/tmp/forman-bun-lock-probe.db\\\"); const b=new DatabaseSync(\\\"/tmp/forman-bun-lock-probe.db\\\"); a.exec(\\\"BEGIN EXCLUSIVE\\\"); try { b.exec(\\\"BEGIN EXCLUSIVE\\\") } catch(e) { console.log(e.code,e.errcode,e.errstr) }; a.close(); b.exec(\\\"BEGIN EXCLUSIVE\\\"); console.log(\\\"reacquired\\\"); b.close()'",
+      "exitCode": 0,
+      "output": "ERR_SQLITE_ERROR 5 database is locked\nreacquired"
+    },
+    {
+      "seq": 63,
+      "t": 93536,
+      "kind": "command",
+      "command": "cat > /tmp/unused-forman-placeholder <<'EOF'\nEOF",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 66,
+      "t": 128650,
+      "kind": "files",
+      "paths": ["tests/daemon-ownership.test.ts"]
+    },
+    {
+      "seq": 71,
+      "t": 139645,
+      "kind": "command",
+      "command": "rg -n 'export const poll' node_modules/effect/src/Fiber.ts",
+      "exitCode": 1,
+      "output": ""
+    },
+    {
+      "seq": 75,
+      "t": 140982,
+      "kind": "files",
+      "paths": ["tests/daemon-logging.test.ts"]
+    },
+    {
+      "seq": 123,
+      "t": 142039,
+      "kind": "command",
+      "command": "bun run test:unit tests/daemon-logging.test.ts",
+      "exitCode": 1,
+      "output": "   Start at  21:41:57\n   Duration  709ms (import 42%, tests 40%, transform 17%, setup 1%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 196,
+      "t": 143018,
+      "kind": "command",
+      "command": "bun run test:unit tests/daemon-ownership.test.ts",
+      "exitCode": 1,
+      "output": "   Start at  21:41:56\n   Duration  2.67s (tests 79%, import 18%, transform 2%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 198,
+      "t": 145289,
+      "kind": "command",
+      "command": "rg -n 'poll|await' node_modules/effect/dist/Fiber.d.ts",
+      "exitCode": 0,
+      "output": "604:     * await Effect.runPromise(program)\n649:     * await Effect.runPromise(program)\n687: * const actual = await Effect.runPromise(program)\n720: * const actual = await Effect.runPromise(program)"
+    },
+    {
+      "seq": 199,
+      "t": 145373,
+      "kind": "command",
+      "command": "rg -n 'shutdown|addFinalizer|Scope' src/supervisor/app-server.ts src/supervisor/registry.ts",
+      "exitCode": 0,
+      "output": "src/supervisor/app-server.ts:69:    yield* Scope.close(server.scope, Exit.void);\nsrc/supervisor/app-server.ts:82:      const scope = yield* Scope.fork(owner);\nsrc/supervisor/app-server.ts:92:        Scope.provide(scope),\nsrc/supervisor/app-server.ts:93:        Effect.onExit((exit) => (Exit.isFailure(exit) ? Scope.close(scope, exit) : Effect.void)),"
+    },
+    {
+      "seq": 200,
+      "t": 145456,
+      "kind": "command",
+      "command": "cat docs/guidance/effect/api.md",
+      "exitCode": 0,
+      "output": "…dio({ name, version, protocols, registrations })`, `McpServer.layerHttp`, `registerToolkit`, `registerResource`, `registerPrompt`) and `Tool`/`Toolkit` for the planned MCP server. `effect/rpc` (`RpcGroup`, `RpcServer`, `RpcClient`, `RpcSerialization.jsonRpc`) could carry the daemon protocol. Both are marked unstable; verify against their declarations and add entries here when the code adopts them."
+    },
+    {
+      "seq": 204,
+      "t": 170525,
+      "kind": "command",
+      "command": "python3 -c 'from pathlib import Path; p=Path(\\\"tests/daemon-ownership.test.ts\\\"); s=p.read_text().replace(\\\", Scope, Stream\\\", \\\", Stream\\\").replace(\\\"yield* Fiber.poll(running)\\\", \\\"running.pollUnsafe()\\\").replace(\\\"yield* Fiber.poll(first)\\\", \\\"first.pollUnsafe()\\\").replace(\\\"yield* Fiber.poll(pending)\\\", \\\"pending.pollUnsafe()\\\"); p.write_text(s)'",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 249,
+      "t": 171241,
+      "kind": "command",
+      "command": "bun run test:unit tests/daemon-ownership.test.ts -t 'bounds a stalled'",
+      "exitCode": 1,
+      "output": "   Start at  21:42:26\n   Duration  371ms (import 85%, transform 8%, tests 5%, setup 1%, worker 1%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 253,
+      "t": 202689,
+      "kind": "command",
+      "command": "python3 -c 'from pathlib import Path; Path(\\\"src/daemon/lock.ts\\\").write_text(\\\"\\\"\\\"import { DatabaseSync } from \\\"node:sqlite\\\";\nimport { Effect, FileSystem, Path, Predicate, Schema } from \\\"effect\\\";\nimport { DaemonUnavailable } from \\\"../errors\\\";\nimport { DaemonLockOwner } from \\\"../schemas/daemon\\\";\nimport { Host } from \\\"../services/host\\\";\n\nconst lockError = () => new DaemonUnavailable({\n  detail: \\\"Could not acquire daemon ownership; check home permissions and daemon.guard.sqlite. Use a local filesystem with advisory locking.\\\",\n});\n\n// SQLite supplies OS advisory locking in both Node and Bun without a native addon.\n// Never unlink this database: all contenders must lock the same inode. No data is stored.\nexport const takeLock = Effect.fn(\\\"daemon.takeLock\\\")(function* (dataDir: string) {\n  const path = yield* Path.Path;\n  const database = yield* Effect.acquireRelease(\n    Effect.try({ try: () => new DatabaseSync(path.join(dataDir, \\\"daemon.guard.sqlite\\\")), catch: lockError }),\n    (database) => Effect.sync(() => database.close()),\n  );\n  return yield* Effect.try({\n    try: () => {\n      try {\n        database.exec(\\\"BEGIN EXCLUSIVE\\\");\n        return true;\n      } catch (error) {\n        // SQLITE_BUSY is the only failure that establishes another owner.\n        if (Predicate.hasProperty(error, \\\"errcode\\\") && error.errcode === 5) return false;\n        throw error;\n      }\n    },\n    catch: lockError,\n  });\n});\n\nexport const recordOwner = Effect.fn(\\\"daemon.recordOwner\\\")(function* (dataDir: string) {\n  const fs = yield* FileSystem.FileSystem;\n  const path = yield* Path.Path;\n  const owner = Schema.encodeSync(Schema.fromJsonString(DaemonLockOwner))({ pid: (yield* Host).pid });\n  yield* fs.writeFileString(path.join(dataDir, \\\"daemon.lock\\\"), owner, { mode: 0o600 });\n});\n\nexport const releaseLock = Effect.fn(\\\"daemon.releaseLock\\\")(function* (dataDir: string, socketPath: string) {\n  const fs = yield* FileSystem.FileSystem;\n  const path = yield* Path.Path;\n  // Called only while the advisory lock is held, after every owned worker has joined.\n  yield* fs.remove(socketPath, { force: true });\n  yield* fs.remove(path.join(dataDir, \\\"daemon.lock\\\"), { force: true });\n});\n\\\"\\\"\\\")'",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 254,
+      "t": 202869,
+      "kind": "files",
+      "paths": ["src/daemon/server.ts", "src/supervisor/index.ts"]
+    },
+    {
+      "seq": 256,
+      "t": 202971,
+      "kind": "files",
+      "paths": ["src/daemon/client.ts"]
+    },
+    {
+      "seq": 258,
+      "t": 203064,
+      "kind": "files",
+      "paths": ["src/commands/daemon.ts"]
+    },
+    {
+      "seq": 282,
+      "t": 205094,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 1,
+      "output": "…r, ChildProcessSpawner | ... ...'.\n    Type 'boolean' is not assignable to type '{ readonly _tag: \"Accepted\"; readonly cursor: string & Brand<\"Cursor\">; readonly all?: boolean | undefined; readonly next?: string | undefined; } | { readonly _tag: \"Archived\"; readonly name: string & Brand<...>; readonly archivePath: string; } | ... 6 more ... | { ...; }'.\nerror: script \"typecheck\" exited with code 1"
+    },
+    {
+      "seq": 287,
+      "t": 223773,
+      "kind": "command",
+      "command": "python3 -c 'from pathlib import Path; p=Path(\\\"tests/daemon-ownership.test.ts\\\"); s=p.read_text().replace(\\\"shutdown(dataDir) : call\\\", \\\"shutdown(dataDir).pipe(Effect.asVoid) : call\\\").replace(\\\"{ dataDir });\\\\n        const pending\\\", \\\"{ dataDir }).pipe(Effect.asVoid);\\\\n        const pending\\\").replace(\\\"{ dataDir });\\\\n      const error\\\", \\\"{ dataDir }).pipe(Effect.asVoid);\\\\n      const error\\\"); p.write_text(s); p=Path(\\\"tests/daemon-logging.test.ts\\\"); s=p.read_text().replace(\\\"? fs.readFileString(\"'`${root}/missing`)\", \"? fs.readFileString(`${root}/missing`).pipe(Effect.asVoid)\").replace(\"const work = kind ===\", \"const work: Effect.Effect<void, unknown> = kind ===\"); p.write_text(s)'\"'",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 293,
+      "t": 228234,
+      "kind": "message",
+      "text": "The regressions reproduced the stale-PID blockage, expired-guard race, stalled Ping and Shutdown exchanges, missing fatal logs, and caller-side socket-path error. The fixes are in place; I’m now checking cleanup ordering and replacing tests tied to the old reclaim-directory mechanism."
+    },
+    {
+      "seq": 295,
+      "t": 229657,
+      "kind": "command",
+      "command": "cat vitest.config.ts src/daemon/server.ts",
+      "exitCode": 0,
+      "output": "      ? error\n      : new DaemonUnavailable({ detail: `Daemon startup or listener failed: ${error._tag}` }),\n  ),\n);"
+    },
+    {
+      "seq": 305,
+      "t": 230326,
+      "kind": "command",
+      "command": "bun run test:unit tests/daemon-ownership.test.ts -t 'ignores a stale'",
+      "exitCode": 0,
+      "output": " Test Files  1 passed (1)\n      Tests  1 passed | 6 skipped (7)\n   Start at  21:43:25\n   Duration  436ms (import 61%, tests 32%, transform 6%, setup 1%)"
+    },
+    {
+      "seq": 314,
+      "t": 231141,
+      "kind": "command",
+      "command": "bun run test:unit tests/daemon-logging.test.ts",
+      "exitCode": 0,
+      "output": " Test Files  1 passed (1)\n      Tests  8 passed (8)\n   Start at  21:43:26\n   Duration  599ms (tests 47%, import 45%, transform 6%, setup 1%)"
+    },
+    {
+      "seq": 322,
+      "t": 231711,
+      "kind": "command",
+      "command": "bun run test:unit tests/daemon-ownership.test.ts -t 'bounds a stalled'",
+      "exitCode": 0,
+      "output": " Test Files  1 passed (1)\n      Tests  2 passed | 5 skipped (7)\n   Start at  21:43:27\n   Duration  341ms (import 88%, tests 6%, transform 4%, setup 1%, worker 1%)"
+    },
+    {
+      "seq": 343,
+      "t": 244000,
+      "kind": "command",
+      "command": "bun run test:unit tests/daemon-ownership.test.ts tests/daemon-logging.test.ts",
+      "exitCode": 1,
+      "output": "   Start at  21:42:59\n   Duration  40.67s (tests 99%, import 1%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 348,
+      "t": 255117,
+      "kind": "command",
+      "command": "python3 -c 'from pathlib import Path; p=Path(\\\"tests/daemon-lifecycle.test.ts\\\"); s=p.read_text().replace(\\\"import { releaseLock }\\\", \\\"import { takeLock }\\\"); a=s.index(\\\"  it.live(\\\\\\\"preserves an old lock\\\"); b=s.index(\\\"  it.live(\\\\\\\"reclaims a fresh lock\\\", a); s=s[:a]+\\\"\\\"\\\"  it.live(\\\"preserves a live advisory owner without a listening socket\\\", () =>\n    Effect.gen(function* () {\n      const dataDir = yield* temp();\n      const fs = yield* FileSystem.FileSystem;\n      assert.isTrue(yield* takeLock(dataDir));\n      yield* daemon(options(dataDir));\n      assert.isFalse(yield* fs.exists(\"'`${dataDir}/forman.sock`));\n    }).pipe(Effect.provide(platform)),\n  );\n\"\"\"+s[b:]; titles=[\"review: shutdown waits for old ownership cleanup before a replacement starts\", \"simultaneous stale-lock takeovers leave exactly one serving daemon\", \"recovers a stale reclaim guard left by a killed reclaimer\", \"leaves a fresh reclaimer alone while it owns a stale lock\", \"shutdown cleanup preserves files belonging to a replacement lock\", \"leaves a fresh lock alone when its owner is still starting\"]; \nfor title in titles:\n a=s.index(\"  it.live('\"\\\\\\\"\\\"+title); b=s.index(\\\"\\\\n  it.\\\", a+1); s=s[:a]+s[b:]\np.write_text(s)'",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 349,
+      "t": 255232,
+      "kind": "files",
+      "paths": ["tests/daemon-ownership.test.ts"]
+    },
+    {
+      "seq": 354,
+      "t": 256992,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "output": "$ tsc --noEmit"
+    },
+    {
+      "seq": 360,
+      "t": 261386,
+      "kind": "command",
+      "command": "ps -axo pid,ppid,command",
+      "exitCode": 0,
+      "output": "43530 71381 /bin/zsh -l\n65724 71381 /bin/zsh -l\n69019 71381 /bin/zsh -l\n14266 71381 /bin/zsh -l"
+    },
+    {
+      "seq": 370,
+      "t": 261945,
+      "kind": "command",
+      "command": "bun run test:unit tests/daemon-ownership.test.ts -t 'paused owner'",
+      "exitCode": 0,
+      "output": " Test Files  1 passed (1)\n      Tests  1 passed | 6 skipped (7)\n   Start at  21:43:57\n   Duration  318ms (import 88%, tests 6%, transform 4%, setup 1%, worker 1%)"
+    },
+    {
+      "seq": 380,
+      "t": 262695,
+      "kind": "command",
+      "command": "bun run test:unit tests/daemon-ownership.test.ts -t 'supervisor cleanup'",
+      "exitCode": 0,
+      "output": " Test Files  1 passed (1)\n      Tests  1 passed | 6 skipped (7)\n   Start at  21:43:58\n   Duration  520ms (tests 49%, import 48%, transform 2%, setup 1%)"
+    },
+    {
+      "seq": 2035,
+      "t": 273378,
+      "kind": "command",
+      "command": "bun run lint",
+      "exitCode": 1,
+      "output": "  × Some errors were emitted while running checks.\n  \n\nerror: script \"lint\" exited with code 1"
+    },
+    {
+      "seq": 2042,
+      "t": 273433,
+      "kind": "command",
+      "command": "bun run test:unit tests/daemon-ownership.test.ts tests/daemon-logging.test.ts tests/daemon-lifecycle.test.ts",
+      "exitCode": 0,
+      "output": " Test Files  3 passed (3)\n      Tests  70 passed (70)\n   Start at  21:43:51\n   Duration  9.44s (tests 91%, import 8%, transform 1%)"
+    },
+    {
+      "seq": 2044,
+      "t": 273456,
+      "kind": "command",
+      "command": "rg -n 'SIGKILL|SIGTERM|daemon|shutdown' e2e/binary.test.ts",
+      "exitCode": 0,
+      "output": "479:          (await invoke([process.execPath, resolve(\"src/bin.ts\"), \"daemon\", \"stop\"])).status,\n552:    const child = Bun.spawn([binary, \"daemon\", \"stop\"], {\n609:      daemon: { state: \"not running\" },\n673:          \"daemon\","
+    },
+    {
+      "seq": 2045,
+      "t": 273464,
+      "kind": "command",
+      "command": "rg -n 'makeSupervisor|fake-app|AppLayer|startRequest' tests/supervisor*.test.ts tests/helpers/*",
+      "exitCode": 0,
+      "output": "tests/supervisor-integration.test.ts:210:    const supervisor = yield* makeSupervisor().pipe(\ntests/supervisor-integration.test.ts:2068:      const app = AppLayer(\ntests/supervisor-integration.test.ts:2082:      const app = AppLayer(\ntests/supervisor-integration.test.ts:2851:        const app = AppLayer("
+    },
+    {
+      "seq": 2046,
+      "t": 273473,
+      "kind": "command",
+      "command": "ps -axo pid,ppid,command | rg 'vitest|daemon-ownership|daemon-lifecycle' ",
+      "exitCode": 0,
+      "output": "…iley/Projects/claude-codex/.claude/worktrees/fix-daemon/node_modules/vitest/suppress-warnings.cjs --conditions node --conditions development node_modules/vitest/dist/workers/forks.js\n64031 94852 /bin/zsh -c ps -axo pid,ppid,command | rg 'vitest|daemon-ownership|daemon-lifecycle' \n64033 64031 rg vitest|daemon-ownership|daemon-lifecycle"
+    },
+    {
+      "seq": 2051,
+      "t": 274942,
+      "kind": "command",
+      "command": "bun run test:unit tests/daemon-lifecycle.test.ts",
+      "exitCode": 143,
+      "output": "  [cause]: undefined\n}\n\nerror: script \"test:unit\" exited with code 143"
+    },
+    {
+      "seq": 2052,
+      "t": 274951,
+      "kind": "command",
+      "command": "kill -TERM 57003",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 2142,
+      "t": 276303,
+      "kind": "command",
+      "command": "bun run format",
+      "exitCode": 1,
+      "output": "  × Some errors were emitted while applying fixes.\n  \n\nerror: script \"format\" exited with code 1"
+    },
+    {
+      "seq": 2143,
+      "t": 276312,
+      "kind": "command",
+      "command": "sed -n '1,220p' tests/supervisor-integration.test.ts",
+      "exitCode": 0,
+      "output": "        return Effect.fail(new RunConflict({ detail: \"Active legacy runs\" }));\n      return supervisor\n        .handler(body)\n        .pipe("
+    },
+    {
+      "seq": 2144,
+      "t": 276319,
+      "kind": "command",
+      "command": "sed -n '1,190p' e2e/binary.test.ts",
+      "exitCode": 0,
+      "output": "// Merge wiring required in core/commands.ts: pass logFile: (yield* config.logging).file to call().\n// Keep this active regression red until the orchestrator wires that locked call site.\ntest(\"merge wiring: CLI and daemon share a relative log override from the caller\", async () => {\n  const root = await mkdtemp(\"/tmp/fm-log-path-\");"
+    },
+    {
+      "seq": 2145,
+      "t": 276328,
+      "kind": "command",
+      "command": "cat src/supervisor/app-server.ts",
+      "exitCode": 0,
+      "output": "  );\n  return { get, protocolWarning, environment: env };\n});\nexport type AppServers = Effect.Success<ReturnType<typeof makeAppServer>>;"
+    },
+    {
+      "seq": 2149,
+      "t": 287604,
+      "kind": "command",
+      "command": "sed -n '85,215p' src/supervisor/turns.ts src/core/managed-worktree.ts",
+      "exitCode": 0,
+      "output": "          tier: body.tier ?? \"priority\",\n          sandbox: body.write ? \"danger-full-access\" : \"read-only\",\n          questionTimeoutMs: body.questionTimeoutMs ?? 900_000,\n          state: \"starting\","
+    },
+    {
+      "seq": 2150,
+      "t": 287688,
+      "kind": "command",
+      "command": "sed -n '200,270p' tests/supervisor-integration.test.ts",
+      "exitCode": 0,
+      "output": "    while (true) {\n      const digest = yield* status();\n      if (digest.state === state) return digest;\n      yield* Effect.yieldNow;"
+    },
+    {
+      "seq": 2151,
+      "t": 287780,
+      "kind": "command",
+      "command": "rg -n 'shutdown|SIGTERM|setup|rollback' tests/supervisor-integration.test.ts",
+      "exitCode": 0,
+      "output": "899:            detail: expect.stringMatching(/exit(?:ed)? 23[\\s\\S]*setup tail/),\n1985:  process.on(\"SIGTERM\", () => { child.kill(); fs.writeFileSync(${JSON.stringify(closed)}, \"closed\"); process.exit(0); });\n3015:  it.live(\"refuses starts and followups after shutdown is accepted\", () =>\n3021:      // Keep the listener alive to exercise requests queued behind the shutdown decision."
+    },
+    {
+      "seq": 2153,
+      "t": 288862,
+      "kind": "command",
+      "command": "git diff --stat",
+      "exitCode": 0,
+      "output": " src/supervisor/index.ts        |   5 +-\n tests/daemon-lifecycle.test.ts | 151 +----------------------------------------\n tests/daemon-logging.test.ts   |  45 ++++++++++++\n 7 files changed, 164 insertions(+), 291 deletions(-)"
+    },
+    {
+      "seq": 2157,
+      "t": 298316,
+      "kind": "command",
+      "command": "rg -n 'interface StandardCommand|readonly command|readonly args|_tag' node_modules/effect/src/process/ChildProcess.ts | head -25",
+      "exitCode": 0,
+      "output": "1297:   * const result = cmd._tag === \"StandardCommand\" && cmd.options.cwd // => \"/tmp\"\n1320:   * const result = cmd._tag === \"StandardCommand\" && cmd.options.cwd // => \"/tmp\"\n1331:    switch (self._tag) {\n1358: * const result = cmd._tag === \"StandardCommand\" && cmd.options.env?.NODE_ENV // => \"test\""
+    },
+    {
+      "seq": 2158,
+      "t": 298406,
+      "kind": "command",
+      "command": "cat src/core/managed-worktree.ts",
+      "exitCode": 0,
+      "output": ") =>\n  work.pipe(\n    Effect.onExit((exit) => (Exit.isFailure(exit) ? removeCreatedWorktree(created) : Effect.void)),\n  );"
+    },
+    {
+      "seq": 2159,
+      "t": 298487,
+      "kind": "command",
+      "command": "sed -n '1910,2010p' tests/supervisor-integration.test.ts",
+      "exitCode": 0,
+      "output": "        }),\n      );\n      const otherName = Schema.decodeUnknownSync(D.RunName)(\"other\"),\n        freshName = Schema.decodeUnknownSync(D.RunName)(\"fresh\");"
+    },
+    {
+      "seq": 2161,
+      "t": 298710,
+      "kind": "command",
+      "command": "bun run build",
+      "exitCode": 0,
+      "output": "$ bun scripts/build.ts\n  [10ms]  minify  -5.86 MB (estimate)\n   [7ms]  bundle  359 modules\n  [64ms] compile  dist/forman"
+    },
+    {
+      "seq": 2165,
+      "t": 331256,
+      "kind": "files",
+      "paths": [
+        "e2e/binary.test.ts",
+        "tests/daemon-lifecycle.test.ts",
+        "tests/daemon-logging.test.ts"
+      ]
+    },
+    {
+      "seq": 2167,
+      "t": 331309,
+      "kind": "files",
+      "paths": ["docs/rfcs/0001-forman.md"]
+    },
+    {
+      "seq": 2170,
+      "t": 332118,
+      "kind": "command",
+      "command": "bun run format",
+      "exitCode": 0,
+      "output": "$ biome check --write .\nChecked 122 files in 623ms. Fixed 2 files."
+    },
+    {
+      "seq": 2208,
+      "t": 342270,
+      "kind": "command",
+      "command": "bun run test:unit tests/daemon-lifecycle.test.ts tests/daemon-ownership.test.ts tests/daemon-logging.test.ts",
+      "exitCode": 1,
+      "output": "   Start at  21:45:08\n   Duration  9.61s (tests 87%, import 12%, transform 2%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 2210,
+      "t": 355631,
+      "kind": "command",
+      "command": "rg -n 'inheritedEnvironment' src/config.ts src/codex/environment.ts; sed -n '1,70p' src/codex/environment.ts",
+      "exitCode": 0,
+      "output": "    env.SSH_AUTH_SOCK = ssh.launchdSocket;\n  }\n  return env;\n}"
+    },
+    {
+      "seq": 2211,
+      "t": 355743,
+      "kind": "files",
+      "paths": ["tests/daemon-ownership.test.ts"]
+    },
+    {
+      "seq": 2242,
+      "t": 356869,
+      "kind": "command",
+      "command": "bun run test:unit tests/daemon-ownership.test.ts -t 'real supervisor'",
+      "exitCode": 1,
+      "output": "   Start at  21:45:31\n   Duration  664ms (import 57%, tests 34%, transform 8%, setup 1%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 2253,
+      "t": 363341,
+      "kind": "command",
+      "command": "python3 -c 'from pathlib import Path; p=Path(\\\"tests/daemon-ownership.test.ts\\\"); s=p.read_text().replace(\\\"\"'`${root}/work`\", \"`${repo}/work`\").replace(\"assert.isTrue(yield* children[0]?.isRunning ?? Effect.succeed(false));\", \"for (const child of children) assert.isTrue(yield* child.isRunning);\"); p.write_text(s)'\"'",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 2272,
+      "t": 364886,
+      "kind": "command",
+      "command": "bun run test:unit tests/daemon-ownership.test.ts -t 'real supervisor'",
+      "exitCode": 1,
+      "output": "   Start at  21:45:39\n   Duration  1.12s (tests 62%, import 33%, transform 5%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 2279,
+      "t": 366298,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 1,
+      "output": "…d): Effect<ChildProcessHandle, PlatformError, Scope>; exitCode(command: Command): Effect<...>; streamString(command: Command, options?: { ...; } | undefined): Stream<...>; streamLines(command: Command, options?: { ...; } | undefined): Stream<...>; lines(command: Command, options?: { ...; } | u...': spawn, exitCode, streamString, streamLines, and 2 more.\nerror: script \"typecheck\" exited with code 1"
+    },
+    {
+      "seq": 2288,
+      "t": 372385,
+      "kind": "command",
+      "command": "python3 -c 'from pathlib import Path; p=Path(\\\"tests/daemon-ownership.test.ts\\\"); s=p.read_text().replace(\\\"const observed: ChildProcessSpawner.ChildProcessSpawner =\\\", \\\"const observed: typeof spawner =\\\"); p.write_text(s); p=Path(\\\"tests/daemon-lifecycle.test.ts\\\"); s=p.read_text().replace(\\\"yield* child.kill({ killSignal: \\\\\\\"SIGKILL\\\\\\\" });\\\\n      yield* child.exitCode;\\\", \\\"yield* child.kill({ killSignal: \\\\\\\"SIGKILL\\\\\\\" });\\\\n      const exit = yield* child.exitCode.pipe(Effect.result);\\\\n      assert.strictEqual(exit._tag, \\\\\\\"Failure\\\\\\\");\\\\n      assert.isFalse(yield* child.isRunning);\\\"); p.write_text(s)'",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 2292,
+      "t": 380871,
+      "kind": "command",
+      "command": "bun run e2e",
+      "exitCode": 1,
+      "output": " 1 fail\n 158 expect() calls\nRan 8 tests across 1 file. [16.02s]\nerror: script \"e2e\" exited with code 1"
+    },
+    {
+      "seq": 2296,
+      "t": 396028,
+      "kind": "command",
+      "command": "python3 -c 'from pathlib import Path; p=Path(\\\"tests/daemon-ownership.test.ts\\\"); s=p.read_text().replace(\\\"assert.strictEqual(started._tag, \\\\\\\"Accepted\\\\\\\");\\\", \\\"assert.strictEqual(started._tag, \\\\\\\"Started\\\\\\\");\\\"); p.write_text(s); p=Path(\\\"src/daemon/lock.ts\\\"); s=p.read_text().replace(\\\"database.exec(\\\\\\\"BEGIN EXCLUSIVE\\\\\\\")\\\", \\\"database.exec(\\\\\\\"PRAGMA journal_mode = OFF; BEGIN EXCLUSIVE\\\\\\\")\\\"); p.write_text(s)'",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 2300,
+      "t": 397715,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "output": "$ tsc --noEmit"
+    },
+    {
+      "seq": 2302,
+      "t": 398539,
+      "kind": "command",
+      "command": "bun run format",
+      "exitCode": 0,
+      "output": "$ biome check --write .\nChecked 122 files in 619ms. Fixed 1 file."
+    },
+    {
+      "seq": 2303,
+      "t": 398622,
+      "kind": "command",
+      "command": "cat ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/agents/code-reviewer.md .claude/agents/code-reviewer.md",
+      "exitCode": 1,
+      "output": "…overage. Every diff gets checked against all the criteria in step 3\n- Compare with the codebase when unsure whether something is an established pattern. Matching an existing pattern doesn't exempt it: flag deviations from best practice even when the codebase shares them\n- Your review prepares code for human review - catch issues early\ncat: .claude/agents/code-reviewer.md: No such file or directory"
+    },
+    {
+      "seq": 2306,
+      "t": 404485,
+      "kind": "message",
+      "text": "The focused lifecycle tests are passing. I added a real-process regression that kills a Bun daemon whose PID record names the still-running Node test process, then verifies immediate recovery. I’m also testing the daemon command with a fake app-server process held in cleanup, so the shutdown check covers the command-to-supervisor wiring."
+    },
+    {
+      "seq": 2308,
+      "t": 406181,
+      "kind": "command",
+      "command": "cat ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/writer/SKILL.md",
+      "exitCode": 0,
+      "output": "- **Lead with the answer** - Conclusions first, evidence second\n- **Short paragraphs by default** - Vary length when the argument needs it (see Paragraph variation)\n- **Tables for comparisons** - Not prose\n- **Whitespace** - Let it breathe"
+    },
+    {
+      "seq": 2323,
+      "t": 423781,
+      "kind": "command",
+      "command": "cat ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/writer/references/engineer.md ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/writer/references/architect.md ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/writer/references/forbidden-patterns.md",
+      "exitCode": 0,
+      "output": "\nDon't use em dashes. Use a comma, a colon, parentheses, or two sentences instead. Readers treat\nthe em dash as an AI signature, and a sentence that seems to need one usually reads better\nrestructured."
+    },
+    {
+      "seq": 2324,
+      "t": 423998,
+      "kind": "command",
+      "command": "ps -axo pid,ppid,command | rg 'vitest|fake-app-server|fm-own-' ",
+      "exitCode": 0,
+      "output": "…r/main.mjs app-server --listen stdio://\n87874 75072 node ~/src/forman/.claude/worktrees/fix-cli/tests/fixtures/fake-app-server/main.mjs app-server generate-json-schema --experimental --out /tmp/scratch\n87934 94852 /bin/zsh -c ps -axo pid,ppid,command | rg 'vitest|fake-app-server|fm-own-' \n88042 87934 rg vitest|fake-app-server|fm-own-"
+    },
+    {
+      "seq": 2343,
+      "t": 426837,
+      "kind": "command",
+      "command": "bun run test:unit tests/daemon-ownership.test.ts -t 'real supervisor'",
+      "exitCode": 1,
+      "output": "   Start at  21:46:12\n   Duration  30.41s (tests 99%, import 1%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 2386,
+      "t": 431731,
+      "kind": "command",
+      "command": "bun run test",
+      "exitCode": 1,
+      "output": "   Duration  74.44s (tests 93%, import 6%, transform 1%)\n\nerror: script \"test:unit\" exited with code 1\nerror: script \"test\" exited with code 1"
+    },
+    {
+      "seq": 2390,
+      "t": 434379,
+      "kind": "command",
+      "command": "bun run e2e",
+      "exitCode": 1,
+      "output": " 1 fail\n 158 expect() calls\nRan 8 tests across 1 file. [16.59s]\nerror: script \"e2e\" exited with code 1"
+    },
+    {
+      "seq": 2398,
+      "t": 439682,
+      "kind": "command",
+      "command": "git diff src/supervisor/index.ts; cat src/daemon/lock.ts; sed -n '52,150p' tests/daemon-ownership.test.ts; sed -n '110,152p' tests/daemon-lifecycle.test.ts",
+      "exitCode": 0,
+      "output": "    }).pipe(Effect.provide(platform)),\n  );\n  it.live(\"reclaims a fresh lock immediately after its recorded owner exits\", () =>\n    Effect.gen(function* () {"
+    },
+    {
+      "seq": 2399,
+      "t": 439750,
+      "kind": "command",
+      "command": "bun -e 'import {DatabaseSync} from \\\"node:sqlite\\\"; const db = new DatabaseSync(\\\"/tmp/fm-journal-probe.db\\\"); db.exec(\\\"PRAGMA journal_mode = OFF; BEGIN EXCLUSIVE\\\"); console.log(db.prepare(\\\"PRAGMA journal_mode\\\").get()); console.log(await Array.fromAsync(new Bun.Glob(\\\"/tmp/fm-journal-probe.db*\\\").scan())); db.close()'",
+      "exitCode": 0,
+      "output": "[Object: null prototype] {\n  journal_mode: \"delete\",\n}\n[ \"/tmp/fm-journal-probe.db-journal\", \"/tmp/fm-journal-probe.db\" ]"
+    },
+    {
+      "seq": 2403,
+      "t": 445571,
+      "kind": "command",
+      "command": "bun -e 'import {DatabaseSync} from \\\"node:sqlite\\\"; const a = new DatabaseSync(\\\"/tmp/fm-multi-probe.db\\\"); a.exec(\\\"BEGIN EXCLUSIVE\\\"); const b=new DatabaseSync(\\\"/tmp/fm-multi-probe.db\\\"); try { b.exec(\\\"BEGIN EXCLUSIVE\\\"); console.log(\\\"DUAL\\\"); } catch(e) { console.log(e.errcode); } a.close(); b.close();'",
+      "exitCode": 0,
+      "output": "5"
+    },
+    {
+      "seq": 2404,
+      "t": 445682,
+      "kind": "command",
+      "command": "bun -e 'import {DatabaseSync} from \\\"node:sqlite\\\"; const a=new DatabaseSync(\\\"/tmp/fm-prag-probe.db\\\"); a.exec(\\\"PRAGMA journal_mode=OFF\\\"); console.log(a.prepare(\\\"PRAGMA journal_mode\\\").get()); a.exec(\\\"BEGIN EXCLUSIVE\\\"); console.log(a.prepare(\\\"PRAGMA journal_mode\\\").get()); a.close()'",
+      "exitCode": 0,
+      "output": "}\n[Object: null prototype] {\n  journal_mode: \"delete\",\n}"
+    },
+    {
+      "seq": 2405,
+      "t": 445833,
+      "kind": "command",
+      "command": "node --input-type=module -e 'import {DatabaseSync} from \\\"node:sqlite\\\"; const a=new DatabaseSync(\\\"/tmp/fm-node-prag-probe.db\\\"); a.exec(\\\"PRAGMA journal_mode=OFF; BEGIN EXCLUSIVE\\\"); console.log(a.prepare(\\\"PRAGMA journal_mode\\\").get()); a.close()'",
+      "exitCode": 0,
+      "output": "[Object: null prototype] { journal_mode: 'delete' }"
+    },
+    {
+      "seq": 2440,
+      "t": 447822,
+      "kind": "command",
+      "command": "bun run test:unit tests/daemon-ownership.test.ts tests/daemon-lifecycle.test.ts tests/daemon-logging.test.ts",
+      "exitCode": 1,
+      "output": "   Start at  21:46:32\n   Duration  31.00s (tests 96%, import 3%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 2442,
+      "t": 450080,
+      "kind": "command",
+      "command": "bun -e 'import {DatabaseSync} from \\\"node:sqlite\\\"; const a=new DatabaseSync(\\\"/tmp/fm-memory-probe.db\\\"); a.exec(\\\"PRAGMA journal_mode=MEMORY\\\"); console.log(a.prepare(\\\"PRAGMA journal_mode\\\").get()); a.exec(\\\"BEGIN EXCLUSIVE\\\"); a.close()'",
+      "exitCode": 0,
+      "output": "[Object: null prototype] {\n  journal_mode: \"memory\",\n}"
+    },
+    {
+      "seq": 2443,
+      "t": 450195,
+      "kind": "command",
+      "command": "rg -n 'withDaemonLogging|supervisor|shutdown' src/commands/daemon.ts; sed -n '65,120p' node_modules/effect/src/Scope.ts; rg -n 'provide\\\\(' node_modules/effect/src/Scope.ts | tail -10; sed -n '1,150p' src/main.ts",
+      "exitCode": 0,
+      "output": "    Effect.provideService(References.MinimumLogLevel, settings.level),\n    Effect.annotateLogs({ runId }),\n  );\n});"
+    },
+    {
+      "seq": 2447,
+      "t": 469144,
+      "kind": "command",
+      "command": "python3 -c 'from pathlib import Path; p=Path(\\\"src/daemon/lock.ts\\\"); s=p.read_text().replace(\\\"PRAGMA journal_mode = OFF; BEGIN EXCLUSIVE\\\", \\\"PRAGMA journal_mode = MEMORY; BEGIN EXCLUSIVE\\\"); p.write_text(s); p=Path(\\\"tests/daemon-lifecycle.test.ts\\\"); s=p.read_text().replace(\\\"        yield* child.exitCode;\\\\n        const replacement\\\", \\\"        const exit = yield* child.exitCode.pipe(Effect.result);\\\\n        assert.strictEqual(exit._tag, \\\\\\\"Failure\\\\\\\");\\\\n        assert.isFalse(yield* child.isRunning);\\\\n        const replacement\\\"); p.write_text(s); p=Path(\\\"tests/daemon-ownership.test.ts\\\"); s=p.read_text().replace(\\\"const stopping = yield* Effect.forkScoped(Fiber.interrupt(running));\\\\n      yield* Deferred.await(entered).pipe(Effect.timeout(\\\\\\\"3 seconds\\\\\\\"));\\\", \\\"yield* Effect.logInfo(\\\\\\\"before interrupt\\\\\\\", { children: children.length, locked: yield* fs.exists(\"'`${dataDir}/daemon.lock`) });'\"\\\\n      const stopping = yield* Effect.forkScoped(Fiber.interrupt(running));\\\\n      yield* Deferred.await(entered).pipe(Effect.timeout(\\\\\\\"3 seconds\\\\\\\"));\\\\n      yield* Effect.logInfo(\\\\\\\"cleanup entered\\\\\\\", { children: children.length, locked: yield* fs.exists(\"'`${dataDir}/daemon.lock`), running: running.pollUnsafe() });\"); p.write_text(s)'\"'",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 2460,
+      "t": 471385,
+      "kind": "command",
+      "command": "bun run test:unit tests/daemon-lifecycle.test.ts -t 'killed Bun'",
+      "exitCode": 0,
+      "output": " Test Files  1 passed (1)\n      Tests  1 passed | 55 skipped (56)\n   Start at  21:47:26\n   Duration  751ms (tests 51%, import 41%, transform 7%, setup 1%)"
+    },
+    {
+      "seq": 2468,
+      "t": 482674,
+      "kind": "command",
+      "command": "rg -n 'fork:|fork =|scope' src/supervisor/registry.ts node_modules/effect/src/internal/effect.ts | head -25; sed -n '1,130p' node_modules/effect/src/internal/scope.ts",
+      "exitCode": 1,
+      "output": "node_modules/effect/src/internal/effect.ts:4106:  scope: Scope.Scope,\nnode_modules/effect/src/internal/effect.ts:4108:): Effect.Effect<void> => scopeAddFinalizerExit(scope, constant(finalizer))\nnode_modules/effect/src/internal/effect.ts:4111:export const scopeAddFinalizerUnsafe = (\nsed: node_modules/effect/src/internal/scope.ts: No such file or directory"
+    },
+    {
+      "seq": 2470,
+      "t": 483771,
+      "kind": "command",
+      "command": "git status --short",
+      "exitCode": 0,
+      "output": " M src/supervisor/index.ts\n M tests/daemon-lifecycle.test.ts\n M tests/daemon-logging.test.ts\n?? tests/daemon-ownership.test.ts"
+    },
+    {
+      "seq": 2471,
+      "t": 483866,
+      "kind": "command",
+      "command": "sed -n '300,400p' node_modules/effect/src/Scope.ts",
+      "exitCode": 0,
+      "output": "   * @category combinators\n   * @since 4.0.0\n   */\n  <A, E, R>(self: Effect<A, E, R>, value: Scope): Effect<A, E, Exclude<R, Scope>>"
+    },
+    {
+      "seq": 2476,
+      "t": 488805,
+      "kind": "command",
+      "command": "ps -axo pid,ppid,command | rg 'fix-daemon/tests/fixtures/fake|vitest.mjs run|fm-own' ",
+      "exitCode": 0,
+      "output": "… -c ps -axo pid,ppid,command | rg 'fix-daemon/tests/fixtures/fake|vitest.mjs run|fm-own' \n95738 92836 ~/.local/share/mise/installs/node/26.13.0/bin/node tests/fixtures/fake-app-server/main.mjs app-server generate-json-schema --experimental --out /tmp/hwWgzm\n95836 95701 rg fix-daemon/tests/fixtures/fake|vitest.mjs run|fm-own"
+    },
+    {
+      "seq": 2477,
+      "t": 488914,
+      "kind": "command",
+      "command": "ls -td /tmp/fm-own-*",
+      "exitCode": 0,
+      "output": "/tmp/fm-own-gWYLhs\n/tmp/fm-own-J093Nv\n/tmp/fm-own-CggVgW"
+    },
+    {
+      "seq": 2485,
+      "t": 499565,
+      "kind": "command",
+      "command": "find /tmp/fm-own-gWYLhs /tmp/fm-own-J093Nv /tmp/fm-own-CggVgW -maxdepth 3 -type f",
+      "exitCode": 0,
+      "output": "/tmp/fm-own-J093Nv/repo/.git/index\n/tmp/fm-own-J093Nv/repo/.git/COMMIT_EDITMSG\n/tmp/fm-own-CggVgW/daemon.lock\n/tmp/fm-own-CggVgW/daemon.guard.sqlite"
+    },
+    {
+      "seq": 2486,
+      "t": 499665,
+      "kind": "command",
+      "command": "cat /tmp/fm-own-gWYLhs/data/logs/daemon.jsonl /tmp/fm-own-J093Nv/data/logs/daemon.jsonl /tmp/fm-own-CggVgW/data/logs/daemon.jsonl",
+      "exitCode": 1,
+      "output": "…el\":\"info\",\"msg\":\"daemon.stopped\",\"detail\":[],\"runId\":\"1793936848890-ri695pvhgbm\"}\n{\"time\":\"2026-11-06T03:47:25.933Z\",\"level\":\"info\",\"msg\":\"daemon.started\",\"detail\":[],\"runId\":\"1793936845927-2l5kbivsvk7\"}\n{\"time\":\"2026-11-06T03:47:26.298Z\",\"level\":\"info\",\"msg\":\"daemon.stopped\",\"detail\":[],\"runId\":\"1793936845927-2l5kbivsvk7\"}\ncat: /tmp/fm-own-CggVgW/data/logs/daemon.jsonl: No such file or directory"
+    },
+    {
+      "seq": 2487,
+      "t": 499803,
+      "kind": "command",
+      "command": "rg -n 'command.args|before interrupt|cleanup entered' tests/daemon-ownership.test.ts",
+      "exitCode": 0,
+      "output": "…             if (!ChildProcess.isStandardCommand(command) || !command.args.includes(\"app-server\"))\n132:      yield* Effect.logInfo(\"before interrupt\", { children: children.length, locked: yield* fs.exists(`${dataDir}/daemon.lock`) });\n135:      yield* Effect.logInfo(\"cleanup entered\", { children: children.length, locked: yield* fs.exists(`${dataDir}/daemon.lock`), running: running.pollUnsafe() });"
+    },
+    {
+      "seq": 2488,
+      "t": 499905,
+      "kind": "command",
+      "command": "sed -n '4000,4077p' node_modules/effect/src/internal/effect.ts",
+      "exitCode": 0,
+      "output": "\n/** @internal */\nexport const scopeFork = (scope: Scope.Scope, finalizerStrategy?: \"sequential\" | \"parallel\") =>\n  sync(() => scopeForkUnsafe(scope, finalizerStrategy))"
+    },
+    {
+      "seq": 2506,
+      "t": 500148,
+      "kind": "command",
+      "command": "bun run test:unit tests/daemon-ownership.test.ts -t 'real supervisor'",
+      "exitCode": 1,
+      "output": "   Start at  21:47:25\n   Duration  30.56s (tests 98%, import 1%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 2510,
+      "t": 508501,
+      "kind": "command",
+      "command": "bun run e2e",
+      "exitCode": 0,
+      "output": " 8 pass\n 0 fail\n 168 expect() calls\nRan 8 tests across 1 file. [19.14s]"
+    },
+    {
+      "seq": 2512,
+      "t": 511327,
+      "kind": "command",
+      "command": "python3 -c 'from pathlib import Path; p=Path(\\\"tests/daemon-ownership.test.ts\\\"); s=p.read_text().replace(\\\"\"'!command.args.includes('\"\\\\\\\"app-server\\\\\\\")\\\", \\\"\"'!command.args.includes('\"\\\\\\\"--listen\\\\\\\")\\\"); s=\\\"\\\\n\\\".join(line for line in s.split(\\\"\\\\n\\\") if \\\"Effect.logInfo(\\\\\\\"before interrupt\\\\\\\"\\\" not in line and \\\"Effect.logInfo(\\\\\\\"cleanup entered\\\\\\\"\\\" not in line); p.write_text(s)'",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 2519,
+      "t": 513885,
+      "kind": "command",
+      "command": "ps -axo pid,ppid,command | rg 'vitest.*run' ",
+      "exitCode": 0,
+      "output": "51725 94852 /bin/zsh -c ps -axo pid,ppid,command | rg 'vitest.*run' \n51759 51725 rg vitest.*run\n55066 55065 ~/.local/share/mise/installs/node/26/bin/node node_modules/vitest/vitest.mjs run\n90339 90323 ~/.local/share/mise/installs/node/26/bin/node node_modules/vitest/vitest.mjs run"
+    },
+    {
+      "seq": 2526,
+      "t": 533599,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "output": "$ tsc --noEmit"
+    },
+    {
+      "seq": 2529,
+      "t": 541693,
+      "kind": "message",
+      "text": "The command-level regression caught a remaining scope bug: the captured Effect context was overriding the new supervisor scope, so subprocess finalizers still attached to the outer scope. I’ve traced it to the order of the two context providers and will correct that before rerunning the lifecycle checks."
+    },
+    {
+      "seq": 2547,
+      "t": 542211,
+      "kind": "command",
+      "command": "bun run test:unit tests/daemon-ownership.test.ts -t 'real supervisor'",
+      "exitCode": 1,
+      "output": "   Start at  21:48:07\n   Duration  30.45s (tests 99%, import 1%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 2549,
+      "t": 543156,
+      "kind": "files",
+      "paths": ["src/supervisor/index.ts"]
+    },
+    {
+      "seq": 2571,
+      "t": 543707,
+      "kind": "command",
+      "command": "bun run test:unit tests/daemon-ownership.test.ts tests/daemon-lifecycle.test.ts tests/daemon-logging.test.ts",
+      "exitCode": 1,
+      "output": "   Start at  21:48:08\n   Duration  30.77s (tests 97%, import 2%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 2578,
+      "t": 544629,
+      "kind": "command",
+      "command": "bun run test:unit tests/daemon-ownership.test.ts -t 'real supervisor'",
+      "exitCode": 0,
+      "output": " Test Files  1 passed (1)\n      Tests  1 passed | 7 skipped (8)\n   Start at  21:48:39\n   Duration  1.14s (tests 54%, import 40%, transform 5%)"
+    },
+    {
+      "seq": 2593,
+      "t": 557663,
+      "kind": "command",
+      "command": "bun run test:unit tests/daemon-ownership.test.ts tests/daemon-lifecycle.test.ts tests/daemon-logging.test.ts",
+      "exitCode": 0,
+      "output": " Test Files  3 passed (3)\n      Tests  72 passed (72)\n   Start at  21:48:40\n   Duration  12.98s (tests 93%, import 7%, transform 1%)"
+    },
+    {
+      "seq": 2608,
+      "t": 561065,
+      "kind": "command",
+      "command": "bun run test",
+      "exitCode": 1,
+      "output": "   Duration  89.31s (tests 93%, import 6%)\n\nerror: script \"test:unit\" exited with code 1\nerror: script \"test\" exited with code 1"
+    },
+    {
+      "seq": 2610,
+      "t": 565318,
+      "kind": "files",
+      "paths": ["tests/daemon-logging.test.ts"]
+    },
+    {
+      "seq": 2641,
+      "t": 566316,
+      "kind": "command",
+      "command": "bun run test:unit tests/daemon-logging.test.ts -t 'safe filesystem'",
+      "exitCode": 1,
+      "output": "   Start at  21:49:01\n   Duration  447ms (import 82%, transform 11%, tests 5%, setup 1%, worker 1%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 2642,
+      "t": 566338,
+      "kind": "command",
+      "command": "python3 -c 'from pathlib import Path; p=Path(\\\"tests/daemon-ownership.test.ts\\\"); s=p.read_text().replace(\\\"const stopping = yield* Effect.forkScoped(Fiber.interrupt(running));\\\", \\\"const stopping = yield* Effect.forkScoped(Fiber.interrupt(running));\\\\n      yield* Effect.addFinalizer(() => Deferred.succeed(release, undefined));\\\").replace(\\\"yield* daemon(options(dataDir));\\\\n      assert.isTrue\\\", \\\"yield* daemon(options(dataDir)).pipe(Effect.timeout(\\\\\\\"1 second\\\\\\\"));\\\\n      assert.isTrue\\\"); p.write_text(s)'",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 2646,
+      "t": 574144,
+      "kind": "command",
+      "command": "python3 -c 'from pathlib import Path; p=Path(\\\"tests/daemon-logging.test.ts\\\"); s=p.read_text().replace(\\\"expect(status).toBe(7);\\\\n      const records = (yield* fs.readFileString(log))\\\", \\\"expect(status).toBe(4);\\\\n      const records = (yield* fs.readFileString(log))\\\"); p.write_text(s)'",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 2670,
+      "t": 575070,
+      "kind": "command",
+      "command": "bun run test:unit tests/daemon-logging.test.ts -t 'safe filesystem'",
+      "exitCode": 1,
+      "output": "   Start at  21:49:10\n   Duration  440ms (import 83%, transform 11%, tests 5%, setup 1%, worker 1%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 2671,
+      "t": 575095,
+      "kind": "files",
+      "paths": ["src/daemon/server.ts"]
+    },
+    {
+      "seq": 2681,
+      "t": 575949,
+      "kind": "command",
+      "command": "bun run test:unit tests/daemon-logging.test.ts",
+      "exitCode": 0,
+      "output": " Test Files  1 passed (1)\n      Tests  9 passed (9)\n   Start at  21:49:11\n   Duration  665ms (import 48%, tests 44%, transform 8%, setup 1%)"
+    },
+    {
+      "seq": 2683,
+      "t": 581378,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "output": "$ tsc --noEmit"
+    },
+    {
+      "seq": 2689,
+      "t": 596133,
+      "kind": "command",
+      "command": "bun run format",
+      "exitCode": 0,
+      "output": "$ biome check --write .\nChecked 122 files in 687ms. Fixed 1 file."
+    },
+    {
+      "seq": 2690,
+      "t": 596274,
+      "kind": "command",
+      "command": "ps -axo pid,ppid,command | rg 'vitest.mjs run|fix-daemon/tests/fixtures/fake' ",
+      "exitCode": 0,
+      "output": "…ts/run-store.test.ts tests/config-logging.test.ts tests/supervisor-integration.test.ts\n33918  4264 node tests/fixtures/fake-app-server/main.mjs app-server --listen stdio://\n53627 94852 /bin/zsh -c ps -axo pid,ppid,command | rg 'vitest.mjs run|fix-daemon/tests/fixtures/fake' \n53629 53627 rg vitest.mjs run|fix-daemon/tests/fixtures/fake"
+    },
+    {
+      "seq": 2697,
+      "t": 606943,
+      "kind": "command",
+      "command": "bun run build",
+      "exitCode": 0,
+      "output": "$ bun scripts/build.ts\n  [26ms]  minify  -5.86 MB (estimate)\n  [15ms]  bundle  359 modules\n [244ms] compile  dist/forman"
+    },
+    {
+      "seq": 2701,
+      "t": 610112,
+      "kind": "command",
+      "command": "bun run lint",
+      "exitCode": 0,
+      "output": "$ biome check .\nChecked 122 files in 1625ms. No fixes applied."
+    },
+    {
+      "seq": 2715,
+      "t": 623531,
+      "kind": "command",
+      "command": "bun run test:unit tests/daemon-ownership.test.ts tests/daemon-lifecycle.test.ts tests/daemon-logging.test.ts",
+      "exitCode": 0,
+      "output": " Test Files  3 passed (3)\n      Tests  73 passed (73)\n   Start at  21:49:46\n   Duration  13.39s (tests 74%, import 21%, transform 5%)"
+    },
+    {
+      "seq": 2718,
+      "t": 629780,
+      "kind": "command",
+      "command": "bun run e2e",
+      "exitCode": 0,
+      "output": " 8 pass\n 0 fail\n 168 expect() calls\nRan 8 tests across 1 file. [18.49s]"
+    },
+    {
+      "seq": 2723,
+      "t": 640004,
+      "kind": "command",
+      "command": "git diff --stat",
+      "exitCode": 0,
+      "output": " src/supervisor/index.ts        |   7 +-\n tests/daemon-lifecycle.test.ts | 182 ++++++++---------------------------------\n tests/daemon-logging.test.ts   |  76 +++++++++++++++++\n 9 files changed, 244 insertions(+), 301 deletions(-)"
+    },
+    {
+      "seq": 2727,
+      "t": 647584,
+      "kind": "command",
+      "command": "ps -axo pid,ppid,etime,command | rg ' 3944| 4264|fix-daemon/tests/fixtures/fake' ",
+      "exitCode": 0,
+      "output": "…e-app-server/main.mjs app-server --listen stdio://\n47441 94852       00:00 /bin/zsh -c ps -axo pid,ppid,etime,command | rg ' 3944| 4264|fix-daemon/tests/fixtures/fake' \n47521 47441       00:00 rg  3944| 4264|fix-daemon/tests/fixtures/fake\n77762  4264       00:38 node tests/fixtures/fake-app-server/main.mjs app-server --listen stdio://"
+    },
+    {
+      "seq": 2728,
+      "t": 647681,
+      "kind": "command",
+      "command": "ls -td /tmp/fm-s-* /tmp/fm-own-*",
+      "exitCode": 0,
+      "output": "/tmp/fm-s-cvzj2A\n/tmp/fm-own-CggVgW\n/tmp/fm-s-rEH7rA\n/tmp/fm-s-pWWfFF"
+    },
+    {
+      "seq": 2729,
+      "t": 647772,
+      "kind": "command",
+      "command": "rg -n 'it\\\\.|test\\\\(' smoke/real-codex.test.ts | tail -15",
+      "exitCode": 0,
+      "output": "…f (/^(done|failed|interrupted|question) +smoke\\b/m.test(printed))\n200:    \"Run the simple command sleep 120 and wait for it to exit. Only after that write result.txt with TOO-LATE. If interrupted by the budget, report BUDGET-HANDOFF in your hand-off.\",\n233:      `Run this exact simple command once: ${command}\\nReport its exit status and output. Do not substitute your own answer for executing it.`,"
+    },
+    {
+      "seq": 2734,
+      "t": 662383,
+      "kind": "message",
+      "text": "The updated daemon tests pass, including the real subprocess cleanup barrier, and compiled e2e passes. The real-Codex smoke run is still progressing. I’m checking a slower full-suite run, then I’ll revert-verify the regressions and compare the old and new binaries in temporary homes."
+    },
+    {
+      "seq": 2736,
+      "t": 663730,
+      "kind": "command",
+      "command": "lsof -a -p 4264 -U",
+      "exitCode": 0,
+      "output": "node    4264 dev   23u  unix 0x54195002fa2ea184      0t0      ->0x1fecfe8c91bb04e\nnode    4264 dev   25u  unix 0xba5b8e1910b49190      0t0      ->0xe44b539906eced49\nnode    4264 dev   27u  unix 0xa7abb76f5ce058d0      0t0      ->0xaa17f90c2f5e6514\nnode    4264 dev   29u  unix 0xa66832a0aa249fbe      0t0      ->0x886e3234f3940b8d"
+    },
+    {
+      "seq": 2742,
+      "t": 665023,
+      "kind": "command",
+      "command": "ls -td /tmp/fm-s-*",
+      "exitCode": 0,
+      "output": "/tmp/fm-s-ufkXyo\n/tmp/fm-s-cvzj2A\n/tmp/fm-s-rEH7rA\n/tmp/fm-s-pWWfFF"
+    },
+    {
+      "seq": 2743,
+      "t": 665111,
+      "kind": "command",
+      "command": "cat /tmp/fm-s-ctlpGN/scenario.json /tmp/fm-s-wSKflx/scenario.json",
+      "exitCode": 1,
+      "output": "cat: /tmp/fm-s-ctlpGN/scenario.json: No such file or directory\ncat: /tmp/fm-s-wSKflx/scenario.json: No such file or directory"
+    },
+    {
+      "seq": 2786,
+      "t": 680555,
+      "kind": "files",
+      "paths": ["tests/daemon-ownership.test.ts"]
+    },
+    {
+      "seq": 2794,
+      "t": 687938,
+      "kind": "command",
+      "command": "rg -n 'sleeps|awaitSuspended' node_modules/effect/dist/testing/TestClock.d.ts",
+      "exitCode": 0,
+      "output": "171:        readonly sleeps: ReadonlyArray<[number, Latch.Latch]>;\n179: * The guarantee that sleeps registered after multiple scheduler hops run in\n303: *   // Fork an effect that sleeps for 30 minutes\n338: *   // Fork an effect that sleeps for 2 hours"
+    },
+    {
+      "seq": 2795,
+      "t": 688151,
+      "kind": "files",
+      "paths": ["tests/daemon-ownership.test.ts"]
+    },
+    {
+      "seq": 2815,
+      "t": 690304,
+      "kind": "command",
+      "command": "bun run test:unit tests/daemon-ownership.test.ts -t 'drain clock'",
+      "exitCode": 1,
+      "output": "   Start at  21:51:04\n   Duration  1.67s (tests 68%, import 27%, transform 5%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 2823,
+      "t": 701103,
+      "kind": "files",
+      "paths": ["src/daemon/server.ts"]
+    },
+    {
+      "seq": 2834,
+      "t": 701943,
+      "kind": "command",
+      "command": "bun run test:unit tests/daemon-ownership.test.ts -t 'drain clock'",
+      "exitCode": 0,
+      "output": " Test Files  1 passed (1)\n      Tests  1 passed | 8 skipped (9)\n   Start at  21:51:17\n   Duration  535ms (import 84%, transform 11%, tests 4%, setup 1%)"
+    },
+    {
+      "seq": 2908,
+      "t": 721778,
+      "kind": "command",
+      "command": "bun run test:unit tests/daemon-ownership.test.ts -t 'drain clock'",
+      "exitCode": 1,
+      "output": "   Start at  21:50:56\n   Duration  40.52s (tests 99%, import 1%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 2921,
+      "t": 726749,
+      "kind": "command",
+      "command": "bun run format",
+      "exitCode": 0,
+      "output": "$ biome check --write .\nChecked 122 files in 819ms. Fixed 1 file."
+    },
+    {
+      "seq": 2929,
+      "t": 729803,
+      "kind": "command",
+      "command": "bun run lint",
+      "exitCode": 0,
+      "output": "$ biome check .\nChecked 122 files in 502ms. No fixes applied."
+    },
+    {
+      "seq": 2930,
+      "t": 730520,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "output": "$ tsc --noEmit"
+    },
+    {
+      "seq": 2938,
+      "t": 736831,
+      "kind": "command",
+      "command": "bun run test:unit tests/daemon-ownership.test.ts tests/daemon-lifecycle.test.ts tests/daemon-logging.test.ts",
+      "exitCode": 0,
+      "output": " Test Files  3 passed (3)\n      Tests  74 passed (74)\n   Start at  21:51:42\n   Duration  9.77s (tests 86%, import 12%, transform 2%)"
+    },
+    {
+      "seq": 2940,
+      "t": 746997,
+      "kind": "command",
+      "command": "bun run e2e",
+      "exitCode": 0,
+      "output": " 8 pass\n 0 fail\n 168 expect() calls\nRan 8 tests across 1 file. [18.46s]"
+    },
+    {
+      "seq": 2942,
+      "t": 751354,
+      "kind": "command",
+      "command": "mktemp -d",
+      "exitCode": 0,
+      "output": "/tmp/scratch"
+    },
+    {
+      "seq": 2951,
+      "t": 769929,
+      "kind": "command",
+      "command": "ps -axo pid,ppid,etime,command | rg 'vitest.mjs run|fix-daemon/tests/fixtures/fake' ",
+      "exitCode": 0,
+      "output": "…e' \n74482 74435       00:00 rg vitest.mjs run|fix-daemon/tests/fixtures/fake\n77762  4264       02:40 node tests/fixtures/fake-app-server/main.mjs app-server --listen stdio://\n91450 65687       00:44 node tests/fixtures/fake-app-server/main.mjs app-server --listen stdio://"
+    },
+    {
+      "seq": 2952,
+      "t": 770023,
+      "kind": "command",
+      "command": "cat smoke/real-codex.test.ts | tail -75",
+      "exitCode": 0,
+      "output": "    expect((await f.result()).digest.state).toBe(\"idle\");\n  },\n  true,\n);"
+    },
+    {
+      "seq": 2956,
+      "t": 776874,
+      "kind": "command",
+      "command": "sed -n '540,620p' tests/supervisor-integration.test.ts; rg -n 'unknown recovery keeps' tests/supervisor-integration.test.ts; sed -n '2900,2975p' tests/supervisor-integration.test.ts",
+      "exitCode": 0,
+      "output": "      yield* f.fs.writeFileString(`${f.worktree}/result.txt`, \"changed after status\");\n      yield* f.fs.writeFileString(`${f.worktree}/outside.txt`, \"outside the contract\");\n      yield* f.request({ _tag: \"Steer\", name, message: \"ask now\" });\n      expect((yield* Fiber.join(waiting)).runs).toMatchObject(["
+    },
+    {
+      "seq": 3048,
+      "t": 779388,
+      "kind": "command",
+      "command": "bun run test:unit tests/supervisor-integration.test.ts -t 'refused managed turn' --reporter=verbose",
+      "exitCode": 0,
+      "output": " Test Files  1 passed (1)\n      Tests  1 passed | 144 skipped (145)\n   Start at  21:52:33\n   Duration  1.21s (tests 57%, import 38%, transform 5%)"
+    },
+    {
+      "seq": 3060,
+      "t": 786723,
+      "kind": "command",
+      "command": "bun run test",
+      "exitCode": 0,
+      "output": " Test Files  33 passed (33)\n      Tests  785 passed (785)\n   Start at  21:51:18\n   Duration  84.53s (tests 92%, import 7%)"
+    },
+    {
+      "seq": 3065,
+      "t": 799886,
+      "kind": "command",
+      "command": "sed -n '215,330p' src/supervisor/turns.ts; rg -n 'fork|Scope|timeout' src/codex/client.ts | head -40; sed -n '130,210p' src/codex/client.ts",
+      "exitCode": 0,
+      "output": "  return {\n    request,\n    notifications: Stream.fromQueue(notifications),\n    serverRequests: Stream.fromQueue(serverRequests),"
+    },
+    {
+      "seq": 3066,
+      "t": 799982,
+      "kind": "command",
+      "command": "rg -n 'capture|context|scope' node_modules/effect/src/internal/effect.ts | rg 'cached|provide|context' | tail -15",
+      "exitCode": 0,
+      "output": "6272:    provideStackFrame = provideSpanStackFrame(span.name, options?.captureStackTrace)\n6625:    fiber.setContext(Context.add(fiber.context, CurrentLogAnnotations, next))\n6626:    return scopeAddFinalizerExit(Context.getUnsafe(fiber.context, scopeTag), (_) => {\n6638:      fiber.setContext(Context.add(fiber.context, CurrentLogAnnotations, next))"
+    },
+    {
+      "seq": 3101,
+      "t": 809456,
+      "kind": "command",
+      "command": "ps -axo pid,ppid,etime,command | rg 'vitest.mjs run' ",
+      "exitCode": 0,
+      "output": "…4:24 ~/.local/share/mise/installs/node/26/bin/node node_modules/vitest/vitest.mjs run\n23821 94852       00:00 /bin/zsh -c ps -axo pid,ppid,etime,command | rg 'vitest.mjs run' \n23854 23821       00:00 rg vitest.mjs run\n65686 65685       02:26 ~/.local/share/mise/installs/node/26/bin/node node_modules/vitest/vitest.mjs run tests/supervisor-integration.test.ts --reporter=verbose"
+    },
+    {
+      "seq": 3104,
+      "t": 809595,
+      "kind": "command",
+      "command": "lsof -a -p 17335,64610 -d cwd",
+      "exitCode": 1,
+      "output": ""
+    },
+    {
+      "seq": 3120,
+      "t": 810990,
+      "kind": "command",
+      "command": "bun run test:unit tests/supervisor-integration.test.ts -t 'unknown recovery keeps' ",
+      "exitCode": 0,
+      "output": " Test Files  1 passed (1)\n      Tests  1 passed | 144 skipped (145)\n   Start at  21:53:05\n   Duration  1.08s (tests 58%, import 37%, transform 4%)"
+    },
+    {
+      "seq": 3185,
+      "t": 818561,
+      "kind": "command",
+      "command": "bun run test:unit tests/daemon-ownership.test.ts tests/daemon-lifecycle.test.ts tests/daemon-logging.test.ts",
+      "exitCode": 0,
+      "output": " Test Files  3 passed (3)\n      Tests  74 passed (74)\n   Start at  21:53:06\n   Duration  7.46s (tests 89%, import 10%, transform 1%)"
+    },
+    {
+      "seq": 3267,
+      "t": 832335,
+      "kind": "message",
+      "text": "The full unit suite passed: 785 tests across 33 files. The final focused daemon run and compiled e2e also pass. I’ll now verify that restoring the old implementation makes the new regressions fail, then run the independent review."
+    },
+    {
+      "seq": 3299,
+      "t": 837150,
+      "kind": "command",
+      "command": "python3 -c 'import subprocess,os,signal; rows=[line.split(None,2) for line in subprocess.check_output([\\\"ps\\\",\\\"-axo\\\",\\\"pid,ppid,command\\\"],text=True).splitlines()[1:]]; parents={int(p):int(pp) for p,pp,c in rows}; roots={3944,65686}; owned=set(roots); changed=True\nwhile changed:\n before=len(owned); owned.update(p for p,pp in parents.items() if pp in owned); changed=len(owned)>before\nfor p in reversed(sorted(owned)):\n try: os.kill(p,signal.SIGTERM)\n except ProcessLookupError: pass\nprint(\\\"Stopped obsolete diagnostic test runners and descendants:\\\", sorted(owned))'",
+      "exitCode": 0,
+      "output": "Stopped obsolete diagnostic test runners and descendants: [3944, 4264, 15600, 15736, 33918, 34124, 49278, 63042, 65686, 65687, 68597, 71272, 77762, 85732, 91450]"
+    },
+    {
+      "seq": 3302,
+      "t": 837185,
+      "kind": "command",
+      "command": "bun run test:unit tests/supervisor-integration.test.ts --reporter=verbose",
+      "exitCode": 143,
+      "output": "stdout | tests/supervisor-integration.test.ts > supervisor over the real daemon socket > explains platform failures reading run data\n[21:53:33.023] INFO (#64867): daemon.started\n\nerror: script \"test:unit\" exited with code 143"
+    },
+    {
+      "seq": 3304,
+      "t": 837212,
+      "kind": "command",
+      "command": "bun run test",
+      "exitCode": 143,
+      "output": " RUN  v5.1.0 .\n\nerror: script \"test:unit\" exited with code 143\nerror: script \"test\" exited with code 143"
+    },
+    {
+      "seq": 3309,
+      "t": 840612,
+      "kind": "command",
+      "command": "python3 -c 'from pathlib import Path; import subprocess,json; root=Path(\\\"/tmp/fm-daemon-revert-verification\\\"); root.mkdir(exist_ok=True); paths=[\\\"src/commands/daemon.ts\\\",\\\"src/daemon/client.ts\\\",\\\"src/daemon/lock.ts\\\",\\\"src/daemon/server.ts\\\",\\\"src/supervisor/index.ts\\\"]; saved={p:Path(p).read_text() for p in paths}; (root/\\\"sources.json\\\").write_text(json.dumps(saved));\ntry:\n for p in paths: Path(p).write_bytes(subprocess.check_output([\\\"git\\\",\\\"show\\\",\\\"HEAD:\\\"+p]))\n with (root/\\\"red.log\\\").open(\\\"w\\\") as log:\n  result=subprocess.run([\\\"bun\\\",\\\"run\\\",\\\"test:unit\\\",\\\"tests/daemon-ownership.test.ts\\\",\\\"tests/daemon-logging.test.ts\\\",\\\"-t\\\",\\\"stale PID|paused owner|real supervisor|stalled|validates socket|fatal|safe filesystem\\\"],stdout=log,stderr=subprocess.STDOUT,timeout=25)\n print(\\\"Reverted implementation test exit:\\\",result.returncode)\nfinally:\n for p,s in saved.items(): Path(p).write_text(s)\nprint((root/\\\"red.log\\\").read_text()[-8500:])' ",
+      "exitCode": 0,
+      "output": "   Start at  21:53:33\n   Duration  3.04s (tests 74%, import 23%, transform 2%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 3314,
+      "t": 855027,
+      "kind": "command",
+      "command": "git diff --stat; git status --short",
+      "exitCode": 0,
+      "output": " M src/supervisor/index.ts\n M tests/daemon-lifecycle.test.ts\n M tests/daemon-logging.test.ts\n?? tests/daemon-ownership.test.ts"
+    },
+    {
+      "seq": 3318,
+      "t": 868867,
+      "kind": "command",
+      "command": "python3 -c 'from pathlib import Path; a=Path(\\\"~/.claude/plugins/cache/claude-essentials/ce/5.2.0/agents/code-reviewer.md\\\").read_text().split(\\\"---\\\",2)[2]; b=Path(\\\".claude/agents/code-reviewer.md\\\"); c=Path(\\\"/tmp/scratch\").read_text(); print(a + (b.read_text().split(\\\"---\\\",2)[-1] if b.exists() else \\\"\\\") + \\\"\\\\nSkills: ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/architecting-systems/SKILL.md, ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/writing-tests/SKILL.md, ~/.claude/plugins/cache/claude-essentials/ce/5.2.0/skills/handling-errors/SKILL.md. The base branch is main; review the uncommitted work in .. Your sandbox is read-only, so do not run the tests; the author already ran the checks. The task contract:\\\\n\\\" + c)'",
+      "exitCode": 0,
+      "output": "4. Checks: each command you ran and its result (test counts, not just \"passed\"), and the QA: what you ran, what you judged and what you changed.\n5. Review: the review file's path, each finding in a line, and how you resolved it (fixed, or why not).\n6. Look closer at: the places most likely to be wrong.\n7. Open: what's left undone or blocked, and the questions you'd ask."
+    },
+    {
+      "seq": 3319,
+      "t": 868935,
+      "kind": "files",
+      "paths": ["/tmp/scratch"]
+    },
+    {
+      "seq": 3354,
+      "t": 878268,
+      "kind": "command",
+      "command": "bun run test:unit tests/daemon-ownership.test.ts tests/daemon-lifecycle.test.ts tests/daemon-logging.test.ts",
+      "exitCode": 0,
+      "output": " Test Files  3 passed (3)\n      Tests  74 passed (74)\n   Start at  21:54:06\n   Duration  7.77s (tests 86%, import 13%, transform 1%)"
+    },
+    {
+      "seq": 3416,
+      "t": 890705,
+      "kind": "files",
+      "paths": ["/tmp/fm-daemon-qa.py"]
+    },
+    {
+      "seq": 3466,
+      "t": 912078,
+      "kind": "command",
+      "command": "python3 /tmp/fm-daemon-qa.py dist/forman after",
+      "exitCode": 0,
+      "output": "    \"stderr\": \"\",\n    \"seconds\": 0.16\n  }\n}"
+    },
+    {
+      "seq": 3506,
+      "t": 924630,
+      "kind": "command",
+      "command": "git diff src/daemon/server.ts src/commands/daemon.ts src/daemon/client.ts src/supervisor/index.ts",
+      "exitCode": 0,
+      "output": "+    shutdown: Scope.close(scope, Exit.void),\n     handler: (body: DaemonRequestBody) =>\n       initialize.pipe(\n         Effect.catchCause((cause) => rejectRequest(body, cause)),"
+    },
+    {
+      "seq": 3514,
+      "t": 927773,
+      "kind": "command",
+      "command": "FORMAN_SMOKE=1 FORMAN_SMOKE_SHORT=1 bun run smoke",
+      "exitCode": 0,
+      "output": " 16 pass\n 0 fail\n 238 expect() calls\nRan 16 tests across 3 files. [320.67s]"
+    },
+    {
+      "seq": 3531,
+      "t": 941317,
+      "kind": "command",
+      "command": "test -f /tmp/scratch",
+      "exitCode": 1,
+      "output": ""
+    },
+    {
+      "seq": 3532,
+      "t": 941413,
+      "kind": "command",
+      "command": "ls -td /tmp/fm-s-*",
+      "exitCode": 1,
+      "output": "/tmp/fm-s-q8iFhM\n/tmp/fm-s-kKKQbr\n/tmp/fm-s-rEH7rA\n/tmp/fm-s-pWWfFF"
+    },
+    {
+      "seq": 3533,
+      "t": 941577,
+      "kind": "command",
+      "command": "ps -axo pid,ppid,etime,command | rg 'bun test --cwd|codex exec --ephemeral|fm-s-' ",
+      "exitCode": 0,
+      "output": "…odex exec --ephemeral|fm-s-\n86600 94852       01:13 ~/.local/share/mise/installs/node/24.21.0/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex exec --ephemeral --sandbox read-only -m gpt-6.1-sol -c model_reasoning_effort=high -c service_tier=priority -o /tmp/scratch -"
+    },
+    {
+      "seq": 3537,
+      "t": 946252,
+      "kind": "command",
+      "command": "cat scripts/build.ts src/daemon/build.ts",
+      "exitCode": 0,
+      "output": "    hash.update(await readFile(join(root, file)));\n  }\n  return hash.digest(\"hex\");\n}"
+    },
+    {
+      "seq": 3538,
+      "t": 946343,
+      "kind": "command",
+      "command": "cat /tmp/scratch",
+      "exitCode": 1,
+      "output": "cat: /tmp/scratch No such file or directory"
+    },
+    {
+      "seq": 3553,
+      "t": 951372,
+      "kind": "message",
+      "text": "Revert verification confirmed all 11 selected regressions fail with the original implementation restored. Compiled QA now shows immediate stale-PID recovery, one request followed by a timeout for wedged Ping and Shutdown, and the specific socket-path failure in `daemon.jsonl`. The real-Codex smoke suite passed all 16 tests."
+    },
+    {
+      "seq": 3559,
+      "t": 954469,
+      "kind": "command",
+      "command": "python3 -c 'import io,subprocess,tarfile,tempfile; from pathlib import Path; root=Path(tempfile.mkdtemp(prefix=\\\"fm-daemon-before-\\\",dir=\\\"/tmp\\\")); data=subprocess.check_output([\\\"git\\\",\\\"archive\\\",\\\"HEAD\\\",\\\"src\\\",\\\"scripts\\\",\\\"package.json\\\",\\\"bun.lock\\\"]); tarfile.open(fileobj=io.BytesIO(data)).extractall(root,filter=\\\"data\\\"); (root/\\\"node_modules\\\").symlink_to(Path(\\\"node_modules\\\").resolve(),target_is_directory=True); subprocess.run([\\\"bun\\\",\\\"run\\\",\\\"build\\\"],cwd=root,check=True); Path(\\\"/tmp/fm-daemon-before-path\\\").write_text(str(root/\\\"dist/forman\\\")); print(root/\\\"dist/forman\\\")' ",
+      "exitCode": 0,
+      "output": "  [15ms]  minify  -5.86 MB (estimate)\n  [10ms]  bundle  359 modules\n [216ms] compile  dist/forman\n/tmp/fm-daemon-before-40q89oj0/dist/forman"
+    },
+    {
+      "seq": 3564,
+      "t": 957410,
+      "kind": "command",
+      "command": "bun run lint",
+      "exitCode": 0,
+      "output": "$ biome check .\nChecked 122 files in 1424ms. No fixes applied."
+    },
+    {
+      "seq": 3565,
+      "t": 957888,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "output": "$ tsc --noEmit"
+    },
+    {
+      "seq": 3575,
+      "t": 980043,
+      "kind": "command",
+      "command": "bun run e2e",
+      "exitCode": 0,
+      "output": " 8 pass\n 0 fail\n 168 expect() calls\nRan 8 tests across 1 file. [17.23s]"
+    },
+    {
+      "seq": 3608,
+      "t": 995238,
+      "kind": "command",
+      "command": "test -f /tmp/scratch",
+      "exitCode": 1,
+      "output": ""
+    },
+    {
+      "seq": 3632,
+      "t": 1006523,
+      "kind": "command",
+      "command": "python3 /tmp/fm-daemon-qa.py /tmp/fm-daemon-before-40q89oj0/dist/forman before",
+      "exitCode": 0,
+      "output": "…72436-p50apoxfmg\\\",\\\"command\\\":\\\"status\\\",\\\"exitCode\\\":4,\\\"outcome\\\":\\\"failure\\\",\\\"errorTag\\\":\\\"DaemonUnavailable\\\",\\\"durationMs\\\":10010}\\n{\\\"error\\\":{\\\"tag\\\":\\\"DaemonUnavailable\\\",\\\"message\\\":\\\"The forman daemon could not be reached or started.\\\",\\\"detail\\\":\\\"Daemon did not connect or start within 10000 ms: /tmp/fm-qa-beq49r3v/kill/forman.sock\\\",\\\"retryable\\\":true}}\\n\",\n    \"seconds\": 10.05\n  }\n}"
+    },
+    {
+      "seq": 3649,
+      "t": 1012378,
+      "kind": "message",
+      "text": "The independent review is running. I built the original revision in a temporary source copy for the before/after CLI comparison, and another full-suite run is underway after revert verification. All changes remain uncommitted in this worktree."
+    },
+    {
+      "seq": 3651,
+      "t": 1013801,
+      "kind": "command",
+      "command": "test -f /tmp/scratch",
+      "exitCode": 1,
+      "output": ""
+    },
+    {
+      "seq": 3652,
+      "t": 1014878,
+      "kind": "command",
+      "command": "git diff --check",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 3653,
+      "t": 1015029,
+      "kind": "command",
+      "command": "ps -axo pid,ppid,etime,command | rg 'vitest.mjs run|86600|fm-daemon-qa.py' ",
+      "exitCode": 0,
+      "output": "…Zf2/review.md -\n86653 86600       02:25 /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl\n86654 86600       02:25 /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl\n87902 86600       02:19 ~/.local/share/mise/installs/node/24.21.0/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex-code-mode-host"
+    },
+    {
+      "seq": 3662,
+      "t": 1027718,
+      "kind": "command",
+      "command": "bun run test",
+      "exitCode": 0,
+      "output": " Test Files  33 passed (33)\n      Tests  785 passed (785)\n   Start at  21:55:30\n   Duration  72.90s (tests 92%, import 7%)"
+    },
+    {
+      "seq": 3666,
+      "t": 1035874,
+      "kind": "command",
+      "command": "git diff --numstat",
+      "exitCode": 0,
+      "output": "27\t26\tsrc/daemon/server.ts\n5\t2\tsrc/supervisor/index.ts\n33\t149\ttests/daemon-lifecycle.test.ts\n76\t0\ttests/daemon-logging.test.ts"
+    },
+    {
+      "seq": 3667,
+      "t": 1035952,
+      "kind": "command",
+      "command": "wc -l tests/daemon-ownership.test.ts",
+      "exitCode": 0,
+      "output": "     325 tests/daemon-ownership.test.ts"
+    },
+    {
+      "seq": 3673,
+      "t": 1041760,
+      "kind": "command",
+      "command": "sed -n '45,110p' src/codex/client.ts; sed -n '1,130p' tests/fixtures/fake-app-server/main.mjs",
+      "exitCode": 0,
+      "output": "const input = createInterface({ input: process.stdin });\ninput.on(\"line\", (line) => {\n  receive(line).catch((error) => { console.error(error); process.exit(1); });\n});"
+    },
+    {
+      "seq": 3674,
+      "t": 1041847,
+      "kind": "command",
+      "command": "sed -n '1,140p' tests/fixtures/fake-app-server/scenarios.ts",
+      "exitCode": 0,
+      "output": "      threadId: \"{{thread}}\",\n      turnId: \"{{turn}}\",\n      run: {\n        ...Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Unknown))(hook.run),"
+    },
+    {
+      "seq": 3675,
+      "t": 1041932,
+      "kind": "command",
+      "command": "test -f /tmp/scratch",
+      "exitCode": 1,
+      "output": ""
+    },
+    {
+      "seq": 3692,
+      "t": 1066406,
+      "kind": "files",
+      "paths": ["/tmp/fm-daemon-shutdown-qa.py"]
+    },
+    {
+      "seq": 3695,
+      "t": 1068436,
+      "kind": "command",
+      "command": "python3 /tmp/fm-daemon-shutdown-qa.py /tmp/fm-daemon-before-40q89oj0/dist/forman before",
+      "exitCode": 0,
+      "output": "    \"stdout\": \"Daemon: not running.\\n\",\n    \"stderr\": \"\"\n  }\n}"
+    },
+    {
+      "seq": 3697,
+      "t": 1068656,
+      "kind": "command",
+      "command": "python3 /tmp/fm-daemon-shutdown-qa.py dist/forman after",
+      "exitCode": 0,
+      "output": "    \"stdout\": \"Daemon: not running.\\n\",\n    \"stderr\": \"\"\n  }\n}"
+    },
+    {
+      "seq": 3701,
+      "t": 1072993,
+      "kind": "command",
+      "command": "test -f /tmp/scratch",
+      "exitCode": 1,
+      "output": ""
+    },
+    {
+      "seq": 3703,
+      "t": 1074090,
+      "kind": "command",
+      "command": "git status --short",
+      "exitCode": 0,
+      "output": " M src/supervisor/index.ts\n M tests/daemon-lifecycle.test.ts\n M tests/daemon-logging.test.ts\n?? tests/daemon-ownership.test.ts"
+    },
+    {
+      "seq": 3711,
+      "t": 1091580,
+      "kind": "command",
+      "command": "codex exec --ephemeral --sandbox read-only -m gpt-6.1-sol -c model_reasoning_effort=high -c service_tier=priority -o /tmp/scratch - < /tmp/scratch",
+      "exitCode": 0,
+      "output": "\n**NEEDS FIXES** — Shutdown can still hang during connection acquisition or report completion before a replacement can acquire ownership.\ntokens used\n150,374"
+    },
+    {
+      "seq": 3713,
+      "t": 1092362,
+      "kind": "command",
+      "command": "nl -ba src/daemon/lock.ts; nl -ba src/daemon/server.ts | tail -55; nl -ba src/supervisor/index.ts | tail -48; nl -ba src/commands/daemon.ts | tail -75",
+      "exitCode": 0,
+      "output": "   139\t).pipe(\n   140\t  Command.withDescription(\"Run the background supervisor.\"),\n   141\t  Command.withSubcommands([stopCommand]),\n   142\t);"
+    },
+    {
+      "seq": 3714,
+      "t": 1092457,
+      "kind": "command",
+      "command": "test -f /tmp/scratch",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 3718,
+      "t": 1096460,
+      "kind": "command",
+      "command": "cat /tmp/scratch",
+      "exitCode": 0,
+      "output": "\n## Verdict\n\n**NEEDS FIXES** — Shutdown can still hang during connection acquisition or report completion before a replacement can acquire ownership."
+    },
+    {
+      "seq": 3721,
+      "t": 1166785,
+      "kind": "message",
+      "text": "The review found two valid gaps: `daemon stop` could still hang while acquiring a connection, and shutdown could report completion just before SQLite released ownership. I’ll add regressions for both and make shutdown confirmation check the advisory lock."
+    },
+    {
+      "seq": 3723,
+      "t": 1173942,
+      "kind": "files",
+      "paths": ["tests/daemon-ownership.test.ts"]
+    },
+    {
+      "seq": 3768,
+      "t": 1175443,
+      "kind": "command",
+      "command": "bun run test:unit tests/daemon-ownership.test.ts -t 'connection acquisition|PID record disappears'",
+      "exitCode": 1,
+      "output": "   Start at  21:59:10\n   Duration  676ms (import 67%, tests 24%, transform 8%, setup 1%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 3772,
+      "t": 1184660,
+      "kind": "files",
+      "paths": ["src/daemon/client.ts"]
+    },
+    {
+      "seq": 3783,
+      "t": 1185888,
+      "kind": "command",
+      "command": "bun run test:unit tests/daemon-ownership.test.ts -t 'connection acquisition|PID record disappears'",
+      "exitCode": 0,
+      "output": " Test Files  1 passed (1)\n      Tests  2 passed | 9 skipped (11)\n   Start at  21:59:20\n   Duration  845ms (import 61%, tests 31%, transform 8%, setup 1%)"
+    },
+    {
+      "seq": 3784,
+      "t": 1186422,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "output": "$ tsc --noEmit"
+    },
+    {
+      "seq": 3786,
+      "t": 1187298,
+      "kind": "command",
+      "command": "bun run format",
+      "exitCode": 0,
+      "output": "$ biome check --write .\nChecked 122 files in 670ms. Fixed 2 files."
+    },
+    {
+      "seq": 3790,
+      "t": 1208804,
+      "kind": "files",
+      "paths": ["docs/rfcs/0001-forman.md", "tests/daemon-ownership.test.ts"]
+    },
+    {
+      "seq": 3795,
+      "t": 1211746,
+      "kind": "command",
+      "command": "python3 -c 'from pathlib import Path; import json,subprocess; p=Path(\\\"src/daemon/client.ts\\\"); saved=p.read_text(); old=json.loads(Path(\\\"/tmp/fm-daemon-revert-verification/sources.json\\\").read_text())[str(p)];\ntry:\n p.write_text(old)\n with Path(\\\"/tmp/fm-daemon-revert-verification/review-red.log\\\").open(\\\"w\\\") as log:\n  r=subprocess.run([\\\"bun\\\",\\\"run\\\",\\\"test:unit\\\",\\\"tests/daemon-ownership.test.ts\\\",\\\"-t\\\",\\\"connection acquisition|PID record disappears\\\"],stdout=log,stderr=subprocess.STDOUT,timeout=15)\n print(\\\"Review fixes reverted exit:\\\",r.returncode)\nfinally: p.write_text(saved)\nprint(Path(\\\"/tmp/fm-daemon-revert-verification/review-red.log\\\").read_text()[-1700:])' ",
+      "exitCode": 0,
+      "output": "   Start at  21:59:45\n   Duration  1.79s (import 69%, transform 17%, tests 14%)\n\nerror: script \"test:unit\" exited with code 1"
+    },
+    {
+      "seq": 3798,
+      "t": 1215358,
+      "kind": "command",
+      "command": "bun run format",
+      "exitCode": 0,
+      "output": "$ biome check --write .\nChecked 122 files in 861ms. Fixed 1 file."
+    },
+    {
+      "seq": 3803,
+      "t": 1217235,
+      "kind": "command",
+      "command": "bun run lint",
+      "exitCode": 0,
+      "output": "$ biome check .\nChecked 122 files in 473ms. No fixes applied."
+    },
+    {
+      "seq": 3804,
+      "t": 1217862,
+      "kind": "command",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "output": "$ tsc --noEmit"
+    },
+    {
+      "seq": 3816,
+      "t": 1224520,
+      "kind": "command",
+      "command": "bun run test:unit tests/daemon-ownership.test.ts tests/daemon-lifecycle.test.ts tests/daemon-logging.test.ts",
+      "exitCode": 0,
+      "output": " Test Files  3 passed (3)\n      Tests  76 passed (76)\n   Start at  21:59:51\n   Duration  8.81s (tests 87%, import 11%, transform 2%)"
+    },
+    {
+      "seq": 3819,
+      "t": 1236032,
+      "kind": "command",
+      "command": "bun run e2e",
+      "exitCode": 0,
+      "output": " 8 pass\n 0 fail\n 168 expect() calls\nRan 8 tests across 1 file. [17.82s]"
+    },
+    {
+      "seq": 3821,
+      "t": 1238838,
+      "kind": "command",
+      "command": "python3 /tmp/fm-daemon-shutdown-qa.py dist/forman final",
+      "exitCode": 0,
+      "output": "    \"stdout\": \"Daemon: not running.\\n\",\n    \"stderr\": \"\"\n  }\n}"
+    },
+    {
+      "seq": 3837,
+      "t": 1249216,
+      "kind": "command",
+      "command": "git diff --check",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 3839,
+      "t": 1250428,
+      "kind": "command",
+      "command": "git status --short",
+      "exitCode": 0,
+      "output": " M src/supervisor/index.ts\n M tests/daemon-lifecycle.test.ts\n M tests/daemon-logging.test.ts\n?? tests/daemon-ownership.test.ts"
+    },
+    {
+      "seq": 3846,
+      "t": 1251287,
+      "kind": "command",
+      "command": "bun run test:unit tests/daemon-ownership.test.ts tests/daemon-lifecycle.test.ts tests/daemon-logging.test.ts",
+      "exitCode": 0,
+      "output": " Test Files  3 passed (3)\n      Tests  76 passed (76)\n   Start at  22:00:15\n   Duration  12.00s (tests 91%, import 8%, transform 1%)"
+    },
+    {
+      "seq": 3854,
+      "t": 1256897,
+      "kind": "command",
+      "command": "bun run test:unit tests/daemon-ownership.test.ts tests/daemon-lifecycle.test.ts tests/daemon-logging.test.ts",
+      "exitCode": 0,
+      "output": " Test Files  3 passed (3)\n      Tests  76 passed (76)\n   Start at  22:00:23\n   Duration  9.41s (tests 85%, import 13%, transform 2%)"
+    },
+    {
+      "seq": 3856,
+      "t": 1258085,
+      "kind": "command",
+      "command": "python3 /tmp/fm-daemon-qa.py dist/forman final",
+      "exitCode": 0,
+      "output": "    \"stderr\": \"\",\n    \"seconds\": 0.16\n  }\n}"
+    },
+    {
+      "seq": 3858,
+      "t": 1265012,
+      "kind": "command",
+      "command": "bun run e2e",
+      "exitCode": 0,
+      "output": " 8 pass\n 0 fail\n 168 expect() calls\nRan 8 tests across 1 file. [18.92s]"
+    },
+    {
+      "seq": 3864,
+      "t": 1292306,
+      "kind": "command",
+      "command": "ps -axo pid,ppid,etime,command | rg 'fm-close-|fm-daemon-before-|fm-qa-' ",
+      "exitCode": 0,
+      "output": "40438 94852       00:00 /bin/zsh -c ps -axo pid,ppid,etime,command | rg 'fm-close-|fm-daemon-before-|fm-qa-' \n40534 40438       00:00 rg fm-close-|fm-daemon-before-|fm-qa-"
+    },
+    {
+      "seq": 3872,
+      "t": 1308647,
+      "kind": "command",
+      "command": "bun run e2e",
+      "exitCode": 0,
+      "output": " 8 pass\n 0 fail\n 168 expect() calls\nRan 8 tests across 1 file. [17.29s]"
+    },
+    {
+      "seq": 3873,
+      "t": 1315518,
+      "kind": "message",
+      "text": "Both review fixes are in place and revert-verified. The three final focused runs each passed all 76 tests, and compiled QA still shows ownership held while a real app-server waits in cleanup. The full suite and post-review smoke run are still finishing."
+    },
+    {
+      "seq": 3879,
+      "t": 1322590,
+      "kind": "command",
+      "command": "git diff --check",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 3888,
+      "t": 1324527,
+      "kind": "command",
+      "command": "bun run test",
+      "exitCode": 0,
+      "output": " Test Files  33 passed (33)\n      Tests  787 passed (787)\n   Start at  22:00:16\n   Duration  84.04s (tests 93%, import 6%, transform 1%)"
+    },
+    {
+      "seq": 3892,
+      "t": 1344713,
+      "kind": "command",
+      "command": "git diff --stat",
+      "exitCode": 0,
+      "output": " src/supervisor/index.ts        |   7 +-\n tests/daemon-lifecycle.test.ts | 182 ++++++++---------------------------------\n tests/daemon-logging.test.ts   |  76 +++++++++++++++++\n 9 files changed, 264 insertions(+), 303 deletions(-)"
+    },
+    {
+      "seq": 3895,
+      "t": 1366123,
+      "kind": "message",
+      "text": "The post-review full suite passed all 787 tests, and all three compiled e2e reruns passed. The remaining check is the real-Codex smoke rerun, which includes the one-minute question timeout and two-minute hold."
+    },
+    {
+      "seq": 3898,
+      "t": 1371545,
+      "kind": "command",
+      "command": "cat README.md",
+      "exitCode": 0,
+      "output": "\n## License\n\nMIT. See [LICENSE](LICENSE)."
+    },
+    {
+      "seq": 3902,
+      "t": 1373922,
+      "kind": "command",
+      "command": "cat docs/rfcs/0001-forman.md",
+      "exitCode": 0,
+      "output": "\n## Deviations found while building\n\nA `thread/start` reply arriving after its timeout is discarded by the client because its request has no waiter left. The run stays `unknown` and becomes `lost` after 5 minutes. No turn was started on that thread, so it does no work."
+    },
+    {
+      "seq": 3919,
+      "t": 1485996,
+      "kind": "command",
+      "command": "git status --short",
+      "exitCode": 0,
+      "output": " M src/supervisor/index.ts\n M tests/daemon-lifecycle.test.ts\n M tests/daemon-logging.test.ts\n?? tests/daemon-ownership.test.ts"
+    },
+    {
+      "seq": 3923,
+      "t": 1505647,
+      "kind": "message",
+      "text": "The last smoke case is still in its timed question hold. All other final checks have passed; the working tree is unchanged while that case finishes."
+    },
+    {
+      "seq": 3931,
+      "t": 1526273,
+      "kind": "command",
+      "command": "FORMAN_SMOKE=1 FORMAN_SMOKE_SHORT=1 bun run smoke",
+      "exitCode": 0,
+      "output": " 16 pass\n 0 fail\n 238 expect() calls\nRan 16 tests across 3 files. [290.73s]"
+    },
+    {
+      "seq": 3936,
+      "t": 1538249,
+      "kind": "command",
+      "command": "git status --short",
+      "exitCode": 0,
+      "output": " M src/supervisor/index.ts\n M tests/daemon-lifecycle.test.ts\n M tests/daemon-logging.test.ts\n?? tests/daemon-ownership.test.ts"
+    },
+    {
+      "seq": 3937,
+      "t": 1539320,
+      "kind": "command",
+      "command": "git diff --check",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "seq": 3941,
+      "t": 1558196,
+      "kind": "message",
+      "text": "**1. Summary**\n\nFixed C2, C4, C12, O1 and O4: process-lifetime locking, ordered supervisor cleanup, bounded control exchanges, caller socket-path validation and fatal file logging. Both independent-review findings are resolved. Changes remain uncommitted; nothing was pushed.\n\n**2. Files**\n\n- `src/daemon/lock.ts`: replace PID/age reclamation with an exclusive SQLite advisory lock; retain PID diagnostics.\n- `src/daemon/server.ts`: close and join dispatch, then supervisor cleanup, before releasing ownership.\n- `src/daemon/client.ts`: bound Ping, Shutdown and shutdown connection acquisition; confirm actual ownership release.\n- `src/commands/daemon.ts`: record safe fatal details before draining the logger.\n- `src/supervisor/index.ts`: give `makeSupervisor` an owned scope and explicit `shutdown`; correct context-provider ordering. Changes stay within that entry point.\n- `tests/daemon-ownership.test.ts`: add lifecycle, deadline, cleanup and ownership regressions.\n- `tests/daemon-lifecycle.test.ts`: replace obsolete reclaim-guard tests and add Bun-process SIGKILL recovery coverage.\n- `tests/daemon-logging.test.ts`: cover fatal failures, safe details and logger draining.\n- `e2e/binary.test.ts`: update daemon file-layout expectations.\n- `docs/rfcs/0001-forman.md`: update “Starting and stopping the daemon.”\n\n**3. Decisions**\n\nNeither runtime nor Effect’s filesystem exposes `flock` here. Both Bun and Node support built-in `node:sqlite`, so `takeLock` holds an exclusive transaction on persistent `daemon.guard.sqlite`. SQLite supplies the OS advisory lock without a dependency; a memory journal avoids sidecar persistence. C2’s paused-owner test and C12’s stale-PID/SIGKILL tests cover this mechanism.\n\nThe explicit supervisor scope and listener finalizer address C4. Node automatically unlinks the socket pathname when closing its listener, so the authoritative lock remains held throughout cleanup; the RFC documents this departure from literal pathname retention.\n\nTen-second control deadlines address O1. Fatal logging and caller-side UTF-8 path validation address O4. Shutdown additionally probes the advisory lock before reporting completion.\n\nThe testing skills drove barriers, real subprocesses and repeat runs. Effect guidance exposed the context-provider ordering bug. Error-handling guidance kept fatal diagnostics to safe fields and message-free defect frames; architecture guidance kept the supervisor change at its shutdown boundary.\n\n**4. Checks**\n\nFinal checks after review fixes:\n\n| Command | Result |\n| --- | --- |\n| `bun run test:unit tests/daemon-ownership.test.ts tests/daemon-lifecycle.test.ts tests/daemon-logging.test.ts` | **76 passed × 3 runs**: 11 ownership, 56 lifecycle, 9 logging |\n| `bun run test` | **787 passed**, 33 files |\n| `bun run e2e` | **8 passed × 3 runs**, 168 assertions each |\n| `bun run lint` | Passed, 122 files |\n| `bun run typecheck` | Passed |\n| `bun run format` | Passed |\n| `bun run build` | Passed |\n| `FORMAN_SMOKE=1 FORMAN_SMOKE_SHORT=1 bun run smoke` | **16 passed**, 238 assertions; also passed before review |\n| `git diff --check` | Passed |\n\nRegression coverage pins paused-owner exclusion, stale-PID recovery, supervisor/subprocess joining, interruption cleanup, bounded exchanges without mutation replay, socket validation and safe fatal logging. Restoring the original implementation produced **11 selected regression failures**; reverting the two review fixes produced **2 failures**. Logs are under `/tmp/fm-daemon-revert-verification/`.\n\nBuilt-binary QA compared the original and final implementations in temporary homes:\n\n- Stale live-PID records: previously failed after 10 seconds; now recover in about 0.3 seconds.\n- Wedged Ping/Shutdown: previously exceeded the 12-second QA limit; now return actionable errors at 10 seconds, with one request sent.\n- Blocked app-server cleanup: previously allowed replacement ownership; now retains ownership and rejects the contender.\n- Excessive socket path: caller now reports the specific limit, and fatal details reach `daemon.jsonl`. On this host, the old caller failed immediately with a generic connection error rather than timing out.\n\nQA records: `/tmp/fm-daemon-qa-{before,final}.json` and `/tmp/fm-daemon-shutdown-qa-{before,final}.json`.\n\n**5. Review**\n\n[Independent review]( /tmp/scratch):\n\n- Unbounded shutdown connection acquisition: **fixed**, with a TestClock regression.\n- Shutdown reported completion before advisory-lock release: **fixed**, with a barrier after PID-record removal.\n\nOne review pass, as requested.\n\n**6. Look closer at**\n\n- The persistent lock-database inode requirement; it must never be unlinked during operation.\n- `makeSupervisor`’s scope/context-provider ordering and the shutdown finalizer order.\n- Linux runtime portability: verification ran on macOS with Node 26 and Bun 1.4.2.\n\n**7. Open**\n\nNo blocked work or open questions. No cross-unit edits are required."
+    },
+    {
+      "seq": 3946,
+      "t": 1558304,
+      "kind": "turn-completed",
+      "turn": 1,
+      "status": "completed"
+    },
+    {
+      "seq": 3947,
+      "t": 1559337,
+      "kind": "state",
+      "from": "running",
+      "to": "idle"
+    }
+  ],
+  "questions": [],
+  "handoff": "**1. Summary**\n\nFixed C2, C4, C12, O1 and O4: process-lifetime locking, ordered supervisor cleanup, bounded control exchanges, caller socket-path validation and fatal file logging. Both independent-review findings are resolved. Changes remain uncommitted; nothing was pushed.\n\n**2. Files**\n\n- `src/daemon/lock.ts`: replace PID/age reclamation with an exclusive SQLite advisory lock; retain PID diagnostics.\n- `src/daemon/server.ts`: close and join dispatch, then supervisor cleanup, before releasing ownership.\n- `src/daemon/client.ts`: bound Ping, Shutdown and shutdown connection acquisition; confirm actual ownership release.\n- `src/commands/daemon.ts`: record safe fatal details before draining the logger.\n- `src/supervisor/index.ts`: give `makeSupervisor` an owned scope and explicit `shutdown`; correct context-provider ordering. Changes stay within that entry point.\n- `tests/daemon-ownership.test.ts`: add lifecycle, deadline, cleanup and ownership regressions.\n- `tests/daemon-lifecycle.test.ts`: replace obsolete reclaim-guard tests and add Bun-process SIGKILL recovery coverage.\n- `tests/daemon-logging.test.ts`: cover fatal failures, safe details and logger draining.\n- `e2e/binary.test.ts`: update daemon file-layout expectations.\n- `docs/rfcs/0001-forman.md`: update “Starting and stopping the daemon.”\n\n**3. Decisions**\n\nNeither runtime nor Effect’s filesystem exposes `flock` here. Both Bun and Node support built-in `node:sqlite`, so `takeLock` holds an exclusive transaction on persistent `daemon.guard.sqlite`. SQLite supplies the OS advisory lock without a dependency; a memory journal avoids sidecar persistence. C2’s paused-owner test and C12’s stale-PID/SIGKILL tests cover this mechanism.\n\nThe explicit supervisor scope and listener finalizer address C4. Node automatically unlinks the socket pathname when closing its listener, so the authoritative lock remains held throughout cleanup; the RFC documents this departure from literal pathname retention.\n\nTen-second control deadlines address O1. Fatal logging and caller-side UTF-8 path validation address O4. Shutdown additionally probes the advisory lock before reporting completion.\n\nThe testing skills drove barriers, real subprocesses and repeat runs. Effect guidance exposed the context-provider ordering bug. Error-handling guidance kept fatal diagnostics to safe fields and message-free defect frames; architecture guidance kept the supervisor change at its shutdown boundary.\n\n**4. Checks**\n\nFinal checks after review fixes:\n\n| Command | Result |\n| --- | --- |\n| `bun run test:unit tests/daemon-ownership.test.ts tests/daemon-lifecycle.test.ts tests/daemon-logging.test.ts` | **76 passed × 3 runs**: 11 ownership, 56 lifecycle, 9 logging |\n| `bun run test` | **787 passed**, 33 files |\n| `bun run e2e` | **8 passed × 3 runs**, 168 assertions each |\n| `bun run lint` | Passed, 122 files |\n| `bun run typecheck` | Passed |\n| `bun run format` | Passed |\n| `bun run build` | Passed |\n| `FORMAN_SMOKE=1 FORMAN_SMOKE_SHORT=1 bun run smoke` | **16 passed**, 238 assertions; also passed before review |\n| `git diff --check` | Passed |\n\nRegression coverage pins paused-owner exclusion, stale-PID recovery, supervisor/subprocess joining, interruption cleanup, bounded exchanges without mutation replay, socket validation and safe fatal logging. Restoring the original implementation produced **11 selected regression failures**; reverting the two review fixes produced **2 failures**. Logs are under `/tmp/fm-daemon-revert-verification/`.\n\nBuilt-binary QA compared the original and final implementations in temporary homes:\n\n- Stale live-PID records: previously failed after 10 seconds; now recover in about 0.3 seconds.\n- Wedged Ping/Shutdown: previously exceeded the 12-second QA limit; now return actionable errors at 10 seconds, with one request sent.\n- Blocked app-server cleanup: previously allowed replacement ownership; now retains ownership and rejects the contender.\n- Excessive socket path: caller now reports the specific limit, and fatal details reach `daemon.jsonl`. On this host, the old caller failed immediately with a generic connection error rather than timing out.\n\nQA records: `/tmp/fm-daemon-qa-{before,final}.json` and `/tmp/fm-daemon-shutdown-qa-{before,final}.json`.\n\n**5. Review**\n\n[Independent review]( /tmp/scratch):\n\n- Unbounded shutdown connection acquisition: **fixed**, with a TestClock regression.\n- Shutdown reported completion before advisory-lock release: **fixed**, with a barrier after PID-record removal.\n\nOne review pass, as requested.\n\n**6. Look closer at**\n\n- The persistent lock-database inode requirement; it must never be unlinked during operation.\n- `makeSupervisor`’s scope/context-provider ordering and the shutdown finalizer order.\n- Linux runtime portability: verification ran on macOS with Node 26 and Bun 1.4.2.\n\n**7. Open**\n\nNo blocked work or open questions. No cross-unit edits are required.",
+  "digest": "run:       fix-daemon  idle  25m59s  (gpt-6.1-sol, high, priority, write)\ndir:       ~/.forman/runs/fix-daemon\nworktree:  ~/src/forman/.claude/worktrees/fix-daemon\nbranch:    forman/fix-daemon (forman-created, base 39aec1625582d74b66751460b5fb66b6b1b27add)\nturn:      1 (start)\nquestion:  (none)\ncommands:  232 (43 failed, 0 blocked by repo hooks)\n  last:    /bin/zsh -lc 'git diff --check'  exit=0\nfiles written:\n  docs/rfcs/0001-forman.md\n  e2e/binary.test.ts\n  src/commands/daemon.ts\n  src/daemon/client.ts\n  src/daemon/lock.ts\n  src/daemon/server.ts\n  src/supervisor/index.ts\n  tests/daemon-lifecycle.test.ts\n  tests/daemon-logging.test.ts\n  tests/daemon-ownership.test.ts\noutside May change:  (none)\nnew in git status since start:  (none)\ntokens:    17.6M in (99% cached), 57.3K out\n"
+}

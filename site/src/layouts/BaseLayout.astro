@@ -1,4 +1,6 @@
 ---
+import { revealGateScript } from "@steamfield/ui/reveal";
+import Logo from "../components/Logo.astro";
 import { site } from "../config";
 import "../styles/global.css";
 
@@ -24,7 +26,10 @@ const ogImage = new URL(image, site.url);
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <meta name="theme-color" content="#f1f2ee" />
+    <script is:inline set:html={revealGateScript} />
     <title>{title === site.title ? title : `${title} | ${site.title}`}</title>
     <meta name="description" content={description} />
     <link rel="canonical" href={canonical} />
@@ -40,6 +45,9 @@ const ogImage = new URL(image, site.url);
       title={site.title}
       href="/blog/rss.xml"
     />
+    <script>
+      import "../scripts/site";
+    </script>
     <script>
       import { initAnalytics } from "../lib/analytics";
       import {
@@ -63,17 +71,63 @@ const ogImage = new URL(image, site.url);
       }
     </script>
   </head>
-  <body class="mx-auto max-w-3xl px-6 py-10">
-    <nav aria-label="Main" class="mb-10 flex gap-6">
-      {site.nav.map((item) => (
-        <a href={item.href}>{item.label}</a>
-      ))}
-    </nav>
-    <main>
+  <body class="bg-page text-ink flex min-h-screen flex-col">
+    <a
+      href="#main"
+      class="bg-ink text-page sr-only z-50 px-3 py-2 focus:not-sr-only focus:fixed focus:top-3 focus:left-3"
+    >
+      Skip to content
+    </a>
+    <header class="border-line bg-page/90 sticky top-0 z-40 border-b backdrop-blur">
+      <div class="mx-auto flex h-14 max-w-[1200px] items-center justify-between gap-6 px-4 sm:px-8">
+        <a href="/" class="text-ink no-underline" aria-label="forman home">
+          <Logo wordmark />
+        </a>
+        <nav aria-label="Main" class="flex items-center gap-5 text-[0.9375rem]">
+          {site.nav.map((item) => (
+            <a
+              href={item.href}
+              class="text-ink-2 hover:text-ink hidden no-underline sm:inline"
+            >
+              {item.label}
+            </a>
+          ))}
+          <a
+            href="/#install"
+            class="bg-ink text-page rounded-control inline-flex h-9 items-center px-3.5 text-sm font-medium no-underline"
+          >
+            Install
+          </a>
+        </nav>
+      </div>
+    </header>
+    <main id="main" class="flex-1">
       <slot />
     </main>
-    <footer class="mt-10">
-      <a href="https://steamfield.io/privacy">Privacy</a>
+    <footer class="border-line bg-page border-t">
+      <div class="text-ink-3 mx-auto flex max-w-[1200px] flex-col gap-6 px-4 py-10 text-sm sm:flex-row sm:items-center sm:justify-between sm:px-8">
+        <div class="flex items-center gap-3">
+          <Logo size={20} />
+          <span>forman is MIT licensed. A Steamfield project.</span>
+        </div>
+        <nav aria-label="Footer" class="flex flex-wrap gap-5">
+          <a href={site.repo} class="text-ink-2 hover:text-ink no-underline">
+            GitHub
+          </a>
+          <a href={site.readme} class="text-ink-2 hover:text-ink no-underline">
+            README
+          </a>
+          <a href={site.npm} class="text-ink-2 hover:text-ink no-underline">
+            npm
+          </a>
+          <a
+            href="https://steamfield.io/privacy"
+            class="text-ink-2 hover:text-ink no-underline"
+          >
+            Privacy
+          </a>
+        </nav>
+      </div>
     </footer>
   </body>
 </html>

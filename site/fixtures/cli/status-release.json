@@ -1,0 +1,5 @@
+{
+  "command": "forman status",
+  "output": "fix-cli  idle  turn 1 (start)  24m46s\nfix-daemon  idle  turn 1 (start)  25m59s\nfix-supervisor  idle  turn 1 (start)  70m30s\nfix-worktrees  idle  turn 1 (start)  29m01s\nsite-scaffold  running  turn 1 (start)  3m09s\n",
+  "exitCode": 0
+}

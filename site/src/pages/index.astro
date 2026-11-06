@@ -1,8 +1,200 @@
 ---
+import { CopyCommand } from "@steamfield/ui/react/copy";
+import { CommandTabs } from "../components/landing/CommandTabs";
+import { InstallPanel } from "../components/landing/InstallPanel";
+import {
+  ParallelRuns,
+  QuestionTimeline,
+  WorkOrder,
+} from "../components/landing/evidence";
+import { Lifecycle } from "../components/landing/Lifecycle";
+import {
+  CodeFrame,
+  DataTable,
+  Inline,
+  Section,
+} from "../components/landing/primitives";
+import { SupervisionConsole } from "../components/landing/SupervisionConsole";
+import { site } from "../config";
+import { loadCommands } from "../data/commands";
+import {
+  agentFacing,
+  commands,
+  exitCodes,
+  guardrails,
+  handoff,
+  hero,
+  install,
+  lifecycle,
+  parallel,
+  questions,
+  waitOutcomes,
+  why,
+} from "../data/landing";
+import { lifecycleModel } from "../data/lifecycle";
+import { loadRun, releaseRuns } from "../data/runs";
+import { buildConsoleScript } from "../data/supervision";
+import doctor from "../../fixtures/cli/doctor.json";
 import BaseLayout from "../layouts/BaseLayout.astro";
+
+const supervisor = loadRun("fix-supervisor");
+const [npm] = install.options;
 ---
 
-<BaseLayout title="forman" path="/">
-  <h1>forman</h1>
-  <p>Delegate coding tasks to Codex from Claude Code.</p>
+<BaseLayout title={site.title} description={site.description} path="/">
+  <section
+    aria-labelledby="hero-title"
+    class="relative overflow-hidden"
+    data-hero
+    data-reveal
+  >
+    <div class="mx-auto max-w-[1200px] px-4 pt-16 pb-20 sm:px-8 sm:pt-24 sm:pb-24">
+      <h1 id="hero-title" class="font-display text-ink hero-title max-w-[15em]">
+        {hero.title}
+      </h1>
+      <div class="mt-8 grid items-start gap-8 lg:grid-cols-12 lg:gap-12">
+        <p
+          class="text-ink-2 max-w-[38rem] text-lg leading-relaxed lg:col-span-7"
+          data-motion="lift-md"
+          style="--motion-delay: 120ms"
+        >
+          {hero.lede}
+        </p>
+        <div
+          class="flex flex-col gap-4 lg:col-span-5"
+          data-motion="lift-sm"
+          style="--motion-delay: 240ms"
+        >
+          {npm && (
+            <div class="copy-line" data-install-copy={npm.label}>
+              <CopyCommand
+                id="hero-install"
+                command={npm.command}
+                label="Copy install command"
+              />
+            </div>
+          )}
+          <div class="flex flex-wrap items-center gap-3">
+            <a href="#install" class="btn btn-primary">
+              Install forman
+            </a>
+            <a href={site.repo} class="btn btn-secondary">
+              Source on GitHub
+            </a>
+          </div>
+        </div>
+      </div>
+      <div
+        class="mt-14"
+        data-motion="scale-in-media"
+        style="--motion-delay: 320ms"
+      >
+        <SupervisionConsole
+          client:visible
+          script={buildConsoleScript(supervisor)}
+        />
+      </div>
+    </div>
+  </section>
+
+  <Section band id="why" title={why.title} lede={why.lede}>
+    <div class="grid gap-6 md:grid-cols-2" data-stagger>
+      {[why.before, why.after].map((side, i) => (
+        <div
+          class:list={[
+            "before-after rounded-frame border p-6",
+            i === 0 ? "border-line bg-page" : "border-ink bg-card",
+          ]}
+          data-motion="lift-card"
+        >
+          <h3 class="text-ink mb-4 text-lg font-semibold">{side.title}</h3>
+          <ol class="flex flex-col gap-3">
+            {side.items.map((item) => (
+              <li class="text-ink-2 leading-relaxed">{item}</li>
+            ))}
+          </ol>
+        </div>
+      ))}
+    </div>
+  </Section>
+
+  <Section track id="lifecycle" title={lifecycle.title} lede={lifecycle.lede}>
+    <Lifecycle client:visible model={lifecycleModel()} />
+  </Section>
+
+  <Section band id="handoff" title={handoff.title} lede={handoff.lede}>
+    <WorkOrder run={supervisor} />
+  </Section>
+
+  <Section track id="questions" title={questions.title} lede={questions.lede}>
+    <QuestionTimeline run={supervisor} />
+  </Section>
+
+  <Section band id="parallel" title={parallel.title} lede={parallel.lede}>
+    <ParallelRuns runs={releaseRuns} />
+  </Section>
+
+  <Section track id="commands" title={commands.title} lede={commands.lede}>
+    <CommandTabs client:visible commands={loadCommands()} />
+  </Section>
+
+  <Section band id="guardrails" title={guardrails.title}>
+    <DataTable
+      caption="forman's guardrails"
+      head={["Guardrail", "What forman does"]}
+      rows={guardrails.rows}
+    />
+  </Section>
+
+  <Section id="agents" title={agentFacing.title} lede={agentFacing.lede}>
+    <div class="grid gap-8 lg:grid-cols-2">
+      <div>
+        <h3 class="text-ink mb-3 font-semibold">Wait outcomes</h3>
+        <DataTable
+          caption="forman wait outcomes"
+          head={["Outcome", "Meaning"]}
+          rows={waitOutcomes}
+          mono={[0]}
+        />
+      </div>
+      <div>
+        <h3 class="text-ink mb-3 font-semibold">Exit codes</h3>
+        <DataTable
+          caption="forman exit codes"
+          head={["Code", "Meaning"]}
+          rows={exitCodes}
+          mono={[0]}
+        />
+      </div>
+    </div>
+  </Section>
+
+  <Section band track id="install" title={install.title}>
+    <div class="grid gap-10 lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-16">
+      <div class="flex flex-col gap-8">
+        <InstallPanel client:visible options={install.options} />
+        <div>
+          <h3 class="text-ink mb-2 font-semibold">{install.setup.title}</h3>
+          <p class="text-ink-2 mb-4 max-w-[40rem] leading-relaxed">
+            <Inline text={install.setup.lede} />
+          </p>
+          <CodeFrame
+            surface="console"
+            title={doctor.command}
+            code={doctor.output}
+          />
+        </div>
+      </div>
+      <div>
+        <h3 class="text-ink mb-3 font-semibold">What you need</h3>
+        <ul class="flex flex-col gap-2">
+          {install.requirements.map((r) => (
+            <li class="text-ink-2 leading-relaxed">
+              <Inline text={r} />
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  </Section>
 </BaseLayout>

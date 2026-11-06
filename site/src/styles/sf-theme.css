@@ -1,34 +1,26 @@
+/* Maps the site's tokens (global.css @theme, DESIGN.md) onto @steamfield/ui's --sf-* variables.
+   The library's demos are consoles here, so its base colors take the console tokens. */
 :root {
-  --color-background: #fff; /* placeholder: orchestrator sets */
-  --color-surface: #f8fafc; /* placeholder: orchestrator sets */
-  --color-foreground: #0f172a; /* placeholder: orchestrator sets */
-  --color-muted: #475569; /* placeholder: orchestrator sets */
-  --color-faint: #94a3b8; /* placeholder: orchestrator sets */
-  --color-accent: #1d4ed8; /* placeholder: orchestrator sets */
-  --color-border: #cbd5e1; /* placeholder: orchestrator sets */
-  --color-success: #166534; /* placeholder: orchestrator sets */
-  --color-danger: #b91c1c; /* placeholder: orchestrator sets */
-  --color-warning: #92400e; /* placeholder: orchestrator sets */
-
-  --sf-bg: var(--color-background);
-  --sf-surface: var(--color-surface);
-  --sf-fg: var(--color-foreground);
-  --sf-muted: var(--color-muted);
-  --sf-faint: var(--color-faint);
-  --sf-accent: var(--color-accent);
-  --sf-border: var(--color-border);
-  --sf-ok: var(--color-success);
-  --sf-fail: var(--color-danger);
-  --sf-warn: var(--color-warning);
-  --sf-focus: var(--color-accent);
+  --sf-bg: var(--color-console);
+  --sf-surface: var(--color-console-2);
+  --sf-fg: var(--color-console-fg);
+  --sf-muted: var(--color-console-muted);
+  --sf-faint: var(--color-console-line);
+  --sf-accent: var(--color-signal);
+  --sf-border: var(--color-console-line);
+  --sf-ok: var(--color-state-done);
+  --sf-fail: var(--color-state-failed);
+  --sf-warn: var(--color-state-interrupted);
+  --sf-focus: var(--color-signal);
   --sf-font: var(--font-mono);
-  --sf-radius: 0.5rem; /* placeholder: orchestrator sets */
+  --sf-font-size: 0.8125rem;
+  --sf-radius: var(--radius-frame);
 
-  --sf-consent-background: var(--color-surface);
-  --sf-consent-foreground: var(--color-foreground);
-  --sf-consent-muted: var(--color-muted);
-  --sf-consent-border: var(--color-border);
-  --sf-consent-accent: var(--color-accent);
-  --sf-consent-accent-foreground: var(--color-background);
+  --sf-consent-background: var(--color-card);
+  --sf-consent-foreground: var(--color-ink);
+  --sf-consent-muted: var(--color-ink-3);
+  --sf-consent-border: var(--color-line-strong);
+  --sf-consent-accent: var(--color-signal);
+  --sf-consent-accent-foreground: var(--color-signal-ink);
   --sf-consent-font: var(--font-sans);
 }

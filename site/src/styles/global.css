@@ -1,6 +1,10 @@
 @layer theme, base, sf, components, utilities;
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
+@import "@fontsource-variable/archivo/wdth.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+@import "@fontsource/ibm-plex-mono/600.css";
 @import "@steamfield/ui/agent-demo/styles.css";
 @import "@steamfield/ui/window/styles.css";
 @import "@steamfield/ui/copy/styles.css";
@@ -10,16 +14,184 @@
 @import "@steamfield/ui/consent/styles.css";
 @import "./sf-theme.css";
 
+/* Every value here is documented in DESIGN.md; add it there first. */
 @theme {
-  --font-sans: system-ui, sans-serif;
+  --font-sans: "Archivo Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Archivo Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --color-page: #f1f2ee;
+  --color-band: #e8eae4;
+  --color-card: #fafaf8;
+  --color-ink: #111311;
+  --color-ink-2: #3b4039;
+  --color-ink-3: #5b6258;
+  --color-line: #d2d6cc;
+  --color-line-strong: #a7aea1;
+  --color-signal: #ff5b14;
+  --color-signal-ink: #111311;
+  --color-signal-text: #a93a06;
+  --color-console: #121412;
+  --color-console-2: #1b1e1a;
+  --color-console-line: #2d322b;
+  --color-console-fg: #e4e8e0;
+  --color-console-muted: #9aa294;
+
+  --color-state-running: #6fa8ff;
+  --color-state-running-ink: #1f57b8;
+  --color-state-done: #5cc98a;
+  --color-state-done-ink: #1f7a46;
+  --color-state-failed: #ff7a70;
+  --color-state-failed-ink: #b42d24;
+  --color-state-interrupted: #e2c04f;
+  --color-state-interrupted-ink: #7d6206;
+
+  --radius-chip: 2px;
+  --radius-control: 4px;
+  --radius-frame: 6px;
+
+  --shadow-console: 0 12px 32px -16px rgb(17 19 17 / 0.35);
 }
 
 @layer base {
+  html {
+    background: var(--color-page);
+    color: var(--color-ink);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
   body {
-    background: var(--color-background);
-    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    font-size: 1.0625rem;
+    line-height: 1.6;
   }
   a {
-    @apply underline-offset-4 hover:underline;
+    color: var(--color-signal-text);
+    text-decoration-line: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+  }
+  a:hover {
+    text-decoration-thickness: 2px;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-signal);
+    outline-offset: 2px;
+  }
+  code {
+    font-family: var(--font-mono);
+    font-size: 0.875em;
+  }
+  :not(pre) > code:not([data-part]) {
+    background: color-mix(in srgb, var(--color-ink) 6%, transparent);
+    border-radius: var(--radius-chip);
+    padding: 0.08em 0.3em;
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--color-signal) 35%, transparent);
+  }
+}
+
+@utility font-display {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-stretch: 112%;
+  letter-spacing: -0.02em;
+}
+
+@layer components {
+  .hero-title {
+    font-size: clamp(2.5rem, 5.4vw, 4rem);
+    line-height: 1.02;
+    text-wrap: balance;
+  }
+
+  .btn {
+    display: inline-flex;
+    height: 2.75rem;
+    align-items: center;
+    border-radius: var(--radius-control);
+    padding-inline: 1.25rem;
+    font-weight: 500;
+    text-decoration: none;
+    transition:
+      background-color 150ms ease-out,
+      border-color 150ms ease-out;
+  }
+  .btn-primary {
+    background: var(--color-signal);
+    color: var(--color-signal-ink);
+  }
+  .btn-primary:hover {
+    background: color-mix(in srgb, var(--color-signal) 88%, var(--color-ink));
+  }
+  .btn-secondary {
+    border: 1px solid var(--color-line-strong);
+    color: var(--color-ink);
+  }
+  .btn-secondary:hover {
+    border-color: var(--color-ink);
+  }
+
+  /* A copyable command on paper, drawn as a strip of console. */
+  .copy-line [data-part="copy-command"] {
+    display: flex;
+    height: 2.75rem;
+    align-items: center;
+    gap: 0.5rem;
+    border-radius: var(--radius-control);
+    background: var(--color-console);
+    padding-inline: 0.875rem 0.375rem;
+    color: var(--color-console-fg);
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+  }
+  .copy-line [data-part="prompt"] {
+    color: var(--color-console-muted);
+  }
+  .copy-line [data-part="command"] {
+    flex: 1;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+
+  /* State squares for StateBadge and anything that marks a run state. */
+  .state-square {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    flex: none;
+    background: var(--color-ink-3);
+  }
+  .state-running {
+    background: var(--color-state-running);
+  }
+  .state-waiting {
+    background: var(--color-signal);
+  }
+  .state-done {
+    background: var(--color-state-done);
+  }
+  .state-failed {
+    background: var(--color-state-failed);
+  }
+  .state-interrupted {
+    background: var(--color-state-interrupted);
+  }
+  .state-starting,
+  .state-lost {
+    background: var(--color-console-muted);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    html:not([data-sf-motion="reduce"]) .state-waiting {
+      animation: state-pulse 1.6s ease-in-out infinite;
+    }
+  }
+}
+
+@keyframes state-pulse {
+  50% {
+    opacity: 0.35;
   }
 }

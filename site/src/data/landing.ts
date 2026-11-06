@@ -1,0 +1,156 @@
+// All landing page copy and reference tables. Facts come from the repository's
+// README.md; tests/drift.test.ts checks the commands and exit codes against it.
+
+export const hero = {
+  title: "Let Claude Code hand work to Codex and supervise it while it runs.",
+  lede: "forman starts a Codex agent in its own git worktree, tells Claude when it finishes or asks a question, and lets Claude answer, steer or interrupt it mid-turn. It drives the Codex CLI with your ChatGPT login, so there is no API key to manage.",
+  consoleCaption:
+    "A real run, replayed at high speed: forman's fix-supervisor delegate from forman's own release, including the question Codex asked and Claude's answer. Codex's events and forman's output are recorded; Claude's side of the conversation is written for this page.",
+};
+
+export const why = {
+  title: "Claude holds the other terminal",
+  lede: "Running Codex beside Claude Code by hand makes you the go-between. forman gives that job to Claude, which already wrote the plan and will review the result.",
+  before: {
+    title: "Two agents, you in the middle",
+    items: [
+      "You paste Claude's spec into a Codex session and watch it work.",
+      "Codex asks a question while you're at lunch, and the turn sits there.",
+      "Its changes land in your checkout, mixed with whatever Claude is doing.",
+      "You paste the result back into Claude and ask it to review.",
+    ],
+  },
+  after: {
+    title: "Claude delegates and supervises",
+    items: [
+      "Claude writes a contract and starts Codex in a fresh worktree with one command.",
+      "forman holds Codex's question and wakes Claude, which answers and the turn continues.",
+      "Each delegate works on its own branch; nothing touches your checkout.",
+      "Claude reads the hand-off and the diff, refactors, runs your checks and commits.",
+    ],
+  },
+};
+
+export const lifecycle = {
+  title: "How a delegation runs",
+  lede: "Every run moves through the same states. Claude waits on a run in the background and acts only when forman reports something that needs it.",
+};
+
+export const handoff = {
+  title: "The contract and the digest",
+  lede: "Claude hands Codex a written contract: the goal, the files it may change, the checks to run and the report to end with. When the turn ends, forman's digest lists every file Codex wrote and flags the ones outside the contract's scope.",
+};
+
+export const questions = {
+  title: "When Codex needs a decision",
+  lede: "Codex asks through a tool call that forman holds open. Claude's background wait returns with the question, Claude answers, and the held call resumes with the answer. These two questions are from the fix-supervisor run, word for word.",
+};
+
+export const parallel = {
+  title: "Several delegates at once",
+  lede: "Each run gets its own worktree and branch, so independent tasks run side by side. One `forman wait --all` watches every run in the repository and returns when any of them needs Claude.",
+  caption:
+    "The four delegates that fixed forman's release blockers, started from the same commit within seconds of each other. Each owned a different set of files.",
+};
+
+export const commands = {
+  title: "What Claude types",
+  lede: "Every command takes `--json` for one machine-readable result. The output below is recorded from real runs.",
+};
+
+export const guardrails = {
+  title: "What keeps it contained",
+  rows: [
+    [
+      "Read-only by default",
+      "Codex can't write files unless the run is started with `--write`.",
+    ],
+    [
+      "One worktree per run",
+      "`--new-worktree` creates `.claude/worktrees/<name>` on branch `forman/<name>`; your checkout is untouched.",
+    ],
+    [
+      "Repo hooks must be trusted",
+      "If the repo has `.codex/hooks.json`, start refuses until those hooks are trusted in Codex. forman never approves hooks itself.",
+    ],
+    [
+      "No commits, no merges",
+      "Changes stay uncommitted in the worktree until Claude reviews them. forman never commits or merges.",
+    ],
+    [
+      "Archive keeps unmerged work",
+      "`forman archive` removes a worktree only when it holds no uncommitted files and its branch is merged or unchanged.",
+    ],
+    [
+      "Your ChatGPT login, no API keys",
+      "forman uses the Codex CLI's login and never passes API key variables from your environment to Codex.",
+    ],
+    [
+      "Budgets and timeouts",
+      "A turn stops after its budget (one hour by default). An unanswered question times out after 15 minutes and Codex is told to proceed and say so.",
+    ],
+    [
+      "Private state",
+      "Run records live under `~/.forman`, which the daemon restricts to your user (mode 0700).",
+    ],
+  ] as const,
+};
+
+export const agentFacing = {
+  title: "Built for an agent to drive",
+  lede: "Claude runs forman through its shell tool. Every result ends with a `next:` line that says exactly what to run next, with a cursor so the same event is never reported twice.",
+};
+
+/** README "Wait outcomes and exit codes". */
+export const exitCodes = [
+  [
+    "0",
+    "Success, including all wait outcomes and doctor with unavailable probes",
+  ],
+  ["1", "Internal error"],
+  ["2", "Invalid command or arguments"],
+  ["3", "Invalid configuration"],
+  ["4", "Daemon unavailable"],
+  ["5", "Codex unavailable"],
+  ["6", "Permission denied"],
+  ["7", "Run or question not found"],
+  ["8", "Run state conflict"],
+  ["9", "Invalid worktree or missing dependencies"],
+  ["10", "Repo hook trust not confirmed"],
+  ["130", "Interrupted CLI invocation"],
+] as const;
+
+/** README "Wait outcomes and exit codes". */
+export const waitOutcomes = [
+  [
+    "events",
+    "A run needs attention: question, done, failed, interrupted or lost; each includes a digest",
+  ],
+  [
+    "timeout",
+    "Nothing needed attention within the timeout; run the printed next command",
+  ],
+  ["none", "`--all` has no active runs or unseen attention in this repo"],
+] as const;
+
+export const install = {
+  title: "Install",
+  options: [
+    { id: "npm", label: "npm", command: "npm i -g @steamfield/forman" },
+    { id: "bun", label: "bun", command: "bun add -g @steamfield/forman" },
+    { id: "npx", label: "npx", command: "npx @steamfield/forman doctor" },
+  ],
+  requirements: [
+    "macOS or Linux, on arm64 or x64",
+    "git, and Node 26 or newer for the npm launcher",
+    "Codex CLI 0.166.0, signed in with `codex login`",
+    "A git repository with at least one commit",
+  ],
+  setup: {
+    title: "Once per repository",
+    lede: "In the main checkout, open Codex and trust the project. If the repo has `.codex/hooks.json`, run `/hooks` in Codex and approve them. Then check:",
+    steps: ["cd /path/to/repo", "codex", "forman doctor"],
+  },
+  first:
+    'forman start fix-doctor --new-worktree --setup "bun install" --contract contract.md --write --wait',
+};
