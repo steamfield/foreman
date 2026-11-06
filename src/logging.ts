@@ -1,21 +1,43 @@
-import { Context, Effect, FileSystem, Layer, Logger, Path, References, Semaphore } from "effect";
+import {
+  Cause,
+  Context,
+  Effect,
+  FileSystem,
+  Layer,
+  Logger,
+  Path,
+  PlatformError,
+  Predicate,
+  References,
+  Semaphore,
+} from "effect";
 import type { LogSettings } from "./config";
 import { Output } from "./services/output";
 
 // Shared by the daemon logger and app-server stderr; serialized independently per file.
-export const makeLogAppender = Effect.fnUntraced(function* (file: string) {
+export const makeLogAppender = Effect.fnUntraced(function* (file: string, formatVersion?: 1) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const lock = yield* Semaphore.make(1);
   return (text: string) =>
     lock.withPermits(1)(
       Effect.gen(function* () {
+        const bytes = new TextEncoder().encode(text).length;
+        const bounded =
+          bytes > 5_000_000
+            ? `${JSON.stringify({ msg: "log.record.omitted", bytes, ...(formatVersion === undefined ? {} : { formatVersion }) })}\n`
+            : text;
         yield* fs.makeDirectory(path.dirname(file), { recursive: true });
         const info = yield* fs
           .stat(file)
           .pipe(Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(null)));
-        if (info !== null && info.size > 5_000_000n) yield* fs.rename(file, `${file}.1`);
-        yield* fs.writeFileString(file, text, { flag: "a" });
+        if (
+          info !== null &&
+          info.size > 0n &&
+          info.size + BigInt(new TextEncoder().encode(bounded).length) > 5_000_000n
+        )
+          yield* fs.rename(file, `${file}.1`);
+        yield* fs.writeFileString(file, bounded, { flag: "a", mode: 0o600 });
       }),
     );
 });
@@ -34,6 +56,22 @@ export function defectTrace(value: unknown): string {
   return [value.constructor.name, ...frames.map((line) => line.trim())].join("\n");
 }
 
+export function causeFields(cause: Cause.Cause<unknown>) {
+  const error = cause.reasons.find(Cause.isFailReason)?.error;
+  const platform = PlatformError.isPlatformError(error) ? error.reason : undefined;
+  let reasonTag = "Unknown";
+  if (Cause.hasDies(cause)) reasonTag = "Defect";
+  else if (Predicate.hasProperty(error, "_tag") && typeof error._tag === "string")
+    reasonTag = error._tag;
+  return {
+    reasonTag,
+    reason: platform?._tag ?? null,
+    method: platform?.method ?? null,
+    path: platform && "pathOrDescriptor" in platform ? (platform.pathOrDescriptor ?? null) : null,
+    ...(Cause.hasDies(cause) ? { trace: defectTrace(Cause.squash(cause)) } : {}),
+  };
+}
+
 const reserved = new Set([
   "time",
   "level",
@@ -50,6 +88,46 @@ const scalar = (value: unknown) =>
   typeof value === "boolean"
     ? value
     : "[redacted]";
+const secretKey = /secret|password|token|authorization|cookie|api[_-]?key|access[_-]?key/i;
+
+export function redactDiagnosticText(text: string): string {
+  return text
+    .replace(
+      /-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?-----END [^-]*PRIVATE KEY-----/g,
+      "[redacted]",
+    )
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi, "Bearer [redacted]")
+    .replace(
+      /\b(?:sk-[A-Za-z0-9_-]+|gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+)\b/g,
+      "[redacted]",
+    )
+    .replace(
+      /(?<![\w.-])(["']?)([A-Za-z_][\w.-]*)\1(\s*[:=]\s*)("[^"\n]*"|'[^'\n]*'|[^\s,;}]+)/g,
+      (match, keyQuote: string, key: string, separator: string, value: string) => {
+        if (!secretKey.test(key)) return match;
+        const quote = value[0];
+        const replacement =
+          quote === '"' || quote === "'" ? `${quote}[redacted]${quote}` : "[redacted]";
+        return `${keyQuote}${key}${keyQuote}${separator}${replacement}`;
+      },
+    )
+    .replace(/(?<![A-Za-z0-9+/_-])[A-Za-z0-9+/_-]{32,}={0,2}(?![A-Za-z0-9+/_-])/g, (value) =>
+      /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value) ? value : "[redacted]",
+    );
+}
+
+export function redactDiagnostic(value: unknown): unknown {
+  if (typeof value === "string") return redactDiagnosticText(value);
+  if (Array.isArray(value)) return value.map(redactDiagnostic);
+  if (typeof value === "object" && value !== null)
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [
+        key,
+        secretKey.test(key) ? "[redacted]" : redactDiagnostic(item),
+      ]),
+    );
+  return value;
+}
 export function entry(input: {
   date: Date;
   level: string;
@@ -64,10 +142,9 @@ export function entry(input: {
     detail: values.slice(1).map((value) => String(scalar(value))),
   };
   for (const [key, value] of Object.entries(input.annotations ?? {}))
-    record[reserved.has(key) ? `annotation_${key}` : key] =
-      /secret|password|token|authorization|cookie|api[_-]?key|access[_-]?key/i.test(key)
-        ? "[redacted]"
-        : scalar(value);
+    record[reserved.has(key) ? `annotation_${key}` : key] = secretKey.test(key)
+      ? "[redacted]"
+      : scalar(value);
   return record;
 }
 
@@ -81,9 +158,9 @@ export class Logging extends Context.Service<
   static layer = Layer.effect(
     Logging,
     Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
       const output = yield* Output;
+      const context = yield* Effect.context<FileSystem.FileSystem | Path.Path>();
+      const appenders = new Map<string, Effect.Success<ReturnType<typeof makeLogAppender>>>();
       const records: LogEntry[] = [];
       let warned = false;
       const logger = Logger.make((input) => {
@@ -110,8 +187,12 @@ export class Logging extends Context.Service<
                 )
                 .pipe(Effect.ignoreCause);
               if (!settings.file) continue;
-              yield* fs.makeDirectory(path.dirname(settings.file), { recursive: true }).pipe(
-                Effect.andThen(fs.writeFileString(settings.file, `${json}\n`, { flag: "a" })),
+              let append = appenders.get(settings.file);
+              if (!append) {
+                append = yield* makeLogAppender(settings.file).pipe(Effect.provide(context));
+                appenders.set(settings.file, append);
+              }
+              yield* append(`${json}\n`).pipe(
                 Effect.catchCause(() =>
                   Effect.gen(function* () {
                     if (warned) return;

@@ -181,11 +181,11 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
                 return yield* turns.reserveFollowup(run);
               }),
             );
-            const accepted = yield* acceptedCursor(registry, run);
-            yield* turns
-              .followup(run, body, threadId)
-              .pipe(Effect.tapCause((cause) => registry.recover(run, cause)));
-            return { _tag: "Accepted" as const, ...accepted };
+            return yield* Effect.gen(function* () {
+              const accepted = yield* acceptedCursor(registry, run);
+              yield* turns.followup(run, body, threadId);
+              return { _tag: "Accepted" as const, ...accepted };
+            }).pipe(Effect.tapCause((cause) => registry.recover(run, cause)));
           }),
         );
       }
@@ -270,7 +270,7 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
           Effect.catchCause((cause) => rejectRequest(body, cause)),
           Effect.provide(context),
         );
-        if (body._tag === "Start" || body._tag === "Followup") {
+        if (body._tag === "Start" || body._tag === "Followup" || body._tag === "Answer") {
           const exit = yield* Fiber.join(yield* registry.fork(Effect.exit(work)));
           return Exit.isFailure(exit) ? yield* Effect.failCause(exit.cause) : exit.value;
         }

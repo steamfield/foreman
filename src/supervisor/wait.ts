@@ -25,17 +25,16 @@ const GroupPositions = Schema.TaggedStruct("GroupCursor", {
   positions: Positions,
 });
 const CursorJson = Schema.fromJsonString(Schema.Union([GroupPositions, Positions]));
-const encode = (positions: typeof Positions.Type, group?: string) =>
-  Schema.decodeUnknownSync(Cursor)(
-    btoa(
-      Schema.encodeSync(CursorJson)(
-        group === undefined ? positions : { _tag: "GroupCursor", group, positions },
-      ),
-    )
-      .replaceAll("+", "-")
-      .replaceAll("/", "_")
-      .replace(/=+$/, ""),
+const encode = (positions: typeof Positions.Type, group?: string) => {
+  const json = Schema.encodeSync(CursorJson)(
+    group === undefined ? positions : { _tag: "GroupCursor", group, positions },
   );
+  const bytes = new TextEncoder().encode(json);
+  const base64 = btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join(""));
+  return Schema.decodeUnknownSync(Cursor)(
+    `u1.${base64.replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")}`,
+  );
+};
 
 const identity = (run: Run) =>
   `${DateTime.formatIso(run.record.createdAt)}:${run.record.threadId ?? ""}`;
@@ -60,8 +59,17 @@ export const acceptedCursor = Effect.fnUntraced(function* (registry: Registry, r
 });
 const decodeCursor = Effect.fnUntraced(function* (cursor: Cursor | undefined) {
   if (cursor === undefined) return { positions: {} };
+  const unicode = cursor.startsWith("u1.");
+  const payload = unicode ? cursor.slice(3) : cursor;
   const text = yield* Effect.try({
-    try: () => atob(cursor.replaceAll("-", "+").replaceAll("_", "/")),
+    try: () => {
+      const binary = atob(payload.replaceAll("-", "+").replaceAll("_", "/"));
+      return unicode
+        ? new TextDecoder("utf-8", { fatal: true }).decode(
+            Uint8Array.from(binary, (char) => char.charCodeAt(0)),
+          )
+        : binary;
+    },
     catch: () => new Usage(),
   });
   const parsed = yield* Schema.decodeUnknownEffect(CursorJson)(text).pipe(
@@ -73,7 +81,7 @@ const decodeCursor = Effect.fnUntraced(function* (cursor: Cursor | undefined) {
 });
 
 export const groupFor = Effect.fn("supervisor.groupFor")(function* (cwd: string) {
-  return (yield* mainCheckout(cwd).pipe(Effect.orElseSucceed(() => null))) ?? "";
+  return (yield* mainCheckout(cwd)) ?? "";
 });
 
 const attention = Effect.fnUntraced(function* (registry: Registry, run: Run, after: number) {

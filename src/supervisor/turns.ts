@@ -91,6 +91,8 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
       },
       Codex.TurnStartResponse,
     );
+    // The turn exists remotely even if the following persistence operation fails.
+    run.record = { ...run.record, activeTurnId: response.turn.id };
     yield* registry.save(run, { activeTurnId: response.turn.id });
     yield* registry.state(run, "running");
     yield* armBudget(run, server);
@@ -129,10 +131,7 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
               return yield* Effect.fail(interrupted.failure);
             }
             // The completed notification starts the hand-off, after Codex has ended the old turn.
-            if (kind === "handoff") {
-              yield* registry.save(run, { activeTurnId: null });
-              yield* registry.state(run, "interrupted");
-            }
+            if (kind === "handoff") yield* registry.markUnknown(run);
           }),
         ),
       ),
@@ -161,6 +160,10 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
     const previous = registry.runs.get(body.name);
     yield* accepting;
     yield* available;
+    if (!previous && (yield* fs.exists(yield* Store.runDirectory(config.home, body.name))))
+      return yield* new RunConflict({
+        detail: `${body.name} has unreadable run data; preserve and inspect its run directory before reusing the name.`,
+      });
     if (body.newWorktree) created = yield* createWorktree(body.worktree, body.name, body.from);
     const prepare = Effect.gen(function* () {
       const worktree = created?.worktree ?? body.worktree;
@@ -194,10 +197,9 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
           yield* Store.archiveRun(config.home, body.name);
           registry.runs.delete(body.name);
           yield* Queue.end(previous.messages);
-        } else
-          yield* fs.remove(yield* Store.runDirectory(config.home, body.name), {
-            recursive: true,
-            force: true,
+        } else if (yield* fs.exists(yield* Store.runDirectory(config.home, body.name)))
+          return yield* new RunConflict({
+            detail: `${body.name} has unreadable run data; preserve and inspect its run directory before reusing the name.`,
           });
         const now = DateTime.makeUnsafe(yield* Clock.currentTimeMillis);
         const record: RunRecord = {
@@ -236,6 +238,7 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
         run.hooksRequired = yield* hasRepoHooks(run.record.group);
         const server = yield* servers.get;
         run.serverGeneration = server.generation;
+        run.retireServer = servers.retire(server);
         const opened = yield* server.connection.request(
           Codex.Method.threadStart,
           {
@@ -325,6 +328,7 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
   ) {
     const server = yield* servers.get;
     run.serverGeneration = server.generation;
+    run.retireServer = servers.retire(server);
     if (!server.loaded.has(threadId)) {
       const resumed = yield* server.connection.request(
         Codex.Method.threadResume,

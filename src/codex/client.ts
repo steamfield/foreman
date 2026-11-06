@@ -70,10 +70,12 @@ export const openConnection = Effect.fn("codex.openConnection")(function* (
   const pending = new Map<RpcId, Deferred.Deferred<unknown, CodexUnavailable | CodexRpcError>>();
   let nextId = 0;
   let closed: Cause.Cause<CodexUnavailable> | undefined;
+  const termination = yield* Deferred.make<Cause.Cause<CodexUnavailable>>();
 
   const stopRequests = Effect.fnUntraced(function* (cause: Cause.Cause<CodexUnavailable>) {
     if (closed) return;
     closed = cause;
+    yield* Deferred.succeed(termination, cause);
     for (const deferred of pending.values()) yield* Deferred.failCause(deferred, cause);
     pending.clear();
     yield* Queue.end(outgoing);
@@ -212,5 +214,6 @@ export const openConnection = Effect.fn("codex.openConnection")(function* (
     respondError: (id: RpcId, code: number, message: string) =>
       send({ jsonrpc: "2.0", id, error: { code, message } }),
     exitCode,
+    termination: Deferred.await(termination),
   };
 });
