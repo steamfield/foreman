@@ -2,6 +2,7 @@ import { Cause, Clock, Console, Effect, Exit, Logger, Random, References, Schema
 import { CliConfig, CliError, CliOutput, Command, GlobalFlag } from "effect/cli";
 import { cli } from "./cli";
 import { AppConfig } from "./config";
+import { normalizeDurationArgs } from "./core/command-input";
 import { BrokenPipe, errorTable, failure } from "./errors";
 import { defectTrace, Logging } from "./logging";
 import { Host } from "./services/host";
@@ -75,13 +76,14 @@ export const main = Effect.fn("main")(function* (
   const started = yield* Clock.currentTimeMillis;
   const runId = `${started}-${(yield* Random.next).toString(36).slice(2)}`;
   const invocation = Invocation.make();
+  const argv = normalizeDurationArgs(args);
   return yield* Effect.uninterruptibleMask((restore) =>
     Effect.gen(function* () {
       const exit = yield* Effect.exit(
         restore(
           (
             program ??
-            Command.runWith(cli(host.name), { version: host.version, renderErrors: false })(args)
+            Command.runWith(cli(host.name), { version: host.version, renderErrors: false })(argv)
           ).pipe(
             Effect.provide(invocation.layer),
             Effect.provideService(Console.Console, console),
@@ -97,6 +99,7 @@ export const main = Effect.fn("main")(function* (
         reason.error._tag === "ShowHelp" &&
         reason.error.errors.length === 0;
       let error = Exit.isFailure(exit) && !help ? failure(exit.cause) : undefined;
+      let errorCause = Exit.isFailure(exit) ? exit.cause : undefined;
       if (!error) {
         if (framework.length) {
           const text = framework
@@ -108,14 +111,17 @@ export const main = Effect.fn("main")(function* (
           );
         }
         const written = yield* Effect.exit(output.flush);
-        if (Exit.isFailure(written)) error = failure(written.cause);
+        if (Exit.isFailure(written)) {
+          error = failure(written.cause);
+          errorCause = written.cause;
+        }
       }
       if (error instanceof BrokenPipe) return 0;
       const status = error ? errorTable[error._tag].code : 0;
       if (error?._tag === "Defect")
         yield* Effect.logError("defect").pipe(
           Effect.annotateLogs({
-            trace: Exit.isFailure(exit) ? defectTrace(Cause.squash(exit.cause)) : "unknown",
+            trace: errorCause ? defectTrace(Cause.squash(errorCause)) : "unknown",
           }),
         );
       const level = error ? "Error" : "Debug";
@@ -133,7 +139,20 @@ export const main = Effect.fn("main")(function* (
       yield* logging.flush(settings);
       if (error) {
         const written = yield* Effect.exit(output.error(error));
-        if (Exit.isFailure(written) && failure(written.cause) instanceof BrokenPipe) return 0;
+        if (Exit.isFailure(written)) {
+          const writeError = failure(written.cause);
+          if (writeError instanceof BrokenPipe) return 0;
+          yield* Effect.logError(writeError._tag === "Defect" ? "defect" : "output.failed").pipe(
+            Effect.annotateLogs({
+              stream: "stderr",
+              errorTag: writeError._tag,
+              ...(writeError._tag === "Defect"
+                ? { trace: defectTrace(Cause.squash(written.cause)) }
+                : {}),
+            }),
+          );
+          yield* logging.flush(settings);
+        }
       }
       return status;
     }),

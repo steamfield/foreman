@@ -57,7 +57,7 @@ export const daemon = Effect.fn("daemon")(
     const socketPath = path.join(options.dataDir, "forman.sock");
     if (new TextEncoder().encode(socketPath).length > 104) {
       return yield* new DaemonUnavailable({
-        detail: `Socket path exceeds 104 bytes: ${socketPath}`,
+        detail: `Socket path exceeds 104 bytes: ${socketPath}. Set FORMAN_HOME to a shorter absolute path.`,
       });
     }
     yield* fs.makeDirectory(options.dataDir, { recursive: true, mode: 0o700 });

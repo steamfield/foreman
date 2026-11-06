@@ -1,4 +1,4 @@
-import { mkdirSync, renameSync } from "node:fs";
+import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { open as openFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,7 +26,7 @@ import { computeWorktreeFields } from "../src/core/runs/worktree";
 import { call } from "../src/daemon/client";
 import { daemon } from "../src/daemon/server";
 import { DaemonSockets } from "../src/daemon/sockets";
-import { RunConflict } from "../src/errors";
+import { ErrorEnvelope, RunConflict } from "../src/errors";
 import { entry, type LogEntry } from "../src/logging";
 import { jsonRequested, main } from "../src/main";
 import { AppLayer } from "../src/runtime";
@@ -41,6 +41,7 @@ import { makeRegistry } from "../src/supervisor/registry";
 import { makeTurns } from "../src/supervisor/turns";
 import { type Rule, Scenario, type Step } from "./fixtures/fake-app-server/scenario";
 import { repoHooks, successfulTurn } from "./fixtures/fake-app-server/scenarios";
+import { runCli } from "./helpers/cli";
 
 const fake = fileURLToPath(new URL("./fixtures/fake-app-server/main.mjs", import.meta.url));
 it("limits ask_orchestrator to blockers and consequential decisions, with progress in the hand-off", () => {
@@ -423,6 +424,847 @@ const queuedAnswersFixture = Effect.fnUntraced(function* () {
 });
 
 describe("supervisor over the real daemon socket", () => {
+  it.live("review audit: retained managed work never hides a defect", () =>
+    Effect.gen(function* () {
+      const f = yield* preflightFixture();
+      const file = `${f.repo}/.claude/worktrees/unit/retained.txt`;
+      Object.defineProperty(f.body, "budgetMs", {
+        get() {
+          writeFileSync(file, "work");
+          throw new TypeError("PRIVATE_DEFECT");
+        },
+      });
+      const result = yield* Effect.promise(() =>
+        runCli(["--json"], {
+          env: { ...f.env, LOG_LEVEL: "debug" },
+          program: f.turns.start(f.body, Effect.void).pipe(Effect.asVoid),
+        }),
+      );
+      expect(result.status).toBe(1);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("TypeError\\nat ");
+      expect(result.stderr).not.toContain("PRIVATE_DEFECT");
+      expect(yield* f.fs.readFileString(file)).toBe("work");
+    }).pipe(Effect.provide(platform)),
+  );
+  it.live("review audit: failed protocol probes keep the executable, exit and action", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario(turnRule([complete()])));
+      yield* f.launch();
+      yield* f.start();
+      yield* f.untilState("idle");
+      const result = yield* Effect.promise(() =>
+        runCli(["status", "unit", "--json"], { env: { ...f.env, LOG_LEVEL: "none" } }),
+      );
+      expect(result.status).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(result.stdout).toContain(f.env.CODEX_BIN);
+      expect(result.stdout).toContain("schema generation exited with code 1");
+      expect(result.stdout).toContain("Install Codex 0.166.0");
+      expect(result.stdout).toContain("forman doctor");
+    }).pipe(Effect.provide(platform)),
+  );
+  it.live.each(["permission", "symlink", "reuse"] as const)(
+    "review audit: skipped %s metadata stays accurate",
+    (mode) =>
+      Effect.gen(function* () {
+        const f = yield* fixture(scenario(turnRule([complete()])));
+        yield* f.fs.makeDirectory(f.runDir, { recursive: true });
+        if (mode === "symlink") {
+          yield* f.fs.remove(f.runDir, { recursive: true });
+          yield* f.fs.symlink(`${f.root}/absent`, f.runDir);
+        } else {
+          yield* f.fs.writeFileString(`${f.runDir}/run.json`, "bad JSON");
+          if (mode === "permission") yield* f.fs.chmod(`${f.runDir}/run.json`, 0);
+        }
+        yield* f.launch();
+        if (mode === "reuse") {
+          yield* f.fs.remove(f.runDir, { recursive: true });
+          yield* f.start();
+          yield* f.untilState("idle");
+          const result = yield* Effect.promise(() =>
+            runCli(["status", "--json"], { env: { ...f.env, LOG_LEVEL: "none" } }),
+          );
+          expect(result.status).toBe(0);
+          expect(result.stderr).toBe("");
+          expect(JSON.parse(result.stdout).skipped).toBeUndefined();
+        } else {
+          const result = yield* Effect.promise(() =>
+            runCli(["status", "unit", "--json"], { env: { ...f.env, LOG_LEVEL: "none" } }),
+          );
+          expect(result.status).toBe(mode === "permission" ? 6 : 8);
+          expect(result.stdout).toBe("");
+          expect(result.stderr).toContain(f.runDir);
+          expect(result.stderr).toContain(mode === "permission" ? "permissions" : "inspect");
+          if (mode === "permission") yield* f.fs.chmod(`${f.runDir}/run.json`, 0o600);
+          yield* f.fs.remove(f.runDir, { recursive: mode !== "symlink" });
+          const removed = yield* Effect.promise(() =>
+            runCli(["status", "unit", "--json"], { env: { ...f.env, LOG_LEVEL: "none" } }),
+          );
+          expect(removed.status).toBe(7);
+          expect(removed.stdout).toBe("");
+        }
+      }).pipe(Effect.provide(platform)),
+  );
+  it.live("review audit: live turn failures are redacted in status, result and wait", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(
+        scenario(
+          turnRule([
+            notify(Codex.Method.turnCompleted, {
+              threadId: "{{thread}}",
+              turn: {
+                id: "{{turn}}",
+                status: "failed",
+                items: [],
+                error: { message: "token=PRIVATE_TURN_TOKEN", codexErrorInfo: null },
+              },
+            }),
+          ]),
+        ),
+      );
+      yield* f.launch();
+      yield* f.start();
+      yield* f.untilState("failed");
+      for (const args of [
+        ["status", "unit"],
+        ["result", "unit"],
+        ["wait", "unit", "--timeout", "0ms"],
+      ]) {
+        const result = yield* Effect.promise(() =>
+          runCli([...args, "--json"], { env: { ...f.env, LOG_LEVEL: "none" } }),
+        );
+        expect(result.status).toBe(0);
+        expect(result.stderr).toBe("");
+        expect(result.stdout).toContain("[redacted]");
+        expect(result.stdout).not.toContain("PRIVATE_TURN_TOKEN");
+      }
+    }).pipe(Effect.provide(platform)),
+  );
+  it.effect("review audit: hook query timeouts remain Codex failures", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario({ method: Codex.Method.hooksList, respond: "none" }));
+      yield* f.fs.makeDirectory(`${f.repo}/.codex`);
+      yield* f.fs.writeFileString(`${f.repo}/.codex/hooks.json`, "{}");
+      yield* f.launch();
+      const pending = yield* f.start().pipe(Effect.result, Effect.forkChild);
+      yield* f.awaitLog(Codex.Method.hooksList);
+      yield* TestClock.adjust("30 seconds");
+      const result = yield* Fiber.join(pending);
+      expect(result).toMatchObject({
+        _tag: "Failure",
+        failure: { _tag: "CodexUnavailable", detail: expect.stringContaining("hooks/list") },
+      });
+    }).pipe(Effect.provide(platform)),
+  );
+  it.live("review audit: app-server log failure is visible once with its path", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(
+        scenario(turnRule([{ stderr: "first" }, { stderr: "second" }, complete()])),
+      );
+      yield* f.fs.makeDirectory(`${f.dataDir}/logs/app-server.log`, { recursive: true });
+      yield* f.launch();
+      yield* f.start();
+      yield* f.untilState("idle");
+      const result = yield* Effect.promise(() =>
+        runCli(["status", "unit", "--json"], { env: { ...f.env, LOG_LEVEL: "none" } }),
+      );
+      expect(result.status).toBe(0);
+      expect(result.stderr).toBe("");
+      const warnings = JSON.parse(result.stdout).digests[0].warnings.filter((value: string) =>
+        value.includes("stderr log"),
+      );
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain(`${f.dataDir}/logs/app-server.log`);
+      expect(warnings[0]).toContain("permissions");
+    }).pipe(Effect.provide(platform)),
+  );
+  it.live("review audit: doctor retains inaccessible hook paths", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario());
+      const dir = `${f.repo}/.codex`;
+      yield* f.fs.makeDirectory(dir);
+      yield* f.fs.chmod(dir, 0);
+      yield* Effect.addFinalizer(() => f.fs.chmod(dir, 0o700).pipe(Effect.orDie));
+      yield* Effect.acquireUseRelease(
+        Effect.sync(() => {
+          const cwd = process.cwd();
+          process.chdir(f.repo);
+          return cwd;
+        }),
+        () =>
+          Effect.gen(function* () {
+            const result = yield* Effect.promise(() =>
+              runCli(["doctor", "--json"], { env: { ...f.env, LOG_LEVEL: "none" } }),
+            );
+            expect(result.status).toBe(0);
+            expect(result.stderr).toBe("");
+            expect(JSON.parse(result.stdout).repoHooks.detail).toContain(`${dir}/hooks.json`);
+            expect(JSON.parse(result.stdout).repoHooks.detail).toContain("permissions");
+          }),
+        (cwd) => Effect.sync(() => process.chdir(cwd)),
+      );
+    }).pipe(Effect.provide(platform)),
+  );
+  it.live.each(["missing", "overflow"] as const)(
+    "review audit: Git %s keeps its command and remedy",
+    (mode) =>
+      Effect.gen(function* () {
+        const f = yield* fixture(scenario());
+        yield* f.launch();
+        if (mode === "missing") yield* f.fs.symlink("/missing/git", `${f.root}/git`);
+        else
+          yield* f.fs.writeFileString(
+            `${f.root}/git`,
+            '#!/bin/sh\nif [ "$1" = "rev-parse" ] && [ "$2" = "--show-toplevel" ]; then printf "%01050000d" 0; exit 0; fi\nexec /usr/bin/git "$@"\n',
+            { mode: 0o755 },
+          );
+        const contract = `${f.root}/contract.md`;
+        yield* f.fs.writeFileString(contract, "work");
+        yield* Effect.acquireUseRelease(
+          Effect.sync(() => {
+            const previous = { cwd: process.cwd(), path: process.env.PATH };
+            process.chdir(f.repo);
+            process.env.PATH = f.root;
+            return previous;
+          }),
+          () =>
+            Effect.gen(function* () {
+              const result = yield* Effect.promise(() =>
+                runCli(["start", "unit", "--new-worktree", "--contract", contract, "--json"], {
+                  env: { ...f.env, LOG_LEVEL: "none" },
+                }),
+              );
+              expect(result.status).toBe(9);
+              expect(result.stdout).toBe("");
+              expect(result.stderr).toContain("git");
+              expect(result.stderr).toContain(mode === "missing" ? "Install" : "output exceeded");
+              expect(result.stderr).toContain(mode === "missing" ? "NotFound" : "reduce");
+            }),
+          (previous) =>
+            Effect.sync(() => {
+              process.chdir(previous.cwd);
+              if (previous.path === undefined) delete process.env.PATH;
+              else process.env.PATH = previous.path;
+            }),
+        );
+      }).pipe(Effect.provide(platform)),
+  );
+  it.live("review audit: dependency inspection permissions keep their path and category", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario());
+      yield* f.launch();
+      const blocked = `${f.root}/private`;
+      yield* f.fs.makeDirectory(`${blocked}/modules`, { recursive: true });
+      yield* f.fs.writeFileString(`${f.worktree}/package.json`, "{}");
+      yield* f.fs.symlink(`${blocked}/modules`, `${f.worktree}/node_modules`);
+      yield* f.fs.chmod(blocked, 0);
+      yield* Effect.addFinalizer(() => f.fs.chmod(blocked, 0o700).pipe(Effect.orDie));
+      const file = `${f.root}/contract.md`;
+      yield* f.fs.writeFileString(file, "work");
+      const result = yield* Effect.promise(() =>
+        runCli(["start", "unit", "--worktree", f.worktree, "--contract", file, "--json"], {
+          env: { ...f.env, LOG_LEVEL: "none" },
+        }),
+      );
+      expect(result.status).toBe(6);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain(`${f.worktree}/node_modules`);
+      expect(result.stderr).toContain("permissions");
+    }).pipe(Effect.provide(platform)),
+  );
+  it.live.each(["check-ignore", "show-ref", "merge-base"] as const)(
+    "diagnostics: Git %s probe failures retain the command, output and remedy",
+    (probe) =>
+      Effect.gen(function* () {
+        const f = yield* fixture(scenario(turnRule([complete()])));
+        yield* f.launch();
+        if (probe !== "check-ignore") {
+          yield* f.start({ worktree: f.repo, newWorktree: true });
+          yield* f.wait();
+          yield* f.git(`${f.repo}/.claude/worktrees/unit`, [
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "--allow-empty",
+            "-qm",
+            "work",
+          ]);
+        }
+        yield* f.fs.writeFileString(
+          `${f.root}/git`,
+          `#!/bin/sh\nif [ "$1" = "${probe}" ]; then printf PROBE_TAIL >&2; exit 42; fi\nexec /usr/bin/git "$@"\n`,
+          { mode: 0o755 },
+        );
+        const contract = `${f.root}/contract.md`;
+        yield* f.fs.writeFileString(contract, "work");
+        yield* Effect.acquireUseRelease(
+          Effect.sync(() => {
+            const previous = { cwd: process.cwd(), path: process.env.PATH };
+            process.chdir(f.repo);
+            process.env.PATH = `${f.root}:${previous.path ?? ""}`;
+            return previous;
+          }),
+          () =>
+            Effect.gen(function* () {
+              const args =
+                probe === "check-ignore"
+                  ? ["start", "unit", "--new-worktree", "--contract", contract]
+                  : ["archive", "unit"];
+              const result = yield* Effect.promise(() =>
+                runCli([...args, "--json"], { env: { ...f.env, LOG_LEVEL: "none" } }),
+              );
+              expect(result.status).toBe(9);
+              expect(result.stdout).toBe("");
+              expect(result.stderr).toContain(`git ${probe}`);
+              expect(result.stderr).toContain("exited 42");
+              expect(result.stderr).toContain("PROBE_TAIL");
+              expect(result.stderr).toContain("inspect the Git output");
+            }),
+          (previous) =>
+            Effect.sync(() => {
+              process.chdir(previous.cwd);
+              if (previous.path === undefined) delete process.env.PATH;
+              else process.env.PATH = previous.path;
+            }),
+        );
+      }).pipe(Effect.provide(platform)),
+  );
+  it.live("diagnostics: an unresolvable run entry does not hide the rest of the group", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario());
+      yield* f.fs.makeDirectory(`${f.dataDir}/runs`, { recursive: true });
+      const broken = `${f.dataDir}/runs/broken`;
+      yield* f.fs.symlink(`${f.root}/missing`, broken);
+      yield* f.launch();
+      const result = yield* Effect.promise(() =>
+        runCli(["status", "--json"], { env: { ...f.env, LOG_LEVEL: "none" } }),
+      );
+      expect(result.status).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        skipped: [
+          {
+            path: broken,
+            reason: expect.stringContaining("NotFound"),
+            action: expect.stringContaining("inspect"),
+          },
+        ],
+      });
+    }).pipe(Effect.provide(platform)),
+  );
+  it.effect("diagnostics: a cancelled start identifies the run and retry action", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario({ method: Codex.Method.hooksList, respond: "none" }));
+      yield* f.fs.makeDirectory(`${f.repo}/.codex`, { recursive: true });
+      yield* f.fs.writeFileString(`${f.repo}/.codex/hooks.json`, "{}");
+      yield* f.launch();
+      const contract = `${f.root}/contract.md`;
+      yield* f.fs.writeFileString(contract, "work");
+      const pending = yield* Effect.promise(() =>
+        runCli(["start", "unit", "--worktree", f.worktree, "--contract", contract, "--json"], {
+          env: { ...f.env, LOG_LEVEL: "none" },
+        }),
+      ).pipe(Effect.forkChild);
+      yield* f.awaitLog(Codex.Method.hooksList);
+      const interrupt = yield* Effect.promise(() =>
+        runCli(["interrupt", "unit", "--json"], { env: { ...f.env, LOG_LEVEL: "none" } }),
+      );
+      expect(interrupt.status).toBe(0);
+      const result = yield* Fiber.join(pending);
+      expect(result.status).toBe(8);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("unit");
+      expect(result.stderr).toContain("retry the start");
+    }).pipe(Effect.provide(platform)),
+  );
+  it.live("diagnostics: managed Git failure retains only its useful output tail", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario());
+      yield* f.fs.writeFileString(
+        `${f.repo}/.git/hooks/post-checkout`,
+        "#!/bin/sh\nprintf START_MARKER >&2\nprintf '%05000d' 0 >&2\nprintf TAIL_MARKER >&2\nprintf 'HOOK_STDOUT token=LOCAL_TOOL_MESSAGE'\nexit 1\n",
+        { mode: 0o755 },
+      );
+      yield* f.launch();
+      const contract = `${f.root}/contract.md`;
+      yield* f.fs.writeFileString(contract, "work");
+      yield* Effect.acquireUseRelease(
+        Effect.sync(() => {
+          const previous = process.cwd();
+          process.chdir(f.repo);
+          return previous;
+        }),
+        () =>
+          Effect.gen(function* () {
+            const result = yield* Effect.promise(() =>
+              runCli(["start", "unit", "--new-worktree", "--contract", contract, "--json"], {
+                env: { ...f.env, LOG_LEVEL: "none" },
+              }),
+            );
+            expect(result.status).toBe(9);
+            expect(result.stdout).toBe("");
+            expect(result.stderr).toContain("git worktree add");
+            expect(result.stderr).not.toContain("success(");
+            expect(result.stderr).toContain(f.repo);
+            expect(result.stderr).toContain("exited");
+            expect(result.stderr).toContain("TAIL_MARKER");
+            expect(result.stderr).toContain("HOOK_STDOUT token=LOCAL_TOOL_MESSAGE");
+            expect(result.stderr).not.toContain("START_MARKER");
+            expect(result.stderr).toContain("inspect the Git output");
+          }),
+        (previous) => Effect.sync(() => process.chdir(previous)),
+      );
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("diagnostics: excessive Git output names the command and remedy", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario());
+      yield* f.fs.writeFileString(
+        `${f.repo}/.git/hooks/post-checkout`,
+        "#!/bin/sh\nprintf '%01050000d' 0 >&2\nprintf 'HOOK_TAIL'\nexit 1\n",
+        { mode: 0o755 },
+      );
+      yield* f.launch();
+      const contract = `${f.root}/contract.md`;
+      yield* f.fs.writeFileString(contract, "work");
+      yield* Effect.acquireUseRelease(
+        Effect.sync(() => {
+          const previous = process.cwd();
+          process.chdir(f.repo);
+          return previous;
+        }),
+        () =>
+          Effect.gen(function* () {
+            const result = yield* Effect.promise(() =>
+              runCli(["start", "unit", "--new-worktree", "--contract", contract, "--json"], {
+                env: { ...f.env, LOG_LEVEL: "none" },
+              }),
+            );
+            expect(result.status).toBe(9);
+            expect(result.stdout).toBe("");
+            expect(result.stderr).toContain("git worktree add");
+            expect(result.stderr).not.toContain("success(");
+            expect(result.stderr).toContain(f.repo);
+            expect(result.stderr).toContain("reduce");
+            expect(result.stderr).toContain("exited 1");
+            expect(result.stderr).toContain("HOOK_TAIL");
+          }),
+        (previous) => Effect.sync(() => process.chdir(previous)),
+      );
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live.each([
+    { kind: "exit", setup: "printf setup-output >&2; exit 23", extra: [] },
+    { kind: "timeout", setup: "exec sleep 10", extra: ["--budget", "1s"] },
+  ])("diagnostics: setup $kind gives a safe next step", ({ setup, extra }) =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario());
+      yield* f.launch();
+      const contract = `${f.root}/contract.md`;
+      yield* f.fs.writeFileString(contract, "work");
+      yield* Effect.acquireUseRelease(
+        Effect.sync(() => {
+          const previous = process.cwd();
+          process.chdir(f.repo);
+          return previous;
+        }),
+        () =>
+          Effect.gen(function* () {
+            const result = yield* Effect.promise(() =>
+              runCli(
+                [
+                  "start",
+                  "unit",
+                  "--new-worktree",
+                  "--contract",
+                  contract,
+                  "--setup",
+                  setup,
+                  ...extra,
+                  "--json",
+                ],
+                {
+                  env: { ...f.env, LOG_LEVEL: "none" },
+                },
+              ),
+            );
+            expect(result.status).toBe(9);
+            expect(result.stdout).toBe("");
+            expect(result.stderr).toContain(setup);
+            expect(result.stderr).toContain(`${f.repo}/.claude/worktrees/unit`);
+            expect(result.stderr).toContain("inspect");
+            expect(result.stderr).toContain("new run name");
+          }),
+        (previous) => Effect.sync(() => process.chdir(previous)),
+      );
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("diagnostics: worktree inspection names the failed Git command", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario(turnRule([complete()])));
+      yield* f.launch();
+      yield* f.start();
+      yield* f.untilState("idle");
+      yield* f.fs.writeFileString(`${f.worktree}/.git`, "invalid gitfile\n");
+      const result = yield* Effect.promise(() =>
+        runCli(["status", "unit", "--json"], { env: { ...f.env, LOG_LEVEL: "none" } }),
+      );
+      expect(result.status).toBe(9);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("git --no-optional-locks status");
+      expect(result.stderr).toContain(f.worktree);
+      expect(result.stderr).toContain("exited");
+      expect(result.stderr).toContain("fatal");
+      expect(result.stderr).toContain("inspect the Git output");
+    }).pipe(Effect.provide(platform)),
+  );
+  it.live("diagnostics: managed starts outside Git explain where to run them", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario());
+      yield* f.launch();
+      const contract = `${f.root}/contract.md`;
+      yield* f.fs.writeFileString(contract, "work");
+      yield* Effect.acquireUseRelease(
+        Effect.sync(() => {
+          const previous = process.cwd();
+          process.chdir(f.root);
+          return previous;
+        }),
+        () =>
+          Effect.gen(function* () {
+            const result = yield* Effect.promise(() =>
+              runCli(["start", "unit", "--new-worktree", "--contract", contract, "--json"], {
+                env: { ...f.env, LOG_LEVEL: "none" },
+              }),
+            );
+            expect(result.status).toBe(9);
+            expect(result.stdout).toBe("");
+            expect(result.stderr).toContain(f.root);
+            expect(result.stderr).toContain("Run the command from a Git checkout");
+          }),
+        (previous) => Effect.sync(() => process.chdir(previous)),
+      );
+    }).pipe(Effect.provide(platform)),
+  );
+  it.live.each(["failed", "malformed"] as const)(
+    "diagnostics: %s Git checkout discovery names the command",
+    (mode) =>
+      Effect.gen(function* () {
+        const f = yield* fixture(scenario());
+        yield* f.launch();
+        yield* f.fs.writeFileString(
+          `${f.root}/git`,
+          mode === "failed"
+            ? "#!/bin/sh\nprintf 'DISCOVERY_TAIL' >&2\nexit 42\n"
+            : "#!/bin/sh\nprintf 'unexpected output\\n'\n",
+          { mode: 0o755 },
+        );
+        yield* Effect.acquireUseRelease(
+          Effect.sync(() => {
+            const previous = process.env.PATH;
+            process.env.PATH = `${f.root}:${previous ?? ""}`;
+            return previous;
+          }),
+          () =>
+            Effect.gen(function* () {
+              const result = yield* Effect.promise(() =>
+                runCli(["status", "--json"], { env: { ...f.env, LOG_LEVEL: "none" } }),
+              );
+              expect(result.status).toBe(9);
+              expect(result.stdout).toBe("");
+              expect(result.stderr).toContain("git worktree list");
+              expect(result.stderr).toContain("permissions");
+              if (mode === "failed") expect(result.stderr).toContain("DISCOVERY_TAIL");
+              expect(JSON.parse(result.stderr).error.message).toBe(
+                "The Git checkout or worktree could not be used.",
+              );
+            }),
+          (previous) =>
+            Effect.sync(() => {
+              if (previous === undefined) delete process.env.PATH;
+              else process.env.PATH = previous;
+            }),
+        );
+      }).pipe(Effect.provide(platform)),
+  );
+  it.effect("diagnostics: worktree conflicts do not suggest interrupting an unconfirmed turn", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario({ method: Codex.Method.turnStart, respond: "none" }));
+      yield* f.launch();
+      yield* f.start().pipe(Effect.result, Effect.forkChild);
+      yield* f.awaitLog(Codex.Method.turnStart);
+      const contract = `${f.root}/contract.md`;
+      yield* f.fs.writeFileString(contract, "work");
+      const result = yield* Effect.promise(() =>
+        runCli(["start", "other", "--worktree", f.worktree, "--contract", contract, "--json"], {
+          env: { ...f.env, LOG_LEVEL: "none" },
+        }),
+      );
+      expect(result.status).toBe(8);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("unit");
+      expect(result.stderr).toContain("forman wait unit");
+      expect(result.stderr).not.toContain("interrupt");
+      yield* TestClock.adjust("30 seconds");
+      yield* f.untilState("unknown");
+      const followup = yield* Effect.promise(() =>
+        runCli(["followup", "unit", "continue", "--json"], {
+          env: { ...f.env, LOG_LEVEL: "none" },
+        }),
+      );
+      expect(followup.status).toBe(8);
+      expect(followup.stdout).toBe("");
+      expect(followup.stderr).toContain("forman wait unit");
+      expect(followup.stderr).not.toContain("interrupt");
+    }).pipe(Effect.provide(platform)),
+  );
+  it.effect(
+    "diagnostics: a reserved worktree does not suggest waiting on an unregistered run",
+    () =>
+      Effect.gen(function* () {
+        const f = yield* fixture(scenario({ method: Codex.Method.hooksList, respond: "none" }));
+        yield* f.fs.makeDirectory(`${f.repo}/.codex`, { recursive: true });
+        yield* f.fs.writeFileString(`${f.repo}/.codex/hooks.json`, "{}");
+        yield* f.launch();
+        yield* f.start().pipe(Effect.result, Effect.forkChild);
+        yield* f.awaitLog(Codex.Method.hooksList);
+        const contract = `${f.root}/contract.md`;
+        yield* f.fs.writeFileString(contract, "work");
+        const result = yield* Effect.promise(() =>
+          runCli(["start", "other", "--worktree", f.worktree, "--contract", contract, "--json"], {
+            env: { ...f.env, LOG_LEVEL: "none" },
+          }),
+        );
+        expect(result.status).toBe(8);
+        expect(result.stdout).toBe("");
+        expect(result.stderr).toContain("unit");
+        expect(result.stderr).toContain("wait for the start to finish");
+        expect(result.stderr).not.toContain("forman wait unit");
+        expect(result.stderr).not.toContain("interrupt");
+      }).pipe(Effect.provide(platform)),
+  );
+  it.live.each(["status", "wait"] as const)(
+    "reports skipped run directories in %s group results",
+    (command) =>
+      Effect.gen(function* () {
+        const f = yield* fixture(scenario());
+        yield* f.fs.makeDirectory(f.runDir, { recursive: true });
+        yield* f.fs.writeFileString(`${f.runDir}/run.json`, "secret=private invalid JSON");
+        yield* f.launch();
+        const args = command === "status" ? ["status"] : ["wait", "--all", "--timeout", "0ms"];
+        for (const json of [false, true]) {
+          const result = yield* Effect.promise(() =>
+            runCli([...args, ...(json ? ["--json"] : [])], {
+              env: { ...f.env, LOG_LEVEL: "none" },
+            }),
+          );
+          expect(result.status).toBe(0);
+          expect(result.stderr).toBe("");
+          expect(result.stdout).toContain(f.runDir);
+          expect(result.stdout).toContain("inspect");
+          expect(result.stdout).not.toContain("secret=private");
+          if (json) {
+            const decoded = Schema.decodeUnknownSync(D.DaemonResult)(JSON.parse(result.stdout));
+            expect(decoded).toMatchObject({
+              skipped: [
+                {
+                  path: f.runDir,
+                  reason: expect.stringContaining("SchemaError"),
+                  action: expect.stringContaining("inspect"),
+                },
+              ],
+            });
+          } else expect(result.stdout).toContain("skipped:");
+        }
+        yield* f.fs.remove(f.runDir, { recursive: true });
+        const after = yield* Effect.promise(() =>
+          runCli([...args, "--json"], { env: { ...f.env, LOG_LEVEL: "none" } }),
+        );
+        expect(after.status).toBe(0);
+        expect(after.stdout).not.toContain(f.runDir);
+      }).pipe(Effect.provide(platform)),
+  );
+  it.effect("diagnostics: a Codex timeout names the run, method and recovery", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture({ rules: [{ method: Codex.Method.threadStart, respond: "none" }] });
+      yield* f.launch();
+      const contract = `${f.root}/contract.md`;
+      yield* f.fs.writeFileString(contract, "work");
+      const pending = yield* Effect.promise(() =>
+        runCli(["start", "unit", "--worktree", f.worktree, "--contract", contract, "--json"], {
+          env: { ...f.env, LOG_LEVEL: "none" },
+        }),
+      ).pipe(Effect.forkChild);
+      yield* f.awaitLog(Codex.Method.threadStart);
+      yield* TestClock.adjust("180 seconds");
+      const result = yield* Fiber.join(pending);
+      expect(result.status).toBe(5);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("unit");
+      expect(result.stderr).toContain(Codex.Method.threadStart);
+      expect(result.stderr).toContain("180000");
+      expect(result.stderr).toContain("forman doctor");
+    }).pipe(Effect.provide(platform)),
+  );
+  it.live("diagnostics: inaccessible repo hook configuration names its path", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario());
+      const hookDir = `${f.repo}/.codex`;
+      yield* f.fs.makeDirectory(hookDir);
+      yield* f.fs.writeFileString(`${hookDir}/hooks.json`, "{}");
+      yield* f.fs.chmod(hookDir, 0);
+      yield* Effect.addFinalizer(() => f.fs.chmod(hookDir, 0o700).pipe(Effect.orDie));
+      yield* f.launch();
+      const contract = `${f.root}/contract.md`;
+      yield* f.fs.writeFileString(contract, "work");
+      const result = yield* Effect.promise(() =>
+        runCli(["start", "unit", "--worktree", f.worktree, "--contract", contract, "--json"], {
+          env: { ...f.env, LOG_LEVEL: "none" },
+        }),
+      );
+      expect(result.status).toBe(6);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain(`${hookDir}/hooks.json`);
+      expect(result.stderr).toContain("permissions");
+    }).pipe(Effect.provide(platform)),
+  );
+  it.live("diagnostics: daemon shutdown identifies active runs and how to stop them", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario(turnRule()));
+      yield* f.launch();
+      yield* f.start();
+      const result = yield* Effect.promise(() =>
+        runCli(["daemon", "stop", "--json"], { env: { ...f.env, LOG_LEVEL: "none" } }),
+      );
+      expect(result.status).toBe(8);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("unit");
+      expect(result.stderr).toContain("Wait");
+      expect(result.stderr).toContain("interrupt");
+    }).pipe(Effect.provide(platform)),
+  );
+  it.live("diagnostics: worktree preflight names each failed rule and its remedy", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario());
+      yield* f.fs.makeDirectory(`${f.worktree}/nested`);
+      yield* f.fs.writeFileString(`${f.worktree}/package.json`, "{}");
+      const outside = `${f.root}/outside`;
+      yield* f.git(f.repo, ["worktree", "add", "-qb", "outside", outside]);
+      const contract = `${f.root}/contract.md`;
+      yield* f.fs.writeFileString(contract, "work");
+      yield* f.launch();
+      for (const [worktree, remedy] of [
+        [f.root, "Choose an accessible Git worktree root"],
+        [`${f.worktree}/nested`, "Choose an accessible Git worktree root"],
+        [f.repo, "Choose a linked worktree"],
+        [outside, "Choose a linked worktree inside the main checkout"],
+        [f.worktree, "install dependencies"],
+      ] as const) {
+        const result = yield* Effect.promise(() =>
+          runCli(["start", "unit", "--worktree", worktree, "--contract", contract, "--json"], {
+            env: { ...f.env, LOG_LEVEL: "none" },
+          }),
+        );
+        expect.soft(result.status).toBe(9);
+        expect.soft(result.stdout).toBe("");
+        expect.soft(result.stderr).toContain(worktree);
+        expect.soft(result.stderr).toContain(remedy);
+        if (worktree === f.root) expect(result.stderr).toContain("fatal: not a git repository");
+      }
+    }).pipe(Effect.provide(platform)),
+  );
+  it.live("diagnostics: wait without a target explains the available targets", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario());
+      yield* f.launch();
+      const result = yield* Effect.promise(() =>
+        runCli(["wait", "--json"], { env: { ...f.env, LOG_LEVEL: "none" } }),
+      );
+      expect(result.status).toBe(2);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("run name");
+      expect(result.stderr).toContain("--all");
+    }).pipe(Effect.provide(platform)),
+  );
+  it.live("diagnostics: an invalid wait cursor identifies --after and how to resume", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario());
+      yield* f.launch();
+      for (const json of [false, true]) {
+        const result = yield* Effect.promise(() =>
+          runCli(["wait", "unit", "--after", "not-a-cursor", ...(json ? ["--json"] : [])], {
+            env: { ...f.env, LOG_LEVEL: "none" },
+          }),
+        );
+        expect(result.status).toBe(2);
+        expect(result.stdout).toBe("");
+        expect(result.stderr).toContain("--after");
+        expect(result.stderr).toContain("cursor from a previous");
+        if (json) Schema.decodeUnknownSync(ErrorEnvelope)(JSON.parse(result.stderr));
+      }
+    }).pipe(Effect.provide(platform)),
+  );
+  it.live("diagnostics: waiting followup names the question and valid actions", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario(turnRule([question(), { awaitResponse: "q" }])));
+      yield* f.launch();
+      yield* f.start();
+      yield* f.untilState("waiting");
+      for (const json of [false, true]) {
+        const result = yield* Effect.promise(() =>
+          runCli(["followup", "unit", "continue", ...(json ? ["--json"] : [])], {
+            env: { ...f.env, LOG_LEVEL: "none" },
+          }),
+        );
+        expect(result.status).toBe(8);
+        expect(result.stdout).toBe("");
+        expect(result.stderr).toContain("answer or defer q1");
+        expect(result.stderr).toContain("interrupt");
+        expect(result.stderr).not.toContain("steer");
+        if (json) Schema.decodeUnknownSync(ErrorEnvelope)(JSON.parse(result.stderr));
+      }
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("diagnostics: Codex launch failure names the executable and recovery", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario(turnRule()));
+      f.env.CODEX_BIN = `${f.root}/missing-codex`;
+      yield* f.launch();
+      const contract = `${f.root}/contract.md`;
+      yield* f.fs.writeFileString(contract, "PRIVATE_CONTRACT_CONTENT");
+      for (const json of [false, true]) {
+        const result = yield* Effect.promise(() =>
+          runCli(
+            [
+              "start",
+              "unit",
+              "--worktree",
+              f.worktree,
+              "--contract",
+              contract,
+              ...(json ? ["--json"] : []),
+            ],
+            { env: { ...f.env, LOG_LEVEL: "none" } },
+          ),
+        );
+        expect(result.status).toBe(5);
+        expect(result.stdout).toBe("");
+        expect(result.stderr).toContain(f.env.CODEX_BIN);
+        expect(result.stderr).toContain("Install Codex or set CODEX_BIN");
+        expect(result.stderr).toContain("forman doctor");
+        expect(result.stderr).not.toContain("PRIVATE_CONTRACT_CONTENT");
+        if (json) Schema.decodeUnknownSync(ErrorEnvelope)(JSON.parse(result.stderr));
+      }
+    }).pipe(Effect.provide(platform)),
+  );
+
   it.effect("review: each queued answer waits for its own delivered turn", () =>
     Effect.gen(function* () {
       const f = yield* queuedAnswersFixture();
@@ -443,6 +1285,44 @@ describe("supervisor over the real daemon socket", () => {
       expect(yield* f.wait({ after: second.cursor })).toMatchObject({
         runs: [{ kind: "done", digest: { turn: 4 } }],
       });
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.effect("diagnostics: queued answers explain why archive must wait", () =>
+    Effect.gen(function* () {
+      const f = yield* queuedAnswersFixture();
+      yield* f.launch();
+      yield* f.handoff;
+      yield* f.answer("A");
+      const result = yield* Effect.promise(() =>
+        runCli(["archive", "unit", "--json"], { env: { ...f.env, LOG_LEVEL: "none" } }),
+      );
+      expect(result.status).toBe(8);
+      expect(result.stdout).toBe("");
+      expect.soft(result.stderr).toContain("unit");
+      expect.soft(result.stderr).toContain("queued answers");
+      expect.soft(result.stderr).toContain("wait");
+      const followup = yield* Effect.promise(() =>
+        runCli(["followup", "unit", "continue", "--json"], {
+          env: { ...f.env, LOG_LEVEL: "none" },
+        }),
+      );
+      expect(followup.status).toBe(8);
+      expect(followup.stdout).toBe("");
+      expect(followup.stderr).toContain("unit");
+      expect(followup.stderr).toContain("queued");
+      const contract = `${f.root}/contract.md`;
+      yield* f.fs.writeFileString(contract, "work");
+      const reuse = yield* Effect.promise(() =>
+        runCli(["start", "other", "--worktree", f.worktree, "--contract", contract, "--json"], {
+          env: { ...f.env, LOG_LEVEL: "none" },
+        }),
+      );
+      expect(reuse.status).toBe(8);
+      expect(reuse.stdout).toBe("");
+      expect(reuse.stderr).toContain("unit");
+      expect(reuse.stderr).toContain("queued answers");
+      expect(reuse.stderr).toContain("cursor");
     }).pipe(Effect.provide(platform)),
   );
 
@@ -837,13 +1717,30 @@ describe("supervisor over the real daemon socket", () => {
         yield* f.request({ _tag: "Answer", name, question: q1, text: "A" }).pipe(Effect.flip),
       ).toMatchObject({
         _tag: "RunConflict",
-        detail: "answer q2 first; the answer can carry this too",
+        detail:
+          'Cannot answer q1 in run unit while q2 is pending. Use forman answer unit q2 "<answer>"; it can include this change.',
       });
+      const answer = yield* Effect.promise(() =>
+        runCli(["answer", "unit", "q1", "A", "--json"], { env: { ...f.env, LOG_LEVEL: "none" } }),
+      );
+      expect(answer.status).toBe(8);
+      expect(answer.stdout).toBe("");
+      expect.soft(answer.stderr).toContain("unit");
+      expect.soft(answer.stderr).toContain("q1");
+      expect.soft(answer.stderr).toContain("forman answer unit q2");
+      const steer = yield* Effect.promise(() =>
+        runCli(["steer", "unit", "change", "--json"], { env: { ...f.env, LOG_LEVEL: "none" } }),
+      );
+      expect(steer.status).toBe(8);
+      expect(steer.stdout).toBe("");
+      expect.soft(steer.stderr).toContain("unit");
+      expect.soft(steer.stderr).toContain("forman answer unit q2");
       expect(
         yield* f.request({ _tag: "Defer", name, question: q1 }).pipe(Effect.flip),
       ).toMatchObject({
         _tag: "RunConflict",
-        detail: "q1 is deferred; only a pending question can be deferred.",
+        detail:
+          "q1 in run unit is deferred; only a pending question can be deferred. Run forman status unit to see its questions.",
       });
     }).pipe(Effect.provide(platform)),
   );
@@ -861,12 +1758,29 @@ describe("supervisor over the real daemon socket", () => {
       yield* first.stop;
       f.env.CODEX_BIN = `${f.root}/missing-codex`;
       yield* f.launch();
+      const missing = yield* Effect.promise(() =>
+        runCli(["defer", "unit", "q99", "--json"], { env: { ...f.env, LOG_LEVEL: "none" } }),
+      );
+      expect(missing.status).toBe(7);
+      expect(missing.stdout).toBe("");
+      expect.soft(missing.stderr).toContain("unit");
+      expect.soft(missing.stderr).toContain("q99");
+      expect.soft(missing.stderr).toContain("forman status unit");
       expect(
         yield* f.request({ _tag: "Defer", name, question: q1 }).pipe(Effect.flip),
       ).toMatchObject({
         _tag: "RunConflict",
-        detail: "q1 is answered; only a pending question can be deferred.",
+        detail:
+          "q1 in run unit is answered; only a pending question can be deferred. Run forman status unit to see its questions.",
       });
+      const closed = yield* Effect.promise(() =>
+        runCli(["defer", "unit", "q1", "--json"], { env: { ...f.env, LOG_LEVEL: "none" } }),
+      );
+      expect(closed.status).toBe(8);
+      expect(closed.stdout).toBe("");
+      expect.soft(closed.stderr).toContain("unit");
+      expect.soft(closed.stderr).toContain("q1");
+      expect.soft(closed.stderr).toContain("forman status unit");
     }).pipe(Effect.provide(platform)),
   );
 
@@ -1416,6 +2330,34 @@ exec '${realGit}' "$@"
       yield* f.fs.writeFileString(`${f.runDir}/last-message.md`, "irreplaceable work");
       yield* f.launch();
       expect((yield* f.start().pipe(Effect.result))._tag).toBe("Failure");
+      const contract = `${f.root}/contract.md`;
+      yield* f.fs.writeFileString(contract, "work");
+      const start = yield* Effect.promise(() =>
+        runCli(["start", "unit", "--worktree", f.worktree, "--contract", contract, "--json"], {
+          env: { ...f.env, LOG_LEVEL: "none" },
+        }),
+      );
+      expect(start.status).toBe(8);
+      expect(start.stdout).toBe("");
+      expect(start.stderr).toContain(f.runDir);
+      expect(start.stderr).toContain("inspect");
+      for (const json of [false, true]) {
+        const result = yield* Effect.promise(() =>
+          runCli(["status", "unit", ...(json ? ["--json"] : [])], {
+            env: { ...f.env, LOG_LEVEL: "none" },
+          }),
+        );
+        expect(result.status).toBe(8);
+        expect(result.stdout).toBe("");
+        expect(result.stderr).toContain("unit");
+        expect(result.stderr).toContain(f.runDir);
+        expect(result.stderr).toContain("inspect");
+        if (json)
+          expect(JSON.parse(result.stderr).error.message).toBe(
+            "The request could not be completed.",
+          );
+        expect(result.stderr).not.toContain("unreadable record");
+      }
       expect(yield* f.fs.readFileString(`${f.runDir}/run.json`)).toBe("unreadable record");
       expect(yield* f.fs.readFileString(`${f.runDir}/last-message.md`)).toBe("irreplaceable work");
     }).pipe(Effect.provide(platform)),
@@ -1616,8 +2558,39 @@ exec '${realGit}' "$@"
       expect(yield* f.request({ _tag: "Archive", name }).pipe(Effect.flip)).toMatchObject({
         _tag: "RunConflict",
       });
+      for (const json of [false, true]) {
+        const result = yield* Effect.promise(() =>
+          runCli(["archive", "unit", ...(json ? ["--json"] : [])], {
+            env: { ...f.env, LOG_LEVEL: "none" },
+          }),
+        );
+        expect(result.status).toBe(8);
+        expect(result.stdout).toBe("");
+        expect(result.stderr).toContain("unit");
+        expect(result.stderr).toContain(f.runDir);
+        expect(result.stderr).toContain("inspect");
+      }
       expect(yield* f.fs.exists(`${f.repo}/.claude/worktrees/unit`)).toBe(true);
       expect(yield* f.fs.readFileString(file)).toBe(future);
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("diagnostics: archive explains an active persisted run record", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario(turnRule([complete()])));
+      yield* f.launch();
+      yield* f.start();
+      yield* f.untilState("idle");
+      yield* Store.writeRun(f.runDir, { ...(yield* Store.readRun(f.runDir)), state: "running" });
+      const result = yield* Effect.promise(() =>
+        runCli(["archive", "unit", "--json"], { env: { ...f.env, LOG_LEVEL: "none" } }),
+      );
+      expect(result.status).toBe(8);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("unit");
+      expect(result.stderr).toContain("running");
+      expect(result.stderr).toContain("inspect");
+      expect(result.stderr).toContain(f.runDir);
     }).pipe(Effect.provide(platform)),
   );
 
@@ -1645,8 +2618,15 @@ exec '${realGit}' "$@"
       yield* f.start();
       yield* f.request({ _tag: "Steer", name, message: "crash" });
       expect((yield* f.untilState("lost")).failure).toMatchObject({
-        message: "app server exited with code 17",
+        message: expect.stringContaining("app server exited with code 17"),
       });
+      const result = yield* Effect.promise(() =>
+        runCli(["status", "unit", "--json"], { env: { ...f.env, LOG_LEVEL: "none" } }),
+      );
+      expect(result.status).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(result.stdout).toContain(f.worktree);
+      expect(result.stdout).toContain("forman doctor");
       expect(records.filter(({ msg }) => msg === "supervisor.appServer.ended")).toMatchObject([
         { names: "unit", lossReason: "app server exited with code 17" },
       ]);
@@ -1690,6 +2670,14 @@ exec '${realGit}' "$@"
         },
       ]);
       expect((yield* Store.readRun(f.runDir)).failure?.message).toContain("PlatformError");
+      const result = yield* Effect.promise(() =>
+        runCli(["status", "unit", "--json"], { env: { ...f.env, LOG_LEVEL: "none" } }),
+      );
+      expect(result.status).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(result.stdout).toContain("unit");
+      expect(result.stdout).toContain(`${f.runDir}/codex.jsonl`);
+      expect(result.stdout).toContain("forman doctor");
     }).pipe(Effect.provide(platform), Effect.provide(Logger.layer([logger])));
   });
 
@@ -2006,6 +2994,52 @@ child.on("exit", code => process.exit(code ?? 1));
       yield* f.fs.writeFileString(`${worktree}/late.txt`, "late write");
       expect((yield* f.status()).state).toBe("unknown");
       expect(yield* f.fs.readFileString(`${worktree}/late.txt`)).toBe("late write");
+    }).pipe(Effect.provide(platform)),
+  );
+  it.effect("diagnostics: an unconfirmed managed turn cannot be archived until inactive", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario({ method: Codex.Method.turnStart, respond: "none" }));
+      yield* f.launch();
+      const contract = `${f.root}/contract.md`;
+      yield* f.fs.writeFileString(contract, "work");
+      yield* Effect.acquireUseRelease(
+        Effect.sync(() => {
+          const previous = process.cwd();
+          process.chdir(f.repo);
+          return previous;
+        }),
+        () =>
+          Effect.gen(function* () {
+            const pending = yield* Effect.promise(() =>
+              runCli(["start", "unit", "--new-worktree", "--contract", contract, "--json"], {
+                env: { ...f.env, LOG_LEVEL: "none" },
+              }),
+            ).pipe(Effect.forkChild);
+            yield* f.awaitLog(Codex.Method.turnStart);
+            yield* TestClock.adjust("31 seconds");
+            const result = yield* Fiber.join(pending);
+            expect(result.status).toBe(5);
+            expect(result.stdout).toBe("");
+            expect(result.stderr).toContain(`${f.repo}/.claude/worktrees/unit`);
+            expect(result.stderr).toContain("timed out");
+            expect(result.stderr).toContain("wait until");
+            expect(result.stderr).toContain("inactive");
+            expect(result.stderr).toContain("forman archive unit --keep-worktree");
+            expect(
+              yield* f.request({ _tag: "Archive", name, keepWorktree: true }).pipe(Effect.flip),
+            ).toMatchObject({ _tag: "RunConflict" });
+            const archive = yield* Effect.promise(() =>
+              runCli(["archive", "unit", "--keep-worktree", "--json"], {
+                env: { ...f.env, LOG_LEVEL: "none" },
+              }),
+            );
+            expect(archive.status).toBe(8);
+            expect(archive.stdout).toBe("");
+            expect(archive.stderr).toContain("unit");
+            expect(archive.stderr).toContain("wait until");
+          }),
+        (previous) => Effect.sync(() => process.chdir(previous)),
+      );
     }).pipe(Effect.provide(platform)),
   );
   it.live("review: an advancing branch survives archive's checked-tip deletion", () =>
@@ -2596,7 +3630,16 @@ child.on("exit", code => process.exit(code ?? 1));
       yield* f.launch();
       yield* f.start();
       expect((yield* f.wait()).runs).toMatchObject([
-        { kind: "failed", digest: { failure: { message: "repo hooks did not run" } } },
+        {
+          kind: "failed",
+          digest: {
+            failure: {
+              message: expect.stringContaining(
+                `repo hooks did not run in ${f.worktree}. Inspect ${f.repo}/.codex/hooks.json.`,
+              ),
+            },
+          },
+        },
       ]);
     }).pipe(Effect.provide(platform)),
   );
@@ -2665,7 +3708,7 @@ child.on("exit", code => process.exit(code ?? 1));
           state: "unknown",
           failure: {
             message: expect.stringMatching(
-              /^Supervisor operation failed \(PlatformError: [^)]+\)$/,
+              /^Supervisor operation failed \(PlatformError: [^)]+\) for run unit at .+\. Run forman doctor and inspect .+ before retrying\.$/,
             ),
           },
         });
@@ -3155,7 +4198,14 @@ child.on("exit", code => process.exit(code ?? 1));
       yield* f.fs.writeFileString(`${f.runDir}/questions.jsonl`, "broken complete line\n");
       yield* f.launch();
       expect((yield* f.status(otherName)).state).toBe("lost");
-      expect(yield* f.status().pipe(Effect.flip)).toMatchObject({ _tag: "RunNotFound" });
+      expect(yield* f.status().pipe(Effect.flip)).toMatchObject({
+        _tag: "RunConflict",
+        detail: expect.stringContaining(f.runDir),
+      });
+      expect(yield* f.request({ _tag: "Status", cwd: f.worktree })).toMatchObject({
+        digests: [{ name: "other" }],
+        skipped: [{ path: f.runDir }],
+      });
     }).pipe(Effect.provide(platform)),
   );
 
@@ -3652,10 +4702,10 @@ child.on("exit", code => process.exit(code ?? 1));
       yield* f.fs.writeFileString(`${f.worktree}/result.txt`, "done");
       const before = yield* f.status();
       yield* f.git(f.repo, ["worktree", "remove", "--force", f.worktree]);
-      // Confirm the original failure starts in the platform's process spawn, before mapping.
+      // The spawn diagnostic identifies the missing worktree and command.
       expect(yield* computeWorktreeFields(f.worktree, f.runDir).pipe(Effect.flip)).toMatchObject({
-        _tag: "PlatformError",
-        reason: { _tag: "NotFound" },
+        _tag: "WorktreeInvalid",
+        detail: expect.stringContaining("NotFound"),
       });
       const expected = {
         filesWritten: before.filesWritten,
@@ -3709,7 +4759,37 @@ child.on("exit", code => process.exit(code ?? 1));
         _tag: "RunConflict",
         detail: expect.stringContaining("run data"),
       });
-      expect(JSON.stringify(error)).not.toContain("private");
+      expect(JSON.stringify(error)).not.toContain("secret=private invalid JSON");
+      if (kind === "platform") {
+        const result = yield* Effect.promise(() =>
+          runCli(["status", "unit", "--json"], { env: { ...f.env, LOG_LEVEL: "none" } }),
+        );
+        expect(result.status).toBe(8);
+        expect(result.stdout).toBe("");
+        expect(result.stderr).toContain("unit");
+        expect(result.stderr).toContain(`${f.runDir}/baseline.txt`);
+        expect(result.stderr).toContain("permissions");
+      }
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("diagnostics: unreadable run files use the permission exit and name the file", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario(turnRule([complete()])));
+      yield* f.launch();
+      yield* f.start();
+      yield* f.untilState("idle");
+      const file = `${f.runDir}/baseline.txt`;
+      yield* f.fs.chmod(file, 0);
+      yield* Effect.addFinalizer(() => f.fs.chmod(file, 0o600).pipe(Effect.orDie));
+      const result = yield* Effect.promise(() =>
+        runCli(["status", "unit", "--json"], { env: { ...f.env, LOG_LEVEL: "none" } }),
+      );
+      expect(result.status).toBe(6);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("unit");
+      expect(result.stderr).toContain(file);
+      expect(result.stderr).toContain("permissions");
     }).pipe(Effect.provide(platform)),
   );
 
@@ -3728,6 +4808,42 @@ child.on("exit", code => process.exit(code ?? 1));
         detail: expect.stringContaining("Codex refused"),
       });
       expect(JSON.stringify(error)).not.toContain("private");
+      const contract = `${f.root}/contract.md`;
+      yield* f.fs.writeFileString(contract, "work");
+      const result = yield* Effect.promise(() =>
+        runCli(["start", "unit", "--worktree", f.worktree, "--contract", contract, "--json"], {
+          env: { ...f.env, LOG_LEVEL: "none" },
+        }),
+      );
+      expect(result.status).toBe(8);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("unit");
+      expect(result.stderr).toContain("status");
+      expect(result.stderr).not.toContain("secret=private");
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("diagnostics: followup after a refused thread names the run and next step", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture({
+        rules: [
+          {
+            method: Codex.Method.threadStart,
+            respond: { error: { code: -1, message: "refused" } },
+          },
+        ],
+      });
+      yield* f.launch();
+      yield* f.start().pipe(Effect.result);
+      const result = yield* Effect.promise(() =>
+        runCli(["followup", "unit", "continue", "--json"], {
+          env: { ...f.env, LOG_LEVEL: "none" },
+        }),
+      );
+      expect(result.status).toBe(8);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("unit");
+      expect(result.stderr).toContain("forman start --help");
     }).pipe(Effect.provide(platform)),
   );
 
@@ -3746,6 +4862,49 @@ child.on("exit", code => process.exit(code ?? 1));
         detail: expect.stringContaining("reply"),
       });
       expect(JSON.stringify(error)).not.toContain("private");
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("names the run and executable when a Codex reply is invalid", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(
+        scenario({
+          method: Codex.Method.turnStart,
+          respond: { result: { turn: { status: 123, error: null, items: [] } } },
+        }),
+      );
+      yield* f.launch();
+      const contract = `${f.root}/contract.md`;
+      yield* f.fs.writeFileString(contract, "work");
+      const result = yield* Effect.promise(() =>
+        runCli(["start", "unit", "--worktree", f.worktree, "--contract", contract, "--json"], {
+          env: { ...f.env, LOG_LEVEL: "none" },
+        }),
+      );
+      expect(result.status).toBe(5);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("unit");
+      expect(result.stderr).toContain(f.env.CODEX_BIN);
+      expect(result.stderr).toContain("forman doctor");
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("explains an app-server exit while starting a run", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture({ ...scenario(), onStart: [{ exit: 17 }] });
+      yield* f.launch();
+      const contract = `${f.root}/contract.md`;
+      yield* f.fs.writeFileString(contract, "work");
+      const result = yield* Effect.promise(() =>
+        runCli(["start", "unit", "--worktree", f.worktree, "--contract", contract, "--json"], {
+          env: { ...f.env, LOG_LEVEL: "none" },
+        }),
+      );
+      expect(result.status).toBe(5);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("unit");
+      expect(result.stderr).toContain("17");
+      expect(result.stderr).toContain("forman doctor");
     }).pipe(Effect.provide(platform)),
   );
 
@@ -3902,8 +5061,10 @@ else { require("node:child_process").spawn(process.execPath, [${JSON.stringify(f
       );
       expect(outcome._tag).toBe("Some");
       if (outcome._tag === "Some")
-        expect((yield* f.status()).warnings).toContain(
-          "Could not check the Codex protocol; compatibility is unverified.",
+        expect((yield* f.status()).warnings).toContainEqual(
+          expect.stringContaining(
+            `Could not check the Codex protocol for ${JSON.stringify(f.env.CODEX_BIN)}:`,
+          ),
         );
     }).pipe(Effect.provide(platform)),
   );
@@ -4043,6 +5204,13 @@ else { require("node:child_process").spawn(process.execPath, [${JSON.stringify(f
       );
       expect(outcome).toBe("alive");
       expect((yield* f.status()).state).toBe("unknown");
+      const result = yield* Effect.promise(() =>
+        runCli(["status", "unit", "--json"], { env: { ...f.env, LOG_LEVEL: "none" } }),
+      );
+      expect(result.status).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(result.stdout).toContain("Budget expired for run unit");
+      expect(result.stdout).toContain("forman wait unit");
     }).pipe(Effect.provide(platform)),
   );
 
@@ -4264,6 +5432,28 @@ if (process.argv.includes("generate-json-schema")) {
       expect(
         yield* f.request({ _tag: "Followup", name, message: "continue" }).pipe(Effect.flip),
       ).toMatchObject({ _tag: "RunConflict" });
+      const result = yield* Effect.promise(() =>
+        runCli(["followup", "unit", "continue", "--json"], {
+          env: { ...f.env, LOG_LEVEL: "none" },
+        }),
+      );
+      expect(result.status).toBe(8);
+      expect(result.stdout).toBe("");
+      expect.soft(result.stderr).toContain("unit");
+      expect.soft(result.stderr).toContain(f.worktree);
+      expect.soft(result.stderr).toContain("start a new run");
+      for (const command of ["interrupt", "steer"] as const) {
+        const refused = yield* Effect.promise(() =>
+          runCli([command, "unit", ...(command === "steer" ? ["change"] : []), "--json"], {
+            env: { ...f.env, LOG_LEVEL: "none" },
+          }),
+        );
+        expect.soft(refused.status).toBe(8);
+        expect.soft(refused.stdout).toBe("");
+        expect.soft(refused.stderr).toContain("unit");
+        expect.soft(refused.stderr).toContain("forman status unit");
+        expect.soft(refused.stderr).not.toContain("send a followup");
+      }
     }).pipe(Effect.provide(platform)),
   );
   it.live.each([
@@ -4295,7 +5485,9 @@ if (process.argv.includes("generate-json-schema")) {
       while (!(yield* f.fs.readFileString(`${f.runDir}/codex.jsonl`)).includes("newCommandField"))
         yield* Effect.yieldNow;
       const digest = yield* f.status();
-      expect(digest.failure?.message).toBe("repo hooks did not run");
+      expect(digest.failure?.message).toContain(
+        `repo hooks did not run in ${f.worktree}. Inspect ${f.repo}/.codex/hooks.json.`,
+      );
     }).pipe(Effect.provide(platform)),
   );
   it.effect("a late malformed command still enforces hooks after an unconfirmed turn start", () =>
@@ -4349,7 +5541,9 @@ if (process.argv.includes("generate-json-schema")) {
       while (!(yield* f.fs.exists(`${f.runDir}/codex.jsonl`))) yield* Effect.yieldNow;
       while (!(yield* f.fs.readFileString(`${f.runDir}/codex.jsonl`)).includes("newCommandField"))
         yield* Effect.yieldNow;
-      expect((yield* f.status()).failure?.message).toBe("repo hooks did not run");
+      expect((yield* f.status()).failure?.message).toContain(
+        `repo hooks did not run in ${f.worktree}. Inspect ${f.repo}/.codex/hooks.json.`,
+      );
     }).pipe(Effect.provide(platform)),
   );
   it.effect(
@@ -4659,6 +5853,15 @@ if (process.argv.includes("generate-json-schema")) {
           Codex.Method.turnCompleted,
         );
         expect(yield* f.fs.readFileString(`${f.runDir}/codex.jsonl`)).toContain("changed upstream");
+        const result = yield* Effect.promise(() =>
+          runCli(["status", "unit", "--json"], { env: { ...f.env, LOG_LEVEL: "none" } }),
+        );
+        expect(result.status).toBe(0);
+        expect(result.stderr).toBe("");
+        expect(result.stdout).toContain(Codex.Method.tokenUsageUpdated);
+        expect(result.stdout).toContain(Codex.Method.turnCompleted);
+        expect(result.stdout).toContain("forman doctor");
+        expect(result.stdout).not.toContain("changed upstream");
       }).pipe(Effect.provide(platform)),
   );
 
@@ -4915,9 +6118,9 @@ if (process.argv.includes("generate-json-schema")) {
         newInGitStatus: ["?? result.txt"],
         outsideMayChange: [],
       });
-      expect(
-        yield* f.request({ _tag: "Steer", name, message: "late" }).pipe(Effect.flip),
-      ).toMatchObject({ _tag: "RunConflict", detail: expect.stringContaining("followup") });
+      const error = yield* f.request({ _tag: "Steer", name, message: "late" }).pipe(Effect.flip);
+      expect(error).toMatchObject({ _tag: "RunConflict", detail: expect.stringContaining("unit") });
+      expect(error).toMatchObject({ detail: expect.stringContaining("forman status unit") });
     }).pipe(Effect.provide(platform)),
   );
 
@@ -5049,7 +6252,8 @@ if (process.argv.includes("generate-json-schema")) {
         yield* f.request({ _tag: "Steer", name, message: "change" }).pipe(Effect.flip),
       ).toMatchObject({
         _tag: "RunConflict",
-        detail: "answer q1 first; the answer can carry the change",
+        detail:
+          'unit is waiting on q1; use forman answer unit q1 "<answer>" and include the change.',
       });
       yield* f.request({ _tag: "Answer", name, question: q1, text: "Take path A" });
       expect((yield* f.status()).state).toBe("running");
@@ -5131,6 +6335,7 @@ if (process.argv.includes("generate-json-schema")) {
         const f = yield* fixture(
           scenario(turnRule(), {
             method: Codex.Method.turnSteer,
+            repeat: true,
             respond: { error: { code: -1, message: error } },
           }),
         );
@@ -5146,6 +6351,14 @@ if (process.argv.includes("generate-json-schema")) {
           ),
         });
         expect("detail" in conflict && conflict.detail).not.toContain("should-not-escape");
+        const result = yield* Effect.promise(() =>
+          runCli(["steer", "unit", "change", "--json"], { env: { ...f.env, LOG_LEVEL: "none" } }),
+        );
+        expect(result.status).toBe(8);
+        expect(result.stdout).toBe("");
+        expect.soft(result.stderr).toContain("unit");
+        expect.soft(result.stderr).toContain("wait");
+        expect(result.stderr).not.toContain("should-not-escape");
       }).pipe(Effect.provide(platform)),
   );
 
@@ -5293,7 +6506,13 @@ if (process.argv.includes("generate-json-schema")) {
       yield* f.launch();
       yield* f.start();
       expect(yield* f.untilState(hookSeen ? "idle" : "failed")).toMatchObject({
-        failure: hookSeen ? null : { message: "repo hooks did not run" },
+        failure: hookSeen
+          ? null
+          : {
+              message: expect.stringContaining(
+                `repo hooks did not run in ${f.worktree}. Inspect ${f.repo}/.codex/hooks.json.`,
+              ),
+            },
       });
       if (!hookSeen) {
         yield* f.awaitLog(Codex.Method.turnInterrupt);

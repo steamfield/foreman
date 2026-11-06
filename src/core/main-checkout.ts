@@ -1,7 +1,7 @@
 import { Effect, FileSystem } from "effect";
 import { ChildProcess } from "effect/process";
 import { WorktreeInvalid } from "../errors";
-import { commandResult } from "./process";
+import { commandResult, diagnosticTail } from "./process";
 
 /** Null means outside git; discovery failures remain failures for callers to report. */
 export const mainCheckout = Effect.fn("mainCheckout")(function* (cwd: string) {
@@ -19,10 +19,14 @@ export const mainCheckout = Effect.fn("mainCheckout")(function* (cwd: string) {
       )
     )
       return null;
-    return yield* new WorktreeInvalid({ detail: `Could not discover main checkout: ${cwd}` });
+    return yield* new WorktreeInvalid({
+      detail: `git worktree list --porcelain -z exited ${listing.code} in ${cwd}: ${diagnosticTail(listing.stderr)}\nPlease check Git and repository permissions, then retry.`,
+    });
   }
   const first = listing.stdout.split("\0")[0];
   if (!first?.startsWith("worktree "))
-    return yield* new WorktreeInvalid({ detail: `Could not find main checkout: ${cwd}` });
+    return yield* new WorktreeInvalid({
+      detail: `git worktree list returned no main checkout in ${cwd}; check Git and repository permissions, then retry.`,
+    });
   return yield* (yield* FileSystem.FileSystem).realPath(first.slice("worktree ".length));
 });

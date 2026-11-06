@@ -6,6 +6,7 @@ import { NodeServices, NodeSocket, NodeSocketServer } from "@effect/platform-nod
 import { describe, expect, it } from "@effect/vitest";
 import { Deferred, Effect, Fiber, FileSystem, Layer, Schema } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
+import { Socket } from "effect/socket";
 import { TestClock } from "effect/testing";
 import { AppConfig } from "../src/config";
 import { doctor } from "../src/core/doctor";
@@ -378,7 +379,7 @@ it.live("reports an unreadable daemon socket as unavailable", () =>
     const result = yield* doctor(home).pipe(Effect.provide(settings(home, `${home}/missing`)));
     expect(result.daemon).toEqual({
       state: "unavailable",
-      detail: "Could not read daemon socket; check home and socket permissions.",
+      detail: `Cannot connect to daemon socket ${home}/forman.sock. Check the socket and directory permissions, then retry.`,
     });
   }).pipe(Effect.provide(platform)),
 );
@@ -414,7 +415,10 @@ it.each(["private", "public", "unwritable", "file", "missing", "blocked-parent"]
             result.stdout,
           );
           expect(decoded).toMatchObject({ homePermissions: { state, path: home } });
-          if (mode === "public") expect(result.stdout).toContain("chmod 700");
+          if (mode === "public") {
+            expect(result.stdout).toContain("chmod 700");
+            expect(result.stdout).not.toContain("success(");
+          }
         } else expect(result.stdout).toContain(`Home permissions: ${state}`);
       }
       if (mode === "private" || mode === "public" || mode === "unwritable")
@@ -461,6 +465,212 @@ it.live("reports a malformed daemon reply as unavailable in text and JSON", () =
         });
       else expect(result.stdout).toContain("Daemon: unavailable (Could not decode daemon reply");
     }
+  }).pipe(Effect.provide(platform)),
+);
+
+it.live("reports an invalid daemon handshake and that the command was not sent", () =>
+  Effect.gen(function* () {
+    const home = yield* temp();
+    const server = yield* NodeSocketServer.make({ path: `${home}/forman.sock` });
+    yield* Effect.forkScoped(
+      server.run((socket) =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            const reader = yield* socket.reader;
+            yield* reader.pull;
+            yield* (yield* socket.writer).write("not json\n");
+            yield* Effect.never;
+          }),
+        ),
+      ),
+    );
+    const result = yield* Effect.promise(() =>
+      runCli(["status", "unit", "--json"], { home, env: { FORMAN_HOME: home, LOG_LEVEL: "none" } }),
+    );
+    expect(result.status).toBe(4);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("Ping");
+    expect(result.stderr).toContain("not sent");
+    expect(result.stderr).toContain("forman doctor");
+  }).pipe(Effect.provide(platform)),
+);
+
+it.live("reports an unexpected valid daemon handshake without sending the command", () =>
+  Effect.gen(function* () {
+    const home = yield* temp();
+    const server = yield* NodeSocketServer.make({ path: `${home}/forman.sock` });
+    yield* Effect.forkScoped(
+      server.run((socket) =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            yield* (yield* socket.reader).pull;
+            yield* (yield* socket.writer).write(
+              `${JSON.stringify({ id: 1, result: { _tag: "Ok" } })}\n`,
+            );
+            yield* Effect.never;
+          }),
+        ),
+      ),
+    );
+    const result = yield* Effect.promise(() =>
+      runCli(["status", "unit", "--json"], { home, env: { FORMAN_HOME: home, LOG_LEVEL: "none" } }),
+    );
+    expect(result.status).toBe(4);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("Ping");
+    expect(result.stderr).toContain("Ok");
+    expect(result.stderr).toContain("not sent");
+    expect(result.stderr).toContain("forman doctor");
+  }).pipe(Effect.provide(platform)),
+);
+
+it.live("reports an unrecognized daemon error without exposing its detail", () =>
+  Effect.gen(function* () {
+    const home = yield* temp();
+    const server = yield* NodeSocketServer.make({ path: `${home}/forman.sock` });
+    yield* Effect.forkScoped(
+      server.run((socket) =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            yield* (yield* socket.reader).pull;
+            yield* (yield* socket.writer).write(
+              `${JSON.stringify({ id: 1, error: { tag: "FutureError", detail: "private response" } })}\n`,
+            );
+            yield* Effect.never;
+          }),
+        ),
+      ),
+    );
+    const result = yield* Effect.promise(() =>
+      runCli(["status", "unit", "--json"], { home, env: { FORMAN_HOME: home, LOG_LEVEL: "none" } }),
+    );
+    expect(result.status).toBe(4);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("Ping");
+    expect(result.stderr).toContain("not sent");
+    expect(result.stderr).toContain("forman doctor");
+    expect(result.stderr).not.toContain("private response");
+  }).pipe(Effect.provide(platform)),
+);
+
+it.live.each(["timeout", "unreadable"] as const)(
+  "names the home and remedy after %s shutdown cleanup",
+  (mode) =>
+    Effect.gen(function* () {
+      const home = yield* temp();
+      const server = yield* NodeSocketServer.make({ path: `${home}/forman.sock` });
+      const fs = yield* FileSystem.FileSystem;
+      yield* Effect.forkScoped(
+        server.run((socket) =>
+          Effect.scoped(
+            Effect.gen(function* () {
+              yield* (yield* socket.reader).pull;
+              if (mode === "unreadable")
+                yield* fs.symlink(`${home}/daemon.lock`, `${home}/daemon.lock`);
+              yield* (yield* socket.writer).write(
+                `${JSON.stringify({ id: 1, result: { _tag: "Ok" } })}\n`,
+              );
+              yield* Effect.never;
+            }),
+          ),
+        ),
+      );
+      const result = yield* Effect.promise(() =>
+        runCli(["daemon", "stop", "--json"], {
+          home,
+          env: { FORMAN_HOME: home, LOG_LEVEL: "none" },
+        }),
+      );
+      expect(result.status).toBe(4);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain(home);
+      expect(result.stderr).toContain("forman doctor");
+      expect(result.stderr).toContain(mode === "timeout" ? "10 seconds" : "daemon.lock");
+    }).pipe(Effect.provide(platform)),
+);
+
+it.live("reports an unexpected valid shutdown reply and its uncertain state", () =>
+  Effect.gen(function* () {
+    const home = yield* temp();
+    const server = yield* NodeSocketServer.make({ path: `${home}/forman.sock` });
+    yield* Effect.forkScoped(
+      server.run((socket) =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            yield* (yield* socket.reader).pull;
+            yield* (yield* socket.writer).write(
+              `${JSON.stringify({ id: 1, result: { _tag: "Pong", version: "test", pid: 1 } })}\n`,
+            );
+            yield* Effect.never;
+          }),
+        ),
+      ),
+    );
+    const result = yield* Effect.promise(() =>
+      runCli(["daemon", "stop", "--json"], { home, env: { FORMAN_HOME: home, LOG_LEVEL: "none" } }),
+    );
+    expect(result.status).toBe(4);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("Shutdown");
+    expect(result.stderr).toContain("Pong");
+    expect(result.stderr).toContain("may have been accepted");
+    expect(result.stderr).toContain("forman doctor");
+  }).pipe(Effect.provide(platform)),
+);
+
+it.live("identifies a daemon socket permission failure in commands and doctor", () =>
+  Effect.gen(function* () {
+    const home = yield* temp();
+    const socket = `${home}/forman.sock`;
+    yield* NodeSocketServer.make({ path: socket });
+    const fs = yield* FileSystem.FileSystem;
+    yield* fs.chmod(socket, 0);
+    yield* Effect.addFinalizer(() => fs.chmod(socket, 0o700).pipe(Effect.orDie));
+    const failed = yield* Effect.promise(() =>
+      runCli(["status", "unit", "--json"], { home, env: { FORMAN_HOME: home, LOG_LEVEL: "none" } }),
+    );
+    expect(failed.status).toBe(6);
+    expect(failed.stdout).toBe("");
+    expect(failed.stderr).toContain(socket);
+    expect(failed.stderr).toContain("permissions");
+    const checked = yield* Effect.promise(() =>
+      runCli(["doctor", "--json"], { home, env: { FORMAN_HOME: home, LOG_LEVEL: "none" } }),
+    );
+    expect(checked.status).toBe(0);
+    expect(checked.stderr).toBe("");
+    expect(checked.stdout).toContain(socket);
+    expect(checked.stdout).toContain("permissions");
+  }).pipe(Effect.provide(platform)),
+);
+
+it.live("explains an uncertain request after the daemon connection closes", () =>
+  Effect.gen(function* () {
+    const home = yield* temp();
+    const server = yield* NodeSocketServer.make({ path: `${home}/forman.sock` });
+    yield* Effect.forkScoped(
+      server.run((socket) =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            const reader = yield* socket.reader;
+            const writer = yield* socket.writer;
+            yield* reader.pull;
+            yield* writer.write(
+              `${JSON.stringify({ id: 1, result: { _tag: "Pong", version: "test", pid: 1, build: "test" } })}\n`,
+            );
+            yield* reader.pull;
+            yield* writer.write(new Socket.CloseEvent());
+          }),
+        ),
+      ),
+    );
+    const result = yield* Effect.promise(() =>
+      runCli(["status", "unit", "--json"], { home, env: { FORMAN_HOME: home, LOG_LEVEL: "none" } }),
+    );
+    expect(result.status).toBe(4);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("unit");
+    expect(result.stderr).toContain("may have been accepted");
+    expect(result.stderr).toContain("forman doctor");
   }).pipe(Effect.provide(platform)),
 );
 
@@ -535,10 +745,11 @@ it.each(["trusted", "untrusted", "none", "unknown"] as const)(
             expect(result.stdout).toContain(
               `Repo hooks:\n  pre_tool_use:0:0  ${trust}\n  ${expected.text}`,
             );
-          if (trust === "unknown")
-            expect(result.stdout).toContain(
-              "Repo hooks: unknown (Could not query Codex hook trust.)\n  forman start: unknown",
-            );
+          if (trust === "unknown") {
+            expect(result.stdout).toContain("Repo hooks: unknown (");
+            expect(result.stdout).toContain(`${root}/missing-codex`);
+            expect(result.stdout).toContain("Install Codex or set CODEX_BIN");
+          }
           if (trust === "untrusted") {
             expect(result.stdout).toContain(
               `${main}/.codex/hooks.json:pre_tool_use:0:0: untrusted`,
@@ -605,11 +816,15 @@ it.each([false, true])("reports failed git discovery as unknown, json=%s", async
       expect(decoded.repoHooks).toMatchObject({
         state: "unknown",
         acceptsStart: null,
-        detail: "Could not discover main checkout: .",
+        detail: expect.stringContaining("git worktree list"),
       });
+      expect(decoded.repoHooks.detail).toContain("exited");
+      expect(decoded.repoHooks.detail).toContain("check Git and repository permissions");
     } else {
       expect(result.stdout).toContain("forman start: unknown");
-      expect(result.stdout).toContain("Could not discover main checkout: .");
+      expect(result.stdout).toContain("git worktree list");
+      expect(result.stdout).toContain("exited");
+      expect(result.stdout).toContain("check Git and repository permissions");
       expect(result.stdout).not.toContain("no repo hooks apply");
     }
   } finally {

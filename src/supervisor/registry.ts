@@ -7,9 +7,8 @@ import {
   Exit,
   FiberSet,
   FileSystem,
-  type Path,
+  Path,
   type PlatformError,
-  Predicate,
   Queue,
   type Schema,
   Semaphore,
@@ -20,7 +19,7 @@ import { archiveWorktree } from "../core/managed-worktree";
 import { buildDigest } from "../core/runs/digest";
 import * as Store from "../core/runs/store";
 import { computeWorktreeFields, type WorktreeFields } from "../core/runs/worktree";
-import { CodexUnavailable, RunConflict, RunNotFound } from "../errors";
+import { CodexUnavailable, PermissionDenied, RunConflict, RunNotFound } from "../errors";
 import { causeFields } from "../logging";
 import type { RpcId, ThreadItem } from "../schemas/codex";
 import {
@@ -67,11 +66,15 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
     });
   const starts = yield* Semaphore.make(1);
   const reservations = new Map<string, RunName>();
+  const skippedDirectories = new Map<
+    string,
+    { group?: string; reason: string; permissionPath?: string }
+  >();
   const requireWorktreeAvailable = Effect.fnUntraced(function* (name: RunName, worktree: string) {
     const reserved = reservations.get(worktree);
     if (reserved !== undefined && reserved !== name)
       return yield* new RunConflict({
-        detail: `${reserved} is starting in ${worktree}; wait or interrupt it before reusing this worktree.`,
+        detail: `${reserved} is starting in ${worktree}; ${runs.has(reserved) ? `run forman wait ${reserved}` : "wait for the start to finish"} before reusing this worktree.`,
       });
     for (const other of runs.values()) {
       if (
@@ -80,7 +83,10 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
         (activeStates.has(other.record.state) || other.queuedAnswers > 0)
       )
         return yield* new RunConflict({
-          detail: `${other.record.name} is ${other.record.state} in ${worktree}; wait or interrupt it before reusing this worktree.`,
+          detail:
+            other.queuedAnswers > 0
+              ? `${other.record.name} has queued answers in ${worktree}; use the cursor returned by the answer with forman wait ${other.record.name} --after "<cursor>" before reusing this worktree.`
+              : `${other.record.name} is ${other.record.state} in ${worktree}; run forman wait ${other.record.name} before reusing this worktree.`,
         });
     }
   });
@@ -91,7 +97,10 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
         const previous = runs.get(name);
         if (previous && (activeStates.has(previous.record.state) || previous.queuedAnswers > 0))
           return yield* new RunConflict({
-            detail: `${name} is ${previous.record.state}; wait or interrupt it first.`,
+            detail:
+              previous.queuedAnswers > 0
+                ? `${name} has queued answers; use the cursor returned by the answer with forman wait ${name} --after "<cursor>" before starting another run with this name.`
+                : `${name} is ${previous.record.state}; run forman wait ${name} before starting another run with this name.`,
           });
         reservations.set(worktree, name);
       }),
@@ -109,9 +118,13 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
     yield* Deferred.succeed(previous, undefined);
   });
   const add = Effect.fnUntraced(function* (record: RunRecord) {
+    const dir = yield* Store.runDirectory(dataDir, record.name);
     const run: Run = {
-      record,
-      dir: yield* Store.runDirectory(dataDir, record.name),
+      record: {
+        ...record,
+        failure: Store.redactFailure(record.failure, [record.worktree, record.group, dir]),
+      },
+      dir,
       lock: yield* lockFor(record.name),
       calls: new Map(),
       messages: yield* Queue.unbounded<Effect.Effect<void, unknown>, Cause.Done>(),
@@ -128,6 +141,7 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
       recoveryVersion: 0,
     };
     runs.set(record.name, run);
+    skippedDirectories.delete(run.dir);
     yield* FiberSet.run(
       workers,
       Stream.fromQueue(run.messages).pipe(
@@ -155,6 +169,10 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
     const next = {
       ...run.record,
       ...patch,
+      failure: Store.redactFailure(
+        patch.failure === undefined ? run.record.failure : patch.failure,
+        [patch.worktree ?? run.record.worktree, patch.group ?? run.record.group, run.dir],
+      ),
       updatedAt: DateTime.makeUnsafe(yield* Clock.currentTimeMillis),
     };
     yield* Store.writeRun(run.dir, next);
@@ -202,22 +220,35 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
   ) {
     if (!activeStates.has(run.record.state)) return;
     yield* cancelQuestions(run);
-    yield* save(run, { activeTurnId: null, failure: { message: reason, codexErrorInfo: null } });
+    yield* save(run, {
+      activeTurnId: null,
+      failure: {
+        message: `${reason}. Inspect ${run.record.worktree} and ${run.dir}, then run forman doctor before starting or resuming work.`,
+        codexErrorInfo: null,
+      },
+    });
     yield* state(run, "lost");
   });
   const lookup = Effect.fnUntraced(function* (name: RunName) {
     const run = runs.get(name);
-    if (!run) return yield* new RunNotFound({ detail: `No run named ${name}; start it first.` });
+    if (!run) {
+      const dir = yield* Store.runDirectory(dataDir, name);
+      if (!(yield* Store.entryExists(dir))) {
+        skippedDirectories.delete(dir);
+        return yield* new RunNotFound({ detail: `No run named ${name}; start it first.` });
+      }
+      const skipped = skippedDirectories.get(dir);
+      if (skipped?.permissionPath)
+        return yield* new PermissionDenied({
+          detail: `Cannot load run ${name}: ${skipped.permissionPath} (${skipped.reason}). Check file and directory permissions, then restart the daemon and retry.`,
+        });
+      return yield* new RunConflict({
+        detail: `${name} has unreadable or unsupported run data in ${dir}${skipped ? ` (${skipped.reason})` : ""}; preserve and inspect the directory before retrying.`,
+      });
+    }
     return run;
   });
   const isCurrent = (run: Run) => runs.get(run.record.name) === run;
-  const reasonTag = (cause: Cause.Cause<unknown>) => {
-    if (Cause.hasDies(cause)) return "Defect";
-    const error = cause.reasons.find(Cause.isFailReason)?.error;
-    return Predicate.hasProperty(error, "_tag") && typeof error._tag === "string"
-      ? error._tag
-      : "Unknown";
-  };
   const markUnknown = Effect.fnUntraced(function* (
     run: Run,
   ): Effect.fn.Return<
@@ -277,7 +308,7 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
       ...(infrastructure || !uncertain
         ? {
             failure: {
-              message: `Supervisor operation failed (${diagnostic.reasonTag}${diagnostic.method ? `: ${diagnostic.method}` : ""})`,
+              message: `Supervisor operation failed (${diagnostic.reasonTag}${diagnostic.method ? `: ${diagnostic.method}` : ""}${diagnostic.reason ? `, ${diagnostic.reason}` : ""}) for run ${run.record.name}${diagnostic.path ? ` at ${diagnostic.path}` : ""}. Run forman doctor and inspect ${run.dir} before retrying.`,
               codexErrorInfo: null,
             },
           }
@@ -389,10 +420,16 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
     );
   });
   const existing = yield* Store.readAllRuns(dataDir);
-  for (const skipped of existing.skipped)
+  const path = yield* Path.Path;
+  for (const skipped of existing.skipped) {
+    skippedDirectories.set(path.join(dataDir, "runs", skipped.name), {
+      reason: skipped.reason,
+      ...(skipped.permissionPath ? { permissionPath: skipped.permissionPath } : {}),
+    });
     yield* Effect.logWarning("supervisor.run.skipped").pipe(
-      Effect.annotateLogs({ name: skipped.name }),
+      Effect.annotateLogs({ name: skipped.name, reason: skipped.reason }),
     );
+  }
   for (const record of existing.runs) {
     const run = yield* add(record);
     yield* run.lock
@@ -401,17 +438,49 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
         Effect.catchCause((cause) => {
           if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause);
           runs.delete(record.name);
+          const diagnostic = causeFields(cause);
+          skippedDirectories.set(run.dir, {
+            group: record.group,
+            reason: `Recovery failed (${diagnostic.reason ?? diagnostic.reasonTag}${diagnostic.method ? `: ${diagnostic.method}` : ""}).`,
+            ...(diagnostic.reason === "PermissionDenied"
+              ? { permissionPath: typeof diagnostic.path === "string" ? diagnostic.path : run.dir }
+              : {}),
+          });
           return Queue.end(run.messages).pipe(
             Effect.andThen(Queue.end(run.answers)),
             Effect.andThen(
               Effect.logWarning("supervisor.run.skipped").pipe(
-                Effect.annotateLogs({ name: record.name, reasonTag: reasonTag(cause) }),
+                Effect.annotateLogs({ name: record.name, ...diagnostic }),
               ),
             ),
           );
         }),
       );
   }
+  const skipped = Effect.fnUntraced(function* (group: string) {
+    const fs = yield* FileSystem.FileSystem;
+    const entries: { path: string; reason: string; action: string }[] = [];
+    for (const [directory, skipped] of skippedDirectories) {
+      if (
+        !(yield* fs.lstat(directory).pipe(
+          Effect.as(true),
+          // An inaccessible entry still needs its recovery warning.
+          Effect.catch((error) => Effect.succeed(error.reason._tag !== "NotFound")),
+        ))
+      ) {
+        skippedDirectories.delete(directory);
+        continue;
+      }
+      if (skipped.group !== undefined && skipped.group !== group) continue;
+      entries.push({
+        path: directory,
+        reason: skipped.reason,
+        action:
+          "Preserve and inspect this directory; restore readable data with a compatible forman version, then restart the daemon.",
+      });
+    }
+    return entries;
+  });
   const archive = Effect.fnUntraced(function* (name: RunName, keepWorktree = false) {
     const run = yield* lookup(name);
     return yield* run.lock.withPermits(1)(
@@ -420,7 +489,7 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
           yield* requireCurrent(run);
           if (activeStates.has(run.record.state) || run.queuedAnswers > 0)
             return yield* new RunConflict({
-              detail: `${name} is ${run.record.state}; active runs cannot be archived.`,
+              detail: `${name} ${run.queuedAnswers > 0 ? "has queued answers" : `is ${run.record.state}`}; run forman status ${name} and wait until the run is inactive and its answers are delivered before archiving.`,
             });
           const cleanup = Effect.gen(function* () {
             if (!keepWorktree && run.record.managedWorktree) {
@@ -442,6 +511,7 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
     fork: <A, E, R>(work: Effect.Effect<A, E, R>) => FiberSet.run(workers, work),
     failed: FiberSet.join(workers),
     runs,
+    skipped,
     starts,
     reservations,
     reserveWorktree,

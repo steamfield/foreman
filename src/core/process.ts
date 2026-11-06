@@ -1,8 +1,10 @@
 import { Effect, Stream } from "effect";
-import { ChildProcess, ChildProcessSpawner } from "effect/process";
-import { WorktreeInvalid } from "../errors";
+import { ChildProcess, ChildProcessSpawner, CommandLine } from "effect/process";
+import { PermissionDenied, WorktreeInvalid } from "../errors";
 
 export const commandOutputLimit = 1_048_576;
+export const diagnosticTail = (text: string) =>
+  text.trimEnd().split("\n").slice(-20).join("\n").slice(-4096);
 
 interface CaptureOptions {
   readonly output?: "complete" | "tail";
@@ -59,7 +61,9 @@ export const commandResult = Effect.fnUntraced(function* (
           ? `Command output exceeded ${limit} bytes per stream; only the tail was retained.`
           : undefined;
       if (overflowNote && options.output !== "tail")
-        return yield* new WorktreeInvalid({ detail: overflowNote });
+        return yield* new WorktreeInvalid({
+          detail: `${CommandLine.display([command.command, ...command.args])} exited ${code}${command.options.cwd ? ` in ${command.options.cwd}` : ""}: ${overflowNote}\n${diagnosticTail(stdout.text)}\n${diagnosticTail(stderr.text)}\nInspect the command and reduce its output before retrying.`,
+        });
       return {
         stdout: stdout.text,
         stderr: stderr.text,
@@ -71,6 +75,19 @@ export const commandResult = Effect.fnUntraced(function* (
             }
           : {}),
       };
+    }),
+  ).pipe(
+    Effect.mapError((error) => {
+      if (error instanceof WorktreeInvalid) return error;
+      const subject = `${CommandLine.display([command.command, ...command.args])}${command.options.cwd ? ` in ${command.options.cwd}` : ""}`;
+      const reason = `${error.reason.method} (${error.reason._tag})${"pathOrDescriptor" in error.reason ? `: ${error.reason.pathOrDescriptor}` : ""}`;
+      return error.reason._tag === "PermissionDenied"
+        ? new PermissionDenied({
+            detail: `Cannot run ${subject}: ${reason}. Check the executable and directory permissions, then retry.`,
+          })
+        : new WorktreeInvalid({
+            detail: `Could not run ${subject}: ${reason}. Install ${command.command} or correct the executable and working directory, then retry.`,
+          });
     }),
   );
 });

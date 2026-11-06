@@ -1,18 +1,43 @@
-import { Effect, FileSystem, Path } from "effect";
+import { Effect, FileSystem, Path, type PlatformError } from "effect";
 import { ChildProcess } from "effect/process";
-import { WorktreeInvalid } from "../../errors";
+import { PermissionDenied, WorktreeInvalid } from "../../errors";
 import { mainCheckout } from "../main-checkout";
-import { commandResult } from "../process";
+import { commandResult, diagnosticTail } from "../process";
 
-const invalid = (rule: number, worktree: string, reason: string) =>
-  new WorktreeInvalid({ detail: `Rule ${rule}: ${worktree}: ${reason}` });
+const remedies = {
+  1: "Choose an accessible Git worktree root and retry.",
+  2: "Choose a linked worktree instead of the main checkout and retry.",
+  3: "Choose a linked worktree inside the main checkout and retry.",
+  4: "Check permissions and install dependencies in the worktree, or use --skip-deps-check if appropriate.",
+} as const;
+const invalid = (rule: keyof typeof remedies, worktree: string, reason: string) =>
+  new WorktreeInvalid({ detail: `Rule ${rule}: ${worktree}: ${reason}. ${remedies[rule]}` });
 
-const git = Effect.fnUntraced(function* (worktree: string, rule: number, args: string[]) {
+const inspectionError = (
+  rule: keyof typeof remedies,
+  worktree: string,
+  error: PlatformError.PlatformError,
+) =>
+  error.reason._tag === "PermissionDenied"
+    ? new PermissionDenied({
+        detail: `Cannot inspect worktree ${worktree}: ${error.reason.method}${"pathOrDescriptor" in error.reason ? ` at ${error.reason.pathOrDescriptor}` : ""}. Check file and directory permissions, then retry.`,
+      })
+    : invalid(rule, worktree, `${error.reason.method} failed (${error.reason._tag})`);
+
+const git = Effect.fnUntraced(function* (
+  worktree: string,
+  rule: keyof typeof remedies,
+  args: string[],
+) {
   const result = yield* commandResult(
     ChildProcess.make("git", args, { cwd: worktree, stderr: "ignore" }),
-  ).pipe(Effect.mapError(() => invalid(rule, worktree, "could not run git")));
+  );
   if (result.code !== 0)
-    return yield* invalid(rule, worktree, `git ${args.join(" ")} exited ${result.code}`);
+    return yield* invalid(
+      rule,
+      worktree,
+      `git ${args.join(" ")} exited ${result.code}:\n${diagnosticTail(result.stdout)}\n${diagnosticTail(result.stderr)}`,
+    );
   return result.stdout;
 });
 
@@ -24,11 +49,15 @@ export const validateWorktree = Effect.fn("preflight.validateWorktree")(function
   const path = yield* Path.Path;
   const worktree = yield* fs
     .realPath(input)
-    .pipe(Effect.mapError(() => invalid(1, input, "could not resolve worktree")));
+    .pipe(Effect.mapError((error) => inspectionError(1, input, error)));
   const top = (yield* git(worktree, 1, ["rev-parse", "--show-toplevel"])).replace(/\n$/, "");
   if (top !== worktree) return yield* invalid(1, worktree, `not the git worktree root (${top})`);
   const main = yield* mainCheckout(worktree).pipe(
-    Effect.mapError(() => invalid(2, worktree, "could not resolve main checkout")),
+    Effect.mapError((error) =>
+      error instanceof WorktreeInvalid || error instanceof PermissionDenied
+        ? error
+        : inspectionError(2, worktree, error),
+    ),
   );
   if (main === null) return yield* invalid(2, worktree, "could not find main checkout");
   if (main === worktree) return yield* invalid(2, worktree, "is the main checkout");
@@ -48,7 +77,7 @@ export const validateWorktree = Effect.fn("preflight.validateWorktree")(function
         if (info?.type === type) return true;
       }
       return false;
-    }).pipe(Effect.mapError(() => invalid(4, worktree, "could not inspect dependencies")));
+    }).pipe(Effect.mapError((error) => inspectionError(4, worktree, error)));
     if (!installed)
       return yield* invalid(4, worktree, "package.json needs node_modules or .pnp.cjs");
   }

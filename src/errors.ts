@@ -1,18 +1,20 @@
 import { Cause, Schema } from "effect";
 import { CliError } from "effect/cli";
+import { redactDiagnosticText } from "./diagnostic-redaction";
 
-export class Usage extends Schema.TaggedError<Usage>()("Usage", {}) {}
-export class InvalidConfig extends Schema.TaggedError<InvalidConfig>()("InvalidConfig", {}) {}
+// `detail` is text forman writes (which check failed, which run), never text from Codex.
+const detail = { detail: Schema.optional(Schema.String) };
+export class Usage extends Schema.TaggedError<Usage>()("Usage", detail) {}
+export class InvalidConfig extends Schema.TaggedError<InvalidConfig>()("InvalidConfig", detail) {}
 export class PermissionDenied extends Schema.TaggedError<PermissionDenied>()(
   "PermissionDenied",
-  {},
+  detail,
 ) {}
 export class BrokenPipe extends Schema.TaggedError<BrokenPipe>()("BrokenPipe", {}) {}
 export class Interrupted extends Schema.TaggedError<Interrupted>()("Interrupted", {}) {}
 export class Defect extends Schema.TaggedError<Defect>()("Defect", {}) {}
 
-// `detail` is text forman writes (which check failed, which run), never text from Codex.
-const detail = { detail: Schema.optional(Schema.String) };
+export class InputError extends Schema.TaggedError<InputError>()("InputError", detail) {}
 export class DaemonUnavailable extends Schema.TaggedError<DaemonUnavailable>()(
   "DaemonUnavailable",
   detail,
@@ -45,6 +47,7 @@ export const errorClasses = [
   RunConflict,
   WorktreeInvalid,
   RepoHooksUntrusted,
+  InputError,
 ] as const;
 export type AppError = InstanceType<(typeof errorClasses)[number]>;
 export const errorTable = {
@@ -64,7 +67,7 @@ export const errorTable = {
   Defect: { code: 1, message: "Internal error.", retryable: false },
   DaemonUnavailable: {
     code: 4,
-    message: "The forman daemon could not be reached or started.",
+    message: "The daemon request could not be completed.",
     retryable: true,
   },
   CodexUnavailable: {
@@ -75,12 +78,12 @@ export const errorTable = {
   RunNotFound: { code: 7, message: "No such run or question.", retryable: false },
   RunConflict: {
     code: 8,
-    message: "The run is not in a state that allows this.",
+    message: "The request could not be completed.",
     retryable: false,
   },
   WorktreeInvalid: {
     code: 9,
-    message: "The worktree can't be used for a run.",
+    message: "The Git checkout or worktree could not be used.",
     retryable: false,
   },
   RepoHooksUntrusted: {
@@ -89,6 +92,7 @@ export const errorTable = {
       "Codex has not confirmed the repo's hooks are trusted. Open Codex in the main checkout, trust the project if asked, approve its hooks in /hooks, then run forman doctor.",
     retryable: false,
   },
+  InputError: { code: 2, message: "The input file can't be read.", retryable: false },
 } as const satisfies Record<
   AppError["_tag"],
   { code: number; message: string; retryable: boolean }
@@ -131,7 +135,26 @@ export function failure(cause: Cause.Cause<unknown>): AppError {
     if (!Cause.isFailReason(reason)) continue;
     for (const ErrorClass of errorClasses)
       if (reason.error instanceof ErrorClass) return reason.error;
-    if (CliError.isCliError(reason.error)) return new Usage();
+    if (CliError.isCliError(reason.error)) {
+      if (reason.error._tag === "DuplicateOption" || reason.error._tag === "UserError")
+        return new Defect();
+      const errors = reason.error._tag === "ShowHelp" ? reason.error.errors : [reason.error];
+      const messages = errors.flatMap((error) => {
+        switch (error._tag) {
+          case "MissingOption":
+          case "MissingArgument":
+          case "ValidationError":
+          case "UnknownSubcommand":
+          case "UnrecognizedOption":
+          case "UnexpectedArgument":
+          case "InvalidValue":
+            return [redactDiagnosticText(error.message)];
+          default:
+            return [];
+        }
+      });
+      return new Usage({ detail: messages.length ? messages.join("\n") : undefined });
+    }
   }
   return new Defect();
 }

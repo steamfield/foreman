@@ -4,8 +4,8 @@
 
 ### Added
 
-- Delegate coding tasks to Codex in managed or prepared git worktrees, using the Codex CLI's ChatGPT login.
-- A local daemon that keeps runs alive between CLI calls and replaces itself with the new build after an upgrade once it's idle.
+- Delegation of coding tasks to Codex in managed or prepared git worktrees, using the Codex CLI's ChatGPT login.
+- A local daemon that keeps runs alive between CLI calls, with replacement of an idle outdated daemon on the next run command after an upgrade.
 - Questions during a turn, with explicit or timeout deferral, late answers and corrections.
 - Steering, follow-up turns and interruption, with waits and cursors scoped to the named run.
 - Run digests, event history and turn hand-offs in text or JSON, including deferred decisions and changes outside the contract's scope.

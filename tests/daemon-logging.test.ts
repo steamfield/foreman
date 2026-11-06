@@ -12,6 +12,7 @@ import { AppLayer } from "../src/runtime";
 import { RunName, RunRecord } from "../src/schemas/daemon";
 import { Host } from "../src/services/host";
 import { makeSupervisor } from "../src/supervisor";
+import { ndjson, runCli } from "./helpers/cli";
 
 const platform = Layer.mergeAll(
   NodeServices.layer,
@@ -36,6 +37,30 @@ const Record = Schema.Struct({
 });
 
 describe("daemon file logging", () => {
+  it.live("keeps failed daemon log sinks actionable and JSON on stderr", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const home = yield* fs.makeTempDirectoryScoped({ directory: "/tmp", prefix: "fm-sink-" });
+      const file = `${home}/occupied/log.jsonl`;
+      yield* fs.writeFileString(`${home}/occupied`, "file");
+      yield* fs.makeDirectory(`${home}/daemon.guard.sqlite`);
+      const result = yield* Effect.promise(() =>
+        runCli(["daemon", "--json"], {
+          env: { FORMAN_HOME: home, TEST_CLI_LOG_FILE: file },
+        }),
+      );
+      expect(result.status).toBe(4);
+      expect(result.stdout).toBe("");
+      const lines = ndjson(result.stderr);
+      expect(lines).toContainEqual(
+        expect.objectContaining({
+          level: "warn",
+          msg: expect.stringContaining(`Daemon log file unavailable: ${file}`),
+        }),
+      );
+      expect(result.stderr).toContain("Check the path and directory permissions");
+    }).pipe(Effect.provide(platform)),
+  );
   it.live("keeps the safe filesystem operation in a fatal daemon startup record", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;

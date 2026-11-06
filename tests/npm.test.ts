@@ -176,7 +176,12 @@ test("packed npm launcher preserves native version, doctor output and usage fail
   expect(failed).toEqual(await run(native, args));
   expect(failed).toMatchObject({ status: 2, stdout: "" });
   expect(JSON.parse(failed.stderr)).toEqual({
-    error: { tag: "Usage", message: "Invalid command. Run --help for usage.", retryable: false },
+    error: {
+      tag: "Usage",
+      message: "Invalid command. Run --help for usage.",
+      detail: 'Unexpected positional argument: "argument with spaces"',
+      retryable: false,
+    },
   });
 });
 

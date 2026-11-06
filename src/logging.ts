@@ -12,7 +12,10 @@ import {
   Semaphore,
 } from "effect";
 import type { LogSettings } from "./config";
+import { redactDiagnosticText, secretKey } from "./diagnostic-redaction";
 import { Output } from "./services/output";
+
+export { redactDiagnosticText } from "./diagnostic-redaction";
 
 // Shared by the daemon logger and app-server stderr; serialized independently per file.
 export const makeLogAppender = Effect.fnUntraced(function* (file: string, formatVersion?: 1) {
@@ -88,34 +91,6 @@ const scalar = (value: unknown) =>
   typeof value === "boolean"
     ? value
     : "[redacted]";
-const secretKey = /secret|password|token|authorization|cookie|api[_-]?key|access[_-]?key/i;
-
-export function redactDiagnosticText(text: string): string {
-  return text
-    .replace(
-      /-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?-----END [^-]*PRIVATE KEY-----/g,
-      "[redacted]",
-    )
-    .replace(/\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi, "Bearer [redacted]")
-    .replace(
-      /\b(?:sk-[A-Za-z0-9_-]+|gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+)\b/g,
-      "[redacted]",
-    )
-    .replace(
-      /(?<![\w.-])(["']?)([A-Za-z_][\w.-]*)\1(\s*[:=]\s*)("[^"\n]*"|'[^'\n]*'|[^\s,;}]+)/g,
-      (match, keyQuote: string, key: string, separator: string, value: string) => {
-        if (!secretKey.test(key)) return match;
-        const quote = value[0];
-        const replacement =
-          quote === '"' || quote === "'" ? `${quote}[redacted]${quote}` : "[redacted]";
-        return `${keyQuote}${key}${keyQuote}${separator}${replacement}`;
-      },
-    )
-    .replace(/(?<![A-Za-z0-9+/_-])[A-Za-z0-9+/_-]{32,}={0,2}(?![A-Za-z0-9+/_-])/g, (value) =>
-      /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value) ? value : "[redacted]",
-    );
-}
-
 export function redactDiagnostic(value: unknown): unknown {
   if (typeof value === "string") return redactDiagnosticText(value);
   if (Array.isArray(value)) return value.map(redactDiagnostic);
@@ -193,14 +168,15 @@ export class Logging extends Context.Service<
                 appenders.set(settings.file, append);
               }
               yield* append(`${json}\n`).pipe(
-                Effect.catchCause(() =>
+                Effect.catchCause((cause) =>
                   Effect.gen(function* () {
                     if (warned) return;
                     warned = true;
                     const warning = entry({
                       date: new Date(record.time),
                       level: "warn",
-                      message: "Log file unavailable; continuing with stderr.",
+                      message: `Log file unavailable: ${settings.file}. Check the path and directory permissions; continuing with stderr.`,
+                      annotations: causeFields(cause),
                     });
                     yield* output
                       .note(

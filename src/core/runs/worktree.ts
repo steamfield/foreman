@@ -1,8 +1,8 @@
 import { Effect, FileSystem, Glob, Path, type PlatformError } from "effect";
-import { ChildProcess, type ChildProcessSpawner } from "effect/process";
-import { WorktreeInvalid } from "../../errors";
+import { ChildProcess, type ChildProcessSpawner, CommandLine } from "effect/process";
+import { type PermissionDenied, WorktreeInvalid } from "../../errors";
 import type { Digest } from "../../schemas/daemon";
-import { commandResult } from "../process";
+import { commandResult, diagnosticTail } from "../process";
 
 export type WorktreeFields = Pick<Digest, "filesWritten" | "newInGitStatus" | "outsideMayChange">;
 
@@ -21,7 +21,7 @@ const commandOutput = Effect.fn("runs.commandOutput")(function* (
   const { stdout, stderr, code } = yield* commandResult(command);
   if (code !== 0)
     return yield* new WorktreeInvalid({
-      detail: `${command.command} exited ${code} in ${command.options.cwd}: ${stderr.trim()}`,
+      detail: `${CommandLine.display([command.command, ...command.args])} exited ${code} in ${command.options.cwd}:\n${diagnosticTail(stdout)}\n${diagnosticTail(stderr)}\nPlease inspect the ${command.command === "git" ? "Git" : "command"} output and resolve the reported issue before retrying.`,
     });
   return stdout;
 });
@@ -78,7 +78,7 @@ export const computeWorktreeFields = Effect.fn("runs.computeWorktreeFields")(fun
   runDir: string,
 ): Effect.fn.Return<
   WorktreeFields,
-  PlatformError.PlatformError | WorktreeInvalid,
+  PlatformError.PlatformError | PermissionDenied | WorktreeInvalid,
   FileSystem.FileSystem | Path.Path | ChildProcessSpawner.ChildProcessSpawner
 > {
   const fs = yield* FileSystem.FileSystem;

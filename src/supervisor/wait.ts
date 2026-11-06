@@ -70,10 +70,20 @@ const decodeCursor = Effect.fnUntraced(function* (cursor: Cursor | undefined) {
           )
         : binary;
     },
-    catch: () => new Usage(),
+    catch: () =>
+      new Usage({
+        detail:
+          "Invalid --after cursor. Use a cursor from a previous forman command, or omit --after to start again.",
+      }),
   });
   const parsed = yield* Schema.decodeUnknownEffect(CursorJson)(text).pipe(
-    Effect.mapError(() => new Usage()),
+    Effect.mapError(
+      () =>
+        new Usage({
+          detail:
+            "Invalid --after cursor. Use a cursor from a previous forman command, or omit --after to start again.",
+        }),
+    ),
   );
   return Schema.is(GroupPositions)(parsed)
     ? { positions: parsed.positions, group: parsed.group }
@@ -181,7 +191,10 @@ export const wait = Effect.fn("supervisor.wait")(function* (
   | import("effect").Path.Path
   | import("effect/process").ChildProcessSpawner.ChildProcessSpawner
 > {
-  if (!body.all && body.names.length === 0) return yield* new Usage();
+  if (!body.all && body.names.length === 0)
+    return yield* new Usage({
+      detail: "Provide a run name or use --all to wait for the current repository group.",
+    });
   const decoded = yield* decodeCursor(body.after);
   const positions = decoded.positions;
   let group = decoded.group;
@@ -190,6 +203,7 @@ export const wait = Effect.fn("supervisor.wait")(function* (
     const only = body.names.length === 1 ? body.names[0] : undefined;
     group = only === undefined ? undefined : (yield* registry.lookup(only)).record.group;
   }
+  const skipped = body.all ? yield* registry.skipped(group ?? "") : [];
   const deadline = (yield* Clock.currentTimeMillis) + body.timeoutMs;
   const result = (
     outcome: "events" | "timeout" | "none",
@@ -204,6 +218,7 @@ export const wait = Effect.fn("supervisor.wait")(function* (
       _tag: "Waited",
       outcome,
       runs,
+      ...(skipped.length > 0 ? { skipped } : {}),
       cursor,
       next: target
         ? `forman answer ${target.name} ${target.question.id} "<answer>"`

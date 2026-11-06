@@ -156,6 +156,31 @@ export const readRun = Effect.fn("runs.readRun")(function* (runDir: string) {
   return yield* decodeStored(yield* fs.readFileString(path.join(runDir, "run.json")), RunRecord);
 });
 
+export const redactFailure = (
+  failure: RunRecord["failure"],
+  paths: readonly string[],
+): RunRecord["failure"] => {
+  if (failure === null) return null;
+  const known = [...new Set(paths)]
+    .filter((path) => path.length > 1)
+    .sort((a, b) => b.length - a.length);
+  let message = failure.message;
+  // Known run paths are public context, even when their length resembles an opaque token.
+  for (const [index, path] of known.entries())
+    message = message.replaceAll(path, `__FMPATH_${index}__`);
+  message = redactDiagnosticText(message);
+  for (const [index, path] of known.entries())
+    message = message.replaceAll(`__FMPATH_${index}__`, path);
+  return { message, codexErrorInfo: redactDiagnostic(failure.codexErrorInfo) };
+};
+
+export const entryExists = Effect.fnUntraced(function* (dir: string) {
+  return yield* (yield* FileSystem.FileSystem).lstat(dir).pipe(
+    Effect.as(true),
+    Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(false)),
+  );
+});
+
 // The daemon serializes mutations for each run; these functions keep no sequence or record cache.
 export const writeRun = Effect.fn("runs.writeRun")(function* (runDir: string, record: RunRecord) {
   const fs = yield* FileSystem.FileSystem;
@@ -164,13 +189,7 @@ export const writeRun = Effect.fn("runs.writeRun")(function* (runDir: string, re
   yield* assertSupported(runDir);
   const text = yield* encodeStored(RunRecord, {
     ...record,
-    failure:
-      record.failure === null
-        ? null
-        : {
-            message: redactDiagnosticText(record.failure.message),
-            codexErrorInfo: redactDiagnostic(record.failure.codexErrorInfo),
-          },
+    failure: redactFailure(record.failure, [record.worktree, record.group, runDir]),
   });
   yield* fs.writeFileString(`${file}.tmp`, text);
   yield* fs.rename(`${file}.tmp`, file);
@@ -185,7 +204,7 @@ export const createRun = Effect.fn("runs.createRun")(function* (
   const path = yield* Path.Path;
   const baseline = yield* readGitStatus(record.worktree);
   const dir = yield* runDirectory(dataDir, record.name);
-  if (yield* fs.exists(dir))
+  if (yield* entryExists(dir))
     return yield* new RunConflict({
       detail: `${record.name} already has run data; preserve it before reusing the name.`,
     });
@@ -219,16 +238,35 @@ export const readAllRuns = Effect.fn("runs.readAllRuns")(function* (dataDir: str
     .readDirectory(root)
     .pipe(Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed([])));
   const runs: RunRecord[] = [];
-  const skipped: { name: string; reason: string }[] = [];
+  const skipped: { name: string; reason: string; permissionPath?: string }[] = [];
   for (const name of names.sort()) {
     if (name === ".archive" || name.startsWith(".tmp-")) continue;
     const dir = path.join(root, name);
-    if ((yield* fs.stat(dir)).type !== "Directory") continue;
     const result = yield* Effect.result(
-      readRun(dir).pipe(Effect.tap(() => assertLogVersions(dir, true))),
+      Effect.gen(function* () {
+        if ((yield* fs.stat(dir)).type !== "Directory") return null;
+        const record = yield* readRun(dir);
+        yield* assertLogVersions(dir, true);
+        return record;
+      }),
     );
-    if (Result.isFailure(result)) skipped.push({ name, reason: String(result.failure) });
-    else runs.push(result.success);
+    if (Result.isFailure(result)) {
+      const error = result.failure;
+      skipped.push({
+        name,
+        reason: PlatformError.isPlatformError(error)
+          ? `${error.reason.method}: ${error.reason._tag}`
+          : "SchemaError: invalid or unsupported run data",
+        ...(PlatformError.isPlatformError(error) && error.reason._tag === "PermissionDenied"
+          ? {
+              permissionPath:
+                typeof error.reason.pathOrDescriptor === "string"
+                  ? error.reason.pathOrDescriptor
+                  : dir,
+            }
+          : {}),
+      });
+    } else if (result.success !== null) runs.push(result.success);
   }
   return { runs, skipped };
 });
@@ -245,7 +283,7 @@ export const archiveRun = Effect.fn("runs.archiveRun")(function* <E = never, R =
   yield* assertLogVersions(dir);
   if (activeStates.has(record.state))
     return yield* new RunConflict({
-      detail: `${name} is ${record.state}; active runs cannot be archived`,
+      detail: `${name} has persisted state ${record.state} in ${dir}; inspect the run directory and daemon status, then wait until it is inactive before archiving.`,
     });
   yield* beforeArchive;
   const archive = path.join(dataDir, "runs", ".archive");

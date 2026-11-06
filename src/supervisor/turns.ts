@@ -1,4 +1,14 @@
-import { Cause, Clock, DateTime, Deferred, Effect, FileSystem, Queue, Schema } from "effect";
+import {
+  Cause,
+  Clock,
+  DateTime,
+  Deferred,
+  Effect,
+  FileSystem,
+  PlatformError,
+  Queue,
+  Schema,
+} from "effect";
 import { CodexRequestTimeout, CodexRpcError } from "../codex/client";
 import type { AppConfig } from "../config";
 import {
@@ -15,7 +25,14 @@ import { defaultModel } from "../core/preflight/model";
 import { validateWorktree } from "../core/preflight/worktree";
 import * as Store from "../core/runs/store";
 import { validateStartMode } from "../core/start-mode";
-import { CodexUnavailable, RunConflict } from "../errors";
+import {
+  CodexUnavailable,
+  detailFor,
+  errorClasses,
+  errorTable,
+  PermissionDenied,
+  RunConflict,
+} from "../errors";
 import * as Codex from "../schemas/codex";
 import {
   activeStates,
@@ -67,7 +84,9 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
     by: "budget" | "repo-hooks" | "orchestrator",
   ) {
     if (!run.record.threadId || !run.record.activeTurnId)
-      return yield* new RunConflict({ detail: "No turn in progress; send a followup instead." });
+      return yield* new RunConflict({
+        detail: `No turn is in progress for run ${run.record.name}; run forman status ${run.record.name} before choosing the next action.`,
+      });
     yield* server.connection.request(
       Codex.Method.turnInterrupt,
       { threadId: run.record.threadId, turnId: run.record.activeTurnId },
@@ -143,6 +162,12 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
                   }),
                 );
                 yield* registry.markUnknown(run);
+                yield* registry.save(run, {
+                  warnings: [
+                    ...run.record.warnings,
+                    `Budget expired for run ${run.record.name}, but Codex did not confirm the interrupt. Run forman wait ${run.record.name}; execution remains unconfirmed until the run becomes inactive.`,
+                  ],
+                });
                 return;
               }
               return yield* Effect.fail(interrupted.failure);
@@ -171,16 +196,16 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
           (run.record.name === body.name || run.record.worktree === destination)
         )
           return yield* new RunConflict({
-            detail: `${run.record.name} is ${run.record.state}; wait or interrupt it before starting another run here.`,
+            detail: `${run.record.name} is ${run.record.state}; run forman wait ${run.record.name} before starting another run here.`,
           });
       }
     });
     const previous = registry.runs.get(body.name);
     yield* accepting;
     yield* available;
-    if (!previous && (yield* fs.exists(yield* Store.runDirectory(config.home, body.name))))
+    if (!previous && (yield* Store.entryExists(yield* Store.runDirectory(config.home, body.name))))
       return yield* new RunConflict({
-        detail: `${body.name} has unreadable run data; preserve and inspect its run directory before reusing the name.`,
+        detail: `${body.name} has unreadable run data in ${yield* Store.runDirectory(config.home, body.name)}; preserve and inspect that directory before reusing the name.`,
       });
     const prepare = Effect.gen(function* () {
       if (body.newWorktree)
@@ -201,9 +226,10 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
         validated,
         model: body.model ?? (yield* defaultModel(config.codexHome)),
         warning: yield* servers.protocolWarning,
+        diagnostics: yield* servers.warnings,
       };
     });
-    const { validated, model, warning } = yield* Effect.raceFirst(
+    const { validated, model, warning, diagnostics } = yield* Effect.raceFirst(
       prepare,
       Deferred.await(pending.cancel).pipe(Effect.as(undefined)),
     ).pipe(
@@ -211,7 +237,9 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
         if (prepared !== undefined) return Effect.succeed(prepared);
         pending.cancelled = true;
         return Effect.fail(
-          new RunConflict({ detail: `Start cancelled during preflight: ${body.name}` }),
+          new RunConflict({
+            detail: `Start cancelled during preflight: ${body.name}. You can retry the start when ready.`,
+          }),
         );
       }),
       (work) => rollbackOnFailure(() => created, work),
@@ -233,9 +261,9 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
           yield* Store.archiveRun(config.home, body.name);
           registry.runs.delete(body.name);
           yield* Queue.end(previous.messages);
-        } else if (yield* fs.exists(yield* Store.runDirectory(config.home, body.name)))
+        } else if (yield* Store.entryExists(yield* Store.runDirectory(config.home, body.name)))
           return yield* new RunConflict({
-            detail: `${body.name} has unreadable run data; preserve and inspect its run directory before reusing the name.`,
+            detail: `${body.name} has unreadable run data in ${yield* Store.runDirectory(config.home, body.name)}; preserve and inspect that directory before reusing the name.`,
           });
         const now = DateTime.makeUnsafe(yield* Clock.currentTimeMillis);
         const record: RunRecord = {
@@ -259,7 +287,7 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
           restoreSandbox: false,
           tokens: null,
           failure: null,
-          warnings: warning ? [warning] : [],
+          warnings: [...(warning ? [warning] : []), ...diagnostics],
           createdAt: now,
           updatedAt: now,
         };
@@ -305,11 +333,36 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
                 turnRequested &&
                 (run.record.state === "unknown" || (yield* createdWorktreeHasWork(created)))
               ) {
-                const warning = `Start refused; retained ${created.worktree} (${created.managed.branch}) because execution is unconfirmed or it holds work. Inspect status, then use forman archive ${body.name} --keep-worktree to retain it.`;
-                yield* registry.save(run, { warnings: [...run.record.warnings, warning] });
+                const warning = `Start refused; retained ${created.worktree} (${created.managed.branch}) because execution is unconfirmed or it holds work. Run forman status ${body.name}${activeStates.has(run.record.state) ? " and wait until the run is inactive" : ""}, then use forman archive ${body.name} --keep-worktree to retain it.`;
+                const retained = yield* registry
+                  .save(run, { warnings: [...run.record.warnings, warning] })
+                  .pipe(Effect.exit);
+                if (retained._tag === "Failure")
+                  return yield* Effect.failCause(Cause.combine(cause, retained.cause));
+                if (Cause.hasDies(cause) || Cause.hasInterrupts(cause))
+                  return yield* Effect.failCause(cause);
                 const error = cause.reasons.find(Cause.isFailReason)?.error;
-                const reason = error instanceof Error ? error.name : "startup failure";
-                return yield* new RunConflict({ detail: `${reason}: ${warning}` });
+                if (error instanceof CodexRequestTimeout)
+                  return yield* new CodexUnavailable({
+                    detail: `Codex ${error.method} timed out after ${error.timeoutMs} ms: ${warning}`,
+                  });
+                for (const Class of errorClasses) {
+                  if (error instanceof Class) {
+                    return yield* new Class({
+                      detail: `${detailFor(error) ?? errorTable[error._tag].message}\n${warning}`,
+                    });
+                  }
+                }
+                if (PlatformError.isPlatformError(error)) {
+                  const detail = `${error.reason.method} (${error.reason._tag})${"pathOrDescriptor" in error.reason ? ` at ${error.reason.pathOrDescriptor}` : ""}: ${warning}`;
+                  return yield* error.reason._tag === "PermissionDenied"
+                    ? new PermissionDenied({ detail })
+                    : new RunConflict({ detail });
+                }
+                if (!(error instanceof CodexRpcError)) return yield* Effect.failCause(cause);
+                return yield* new RunConflict({
+                  detail: `Codex refused the turn for run ${body.name}: ${warning}`,
+                });
               }
               yield* removeCreatedWorktree(created);
             }
@@ -357,17 +410,26 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
     );
   });
   const reserveFollowup = Effect.fnUntraced(function* (run: Run) {
+    if (run.record.state === "waiting") {
+      const pending = Store.pendingQuestions(yield* Store.readQuestions(run.dir))[0];
+      if (pending)
+        return yield* new RunConflict({
+          detail: `${run.record.name} is waiting; answer or defer ${pending.id}, or interrupt the run before sending a followup.`,
+        });
+    }
     if (activeStates.has(run.record.state))
       return yield* new RunConflict({
-        detail: `${run.record.name} is ${run.record.state}; answer, steer or interrupt the active turn first.`,
+        detail: `${run.record.name} is ${run.record.state}; run forman wait ${run.record.name} before sending a followup.`,
       });
     yield* registry.requireWorktreeAvailable(run.record.name, run.record.worktree);
     if (!(yield* fs.exists(run.record.worktree)))
       return yield* new RunConflict({
-        detail: "Worktree no longer exists; prepare a worktree and start a new run.",
+        detail: `${run.record.name}'s worktree no longer exists: ${run.record.worktree}. Prepare a worktree and start a new run.`,
       });
     if (!run.record.threadId)
-      return yield* new RunConflict({ detail: "No thread was created; start a new run instead." });
+      return yield* new RunConflict({
+        detail: `${run.record.name} has no Codex thread because its start did not create one. Start a new run with a different name; see forman start --help.`,
+      });
     yield* registry
       .state(run, "starting")
       .pipe(Effect.tapCause((cause) => registry.recover(run, cause)));
@@ -402,11 +464,11 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
     const pending = Store.pendingQuestions(yield* Store.readQuestions(run.dir))[0];
     if (pending)
       return yield* new RunConflict({
-        detail: `answer ${pending.id} first; the answer can carry the change`,
+        detail: `${run.record.name} is waiting on ${pending.id}; use forman answer ${run.record.name} ${pending.id} "<answer>" and include the change.`,
       });
     if (run.record.state !== "running" || !run.record.activeTurnId)
       return yield* new RunConflict({
-        detail: "No steerable turn in progress; send a followup instead.",
+        detail: `No steerable turn is in progress for run ${run.record.name}; run forman status ${run.record.name} before choosing the next action.`,
       });
     const server = yield* servers.get;
     yield* server.connection
@@ -424,8 +486,8 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
           // Only a known protocol diagnostic can cross the public error boundary.
           const detail =
             error instanceof CodexRpcError && error.message === "activeTurnNotSteerable"
-              ? "activeTurnNotSteerable; wait for this turn, then send a followup."
-              : "Codex refused the steer; read status, then retry or send a followup.";
+              ? `activeTurnNotSteerable for run ${run.record.name}; wait for this turn, then send a followup.`
+              : `Codex refused the steer for run ${run.record.name}; run forman status ${run.record.name}, then wait for the active turn before sending a followup.`;
           return Effect.fail(new RunConflict({ detail }));
         }),
       );

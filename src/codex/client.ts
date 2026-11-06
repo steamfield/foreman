@@ -63,7 +63,13 @@ export const openConnection = Effect.fn("codex.openConnection")(function* (
         forceKillAfter: "2 seconds",
       }),
     )
-    .pipe(Effect.mapError(() => unavailable("could not spawn app server")));
+    .pipe(
+      Effect.mapError(() =>
+        unavailable(
+          `Could not launch ${JSON.stringify(options.codexBin)}. Install Codex or set CODEX_BIN to an executable, then run forman doctor.`,
+        ),
+      ),
+    );
   const outgoing = yield* Queue.unbounded<string, Cause.Done>();
   const notifications = yield* Queue.unbounded<typeof RpcNotification.Type, Cause.Done>();
   const serverRequests = yield* Queue.unbounded<typeof RpcServerRequest.Type, Cause.Done>();

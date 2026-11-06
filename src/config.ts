@@ -1,5 +1,16 @@
-import { Config, ConfigProvider, Context, Effect, FileSystem, Layer, Path, Schema } from "effect";
+import {
+  Config,
+  ConfigProvider,
+  Context,
+  Effect,
+  FileSystem,
+  Layer,
+  Path,
+  Schema,
+  SchemaIssue,
+} from "effect";
 import { InvalidConfig, PermissionDenied } from "./errors";
+import { redactDiagnosticText } from "./logging";
 import { Host } from "./services/host";
 
 export const levels = {
@@ -17,6 +28,18 @@ const ConfigFile = Schema.Struct({
   codexBin: Schema.optionalKey(CodexBin),
   logLevel: Schema.optionalKey(Level),
 });
+const configDiagnosis = (file: string, issue: SchemaIssue.Issue) => {
+  const key = SchemaIssue.makeFormatterStandardSchemaV1()(issue).issues[0]?.path?.[0];
+  let diagnosis = "Expected a JSON object with optional codexBin and logLevel fields.";
+  if (key === "codexBin") diagnosis = "codexBin must be a nonempty executable name or path.";
+  else if (key === "logLevel")
+    diagnosis = `logLevel must be one of: ${Object.keys(levels).join(", ")}.`;
+  else if (typeof key === "string")
+    diagnosis = `Unknown key ${JSON.stringify(redactDiagnosticText(key))}. Allowed keys: codexBin, logLevel.`;
+  return new InvalidConfig({
+    detail: `${JSON.stringify(file)}: ${diagnosis} Update this file and retry.`,
+  });
+};
 export type Settings = { codexBin: string };
 export type LogSettings = {
   level: (typeof levels)[keyof typeof levels];
@@ -74,12 +97,23 @@ export class AppConfig extends Context.Service<
             Effect.catch((error) =>
               error.reason._tag === "NotFound"
                 ? Effect.succeed("{}")
-                : Effect.fail(new PermissionDenied()),
+                : Effect.fail(
+                    error.reason._tag === "PermissionDenied"
+                      ? new PermissionDenied({
+                          detail: `Cannot read config file ${JSON.stringify(configFile)}. Check its permissions and retry.`,
+                        })
+                      : new InvalidConfig({
+                          detail: `Cannot read config file ${JSON.stringify(configFile)} (${error.reason._tag}). Choose a readable JSON file for this path and retry.`,
+                        }),
+                  ),
             ),
             Effect.flatMap((content) =>
               Effect.try({
                 try: () => JSON.parse(content) as unknown,
-                catch: () => new InvalidConfig(),
+                catch: () =>
+                  new InvalidConfig({
+                    detail: `${JSON.stringify(configFile)}: Invalid JSON. Correct the JSON syntax and retry.`,
+                  }),
               }),
             ),
           ),
@@ -88,10 +122,9 @@ export class AppConfig extends Context.Service<
           Effect.gen(function* () {
             const config = yield* file.pipe(
               Effect.flatMap((value) =>
-                Schema.decodeUnknownEffect(ConfigFile)(value, { onExcessProperty: "error" }),
-              ),
-              Effect.mapError((error) =>
-                error instanceof PermissionDenied ? error : new InvalidConfig(),
+                Schema.decodeUnknownEffect(ConfigFile)(value, { onExcessProperty: "error" }).pipe(
+                  Effect.mapError((error) => configDiagnosis(configFile, error.issue)),
+                ),
               ),
             );
             return { codexBin: executablePath(environmentCodexBin || config.codexBin || "codex") };

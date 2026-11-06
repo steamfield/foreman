@@ -1,4 +1,5 @@
 import { Effect, Schema } from "effect";
+import { hookTrustFix } from "../core/preflight/hooks";
 import {
   type DecodedNotification,
   normalizeNotification,
@@ -22,13 +23,17 @@ function turnStatus(status: string): Codex.TurnStatus {
   }
 }
 
-const decode = Effect.fnUntraced(function* (message: typeof Codex.RpcNotification.Type) {
+const decode = Effect.fnUntraced(function* (
+  message: typeof Codex.RpcNotification.Type,
+  minimal: () => void,
+) {
   switch (message.method) {
     case Codex.Method.turnStarted:
     case Codex.Method.turnCompleted: {
       const params = yield* Schema.decodeUnknownEffect(Codex.TurnNotification)(message.params).pipe(
         Effect.catchTag("SchemaError", () =>
-          Effect.logWarning("supervisor.turn.minimal").pipe(
+          Effect.sync(minimal).pipe(
+            Effect.andThen(Effect.logWarning("supervisor.turn.minimal")),
             Effect.annotateLogs({ method: message.method }),
             Effect.andThen(
               Schema.decodeUnknownEffect(Codex.TurnNotificationMinimal)(message.params),
@@ -105,19 +110,33 @@ export const handleNotification = Effect.fn("supervisor.notification")(function*
     ) {
       yield* turns.interrupt(run, server, "repo-hooks");
       yield* registry.save(run, {
-        failure: { message: "repo hooks did not run", codexErrorInfo: null },
+        failure: {
+          message: `repo hooks did not run in ${run.record.worktree}. Inspect ${run.record.group}/.codex/hooks.json. ${hookTrustFix(run.record.group)}`,
+          codexErrorInfo: null,
+        },
       });
       if (run.record.state === "waiting") yield* registry.state(run, "running");
     }
   }
-  const notification = yield* decode(message).pipe(
+  let issue: "minimal" | "invalid" | undefined;
+  const notification = yield* decode(message, () => {
+    issue = "minimal";
+  }).pipe(
     Effect.catchTag("SchemaError", () =>
-      Effect.logWarning("supervisor.notification.invalid").pipe(
+      Effect.sync(() => {
+        issue = "invalid";
+      }).pipe(
+        Effect.andThen(Effect.logWarning("supervisor.notification.invalid")),
         Effect.annotateLogs({ method: message.method }),
         Effect.as(null),
       ),
     ),
   );
+  if (issue !== undefined) {
+    const warning = `Codex ${message.method} notification ${issue === "minimal" ? "used a partial reply" : "could not be decoded"}; run forman doctor to check compatibility.`;
+    if (!run.record.warnings.includes(warning))
+      yield* registry.save(run, { warnings: [...run.record.warnings, warning] });
+  }
   if (!notification) {
     if (!message.method.endsWith("/delta")) {
       yield* registry.event(run, { _tag: "Other", method: message.method });
