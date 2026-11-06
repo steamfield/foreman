@@ -11,7 +11,7 @@ const request = Effect.fn("commands.request")(function* (body: DaemonRequestBody
   yield* config.load;
   const output = yield* Output;
   return yield* call(body, {
-    dataDir: config.dataDir,
+    dataDir: config.home,
     codexBin: config.codexBin,
     codexHome: config.codexHome,
     logFile: (yield* config.logging).file,

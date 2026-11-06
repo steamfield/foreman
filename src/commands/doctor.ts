@@ -19,7 +19,7 @@ export const doctorCommand = Command.make(
         `Codex executable: ${result.codexBin}`,
         `Config: ${result.configError ?? "ok"}`,
         `Config file: ${result.configFile}`,
-        `Data: ${result.dataDir}`,
+        `Home: ${result.home}`,
         `Codex: ${result.codexVersion ?? "unavailable"}`,
         `Protocol matches: ${result.protocolMatches ?? "unavailable"}`,
         `Logged in: ${result.loggedIn ?? "unavailable"}`,

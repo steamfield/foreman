@@ -43,7 +43,7 @@ export async function fixture(inherited: NodeJS.ProcessEnv = process.env) {
     Object.entries(inherited).filter(
       (entry): entry is [string, string] =>
         entry[1] !== undefined &&
-        !/^(FORMAN_|GIT_|LOG_LEVEL$|XDG_CONFIG_HOME$|OPENAI_API_KEY$|OPENAI_API_BASE$|CODEX_API_KEY$)/.test(
+        !/^(FORMAN_|GIT_|LOG_LEVEL$|OPENAI_API_KEY$|OPENAI_API_BASE$|CODEX_API_KEY$)/.test(
           entry[0],
         ),
     ),
@@ -53,8 +53,7 @@ export async function fixture(inherited: NodeJS.ProcessEnv = process.env) {
     CODEX_BIN: proxy,
     SMOKE_CODEX_BIN: realCodex,
     SMOKE_WIRE: join(root, "wire"),
-    FORMAN_DATA_DIR: data,
-    XDG_CONFIG_HOME: join(root, "config"),
+    FORMAN_HOME: data,
     LOG_LEVEL: "none",
     NO_COLOR: "1",
     GIT_CONFIG_NOSYSTEM: "1",

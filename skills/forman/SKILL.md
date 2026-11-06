@@ -103,7 +103,7 @@ available. It prints the start lines followed by the next question or terminal o
 hand-off. A delegation needing no answer takes one call. Without `--wait`, start returns
 after starting the turn and prints `next: forman wait <name>`; run that command in the
 background. For several runs use `forman wait --all`, also in the background. Run up to five delegates at
-once, each with its own worktree and independent scope. Names are global within forman's data
+once, each with its own worktree and independent scope. Names are global within forman's home
 directory; choose distinct names across repos. `--all` covers the current repo and its linked
 worktrees, not every repo.
 
@@ -187,7 +187,9 @@ it. Remove only worktrees you created. Cleanup belongs to Claude, never the dele
 Read `forman status <name>`, `forman result <name>`, `forman events <name>` and
 `git -C <worktree> status` before deciding. The digest gives the run directory; its records,
 `events.jsonl`, raw Codex traffic and `turns/<n>.md` hand-offs help explain partial work.
-Daemon diagnostics are under the data directory's `logs/daemon.jsonl` and `logs/app-server.log`.
+Config and state live under `FORMAN_HOME` (default `~/.forman`): `config.json`, `forman.sock`,
+`daemon.lock`, `runs/` and `logs/`. Doctor prints this home. Daemon diagnostics are in
+`logs/daemon.jsonl` and `logs/app-server.log` beneath it.
 
 An interrupted or failed run leaves its edits in place. If it is on track, send a short
 follow-up contract, with a larger `--budget` if the turn budget expired. A `transient:` hint

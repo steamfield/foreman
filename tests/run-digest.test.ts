@@ -72,18 +72,11 @@ const tokens = {
 };
 
 function fullDigest(): Digest {
-  return buildDigest(
-    { ...run, tokens },
-    events,
-    questions,
-    "~/.local/share/forman/runs/unit-a",
-    now,
-    {
-      filesWritten: ["src/cli.ts", "src/commands/run.ts", "tests/cli.test.ts"],
-      outsideMayChange: [],
-      newInGitStatus: ["?? src/commands/run.ts"],
-    },
-  );
+  return buildDigest({ ...run, tokens }, events, questions, "~/.forman/runs/unit-a", now, {
+    filesWritten: ["src/cli.ts", "src/commands/run.ts", "tests/cli.test.ts"],
+    outsideMayChange: [],
+    newInGitStatus: ["?? src/commands/run.ts"],
+  });
 }
 
 describe("digest data", () => {
@@ -308,7 +301,7 @@ describe("human digest", () => {
     expect(renderDigest(fullDigest())).toBe(
       [
         "run:       unit-a  running  12m04s  (gpt-6.1-sol, high, priority, write)",
-        "dir:       ~/.local/share/forman/runs/unit-a",
+        "dir:       ~/.forman/runs/unit-a",
         "worktree:  /repo/.claude/worktrees/unit-a",
         "turn:      2 (followup)",
         "question:  q2 (blocked) pending 1m10s: lint rejects the CLI-help test's runtime imports under src/",

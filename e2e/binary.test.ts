@@ -5,7 +5,9 @@ import {
   cp,
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
+  realpath,
   rename,
   rm,
   symlink,
@@ -19,7 +21,7 @@ import { responseJson } from "../src/daemon/protocol";
 import { DaemonResult } from "../src/schemas/daemon";
 import { DoctorResult } from "../src/schemas/doctor";
 import { PackageInfo } from "../src/schemas/package";
-import { askOrchestrator } from "../tests/fixtures/fake-app-server/scenarios";
+import { askOrchestrator, successfulTurn } from "../tests/fixtures/fake-app-server/scenarios";
 
 const metadata = Schema.decodeUnknownSync(PackageInfo)(
   JSON.parse(await readFile("package.json", "utf8")),
@@ -65,13 +67,13 @@ const pong = (dataDir: string) =>
     });
   });
 
-test("starts the daemon in the same data directory when FORMAN_DATA_DIR is relative", async () => {
+test("starts the daemon in the same home directory when FORMAN_HOME is relative", async () => {
   const root = await mkdtemp("/tmp/fm-relative-");
-  const env = { HOME: root, FORMAN_DATA_DIR: "data", LOG_LEVEL: "none" };
+  const env = { HOME: root, FORMAN_HOME: "data", LOG_LEVEL: "none" };
   const run = async (dataDir: string, args: string[]) => {
     const child = Bun.spawn([binary, ...args], {
       cwd: root,
-      env: { ...env, FORMAN_DATA_DIR: dataDir },
+      env: { ...env, FORMAN_HOME: dataDir },
       stdout: "pipe",
       stderr: "pipe",
       timeout: 15_000,
@@ -99,6 +101,89 @@ test("starts the daemon in the same data directory when FORMAN_DATA_DIR is relat
   }
 }, 20_000);
 
+test("keeps a complete run under ~/.forman with only HOME configured", async () => {
+  const root = await mkdtemp("/tmp/fm-home-");
+  const home = join(root, ".forman");
+  const repo = join(root, "repo");
+  const worktree = join(repo, "work");
+  await mkdir(repo);
+  await symlink(process.execPath, join(root, "node"));
+  const env = {
+    HOME: root,
+    PATH: `${root}:/usr/bin:/bin`,
+    CODEX_BIN: resolve("tests/fixtures/fake-app-server/main.mjs"),
+    FAKE_APP_SERVER_SCENARIO: join(root, "scenario.json"),
+  };
+  const run = async (args: string[]) => {
+    const child = Bun.spawn([binary, ...args], {
+      cwd: repo,
+      env,
+      stdout: "pipe",
+      stderr: "pipe",
+      timeout: 15_000,
+    });
+    const [status, stdout, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ]);
+    expect({ status, stderr }).toEqual({ status: 0, stderr: "" });
+    return stdout;
+  };
+  try {
+    const before = Schema.decodeUnknownSync(DoctorResult)(
+      JSON.parse(await run(["doctor", "--json"])),
+    );
+    expect(before).toMatchObject({
+      home,
+      configFile: join(home, "config.json"),
+      daemon: { state: "not running" },
+    });
+    const git = (args: string[]) => execFileSync("git", args, { cwd: repo, env, stdio: "pipe" });
+    git(["init", "-q"]);
+    git([
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.invalid",
+      "commit",
+      "--allow-empty",
+      "-qm",
+      "initial",
+    ]);
+    git(["worktree", "add", "-qb", "unit", worktree]);
+    await writeFile(env.FAKE_APP_SERVER_SCENARIO, JSON.stringify(successfulTurn()));
+    const contract = join(root, "contract.md");
+    await writeFile(contract, "Do the work.\n- May change: `result.txt`\n");
+    const started = await run([
+      "start",
+      "unit",
+      "--worktree",
+      worktree,
+      "--contract",
+      contract,
+      "--wait",
+      "--timeout",
+      "5s",
+    ]);
+    expect(started).toContain("done        unit turn 1");
+    expect((await readdir(home)).sort()).toEqual(["daemon.lock", "forman.sock", "logs", "runs"]);
+    const doctor = Schema.decodeUnknownSync(DoctorResult)(
+      JSON.parse(await run(["doctor", "--json"])),
+    );
+    expect(doctor).toMatchObject({ home, daemon: { state: "running" } });
+    expect(await run(["doctor"])).toContain(`Home: ${home}`);
+    expect(await run(["status"])).toMatch(/^unit {2}idle/);
+    expect((await run(["archive", "unit"])).trim()).toStartWith(join(home, "runs", ".archive"));
+    await run(["daemon", "stop"]);
+    expect((await readdir(home)).sort()).toEqual(["daemon.reclaim", "logs", "runs"]);
+    expect(await readdir(join(home, "daemon.reclaim"))).toEqual([]);
+  } finally {
+    await run(["daemon", "stop"]);
+    await rm(root, { recursive: true, force: true });
+  }
+}, 20_000);
+
 // Merge wiring required in core/commands.ts: pass logFile: (yield* config.logging).file to call().
 // Keep this active regression red until the orchestrator wires that locked call site.
 test("merge wiring: CLI and daemon share a relative log override from the caller", async () => {
@@ -109,7 +194,7 @@ test("merge wiring: CLI and daemon share a relative log override from the caller
       cwd: root,
       env: {
         HOME: root,
-        FORMAN_DATA_DIR: dataDir,
+        FORMAN_HOME: dataDir,
         FORMAN_LOG_FILE: "logs/shared.jsonl",
         LOG_LEVEL: "debug",
       },
@@ -165,7 +250,7 @@ async function buildCopy(root: string) {
 
 test("compiled identities survive identical rebuilds and replace idle daemons after a source edit", async () => {
   const root = await mkdtemp("/tmp/fm-b-");
-  const env = { HOME: root, FORMAN_DATA_DIR: join(root, "d"), LOG_LEVEL: "none" };
+  const env = { HOME: root, FORMAN_HOME: join(root, "d"), LOG_LEVEL: "none" };
   const { project, rebuild } = await buildCopy(root);
   const run = async (args: string[], fromSource = false) => {
     const executable = fromSource
@@ -187,33 +272,33 @@ test("compiled identities survive identical rebuilds and replace idle daemons af
   try {
     await rebuild();
     expect(await run(["status", "--json"])).toMatchObject({ status: 0, stderr: "" });
-    const first = await pong(env.FORMAN_DATA_DIR);
+    const first = await pong(env.FORMAN_HOME);
     expect(first.build).toMatch(/^[a-f0-9]{64}$/);
     await rebuild();
     expect(await run(["status", "--json"])).toMatchObject({ status: 0, stderr: "" });
-    expect(await pong(env.FORMAN_DATA_DIR)).toEqual(first);
+    expect(await pong(env.FORMAN_HOME)).toEqual(first);
     const source = join(project, "src/bin.ts");
     await writeFile(source, `${await readFile(source, "utf8")}\n// Changed build input.\n`);
     await rebuild();
     expect(await run(["status", "--json"])).toMatchObject({ status: 0, stderr: "" });
-    const second = await pong(env.FORMAN_DATA_DIR);
+    const second = await pong(env.FORMAN_HOME);
     expect(second.pid).not.toBe(first.pid);
     expect(second.build).not.toBe(first.build);
     await waitForExit(first.pid);
     expect(await run(["status", "--json"], true)).toMatchObject({ status: 0, stderr: "" });
-    const dev = await pong(env.FORMAN_DATA_DIR);
+    const dev = await pong(env.FORMAN_HOME);
     expect(dev.build).toBe(`dev-${second.build}`);
     await waitForExit(second.pid);
     expect(await run(["status", "--json"], true)).toMatchObject({ status: 0, stderr: "" });
-    expect(await pong(env.FORMAN_DATA_DIR)).toEqual(dev);
+    expect(await pong(env.FORMAN_HOME)).toEqual(dev);
     await writeFile(source, `${await readFile(source, "utf8")}\n// Changed dev input.\n`);
     expect(await run(["status", "--json"], true)).toMatchObject({ status: 0, stderr: "" });
-    const editedDev = await pong(env.FORMAN_DATA_DIR);
+    const editedDev = await pong(env.FORMAN_HOME);
     expect(editedDev.pid).not.toBe(dev.pid);
     expect(editedDev.build).not.toBe(dev.build);
     await waitForExit(dev.pid);
   } finally {
-    const stopped = await pong(env.FORMAN_DATA_DIR);
+    const stopped = await pong(env.FORMAN_HOME);
     expect((await run(["daemon", "stop"])).status).toBe(0);
     await waitForExit(stopped.pid);
     await rm(root, { recursive: true, force: true });
@@ -238,8 +323,7 @@ test.each(["compiled", "development"])(
       CODEX_HOME: join(root, "codex"),
       PATH: `${root}:/usr/bin:/bin`,
       CODEX_BIN: resolve("tests/fixtures/fake-app-server/main.mjs"),
-      FORMAN_DATA_DIR: mode === "compiled" ? join(root, "d") : "",
-      XDG_DATA_HOME: join(root, "personal"),
+      FORMAN_HOME: mode === "compiled" ? join(root, "d") : "",
       FAKE_APP_SERVER_SCENARIO: join(root, "scenario.json"),
       LOG_LEVEL: "none",
     };
@@ -287,6 +371,21 @@ test.each(["compiled", "development"])(
       return (line ?? "").slice("next: ".length);
     };
     try {
+      if (mode === "development") {
+        const developmentHome = join(await realpath(repo), ".dev", "home");
+        for (const override of ["", " \t "]) {
+          env.FORMAN_HOME = override;
+          const diagnostic = await run(["doctor", "--json"]);
+          expect(diagnostic).toMatchObject({ status: 0, stderr: "" });
+          expect(
+            Schema.decodeUnknownSync(DoctorResult)(JSON.parse(diagnostic.stdout)),
+          ).toMatchObject({
+            home: developmentHome,
+            configFile: join(developmentHome, "config.json"),
+          });
+        }
+        env.FORMAN_HOME = "";
+      }
       const started = await run(["start", "unit", "--worktree", worktree, "--contract", contract]);
       expect(started).toMatchObject({ status: 0, stderr: "" });
       expect(next(started.stdout)).toEndWith(" wait unit");
@@ -298,7 +397,7 @@ test.each(["compiled", "development"])(
       expect(attention.stdout).toContain("question    unit q1");
       let upgrade: { busy: Extract<DaemonResult, { _tag: "Pong" }>; binary: string } | undefined;
       if (mode === "compiled") {
-        const busy = await pong(env.FORMAN_DATA_DIR);
+        const busy = await pong(env.FORMAN_HOME);
         const { project, rebuild } = await buildCopy(root);
         const source = join(project, "src/bin.ts");
         await writeFile(source, `${await readFile(source, "utf8")}\n// Busy upgrade build.\n`);
@@ -312,7 +411,7 @@ test.each(["compiled", "development"])(
           _tag: "Digests",
           digests: [{ name: "unit", state: "waiting" }],
         });
-        expect(await pong(env.FORMAN_DATA_DIR)).toEqual(busy);
+        expect(await pong(env.FORMAN_HOME)).toEqual(busy);
         upgrade = { busy, binary: upgraded };
       }
       const status = await run(["status"]);
@@ -337,7 +436,7 @@ test.each(["compiled", "development"])(
         await copyFile(upgrade.binary, replacement);
         await rename(replacement, executable);
         expect(await run(["status", "--json"])).toMatchObject({ status: 0, stderr: "" });
-        const replaced = await pong(env.FORMAN_DATA_DIR);
+        const replaced = await pong(env.FORMAN_HOME);
         expect(replaced.pid).not.toBe(upgrade.busy.pid);
         expect(replaced.build).not.toBe(upgrade.busy.build);
         await waitForExit(upgrade.busy.pid);
@@ -394,7 +493,7 @@ test("one question delegation takes exactly two calls using printed attention", 
     CODEX_HOME: join(root, "codex"),
     PATH: `${root}:/usr/bin:/bin`,
     CODEX_BIN: resolve("tests/fixtures/fake-app-server/main.mjs"),
-    FORMAN_DATA_DIR: join(root, "d"),
+    FORMAN_HOME: join(root, "d"),
     FAKE_APP_SERVER_SCENARIO: join(root, "scenario.json"),
     LOG_LEVEL: "none",
   };
@@ -465,7 +564,7 @@ test("compiled output, config precedence, log records, errors, and no dotenv aut
   const home = await mkdtemp(join(tmpdir(), "cli-binary-"));
   const prefix = metadata.name.toUpperCase().replace(/[^A-Z0-9]/g, "_");
   try {
-    const config = join(home, "config", metadata.name);
+    const config = join(home, ".forman");
     const log = join(home, "cli.jsonl");
     const emptyPath = join(home, "empty-bin");
     await mkdir(emptyPath);
@@ -482,7 +581,6 @@ test("compiled output, config precedence, log records, errors, and no dotenv aut
         env: {
           HOME: home,
           PATH: emptyPath,
-          XDG_CONFIG_HOME: join(home, "config"),
           NO_COLOR: "1",
           [`${prefix}_LOG_FILE`]: log,
           ...extra,

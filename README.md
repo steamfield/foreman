@@ -27,7 +27,7 @@ cp dist/forman "$HOME/.local/bin/forman"
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-Keep that `PATH` setting in your shell's startup file. Rebuild and copy the binary after updating this checkout, then run `forman daemon stop` to stop the old build. Stop refuses while any run is active and names those runs; finish or interrupt them first. With no daemon running it succeeds without starting one. The next run command starts the rebuilt daemon. npm publishing is pending. For development, `bun run dev <args>` runs from source, with separate state under `.dev/data` and logs under `logs/`. Optional lefthook git hooks install during `bun install` if lefthook is available (`brew install lefthook` on macOS).
+Keep that `PATH` setting in your shell's startup file. Rebuild and copy the binary after updating this checkout, then run `forman daemon stop` to stop the old build. Stop refuses while any run is active and names those runs; finish or interrupt them first. With no daemon running it succeeds without starting one. The next run command starts the rebuilt daemon. npm publishing is pending. For development, `bun run dev <args>` runs from source, with separate state under `.dev/home` and logs under `logs/`. Optional lefthook git hooks install during `bun install` if lefthook is available (`brew install lefthook` on macOS).
 
 `doctor` succeeds even when configuration or a Codex probe is unavailable, so read its output. It reports config paths, the resolved Codex executable, Codex version, protocol match, login, daemon state and repo hook trust. For a running daemon it reports `build` and `buildMatches` in JSON, with the build and its match to this CLI in text; both are unknown (null in JSON) for an old daemon without a build identity. Each probe has a 5-second execution timeout. Unavailable Codex checks are null in JSON; repo hook probe failures have state `unknown`. It never starts or replaces the daemon or starts a Codex turn.
 
@@ -151,30 +151,30 @@ Failures leave stdout empty and report once on stderr. With `--json`, the final 
 
 ## Configuration
 
-Settings come from environment variables, then the optional file `$XDG_CONFIG_HOME/forman/config.json` (default `~/.config/forman/config.json`), then defaults. The CLI never reads `.env`; `.env.example` lists the variables.
+Settings come from environment variables, then the optional file `$FORMAN_HOME/config.json` (default `~/.forman/config.json`), then defaults. The CLI never reads `.env`; `.env.example` lists the variables. Config and data under the old XDG paths (`~/.config/forman`, `~/.local/share/forman`) or `FORMAN_DATA_DIR` are not read.
 
 | Variable | Config key | Default | Meaning |
 | --- | --- | --- | --- |
 | `LOG_LEVEL` | `logLevel` | `warn` | `trace`, `debug`, `info`, `warn`, `error`, `fatal` or `none` |
 | `FORMAN_LOG_FORMAT` | | pretty | `json` writes stderr logs as JSON lines |
 | `FORMAN_LOG_FILE` | | none | Also append JSON log records to this file |
-| `FORMAN_DATA_DIR` | | `$XDG_DATA_HOME/forman` (`~/.local/share/forman`) | Where forman keeps its state |
+| `FORMAN_HOME` | | `~/.forman` | Where forman keeps its config and state |
 | `CODEX_BIN` | `codexBin` | `codex` | Codex executable; resolved through `PATH` |
 | `CODEX_HOME` | | `$HOME/.codex` | Codex configuration and state directory |
 
 The config file is closed: an unknown key makes it invalid, which `doctor` reports.
 
-Relative `FORMAN_DATA_DIR`, `FORMAN_LOG_FILE`, `CODEX_HOME` and executable paths in `CODEX_BIN` resolve from the caller's directory. Bare executable names such as `codex` use `PATH`.
+Relative `FORMAN_HOME`, `FORMAN_LOG_FILE`, `CODEX_HOME` and executable paths in `CODEX_BIN` resolve from the caller's directory. Bare executable names such as `codex` use `PATH`.
 
 forman uses the Codex CLI's ChatGPT login and never passes API key variables from the caller's environment to Codex.
 
 ## State and logs
 
-`FORMAN_DATA_DIR` defaults to `$XDG_DATA_HOME/forman` or `~/.local/share/forman`. It holds `forman.sock`, the daemon lock, and `runs/<name>/` with the run record, contract, normalized events, question history, raw Codex traffic and `turns/<n>.md` hand-offs. Replacing an inactive run archives its previous directory under `runs/.archive/`. Names are global within the data directory; status without a name and wait with `--all` select the current repo's group.
+`FORMAN_HOME` holds `config.json`, `forman.sock`, `daemon.lock`, `logs/`, and `runs/<name>/` with the run record, contract, normalized events, question history, raw Codex traffic and `turns/<n>.md` hand-offs. The config file is optional; doctor reports the home directory. Replacing an inactive run archives its previous directory under `runs/.archive/`. Names are global within the home directory; status without a name and wait with `--all` select the current repo's group.
 
-The daemon runs from the data directory, so removing the worktree that launched it does not prevent later app-server starts. At startup it creates or tightens the data directory to mode `0700`, restricting access to its owner.
+The daemon runs from the home directory, so removing the worktree that launched it does not prevent later app-server starts. At startup it creates or tightens the home directory to mode `0700`, restricting access to its owner.
 
-The daemon starts automatically when a run command needs it and exits after 30 idle minutes. `logs/daemon.jsonl` and `logs/app-server.log` under the data directory hold daemon diagnostics and app-server stderr, rotated past 5 MB. Setting `FORMAN_LOG_FILE` overrides the daemon JSON log path, including for development runs; app-server stderr stays in `logs/app-server.log`. CLI logs go to stderr and optionally the same `FORMAN_LOG_FILE`. Development runs also append `logs/cli.jsonl` and `logs/cli.log` in this checkout.
+The daemon starts automatically when a run command needs it and exits after 30 idle minutes. `logs/daemon.jsonl` and `logs/app-server.log` under the home directory hold daemon diagnostics and app-server stderr, rotated past 5 MB. Setting `FORMAN_LOG_FILE` overrides the daemon JSON log path, including for development runs; app-server stderr stays in `logs/app-server.log`. CLI logs go to stderr and optionally the same `FORMAN_LOG_FILE`. Development runs also append `logs/cli.jsonl` and `logs/cli.log` in this checkout.
 
 ## Architecture and tests
 
