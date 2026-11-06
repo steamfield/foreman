@@ -4,6 +4,8 @@
 
 ### Added
 
+- `foreman guide [topic]` for the agent workflow and fillable contract templates, with command help covering accepted states, exit codes and examples.
+- `foreman skill install` to install or print the bundled thin agent entry point without cloning the repository.
 - The `foreman` command for delegating coding tasks to Codex in managed or prepared git worktrees, using the Codex CLI's ChatGPT login.
 - A local daemon that keeps runs alive between CLI calls, with replacement of an idle outdated daemon on the next run command after an upgrade.
 - Questions during a turn, with explicit or timeout deferral, late answers and corrections.

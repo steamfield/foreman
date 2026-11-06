@@ -4,6 +4,8 @@ foreman keeps supervision in a local daemon so a coding turn can outlive the CLI
 
 The [RFC](rfcs/0001-foreman.md) records the original plan and build history. Contributor commands and area-specific rules live in [AGENTS.md](../AGENTS.md).
 
+Agents start with `foreman guide`, then read a workflow topic or a command's `--help` as needed. `foreman skill install` installs the thin discovery skill for that binary. Workflow topics, contract templates and skill text live once in `src/guide/` and compile into the binary; `scripts/generate-skill.ts` writes the checked-in skill, with drift checked by tests. The guide and installer run locally without contacting Codex or a daemon.
+
 ## Processes and request flow
 
 ```mermaid

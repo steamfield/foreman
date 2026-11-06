@@ -41,7 +41,10 @@ export const main = Effect.fn("main")(function* (
     ...formatter,
     formatHelpDoc: (doc) => {
       frameworkKind = "help";
-      return formatter.formatHelpDoc(doc);
+      const text = formatter.formatHelpDoc(doc);
+      return doc.commandPath?.length === 1
+        ? `${text.trimEnd()}\n\nStart here (agents): run foreman guide before your first delegation.\nUse foreman guide <topic> for the workflow and foreman <command> --help for details.\n`
+        : text;
     },
     formatVersion: (name, version) => {
       frameworkKind = "version";

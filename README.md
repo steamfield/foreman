@@ -10,6 +10,7 @@ You need git, a repo with a commit and [Node 26 or newer](https://nodejs.org/en/
 
 ```sh
 npm i -g @steamfield/foreman
+foreman skill install
 npm i -g @openai/codex@0.166.0
 codex login
 foreman doctor
@@ -21,16 +22,15 @@ Read doctor's probes even when it exits 0. It checks config, Codex, hook trust a
 
 ### Use the Claude Code skill
 
-Clone this repo, or use an existing checkout, and copy the skill and contract templates into your personal skills directory:
+The binary installs its matching entry point for Claude Code:
 
 ```sh
-git clone https://github.com/steamfield/foreman.git
-cd foreman
-mkdir -p "$HOME/.claude/skills"
-cp -R skills/foreman "$HOME/.claude/skills/foreman"
+foreman skill install
 ```
 
-Open Claude Code in the repo and ask: "Use the foreman skill to delegate this task to Codex, then review its work." The [skill procedure](skills/foreman/SKILL.md) covers contracts and supervision.
+An identical installed file is unchanged; inspect a different copy before replacing it with `foreman skill install --force`. Other agents can read `foreman skill install --print` (or `npx @steamfield/foreman skill install --print`). Open Claude Code in the repo and ask: "Use the foreman skill to delegate this task to Codex, then review its work."
+
+The [skill](skills/foreman/SKILL.md) requires `foreman guide` before the first command in a session. The guide ships the workflow and contract templates with the installed binary; `foreman <command> --help` owns arguments, flags, defaults, accepted states, exit codes and examples.
 
 ## One-time repo setup
 
@@ -50,94 +50,15 @@ Project hooks should say `trusted` or `managed`, then `foreman start will accept
 
 Linked worktrees inside the main checkout inherit its approved hooks. Reapprove changed definitions there; hook edits in a delegated branch take effect after reaching the main checkout. foreman never approves hooks or changes Codex trust.
 
-## Your first delegation
+## Delegate and supervise
 
-This example uses this repo, with setup complete, `foreman` on `PATH` and [Bun 1.4 or newer](https://bun.sh/docs/installation) for setup and checks. Start in its main checkout with an unused name. The contract states the task, allowed edits, checks and expected report:
+Run `foreman guide` before the first delegation in a session. It walks through writing a contract, starting a background wait, handling questions, reviewing the diff and archiving. Fill a template from `foreman guide contract`, or `foreman guide contract tests` for a test author.
 
-```sh
-contract=$(mktemp /tmp/foreman-contract.XXXXXX)
-cat > "$contract" <<'CONTRACT'
-Clarify the doctor help description for a new user.
-- May change: `src/commands/doctor.ts`
-Change description text only. Read AGENTS.md and the rules it names.
-Run bun run lint and bun run typecheck; inspect doctor --help.
-Leave changes uncommitted. Report the change, checks and open questions.
-CONTRACT
-foreman start doctor-help --new-worktree --setup "bun install" --contract "$contract" --write --wait
-```
+Read `foreman guide supervise` when a question or correction arrives, `foreman guide review` before landing work, and `foreman guide recover` before retrying a failed run or upgrading. Use the printed `next:` command after each result. Run waits in the background so the orchestrator remains available.
 
-foreman creates `.claude/worktrees/doctor-help` on `foreman/doctor-help` at the caller's HEAD (`--from` selects another base). Setup runs before validation or any Codex request, with a 10-minute default limit. An explicit `--budget` sets that limit too; the turn gets its own budget afterward.
+A question that needs a person gets `foreman defer`; send `foreman answer` on the same id when the decision arrives. Timeout does the same after 15 minutes by default. Never bypass hook or trust refusals; ask the user. Review the diff and run the repo's gate yourself before committing. Honor instructions to leave work uncommitted.
 
-`--write` gives Codex full host access, including commands and network, with your filtered inherited environment. The default is read-only.
-
-`--wait` prints nothing until attention arrives, then returns start details with the digest and available hand-off. Run it as a background Bash task in Claude Code. Without `--wait`, start returns after starting the turn and prints a `next:` wait command.
-
-Wait prints questions with their ids. Answer or defer the actual id; these are alternatives when `q1` is pending:
-
-```sh
-foreman answer doctor-help q1 "Keep the description to one sentence." --wait
-foreman defer doctor-help q1 "Waiting for a person to decide." --wait
-```
-
-Deferral releases the tool call and tells Codex to continue independent work, avoid irreversible steps on the decision and list it under Open. Timeout does the same after 15 minutes by default. You can answer later, even after the turn ends.
-
-A `done` outcome means the turn ended. Read its hand-off and inspect the work yourself:
-
-```sh
-foreman result doctor-help
-git -C .claude/worktrees/doctor-help diff
-git -C .claude/worktrees/doctor-help status --short
-```
-
-Check new files as well as the diff. To return a review finding to Codex, send a follow-up on the inactive run:
-
-```sh
-foreman followup doctor-help "Keep the help to one sentence and mention repo hook trust. Run lint and typecheck again." --wait
-foreman result doctor-help
-```
-
-Review the revised diff too. For this repo, run the gate and inspect the rebuilt help from the delegated worktree:
-
-```sh
-(cd .claude/worktrees/doctor-help && bun run check && ./dist/foreman doctor --help)
-```
-
-Commit there and merge into the source branch when you accept the work. foreman does not commit or merge for you.
-
-After the work is merged and the worktree is clean:
-
-```sh
-foreman archive doctor-help
-```
-
-Archive preserves records and frees the name. Managed cleanup requires a clean worktree with no untracked files, and a branch with no new commits or a tip merged into its source branch. Use `foreman archive doctor-help --keep-worktree` to retain unfinished work. Status and doctor report existing worktrees under `<main>/.claude/worktrees/` on `foreman/*` branches when no current run record refers to them. Retained worktrees elsewhere are not reported as orphans.
-
-## Supervise a run
-
-Names are global within `FOREMAN_HOME`. Unnamed `status` and `wait --all` select the current repo and linked worktrees. Concurrent runs need separate worktrees.
-
-| Situation | Command and behavior |
-| --- | --- |
-| A question is pending | `answer` responds to its held tool call; `defer` releases it without deciding |
-| A deferred question needs an answer | `answer` adds the original question's context, steers a running turn or starts a follow-up on an inactive run |
-| An earlier answer needs correcting | Answer the same id again; the message is framed as a correction |
-| Codex refuses a late-answer steer | `answer` waits for the turn to end, then starts a follow-up |
-| A budget hand-off is active | `answer` queues delivery after it; further answers stay in acceptance order |
-| The active task needs a change | `steer` sends it to the running turn; answer any pending question first |
-| An inactive run needs more work | `followup` continues its saved thread; it refuses while answers are queued |
-| Work should stop | `interrupt` requests interruption and cancels pending questions; read the resulting state before reusing the worktree |
-
-If a different question is pending, answer it first. Include the late answer or correction in that response. Deferred questions remain in status and wait digests until answered or superseded by explicit steer or followup. Superseded and cancelled ids still accept answers. Inactive runs need a saved thread and existing worktree to continue.
-
-`start`, `answer`, `defer`, `steer`, `followup` and `interrupt` accept `--wait` and `--timeout`. Mutation waits target the **named run only**, even when peers are active. Start returns `Started` without waiting, or `Waited` with start metadata.
-
-Without `--wait`, the other commands normally print `ok` and a command to wait for the run. JSON responses use `Accepted` and include a cursor; answers also identify their delivery route. With `--wait` they return `Waited`.
-
-Interrupting start preflight instead returns `Ok`, without a cursor or wait, even with `--wait`. A queued answer's cursor tracks its own delivered turn.
-
-Use the printed `next:` command. A question suggests `answer`, or `defer` while pending; replace the answer placeholder with your decision. Ordinary wait continuations use `--after` to avoid repeated attention and preserve an explicit timeout. A mutation without `--wait` does not carry its timeout into `next:`. Commands use `foreman` if it resolves to the running executable on `PATH`, otherwise an absolute invocation, and prefix FOREMAN_HOME only for a nondefault home.
-
-`--budget` defaults to 60 minutes per working turn. On expiry, foreman interrupts, then requests a read-only hand-off with a separate 10-minute budget. The run ends interrupted; the next follow-up restores its configured sandbox. A hand-off is not guaranteed if Codex or supervision fails.
+`--budget` defaults to 60 minutes per working turn. On expiry, foreman interrupts, then requests a read-only hand-off with a separate 10-minute budget. The run ends interrupted; a later follow-up restores its configured sandbox.
 
 ## Command reference
 
@@ -145,6 +66,8 @@ All commands accept `--json` and `--help`. Commands below follow `foreman`; angl
 
 | Command | Purpose |
 | --- | --- |
+| `guide [<topic>]` | Print the agent workflow, or contract, contract tests, supervise, review or recover; `--json` includes text, topics and mentioned commands |
+| `skill install [--force] [--print]` | Install the bundled skill under `$HOME/.claude/skills/foreman/`, leave an identical copy unchanged, or print it for another agent |
 | `start <name> --new-worktree --contract <file>` | Create a worktree and start; accepts `--from`, `--setup`, `--write`, `--model`, `--effort`, `--tier`, `--budget`, `--question-timeout`, `--skip-deps-check` |
 | `start <name> --worktree <path> --contract <file>` | Use a prepared linked worktree inside the main checkout; foreman never removes it or its branch |
 | `status [<name>]` | Full digest for one run, or a line per run in the group; both JSON forms return `Digests` |
@@ -163,6 +86,19 @@ All commands accept `--json` and `--help`. Commands below follow `foreman`; angl
 `--worktree` and `--new-worktree` are mutually exclusive; `--from` and `--setup` require `--new-worktree`. A prepared worktree must be its git root, distinct from and inside the main checkout. With `package.json`, it needs `node_modules/` or `.pnp.cjs` unless you pass `--skip-deps-check`.
 
 Contracts declare scope with a line beginning `- May change:` and backticked paths. Entries ending in `/` cover directory prefixes; `*` matches within a path segment and `**` across directories. Literal paths also match suffixes. The digest reports dirty paths outside that scope; this is a review aid, not a write restriction. Follow-ups keep the original contract's scope.
+
+For example, this small contract limits a help edit to one file:
+
+```sh
+contract=$(mktemp /tmp/foreman-contract.XXXXXX)
+cat > "$contract" <<'CONTRACT'
+Clarify the doctor help description for a new user.
+- May change: `src/commands/doctor.ts`
+Change description text only. Read AGENTS.md and the rules it names.
+Run bun run lint and bun run typecheck; inspect doctor --help.
+Leave changes uncommitted. Report the change, checks and open questions.
+CONTRACT
+```
 
 ### Wait outcomes
 
@@ -252,6 +188,8 @@ export PATH="$HOME/.local/bin:$PATH"
 ```
 
 Keep PATH in your shell's startup file. The rename avoids the macOS issue under [Upgrade](#upgrade). `bun run dev` uses `.dev/home` for state and `logs/` for logs. `bun install` adds git hooks when lefthook is available.
+
+Then run `foreman skill install`. To update the generated repository copy after editing `src/guide/skill.ts`, run `bun scripts/generate-skill.ts`; the test suite checks it for drift. Guide topics and contract templates also live under `src/guide/` and compile into the binary.
 
 `bun run check` runs lint, typecheck, unit and compiled-binary e2e tests, using a fake app server. Contributor commands live in [AGENTS.md](AGENTS.md), design in [architecture](docs/architecture.md), agent guards in [harness](docs/harness.md) and releases in the [changelog](CHANGELOG.md).
 
