@@ -65,15 +65,11 @@ export function SessionDiagram({ session }: { session: Session }) {
           />
         </div>
         <figcaption className="border-line text-ink-3 border-t px-4 py-3 text-xs">
-          Simulation with compressed timings; question and answer recorded from
-          site-commands. Narration written for this page.
+          Each lane's commands are sampled from its delegate's recording;
+          question and answer from site-commands. Narration written for this
+          page.
         </figcaption>
       </figure>
-      <p className="text-ink-3 mt-3 text-xs">
-        Counters and event samples replay excerpts from site-console and
-        site-commands; the simulated site-e2e lane reuses site-commands'
-        recorded checks.
-      </p>
       <ol className="mt-8 grid min-w-0 gap-x-8 gap-y-6 md:grid-cols-2">
         {session.steps.map((step, i) => (
           <li key={step.at} className="min-w-0">

@@ -11,11 +11,16 @@ import { hydrateRoot } from "react-dom/client";
 import { renderToStaticMarkup, renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadRun } from "../../data/runs";
-import { buildSession } from "../../data/session";
+import { buildSession, sceneAt } from "../../data/session";
 import { initAnalytics, resetAnalyticsForTests } from "../../lib/analytics";
 import { SessionDiagram } from "./SessionDiagram";
+import { SessionCanvas } from "./session/SessionCanvas";
 
-const session = buildSession(loadRun("site-commands"));
+const session = buildSession(loadRun("site-commands"), {
+  "site-console": loadRun("site-console"),
+  "site-commands": loadRun("site-commands"),
+  "site-e2e": loadRun("site-e2e"),
+});
 const renderDemo = () => render(<SessionDiagram session={session} />);
 const advance = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms));
 function reduceMotion(reduced: boolean) {
@@ -47,6 +52,64 @@ afterEach(() => {
 });
 
 describe("SessionDiagram", () => {
+  it.each(["wide", "tall"])(
+    "keeps travelling labels clear of cards, including their final position, in the %s geometry",
+    (geometry) => {
+      const scene = sceneAt(session, session.stillAt);
+      let visibleLabels = 0;
+      for (const progress of [0, 0.1, 0.25, 0.5, 0.75, 0.9, 0.99, 1]) {
+        const { container, unmount } = render(
+          <SessionCanvas
+            session={session}
+            scene={{
+              ...scene,
+              packets: session.packets.map((packet) => ({
+                ...packet,
+                progress,
+              })),
+            }}
+            playing={false}
+          />,
+        );
+        const drawing = container.querySelector(`.session-${geometry}`);
+        const box = (element: Element) => ({
+          x: Number(element.getAttribute("x")),
+          y: Number(element.getAttribute("y")),
+          w: Number(element.getAttribute("width")),
+          h: Number(element.getAttribute("height")),
+        });
+        const cards = [
+          ...(drawing?.querySelectorAll("[data-session-card]") ?? []),
+        ].map(box);
+        expect(cards).toHaveLength(5);
+        const labels = drawing?.querySelectorAll("[data-packet-label]") ?? [];
+        if (progress === 0.5 || (geometry === "wide" && progress === 0.75)) {
+          const question = drawing?.querySelector(
+            '[data-packet-label="ask_orchestrator"]',
+          );
+          expect(question).not.toBeNull();
+          expect(question?.parentElement).toHaveAttribute("opacity", "1");
+        }
+        visibleLabels += labels.length;
+        for (const label of labels) {
+          const a = box(label);
+          for (const b of cards) {
+            expect(
+              a.x < b.x + b.w &&
+                a.x + a.w > b.x &&
+                a.y < b.y + b.h &&
+                a.y + a.h > b.y,
+              `${label.getAttribute("data-packet-label")} at ${progress}`,
+            ).toBe(false);
+          }
+        }
+        if (progress === 1) expect(labels).toHaveLength(0);
+        unmount();
+      }
+      expect(visibleLabels).toBeGreaterThan(0);
+    },
+  );
+
   it("pauses when the digest opens and keeps its contents and focus while reading", async () => {
     renderDemo();
     await advance(34_000);
@@ -88,7 +151,9 @@ describe("SessionDiagram", () => {
     );
     expect(document.querySelector("svg")?.textContent).toContain("gpt-6-astra");
     expect(
-      screen.getByText(/reuses site-commands' recorded checks/),
+      screen.getByText(
+        /Each lane's commands are sampled from its delegate's recording/,
+      ),
     ).toBeInTheDocument();
   });
 
