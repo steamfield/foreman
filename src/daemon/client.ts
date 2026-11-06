@@ -2,7 +2,7 @@ import { Effect, FileSystem, Option, Path, Predicate, Schema, Stream } from "eff
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import type { Socket } from "effect/socket";
 import { type AppError, DaemonUnavailable, Defect } from "../errors";
-import type { DaemonRequestBody } from "../schemas/daemon";
+import type { DaemonRequestBody, DaemonResult } from "../schemas/daemon";
 import { Host } from "../services/host";
 import { errorFromResponse, lines, requestJson, responseJson } from "./protocol";
 import { DaemonSockets } from "./sockets";
@@ -12,6 +12,9 @@ export interface CallOptions {
   readonly connectOnly?: boolean;
   readonly startupTimeoutMs?: number;
   readonly onOutdated?: Effect.Effect<void, AppError>;
+  readonly codexBin?: string;
+  readonly codexHome?: string;
+  readonly logFile?: string;
 }
 
 const absent = (error: Socket.SocketError) => {
@@ -24,8 +27,14 @@ const absent = (error: Socket.SocketError) => {
 };
 
 const spawn = Effect.fn("daemon.spawn")(
-  function* () {
+  function* (options: CallOptions) {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const dataDir = path.resolve(options.dataDir);
+    yield* fs.makeDirectory(dataDir, { recursive: true, mode: 0o700 });
+    yield* fs.chmod(dataDir, 0o700);
     const host = yield* Host;
+    const prefix = host.name.toUpperCase().replace(/[^A-Z0-9]/g, "_");
     const [executable, ...args] = host.executable;
     if (executable === undefined) {
       return yield* new DaemonUnavailable({
@@ -37,6 +46,14 @@ const spawn = Effect.fn("daemon.spawn")(
       Effect.gen(function* () {
         const child = yield* spawner.spawn(
           ChildProcess.make(executable, [...args, "daemon"], {
+            cwd: dataDir,
+            env: {
+              [`${prefix}_DATA_DIR`]: dataDir,
+              ...(options.codexBin === undefined ? {} : { CODEX_BIN: options.codexBin }),
+              ...(options.codexHome === undefined ? {} : { CODEX_HOME: options.codexHome }),
+              ...(options.logFile === undefined ? {} : { [`${prefix}_LOG_FILE`]: options.logFile }),
+            },
+            extendEnv: true,
             detached: true,
             stdin: "ignore",
             stdout: "ignore",
@@ -52,25 +69,24 @@ const spawn = Effect.fn("daemon.spawn")(
   ),
 );
 
+const open = Effect.fnUntraced(function* (socketPath: string) {
+  const socket = yield* (yield* DaemonSockets).connect(socketPath);
+  return { socket, reader: yield* socket.reader };
+});
+
 const connect = Effect.fn("daemon.connect")(
   function* (socketPath: string, options: CallOptions) {
-    const sockets = yield* DaemonSockets;
-    const open = Effect.gen(function* () {
-      const socket = yield* sockets.connect(socketPath);
-      const reader = yield* socket.reader;
-      return { socket, reader };
-    });
-    const initial = yield* Effect.result(open);
+    const initial = yield* Effect.result(open(socketPath));
     if (initial._tag === "Success") return initial.success;
     if (options.connectOnly || !absent(initial.failure)) {
       return yield* new DaemonUnavailable({
         detail: `Could not connect to daemon socket: ${socketPath}`,
       });
     }
-    yield* spawn();
+    yield* spawn(options);
     while (true) {
       yield* Effect.sleep(100);
-      const attempt = yield* Effect.result(open);
+      const attempt = yield* Effect.result(open(socketPath));
       if (attempt._tag === "Success") return attempt.success;
       if (!absent(attempt.failure)) {
         return yield* new DaemonUnavailable({
@@ -120,7 +136,13 @@ const exchange = Effect.fn("daemon.exchange")(
   Effect.catchTag("SocketError", () =>
     Effect.fail(new DaemonUnavailable({ detail: connectionClosed })),
   ),
-  Effect.catchTag("SchemaError", () => Effect.fail(new Defect())),
+  Effect.catchTag("SchemaError", () =>
+    Effect.fail(
+      new DaemonUnavailable({
+        detail: "Could not decode daemon reply; daemon build differs.",
+      }),
+    ),
+  ),
 );
 
 const exchangeRunRequest = Effect.fn("daemon.exchangeRunRequest")(function* (
@@ -147,6 +169,19 @@ const exchangeRunRequest = Effect.fn("daemon.exchangeRunRequest")(function* (
   return result._tag === "Ok" ? { _tag: "Accepted" as const, cursor: before.cursor } : result;
 });
 
+const outdated = (
+  pong: Extract<DaemonResult, { _tag: "Pong" }>,
+  build: string,
+  options: CallOptions,
+) =>
+  pong.build !== build ||
+  (options.codexBin !== undefined &&
+    pong.codexBin !== undefined &&
+    options.codexBin !== pong.codexBin) ||
+  (options.codexHome !== undefined &&
+    pong.codexHome !== undefined &&
+    options.codexHome !== pong.codexHome);
+
 export const call = Effect.fn("daemon.call")(function* (
   body: DaemonRequestBody,
   options: CallOptions,
@@ -155,15 +190,12 @@ export const call = Effect.fn("daemon.call")(function* (
   const host = yield* Host;
   const socketPath = path.join(options.dataDir, "forman.sock");
   let connection = yield* connect(socketPath, options);
-  if (body._tag === "Shutdown") return yield* exchange(body, connection.socket, connection.reader);
-  let replacing = false;
   const check = Effect.gen(function* () {
     const pong = yield* exchange({ _tag: "Ping" }, connection.socket, connection.reader);
     if (pong._tag !== "Pong") return yield* new Defect();
     // Diagnostics must inspect an old daemon without replacing or launching one.
     if (body._tag === "Ping" && options.connectOnly) return pong;
-    if (pong.build !== host.build) {
-      replacing = true;
+    if (outdated(pong, host.build, options)) {
       const stopped = yield* stopConnected(
         options.dataDir,
         connection.socket,
@@ -183,10 +215,10 @@ export const call = Effect.fn("daemon.call")(function* (
   const pong = yield* check.pipe(
     Effect.catchTag("DaemonUnavailable", (error) =>
       Effect.gen(function* () {
-        if (!replacing || error.detail !== connectionClosed) return yield* error;
-        // Another caller can replace the daemon between our Ping and Shutdown. Retry only
-        // the handshake, once: the actual command has not been sent and must never be replayed.
-        connection = yield* connect(socketPath, { ...options, connectOnly: false });
+        if (error.detail !== connectionClosed) return yield* error;
+        // Idle exit or replacement can close a just-accepted connection. The command
+        // has not been sent, so retry only this handshake, once.
+        connection = yield* connect(socketPath, options);
         return yield* check;
       }),
     ),
@@ -201,7 +233,7 @@ export const call = Effect.fn("daemon.call")(function* (
         body,
         connection.socket,
         connection.reader,
-        pong.build !== host.build,
+        outdated(pong, host.build, options),
       );
 }, Effect.scoped);
 
@@ -253,13 +285,7 @@ const stopConnected = Effect.fn("daemon.stopConnected")(
 // Only a missing/refused socket means there is no daemon. Other failures remain visible.
 export const shutdown = Effect.fn("daemon.shutdown")(function* (dataDir: string) {
   const path = yield* Path.Path;
-  const sockets = yield* DaemonSockets;
-  const opened = yield* Effect.result(
-    Effect.gen(function* () {
-      const socket = yield* sockets.connect(path.join(dataDir, "forman.sock"));
-      return { socket, reader: yield* socket.reader };
-    }),
-  );
+  const opened = yield* Effect.result(open(path.join(dataDir, "forman.sock")));
   if (opened._tag === "Failure") {
     if (absent(opened.failure)) return false;
     return yield* new DaemonUnavailable({

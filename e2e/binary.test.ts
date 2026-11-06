@@ -65,6 +65,79 @@ const pong = (dataDir: string) =>
     });
   });
 
+test("starts the daemon in the same data directory when FORMAN_DATA_DIR is relative", async () => {
+  const root = await mkdtemp("/tmp/fm-relative-");
+  const env = { HOME: root, FORMAN_DATA_DIR: "data", LOG_LEVEL: "none" };
+  const run = async (dataDir: string, args: string[]) => {
+    const child = Bun.spawn([binary, ...args], {
+      cwd: root,
+      env: { ...env, FORMAN_DATA_DIR: dataDir },
+      stdout: "pipe",
+      stderr: "pipe",
+      timeout: 15_000,
+    });
+    const [status, stdout, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ]);
+    return { status, stdout, stderr };
+  };
+  try {
+    expect(await run("data", ["status", "--json"])).toEqual({
+      status: 0,
+      stdout: '{"_tag":"Digests","digests":[]}\n',
+      stderr: "",
+    });
+    expect((await pong(join(root, "data")))._tag).toBe("Pong");
+  } finally {
+    // Also clean up the doubled path produced by the regression before its fix.
+    for (const directory of [join(root, "data"), join(root, "data", "data")]) {
+      expect((await run(directory, ["daemon", "stop"])).status).toBe(0);
+    }
+    await rm(root, { recursive: true, force: true });
+  }
+}, 20_000);
+
+// Merge wiring required in core/commands.ts: pass logFile: (yield* config.logging).file to call().
+// Keep this active regression red until the orchestrator wires that locked call site.
+test("merge wiring: CLI and daemon share a relative log override from the caller", async () => {
+  const root = await mkdtemp("/tmp/fm-log-path-");
+  const dataDir = join(root, "data");
+  const run = async (args: string[]) => {
+    const child = Bun.spawn([binary, ...args], {
+      cwd: root,
+      env: {
+        HOME: root,
+        FORMAN_DATA_DIR: dataDir,
+        FORMAN_LOG_FILE: "logs/shared.jsonl",
+        LOG_LEVEL: "debug",
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+      timeout: 15_000,
+    });
+    const [status, stdout, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ]);
+    return { status, stdout, stderr };
+  };
+  try {
+    expect((await run(["status", "--json"])).status).toBe(0);
+    const started = await pong(dataDir);
+    expect((await run(["daemon", "stop"])).status).toBe(0);
+    await waitForExit(started.pid);
+    const log = await readFile(join(root, "logs/shared.jsonl"), "utf8");
+    expect(log).toContain('"command":"status"');
+    expect(log).toContain('"msg":"daemon.started"');
+  } finally {
+    expect((await run(["daemon", "stop"])).status).toBe(0);
+    await rm(root, { recursive: true, force: true });
+  }
+}, 20_000);
+
 async function buildCopy(root: string) {
   const project = join(root, "build");
   await mkdir(join(project, "scripts"), { recursive: true });
@@ -394,6 +467,8 @@ test("compiled output, config precedence, log records, errors, and no dotenv aut
   try {
     const config = join(home, "config", metadata.name);
     const log = join(home, "cli.jsonl");
+    const emptyPath = join(home, "empty-bin");
+    await mkdir(emptyPath);
     await mkdir(config, { recursive: true });
     await writeFile(
       join(config, "config.json"),
@@ -406,6 +481,7 @@ test("compiled output, config precedence, log records, errors, and no dotenv aut
         cwd: home,
         env: {
           HOME: home,
+          PATH: emptyPath,
           XDG_CONFIG_HOME: join(home, "config"),
           NO_COLOR: "1",
           [`${prefix}_LOG_FILE`]: log,
@@ -457,9 +533,19 @@ test("compiled output, config precedence, log records, errors, and no dotenv aut
     await writeFile(join(config, "config.json"), "{}");
     const defaultEnvironments: Record<string, string>[] = [{}, { CODEX_BIN: " " }];
     for (const extra of defaultEnvironments) {
-      const defaults = await run(["doctor", "--json"], { LOG_LEVEL: "none", ...extra });
+      const defaults = await run(["doctor", "--json"], {
+        LOG_LEVEL: "none",
+        PATH: emptyPath,
+        ...extra,
+      });
       expect(defaults).toMatchObject({ status: 0, stderr: "" });
-      expect(JSON.parse(defaults.stdout)).toMatchObject({ codexBin: "codex", configError: null });
+      expect(JSON.parse(defaults.stdout)).toMatchObject({
+        codexBin: "codex",
+        configError: null,
+        codexVersion: null,
+        protocolMatches: null,
+        loggedIn: null,
+      });
     }
     const bad = await run(["doctor", "--unknown", "--json"], { LOG_LEVEL: "none" });
     expect(bad.status).toBe(2);

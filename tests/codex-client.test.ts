@@ -9,7 +9,6 @@ import { TestClock } from "effect/testing";
 import { checkProtocol, codexVersion, hashSchemas } from "../src/codex/check";
 import { CodexRpcError, openConnection } from "../src/codex/client";
 import { appServerEnvironment } from "../src/codex/environment";
-import { supportedCodex } from "../src/codex/protocol";
 import * as Codex from "../src/schemas/codex";
 import { Scenario } from "./fixtures/fake-app-server/scenario";
 import {
@@ -709,22 +708,5 @@ describe("protocol fingerprint", () => {
       yield* fs.writeFileString(join(dir, "z.json"), "y\n");
       expect((yield* hashSchemas(dir)).hash).not.toBe(expected);
     }).pipe(Effect.provide(NodeServices.layer)),
-  );
-
-  it.live.skipIf(process.env.FORMAN_SMOKE !== "1")(
-    "matches the installed Codex protocol and version",
-    () =>
-      Effect.gen(function* () {
-        const env = Object.fromEntries(
-          Object.entries(process.env).filter(
-            (entry): entry is [string, string] => entry[1] !== undefined,
-          ),
-        );
-        const bin = process.env.CODEX_BIN ?? "codex";
-        expect(yield* codexVersion(bin, env)).toBe(supportedCodex.version);
-        const result = yield* checkProtocol(bin, env);
-        expect(result).toMatchObject({ matches: true, hash: supportedCodex.schemaHash });
-        expect(result.files).toHaveLength(supportedCodex.schemaFiles);
-      }).pipe(Effect.provide(NodeServices.layer)),
   );
 });

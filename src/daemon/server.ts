@@ -13,7 +13,7 @@ import {
   Stream,
 } from "effect";
 import { Socket } from "effect/socket";
-import { type AppError, DaemonUnavailable, RunConflict } from "../errors";
+import { type AppError, DaemonUnavailable } from "../errors";
 import type { DaemonRequestBody, DaemonResult } from "../schemas/daemon";
 import { Host } from "../services/host";
 import { releaseLock, takeLock } from "./lock";
@@ -26,6 +26,8 @@ export interface DaemonOptions {
   readonly handler: (body: DaemonRequestBody) => Effect.Effect<DaemonResult, AppError>;
   readonly busy: Effect.Effect<boolean>;
   readonly idleLimitMs?: number;
+  readonly codexBin?: string;
+  readonly codexHome?: string;
 }
 
 const awaitIdle = Effect.fn("daemon.awaitIdle")(function* (
@@ -57,7 +59,8 @@ export const daemon = Effect.fn("daemon")(
         detail: `Socket path exceeds 104 bytes: ${socketPath}`,
       });
     }
-    yield* fs.makeDirectory(options.dataDir, { recursive: true });
+    yield* fs.makeDirectory(options.dataDir, { recursive: true, mode: 0o700 });
+    yield* fs.chmod(options.dataDir, 0o700);
     const identity = yield* Effect.acquireRelease(
       Effect.gen(function* () {
         if (!(yield* takeLock(options.dataDir, socketPath))) return undefined;
@@ -136,12 +139,16 @@ export const daemon = Effect.fn("daemon")(
                               version: options.version,
                               pid: host.pid,
                               build: host.build,
+                              ...(options.codexBin === undefined
+                                ? {}
+                                : { codexBin: options.codexBin }),
+                              ...(options.codexHome === undefined
+                                ? {}
+                                : { codexHome: options.codexHome }),
                             });
                           if (request.body._tag === "Shutdown") {
                             return Effect.gen(function* () {
                               const result = yield* options.handler(request.body);
-                              if (result._tag === "Ok" && (yield* options.busy))
-                                return yield* new RunConflict();
                               stopping = result._tag === "Ok";
                               return result;
                             }).pipe(Effect.uninterruptible);
@@ -165,7 +172,9 @@ export const daemon = Effect.fn("daemon")(
                 Effect.catchTag("SocketError", (error) =>
                   error.reason._tag === "SocketCloseError"
                     ? Effect.void
-                    : Effect.logDebug("daemon.connection.closed", { reason: error.reason._tag }),
+                    : Effect.logDebug("daemon.connection.closed").pipe(
+                        Effect.annotateLogs({ reason: error.reason._tag }),
+                      ),
                 ),
               );
             }),

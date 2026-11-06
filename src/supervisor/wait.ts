@@ -1,6 +1,5 @@
 import { Clock, DateTime, Effect, Schema } from "effect";
-import { ChildProcess } from "effect/process";
-import { commandResult } from "../core/preflight/command";
+import { mainCheckout } from "../core/main-checkout";
 import { readEvents, readHandoff } from "../core/runs/store";
 import { Usage } from "../errors";
 import {
@@ -50,11 +49,7 @@ const decodeCursor = Effect.fnUntraced(function* (cursor: Cursor | undefined) {
 });
 
 export const groupFor = Effect.fn("supervisor.groupFor")(function* (cwd: string) {
-  const result = yield* commandResult(
-    ChildProcess.make("git", ["worktree", "list", "--porcelain", "-z"], { cwd, stderr: "ignore" }),
-  ).pipe(Effect.catch(() => Effect.succeed({ code: 1, stdout: "" })));
-  const first = result.stdout.split("\0")[0];
-  return result.code === 0 && first?.startsWith("worktree ") ? first.slice(9) : "";
+  return (yield* mainCheckout(cwd).pipe(Effect.orElseSucceed(() => null))) ?? "";
 });
 
 const attention = Effect.fnUntraced(function* (registry: Registry, run: Run, after: number) {

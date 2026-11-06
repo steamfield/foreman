@@ -1,5 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { AppConfig } from "../src/config";
@@ -16,6 +16,70 @@ async function configFile(content: string) {
 }
 
 describe("real config and emitted logging", () => {
+  it.each(["./tools/codex", "tools/codex", "codex"])(
+    "resolves relative daemon and Codex paths before changing cwd: %s",
+    async (bin) => {
+      const result = await runCli(["--json"], {
+        env: {
+          TEST_CLI_DATA_DIR: "./relative-data",
+          CODEX_HOME: "./relative-home",
+          CODEX_BIN: bin,
+        },
+        program: Effect.gen(function* () {
+          const config = yield* AppConfig;
+          yield* (yield* Output).result(
+            {
+              dataDir: config.dataDir,
+              codexHome: config.codexHome,
+              codexBin: config.codexBin,
+              loadedBin: (yield* config.load).codexBin,
+            },
+            "paths",
+          );
+        }),
+      });
+      expect(result).toMatchObject({ status: 0, stderr: "" });
+      expect(JSON.parse(result.stdout)).toEqual({
+        dataDir: resolve("relative-data"),
+        codexHome: resolve("relative-home"),
+        codexBin: bin === "codex" ? bin : resolve(bin),
+        loadedBin: bin === "codex" ? bin : resolve(bin),
+      });
+    },
+  );
+
+  it("resolves a relative Codex executable from file settings at the caller's cwd", async () => {
+    const home = await configFile('{"codexBin":"./tools/file-codex"}');
+    const result = await runCli(["--json"], {
+      home,
+      env: { CODEX_BIN: undefined },
+      program: Effect.gen(function* () {
+        const config = yield* AppConfig;
+        yield* (yield* Output).result(
+          { codexBin: config.codexBin, loadedBin: (yield* config.load).codexBin },
+          "paths",
+        );
+      }),
+    });
+    expect(result).toMatchObject({ status: 0, stderr: "" });
+    expect(JSON.parse(result.stdout)).toEqual({
+      codexBin: resolve("tools/file-codex"),
+      loadedBin: resolve("tools/file-codex"),
+    });
+  });
+
+  it("resolves a relative log override from the caller and preserves an absent override", async () => {
+    for (const file of ["", "./logs/shared.jsonl"]) {
+      const result = await runCli(["--json"], {
+        env: { TEST_CLI_LOG_FILE: file },
+        program: Effect.gen(function* () {
+          yield* (yield* Output).result((yield* (yield* AppConfig).logging).file, "log path");
+        }),
+      });
+      expect(result).toMatchObject({ status: 0, stderr: "" });
+      expect(JSON.parse(result.stdout)).toBe(file === "" ? "" : resolve(file));
+    }
+  });
   it("exposes the environment supplied to each config layer without trimming or dropping values", async () => {
     const home = await tempDir();
     for (const value of [" first ", "second"]) {
@@ -70,11 +134,17 @@ describe("real config and emitted logging", () => {
     expect(result.stderr).toBe("");
   });
   it("suppresses successful command records at the default level", async () => {
-    const result = await runCli(["doctor", "--json"], { env: { CODEX_BIN: undefined } });
+    const emptyPath = await tempDir();
+    const result = await runCli(["doctor", "--json"], {
+      env: { CODEX_BIN: undefined, PATH: emptyPath },
+    });
     expect(result.status).toBe(0);
     expect(Schema.decodeUnknownSync(DoctorResult)(JSON.parse(result.stdout))).toMatchObject({
       codexBin: "codex",
       configError: null,
+      codexVersion: null,
+      protocolMatches: null,
+      loggedIn: null,
     });
     expect(result.stderr).toBe("");
   });
@@ -126,10 +196,17 @@ describe("real config and emitted logging", () => {
     },
   ])("resolves file and env while emitting $levels", async ({ file, env, levels, codexBin }) => {
     const home = await configFile(file);
+    const emptyPath = await tempDir();
     const log = join(home, "logs", "cli.jsonl");
     const result = await runCli(["doctor", "--json"], {
       home,
-      env: { CODEX_BIN: undefined, ...env, TEST_CLI_LOG_FILE: log, API_KEY: "PRIVATE_SENTINEL" },
+      env: {
+        CODEX_BIN: undefined,
+        PATH: emptyPath,
+        ...env,
+        TEST_CLI_LOG_FILE: log,
+        API_KEY: "PRIVATE_SENTINEL",
+      },
     });
     expect(result.status).toBe(0);
     const document = Schema.decodeUnknownSync(DoctorResult)(JSON.parse(result.stdout));

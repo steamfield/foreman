@@ -1,6 +1,7 @@
 import { Effect, FileSystem, Path } from "effect";
 import { ChildProcess } from "effect/process";
 import { WorktreeInvalid } from "../../errors";
+import { mainCheckout } from "../main-checkout";
 import { commandResult } from "./command";
 
 const invalid = (rule: number, worktree: string, reason: string) =>
@@ -26,17 +27,14 @@ export const validateWorktree = Effect.fn("preflight.validateWorktree")(function
     .pipe(Effect.mapError(() => invalid(1, input, "could not resolve worktree")));
   const top = (yield* git(worktree, 1, ["rev-parse", "--show-toplevel"])).replace(/\n$/, "");
   if (top !== worktree) return yield* invalid(1, worktree, `not the git worktree root (${top})`);
-  const listing = yield* git(worktree, 2, ["worktree", "list", "--porcelain", "-z"]);
-  const first = listing.split("\0")[0];
-  if (!first?.startsWith("worktree "))
-    return yield* invalid(2, worktree, "could not find main checkout");
-  const mainCheckout = yield* fs
-    .realPath(first.slice("worktree ".length))
-    .pipe(Effect.mapError(() => invalid(2, worktree, "could not resolve main checkout")));
-  if (mainCheckout === worktree) return yield* invalid(2, worktree, "is the main checkout");
-  const relative = path.relative(mainCheckout, worktree);
+  const main = yield* mainCheckout(worktree).pipe(
+    Effect.mapError(() => invalid(2, worktree, "could not resolve main checkout")),
+  );
+  if (main === null) return yield* invalid(2, worktree, "could not find main checkout");
+  if (main === worktree) return yield* invalid(2, worktree, "is the main checkout");
+  const relative = path.relative(main, worktree);
   if (path.isAbsolute(relative) || relative === ".." || relative.startsWith(`..${path.sep}`))
-    return yield* invalid(3, worktree, `must lie inside main checkout (${mainCheckout})`);
+    return yield* invalid(3, worktree, `must lie inside main checkout (${main})`);
   if (!skipDepsCheck) {
     const installed = yield* Effect.gen(function* () {
       if (!(yield* fs.exists(path.join(worktree, "package.json")))) return true;
@@ -55,5 +53,5 @@ export const validateWorktree = Effect.fn("preflight.validateWorktree")(function
       return yield* invalid(4, worktree, "package.json needs node_modules or .pnp.cjs");
   }
   const baseCommit = (yield* git(worktree, 1, ["rev-parse", "HEAD"])).trimEnd();
-  return { worktree, mainCheckout, baseCommit };
+  return { worktree, mainCheckout: main, baseCommit };
 });

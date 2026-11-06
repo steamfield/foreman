@@ -23,11 +23,12 @@ import { Socket } from "effect/socket";
 import { TestClock } from "effect/testing";
 import { call, shutdown } from "../src/daemon/client";
 import { releaseLock } from "../src/daemon/lock";
-import { lines, requestJson, responseJson } from "../src/daemon/protocol";
+import { lines, requestJson, respond, responseJson } from "../src/daemon/protocol";
 import { type DaemonOptions, daemon } from "../src/daemon/server";
 import { DaemonSockets } from "../src/daemon/sockets";
 import { DaemonUnavailable, Defect, detailFor, errorClasses } from "../src/errors";
-import type { DaemonResult } from "../src/schemas/daemon";
+import { entry } from "../src/logging";
+import { type DaemonResult, RunName } from "../src/schemas/daemon";
 import { Host } from "../src/services/host";
 import { runCli } from "./helpers/cli";
 
@@ -111,6 +112,272 @@ const observeClosures = Effect.fnUntraced(function* () {
 });
 
 describe("daemon lifecycle and protocol", () => {
+  it.live.each(["new", "existing"] as const)("keeps a %s data directory private", (kind) =>
+    Effect.gen(function* () {
+      const root = yield* temp();
+      const fs = yield* FileSystem.FileSystem;
+      const dataDir = `${root}/data`;
+      if (kind === "existing") yield* fs.makeDirectory(dataDir, { mode: 0o755 });
+      yield* start(options(dataDir));
+      assert.strictEqual((yield* fs.stat(dataDir)).mode & 0o777, 0o700);
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("logs a platform failure once with request, run, method and path annotations", () =>
+    Effect.gen(function* () {
+      const root = yield* temp();
+      const fs = yield* FileSystem.FileSystem;
+      const records: { message: unknown; annotations: Readonly<Record<string, unknown>> }[] = [];
+      const logger = Logger.make((input) =>
+        records.push({
+          message: input.message,
+          annotations: input.fiber.getRef(References.CurrentLogAnnotations),
+        }),
+      );
+      const missing = `${root}/missing`;
+      const line = Schema.encodeSync(requestJson)({
+        id: 19,
+        body: {
+          _tag: "Result",
+          name: Schema.decodeUnknownSync(RunName)("example"),
+        },
+      });
+      const response = yield* respond(line, () =>
+        fs.readFileString(missing).pipe(Effect.as({ _tag: "Ok" } as const)),
+      ).pipe(Effect.provide(Logger.layer([logger])));
+      assert.isTrue("error" in response);
+      assert.strictEqual(records.length, 1);
+      assert.deepInclude(records[0]?.annotations, {
+        requestId: 19,
+        request: "Result",
+        name: "example",
+        reason: "NotFound",
+        method: "readFile",
+        path: missing,
+      });
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("keeps connection failure reasons in structured log fields", () =>
+    Effect.gen(function* () {
+      const dataDir = yield* temp();
+      const records = yield* Queue.unbounded<ReturnType<typeof entry>>();
+      let failRead = false;
+      const observed = DaemonSockets.layer({
+        connect: (path) => NodeSocket.makeNet({ path }),
+        listen: (path) =>
+          NodeSocketServer.make({ path }).pipe(
+            Effect.map((server) => ({
+              ...server,
+              run: (handler) =>
+                server.run((socket) =>
+                  handler(
+                    Socket.make({
+                      writer: socket.writer,
+                      reader: socket.reader.pipe(
+                        Effect.map((reader) => ({
+                          ...reader,
+                          pull: reader.pull.pipe(
+                            Effect.flatMap((chunks) =>
+                              failRead
+                                ? Effect.fail(
+                                    new Socket.SocketError({
+                                      reason: new Socket.SocketReadError({
+                                        cause: new Error("transport failed"),
+                                      }),
+                                    }),
+                                  )
+                                : Effect.succeed(chunks),
+                            ),
+                          ),
+                        })),
+                      ),
+                    }),
+                  ),
+                ),
+            })),
+          ),
+      });
+      const logger = Logger.make((input) => {
+        const record = entry({
+          date: input.date,
+          level: input.logLevel,
+          message: input.message,
+          annotations: input.fiber.getRef(References.CurrentLogAnnotations),
+        });
+        if (
+          (record.msg === "daemon.connection.closed" && record.detail.length > 0) ||
+          record.reason !== undefined
+        )
+          Queue.offerUnsafe(records, record);
+      });
+      yield* start(options(dataDir)).pipe(
+        Effect.provide(observed),
+        Effect.provide(Logger.layer([logger])),
+        Effect.provideService(References.MinimumLogLevel, "Debug"),
+      );
+      failRead = true;
+      yield* Effect.result(ping(dataDir));
+      const record = yield* Queue.take(records).pipe(Effect.timeout("2 seconds"));
+      assert.strictEqual(record.reason, "SocketReadError");
+      assert.notInclude(JSON.stringify(record), "[redacted]");
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live.each(["codexBin", "codexHome"] as const)(
+    "replaces an idle daemon with different %s settings and warns while busy",
+    (setting) =>
+      Effect.gen(function* () {
+        const dataDir = yield* temp();
+        const fs = yield* FileSystem.FileSystem;
+        const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+        const bun = (yield* spawner.string(ChildProcess.make("which", ["bun"]))).trim();
+        const fixture = fileURLToPath(new URL("./fixtures/daemon/entry.ts", import.meta.url));
+        const child = yield* spawner.spawn(
+          ChildProcess.make(bun, [fixture, dataDir, "test", "codex-busy", "old-bin", "old-home"], {
+            stderr: "inherit",
+          }),
+        );
+        yield* ready(dataDir).pipe(Effect.timeout("3 seconds"));
+        const codex = { codexBin: "old-bin", codexHome: "old-home", [setting]: "new-value" };
+        const replacement = host([
+          bun,
+          fixture,
+          dataDir,
+          "test",
+          "same",
+          codex.codexBin,
+          codex.codexHome,
+        ]);
+        yield* Effect.addFinalizer(() =>
+          fs
+            .writeFileString(`${dataDir}/idle`, "")
+            .pipe(
+              Effect.andThen(shutdown(dataDir)),
+              Effect.asVoid,
+              Effect.orDie,
+              Effect.provide(replacement),
+            ),
+        );
+        let notices = 0;
+        const request = call(
+          { _tag: "Ping" },
+          {
+            dataDir,
+            ...codex,
+            onOutdated: Effect.sync(() => {
+              notices += 1;
+            }),
+          },
+        ).pipe(Effect.provide(replacement));
+        const busy = yield* request;
+        assert.strictEqual(busy._tag, "Pong");
+        if (busy._tag !== "Pong") return;
+        assert.strictEqual(busy.pid, Number(child.pid));
+        assert.strictEqual(notices, 1);
+        yield* fs.writeFileString(`${dataDir}/idle`, "");
+        const idle = yield* request;
+        assert.strictEqual(idle._tag, "Pong");
+        if (idle._tag !== "Pong") return;
+        assert.notStrictEqual(idle.pid, busy.pid);
+        assert.strictEqual(idle.codexBin, codex.codexBin);
+        assert.strictEqual(idle.codexHome, codex.codexHome);
+        assert.strictEqual(notices, 1);
+        yield* waitForExit(busy.pid);
+      }).pipe(Effect.timeout("10 seconds"), Effect.provide(platform)),
+  );
+
+  it.live("opens an app server after the daemon launch directory has been removed", () =>
+    Effect.gen(function* () {
+      const root = yield* temp();
+      const fs = yield* FileSystem.FileSystem;
+      const dataDir = `${root}/data`;
+      const origin = `${root}/worktree`;
+      yield* fs.makeDirectory(dataDir);
+      yield* fs.makeDirectory(origin);
+      yield* fs.writeFileString(`${dataDir}/scenario.json`, '{"rules":[]}');
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+      const bun = (yield* spawner.string(ChildProcess.make("which", ["bun"]))).trim();
+      const executable = host([
+        bun,
+        fileURLToPath(new URL("./fixtures/daemon/entry.ts", import.meta.url)),
+        dataDir,
+        "test",
+        "app-server",
+      ]);
+      yield* Effect.addFinalizer(() => shutdown(dataDir).pipe(Effect.asVoid, Effect.orDie));
+      const previous = process.cwd();
+      try {
+        process.chdir(origin);
+        assert.strictEqual(
+          (yield* call({ _tag: "Ping" }, { dataDir }).pipe(Effect.provide(executable)))._tag,
+          "Pong",
+        );
+      } finally {
+        process.chdir(previous);
+      }
+      yield* fs.remove(origin, { recursive: true });
+      assert.deepStrictEqual(
+        yield* call({ _tag: "Status", cwd: root }, { dataDir, connectOnly: true }),
+        { _tag: "Ok" },
+      );
+      assert.strictEqual(
+        yield* fs.readFileString(`${dataDir}/app-server-cwd`),
+        yield* fs.realPath(dataDir),
+      );
+    }).pipe(Effect.timeout("10 seconds"), Effect.provide(platform)),
+  );
+
+  it.live("forwards resolved Codex settings to a daemon launched in the data directory", () =>
+    Effect.gen(function* () {
+      const dataDir = yield* temp();
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+      const bun = (yield* spawner.string(ChildProcess.make("which", ["bun"]))).trim();
+      const executable = host([
+        bun,
+        fileURLToPath(new URL("./fixtures/daemon/entry.ts", import.meta.url)),
+        dataDir,
+        "test",
+        "environment",
+      ]);
+      const codex = { codexBin: `${dataDir}/codex`, codexHome: `${dataDir}/codex-home` };
+      const logFile = `${dataDir}/caller-logs/shared.jsonl`;
+      yield* Effect.addFinalizer(() => shutdown(dataDir).pipe(Effect.asVoid, Effect.orDie));
+      const result = yield* call({ _tag: "Ping" }, { dataDir, ...codex, logFile }).pipe(
+        Effect.provide(executable),
+      );
+      assert.deepInclude(result, codex);
+      assert.strictEqual(
+        yield* (yield* FileSystem.FileSystem).readFileString(`${dataDir}/log-file`),
+        logFile,
+      );
+    }).pipe(Effect.timeout("5 seconds"), Effect.provide(platform)),
+  );
+
+  it.live("maps an undecodable daemon reply to a build disagreement", () =>
+    Effect.gen(function* () {
+      const dataDir = yield* temp();
+      const server = yield* NodeSocketServer.make({ path: `${dataDir}/forman.sock` });
+      yield* Effect.forkScoped(
+        server.run((socket) =>
+          Effect.scoped(
+            Effect.gen(function* () {
+              const reader = yield* socket.reader;
+              const writer = yield* socket.writer;
+              yield* lines(reader).pipe(
+                Stream.take(1),
+                Stream.runForEach(() => writer.write('{"id":1,"result":{"_tag":"FutureReply"}}\n')),
+              );
+            }),
+          ),
+        ),
+      );
+      const error = yield* Effect.flip(ping(dataDir));
+      assert.instanceOf(error, DaemonUnavailable);
+      assert.include(detailFor(error), "daemon build differs");
+    }).pipe(Effect.provide(platform)),
+  );
+
   for (const mode of ["same", "outdated", "legacy", "busy", "racing"] as const) {
     it.live(`handles a ${mode} daemon build before executing the call`, () =>
       Effect.gen(function* () {
@@ -294,6 +561,15 @@ describe("daemon lifecycle and protocol", () => {
       const fs = yield* FileSystem.FileSystem;
       assert.isFalse(yield* fs.exists(`${dataDir}/forman.sock`));
       assert.isFalse(yield* fs.exists(`${dataDir}/daemon.lock`));
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("honors an accepted Shutdown without checking busy again", () =>
+    Effect.gen(function* () {
+      const dataDir = yield* temp();
+      const running = yield* start(options(dataDir, { busy: Effect.succeed(true) }));
+      assert.isTrue(yield* shutdown(dataDir));
+      yield* Fiber.join(running).pipe(Effect.timeout("2 seconds"));
     }).pipe(Effect.provide(platform)),
   );
 
@@ -796,7 +1072,7 @@ describe("daemon lifecycle and protocol", () => {
     }).pipe(Effect.provide(platform)),
   );
 
-  it.live("answers malformed lines with Usage and continues on the same connection", () =>
+  it.live("names its build for undecodable requests and continues on the same connection", () =>
     Effect.gen(function* () {
       const dataDir = yield* temp();
       yield* start(options(dataDir));
@@ -807,11 +1083,17 @@ describe("daemon lifecycle and protocol", () => {
       const results = yield* Effect.forEach([0, 1, 2], () => Queue.take(responses));
       assert.deepStrictEqual(
         results.find((response) => response.id === 0),
-        { id: 0, error: { tag: "Usage" } },
+        {
+          id: 0,
+          error: { tag: "DaemonUnavailable", detail: "Request not understood; daemon build test." },
+        },
       );
       assert.deepStrictEqual(
         results.find((response) => response.id === 17),
-        { id: 17, error: { tag: "Usage" } },
+        {
+          id: 17,
+          error: { tag: "DaemonUnavailable", detail: "Request not understood; daemon build test." },
+        },
       );
       assert.deepStrictEqual(
         results.find((response) => response.id === 18),
@@ -836,6 +1118,93 @@ describe("daemon lifecycle and protocol", () => {
         Effect.provide(observation.layer),
         Effect.provideService(References.MinimumLogLevel, "Debug"),
       );
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.effect("retries a handshake when idle shutdown closes a just-accepted connection", () =>
+    Effect.gen(function* () {
+      const dataDir = yield* temp();
+      const accepted = yield* Deferred.make<void>();
+      const observation = yield* observeClosures();
+      let hold = false;
+      const delayed = DaemonSockets.layer({
+        connect: (path) => NodeSocket.makeNet({ path }),
+        listen: (path) =>
+          NodeSocketServer.make({ path }).pipe(
+            Effect.map((server) => ({
+              ...server,
+              run: (handler) =>
+                server.run((socket) =>
+                  hold
+                    ? Effect.scoped(
+                        socket.reader.pipe(
+                          Effect.orDie,
+                          Effect.andThen(Deferred.succeed(accepted, undefined)),
+                          Effect.andThen(Effect.never),
+                        ),
+                      )
+                    : handler(socket),
+                ),
+            })),
+          ),
+      });
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+      const bun = (yield* spawner.string(ChildProcess.make("which", ["bun"]))).trim();
+      const executable = host([
+        bun,
+        fileURLToPath(new URL("./fixtures/daemon/entry.ts", import.meta.url)),
+        dataDir,
+      ]);
+      yield* Effect.addFinalizer(() =>
+        TestClock.withLive(shutdown(dataDir).pipe(Effect.asVoid, Effect.orDie)),
+      );
+      const running = yield* start(options(dataDir, { idleLimitMs: 1000 })).pipe(
+        Effect.provide(delayed),
+        Effect.provide(observation.layer),
+        Effect.provideService(References.MinimumLogLevel, "Debug"),
+      );
+      yield* observation.closed;
+      hold = true;
+      const requests: string[] = [];
+      const client = DaemonSockets.layer({
+        connect: (path) =>
+          NodeSocket.makeNet({ path }).pipe(
+            Effect.map((socket) =>
+              Socket.make({
+                reader: socket.reader,
+                writer: socket.writer.pipe(
+                  Effect.map((writer) => ({
+                    ...writer,
+                    write: (chunk) =>
+                      Effect.sync(() => {
+                        if (typeof chunk === "string")
+                          requests.push(
+                            Schema.decodeUnknownSync(requestJson)(chunk.trimEnd()).body._tag,
+                          );
+                      }).pipe(Effect.andThen(writer.write(chunk))),
+                  })),
+                ),
+              }),
+            ),
+          ),
+        listen: (path) => NodeSocketServer.make({ path }),
+      });
+      const pending = yield* TestClock.withLive(
+        Effect.forkScoped(
+          call({ _tag: "Status", cwd: "/tmp" }, { dataDir }).pipe(
+            Effect.provide(executable),
+            Effect.provide(client),
+          ),
+        ),
+      );
+      yield* Deferred.await(accepted);
+      yield* TestClock.adjust(2100);
+      yield* Fiber.join(running);
+      assert.deepStrictEqual(
+        yield* TestClock.withLive(Fiber.join(pending).pipe(Effect.timeout("5 seconds"))),
+        { _tag: "Ok" },
+      );
+      assert.deepStrictEqual(requests, ["Ping", "Ping", "Status"]);
     }).pipe(Effect.provide(platform)),
   );
 

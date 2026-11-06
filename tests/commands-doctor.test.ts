@@ -405,9 +405,14 @@ it.each([false, true])("reports failed git discovery as unknown, json=%s", async
     expect(result.status).toBe(0);
     if (json) {
       const decoded = Schema.decodeUnknownSync(Schema.fromJsonString(DoctorResult))(result.stdout);
-      expect(decoded.repoHooks).toMatchObject({ state: "unknown", acceptsStart: null });
+      expect(decoded.repoHooks).toMatchObject({
+        state: "unknown",
+        acceptsStart: null,
+        detail: "Could not discover main checkout: .",
+      });
     } else {
       expect(result.stdout).toContain("forman start: unknown");
+      expect(result.stdout).toContain("Could not discover main checkout: .");
       expect(result.stdout).not.toContain("no repo hooks apply");
     }
   } finally {
