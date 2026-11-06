@@ -181,6 +181,12 @@ The daemon starts automatically when a run command needs it and exits after 30 i
 
 Vitest runs on Node, with real services, temporary git repos and a scripted fake Codex app server. Recorded Codex 0.166.0 messages check the wire schemas. `e2e/` tests the compiled binary with Bun's runner and a clean environment. The agent harness is described in [docs/harness.md](docs/harness.md).
 
+### Smoke tests
+
+Run `bun run build`, then `FORMAN_SMOKE=1 bun run smoke` to exercise the compiled binary against real Codex using your ChatGPT login and plan. It includes nine real-Codex cases and four local harness regressions; without the variable all 13 tests skip. Tasks use low effort, isolated temporary repos and data directories, and stop their daemons during cleanup. The smoke environment drops API key and API base overrides so it uses the login. CLI transcripts and case durations print to stdout; redirect them to a file to keep a record.
+
+The long question hold is separately enabled with `FORMAN_SMOKE=1 FORMAN_SMOKE_LONG=1 bun run smoke` (15-minute timeout, 16-minute hold). Use `FORMAN_SMOKE_SHORT=1` instead of `FORMAN_SMOKE_LONG=1` for a one-minute timeout and two-minute hold. Smoke tests use their own Bun config to preserve the real login. They are a development tool for checking forman against real Codex (after a Codex upgrade, say), never part of automated testing: `bun run check`, git hooks and CI run only against the fake app server and must not run real inference. Their TypeScript can be checked with `bunx tsc --noEmit --project smoke/tsconfig.json`.
+
 | Script | What it does |
 | --- | --- |
 | `bun run dev <args>` | Run from source with development state and logs |

@@ -42,7 +42,11 @@ Side effects: every thread starts the MCP servers from `~/.codex/config.toml` (t
 
 From the generated 0.166.0 types: `thread/resume` has no `dynamicTools` field, and turn settings (`effort`, `sandboxPolicy`, `model`) given on `turn/start` apply "to this turn and subsequent turns". A steer can fail with `activeTurnNotSteerable` when the turn is a `review` or `compact` turn.
 
-Still untested, each listed where the design depends on it: holds longer than 3 minutes, whether `ask_orchestrator` survives `thread/resume`, a steer racing turn completion, and Codex's self-review (`codex exec --ephemeral`) launched from inside a thread.
+The unit 11 smoke suite now drives the compiled CLI against real Codex 0.166.0. It confirms delegation through wait/result/archive, a held question answered through the CLI, steer during four slow commands, interrupt while a question is pending, refusal of a cancelled question's answer, and a successful follow-up. After stopping the daemon and starting a new app server, `ask_orchestrator` remains available on the resumed thread; the actual `thread/resume` response reports `sandbox: {type: "readOnly"}` and the run's original model.
+
+The 45-second budget interrupts a slow command, obtains a hand-off in a read-only turn and restores write access on follow-up. A nested `codex exec --ephemeral --sandbox read-only -m gpt-6.1-sol -c model_reasoning_effort=low "Reply with exactly: REVIEW-OK"` inside a write thread exits 0 and returns `REVIEW-OK`, confirming the fresh-process self-review step works. A scratch repo with unapproved project hooks is refused with `RepoHooksUntrusted` (exit 10) before a turn starts, and doctor reports that start will refuse.
+
+The shortened question hold auto-answered after 60.004 seconds, Codex used the supplied fallback text and chosen token, and the run remained idle through the two-minute observation window. An exact steer/completion race and question holds longer than 3 minutes remain untested. The suite checks steer while commands are running and refusal after completion. The separately enabled 16-minute hold is retained for a manual run.
 
 ## Processes
 
@@ -190,7 +194,7 @@ Every thread registers one dynamic tool:
 
 `kind` lets `status` tell a blocker from a question. On `item/tool/call` for this tool the daemon assigns a question id (`q1`, `q2`, ... per run), appends it to `questions.jsonl`, sets the run to `waiting`, wakes waiters, and holds the JSON-RPC request. Several questions can be pending at once if the model calls the tool in parallel; the digest lists each. `answer` replies `{success: true, contentItems: [{type: "inputText", text}]}`.
 
-When a question's timeout passes, the daemon answers "No answer from the orchestrator. Proceed with your best judgment and note this question and your choice under Open in the hand-off." and records it `auto-answered`. Spike 1 held a call for 3 minutes; nothing yet shows a call stays open for 15. The smoke suite holds one for 16 minutes before this ships, and the default drops below any limit it finds.
+When a question's timeout passes, the daemon answers "No answer from the orchestrator. Proceed with your best judgment and note this question and your choice under Open in the hand-off." and records it `auto-answered`. Spike 1 held a call for 3 minutes. The smoke suite has a separately enabled 15-minute timeout with a 16-minute observation window (`FORMAN_SMOKE_LONG=1`); unit 11 runs a one-minute timeout and two-minute observation window (`FORMAN_SMOKE_SHORT=1`) to check the mechanism. A 15-minute pending call is still unverified; the long case must pass before treating that duration as established.
 
 When a turn ends with questions pending, they are recorded `cancelled`, because the app server cancels the call itself and drops a later answer without a word.
 
@@ -198,7 +202,7 @@ Any other dynamic tool call or server request gets a JSON-RPC error response, so
 
 ### Resume and the tool
 
-`thread/resume` takes no `dynamicTools`, so whether `ask_orchestrator` survives a resume is unknown. Resume also must not fall back to `config.toml` defaults, which on Riley's machine are `danger-full-access` and `gpt-6-astra`. forman passes `model`, `serviceTier`, `approvalPolicy`, `sandbox` and `cwd` from `run.json` on every resume, and the smoke suite checks the resumed thread's reported sandbox and that it can still call the tool. Until that test passes, a follow-up that needs a resume prints a warning that questions may not reach Claude in that turn.
+`thread/resume` takes no `dynamicTools`, but the unit 11 real-Codex test confirms that `ask_orchestrator` survives a daemon/app-server restart on Codex 0.166.0. The resumed thread asks a question and uses the CLI's answer in its hand-off. The captured resume response reports `sandbox: {type: "readOnly"}` and the original run model. forman passes `model`, `serviceTier`, `approvalPolicy`, `sandbox` and `cwd` from `run.json` on every resume, preventing fallback to the user's defaults. The current implementation still prints "Thread resumed: questions may not reach Claude in this turn." even when the tool works; removing that warning and recording the reported sandbox are follow-up production changes.
 
 ## `wait` and how Claude is woken
 
@@ -265,6 +269,8 @@ Each turn has a budget: `--budget` on `start` for the first turn and on `followu
 
 The run ends `interrupted` with the hand-off from step 2 if one was written.
 
+Unit 11 confirms this through the real compiled CLI: a write run with a 45-second budget is interrupted during `sleep 120`, turn 2 produces the hand-off with a captured `readOnly` policy, and turn 3 restores `dangerFullAccess` and writes a file successfully. The digest's sandbox field continues to describe the run's configured policy, so its hand-off wake displays `write` even though that turn is read-only.
+
 The hand-off of a turn is its `agentMessage` with `phase: "final_answer"`, or its last `agentMessage` if none has that phase, written to `turns/<n>.md` and copied to `last-message.md`. An interrupted turn usually has none; `result` then shows the newest earlier hand-off and says which turn it came from.
 
 ## Failure handling
@@ -298,7 +304,29 @@ The generated protocol is 467 JSON Schema files (5.8 MB), too large to commit fo
 
 Unit and integration tests run on Node without network. The app server is replaced by a fake: a script speaking the same JSONL protocol that plays scripted turns, tool calls, hooks, token usage, interrupts and the silent drop of a late answer. That is the one fake, and it stands in for a third-party process. Tests run the daemon program in the test process with Node services, listening on a socket in a temporary data directory, and drive it through the real CLI parser.
 
-The smoke suite, `bun run smoke`, runs against the real app server and is opt-in (`FORMAN_SMOKE=1`) because it uses Riley's plan. It turns the spikes into tests and adds the untested cases: a 16-minute question hold, resume after an app server restart (sandbox and tool), steer racing turn completion, the time-up hand-off turn under read-only, and a self-review `codex exec` inside a thread.
+The smoke suite, `bun run smoke`, drives `dist/forman` against the real app server and is opt-in (`FORMAN_SMOKE=1`) because it uses the user's ChatGPT login and plan. Build first with `bun run build`. Without the flag all nine real-Codex cases and four local harness regressions skip with enabling instructions; it is outside the normal gate. Cases cover delegation/wait/result/archive, question/answer, steer during slow commands and refusal after completion, interrupt with a pending question, resume after daemon/app-server restart, budget hand-off and sandbox restoration, nested `codex exec`, and unapproved repo hooks refused before any turn. The ninth case is separately enabled as described under The question tool; unit 11 does not run the 16-minute variant. An exact steer/completion network race is not forced.
+
+Each real-Codex case owns a short temporary data directory, scratch repo and linked worktree, stops its daemon and removes those directories even after assertion failures. These cases synchronize through the CLI's `wait`; the only sleeps are tasks given to Codex. Turns use low effort. A smoke-only pass-through Codex executable captures JSON-RPC traffic to inspect the actual resume response and turn sandbox policies. It forwards to the real installed Codex without replacing responses.
+
+Independent review added four harness regressions: inherited stdout drains after the child exits, SIGTERM propagates correctly while stdin stays open, failed shutdown terminates an owned process tree before deleting state, and scratch Git ignores signing configuration and inherited repository selectors. They use local subprocesses and condition-based output/exit waits, without Codex turns. All four fail when their fixes are reverted and pass with the fixes, including three repeat runs. The proxy waits for closed/drained stdout and removes signal forwarding handlers before re-raising a signal. Cleanup snapshots descendants of the PID reported by the fixture's daemon, attempts the CLI stop, then uses bounded TERM/KILL fallback and confirms exit before removing state; it retains the original shutdown error. Scratch Git configuration is isolated while the Codex login home is preserved.
+
+The runner starts Bun from `smoke/` with its own `bunfig.toml`. Using only `--config` from the repository root still merged the normal isolation preload, replaced `HOME` and hid the login, producing 401 failures. Two setup runs exposed this before the corrected runs. Smoke children also omit `OPENAI_API_KEY`, `OPENAI_API_BASE` and `CODEX_API_KEY` to keep authentication on the login. Separate cheap probes with the real home authenticated both with and without the inherited API/OAuth variables; those variables were not established as the cause of the 401.
+
+Unit 11 results (2026-11-05 local date, Codex 0.166.0, low effort, gpt-6.1-sol): the first corrected run passed all nine cases in 407.74 seconds; the second passed eight and skipped the hold in 285.47 seconds. After review fixes, the full suite passed 12 tests (eight real-Codex cases plus four harness regressions) and skipped the hold in 145.89 seconds. Cases 1–8 passed in all three runs, with no observed flakes. Durations include setup and cleanup.
+
+| Case | First run | Second run | After review | Observation |
+| --- | --- | --- | --- | --- |
+| 1. Delegation | Pass, 11.8 s | Pass, 30.2 s | Pass, 13.1 s | File content, wake hand-off, digest, result and archive agree |
+| 2. Question | Pass, 18.6 s | Pass, 16.8 s | Pass, 11.3 s | Answer reaches the final hand-off |
+| 3. Steer | Pass, 38.3 s | Pass, 40.0 s | Pass, 35.8 s | Four slow commands complete; final answer changes; late steer refused |
+| 4. Interrupt | Pass, 37.7 s | Pass, 35.0 s | Pass, 7.5 s | Pending answer refused with exit 8; follow-up completes |
+| 5. Resume | Pass, 17.7 s | Pass, 28.3 s | Pass, 8.7 s | Same thread, dynamic tool available, server reports readOnly |
+| 6. Budget | Pass, 96.7 s | Pass, 72.7 s | Pass, 53.1 s | Interrupted with read-only hand-off; write restored on follow-up |
+| 7. Self-review | Pass, 42.9 s | Pass, 53.7 s | Pass, 12.6 s | Nested codex exec exits 0 with REVIEW-OK |
+| 8. Hook trust | Pass, 11.2 s | Pass, 8.7 s | Pass, 3.4 s | Exit 10 before a turn; doctor says start will refuse |
+| 9. Short hold | Pass, 132.8 s | Skipped | Skipped | Auto-answer at 60.004 s, observation through 120 s |
+
+The first run preceded extra assertions for the file name in the text wake, absence of commands before the question, all four completed slow commands, refusal of a late steer, and the timeout history's elapsed time. The second run includes those assertions except the separately skipped hold. The hold's recorded timestamps independently establish the elapsed time above.
 
 ## Delegation plan
 
