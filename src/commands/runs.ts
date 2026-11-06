@@ -68,7 +68,11 @@ export const startCommand = Command.make(
     model: optionalText("model"),
     effort: optionalText("effort"),
     tier: optionalText("tier"),
-    budgetMs: optionalDuration("budget"),
+    budgetMs: optionalDuration("budget").pipe(
+      Flag.withDescription(
+        "Turn budget; also bounds setup when supplied (setup defaults to 10 minutes).",
+      ),
+    ),
     questionTimeoutMs: optionalDuration("question-timeout"),
     skipDepsCheck: Flag.Boolean("skip-deps-check").pipe(Flag.withDefault(false)),
     ...waiting,
