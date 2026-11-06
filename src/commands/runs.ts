@@ -1,7 +1,7 @@
 import { Effect, Option, Schema } from "effect";
 import { Argument, CliError, Command, Flag } from "effect/cli";
 import { durationMs } from "../core/command-input";
-import { renderResult } from "../core/command-output";
+import { formanExecutable, renderResult } from "../core/command-output";
 import * as programs from "../core/commands";
 import { Defect } from "../errors";
 import { EventLimit, EventSequence } from "../schemas/commands";
@@ -37,7 +37,8 @@ const print = Effect.fnUntraced(function* <E, R>(
   const encoded = yield* Schema.encodeEffect(DaemonResult)(result).pipe(
     Effect.mapError(() => new Defect()),
   );
-  yield* (yield* Output).result(encoded, renderResult(result, compact));
+  const executable = result._tag === "Started" ? (yield* formanExecutable()).command : "forman";
+  yield* (yield* Output).result(encoded, renderResult(result, compact, executable));
 });
 
 export const startCommand = Command.make(

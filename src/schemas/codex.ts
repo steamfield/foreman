@@ -283,7 +283,7 @@ export const askOrchestratorTool: typeof DynamicToolSpec.Type = {
   type: "function",
   name: "ask_orchestrator",
   description:
-    "Ask the orchestrator (Claude) a question and wait for the answer. Use it when you are blocked by something the contract and the code don't settle, or the contract leaves open a choice with real consequences. Don't use it for anything you can decide from the contract, the repo or its docs. The answer can take minutes. If none arrives in time you'll be told to proceed with your best judgment; then note the question and your choice under Open in the hand-off.",
+    "Ask the orchestrator only when blocked by something the contract and code don't settle, or a decision with real consequences is needed. Progress, findings and corrections go in the hand-off: every call pauses the turn until answered. If the answer times out, proceed with best judgment and note the question and choice under Open.",
   inputSchema: {
     type: "object",
     properties: {

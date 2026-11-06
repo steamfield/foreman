@@ -15,6 +15,7 @@ export const doctorCommand = Command.make(
       result,
       [
         `${result.name} ${result.version} (${result.platform}, compiled: ${result.compiled})`,
+        `forman on PATH is this binary: ${result.formanOnPath}`,
         `Codex executable: ${result.codexBin}`,
         `Config: ${result.configError ?? "ok"}`,
         `Config file: ${result.configFile}`,

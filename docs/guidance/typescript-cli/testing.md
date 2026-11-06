@@ -2,6 +2,8 @@
 
 Vitest runs on Node through test:unit; test chains that command. Bun runs only `bun test ./e2e` after the host build. Never pass --bun to Vitest or use unscoped bun test. Optional native adapters declare their own Bun test directories.
 
+Bun merges the root `bunfig.toml` test preload into every `bun test` run beneath the repo, even with `--config`. Run the smoke suite with `--cwd ./smoke` so the root preload cannot replace its real Codex login and environment.
+
 Both runners load tests/helpers/setup.ts before application code. It clears inherited credentials and project config env, gives HOME and XDG temporary paths, and cleans up at process exit. runCli and binary subprocesses build their environments from scratch, so no personal config or credentials reach a command.
 
 Use runCli in tests/helpers/cli.ts for argv-level checks. It runs the real parser, main, AppLayer, NodeServices, configuration reader and logger. Its only substitutes are process writers and Host. Assert status and both streams; decode JSON results with their Schema. The helper accepts a program to exercise the invocation boundary's failure policies without adding test switches to production commands.

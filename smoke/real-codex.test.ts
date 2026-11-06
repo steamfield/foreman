@@ -149,7 +149,46 @@ smoke("5 restart resumes the read-only sandbox and preserves ask_orchestrator", 
     (rpc) => rpc.id === resume?.id && rpc.result !== undefined,
   );
   expect(response?.result).toMatchObject({ sandbox: { type: "readOnly" }, model: before.model });
+  expect((await f.events()).map(({ event }) => event)).toContainEqual({
+    _tag: "Resumed",
+    sandbox: "readOnly",
+    model: before.model,
+  });
   console.log("Resume observation: ask_orchestrator available; server sandbox readOnly.");
+});
+
+smoke("10 restart resumes write access and writes a file", async (f) => {
+  const done = await f.until(
+    await f.start("Run no commands. Reply exactly WRITE-RESUME-READY.", ["--write"]),
+    "done",
+  );
+  const before = await f.record();
+  await f.ok(["daemon", "stop"]);
+  await f.ok([
+    "followup",
+    "smoke",
+    "Write result.txt with exactly WRITE-RESUMED followed by a newline. Finish with WRITE-RESUMED.",
+    "--effort",
+    "low",
+  ]);
+  expect(await f.until(done, "done")).toContain("WRITE-RESUMED");
+  expect(await readFile(join(f.worktree, "result.txt"), "utf8")).toBe("WRITE-RESUMED\n");
+  expect((await f.record()).threadId).toBe(before.threadId);
+  const resume = (await f.wire("in")).find((rpc) => rpc.method === "thread/resume");
+  expect(resume?.params).toMatchObject({ sandbox: "danger-full-access" });
+  const response = (await f.wire("out")).findLast(
+    (rpc) => rpc.id === resume?.id && rpc.result !== undefined,
+  );
+  expect(response?.result).toMatchObject({
+    sandbox: { type: "dangerFullAccess" },
+    model: before.model,
+  });
+  expect((await f.events()).map(({ event }) => event)).toContainEqual({
+    _tag: "Resumed",
+    sandbox: "dangerFullAccess",
+    model: before.model,
+  });
+  expect((await f.result()).digest.warnings).toEqual([]);
 });
 
 smoke("6 budget expiry collects a read-only hand-off and restores write on followup", async (f) => {

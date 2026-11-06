@@ -73,7 +73,7 @@ forman start fix-doctor --worktree .worktrees/fix-doctor --contract /tmp/fix-doc
 forman wait --all
 ```
 
-`start` returns after starting the turn and ends with `next: forman wait <name>`. Run that command as a background task so Claude can keep working while the delegate runs. To watch several runs, use `wait --all`: it covers the repo containing the current directory, including its linked worktrees.
+`start` returns after starting the turn and ends with `next: <executable> wait <name>`. The executable is `forman` when that name on `PATH` resolves to this binary, or the running executable's absolute path otherwise; `doctor` reports the comparison. Run the printed command as a background task so Claude can keep working while the delegate runs. To watch several runs, use `wait --all`: it covers the repo containing the current directory, including its linked worktrees.
 
 When wait returns, read each run's outcome and digest. A `done`, `failed` or `interrupted` outcome includes that turn's hand-off, or says no hand-off is available. A `question` includes the full text and question id; `answer` resumes the held tool call. Use `steer` to change an active turn with no pending question, `followup` to start another turn on an inactive run, and `result` to reread the available hand-off. For example, these are alternatives at the appropriate run state:
 
@@ -125,7 +125,7 @@ Wait defaults to 60 minutes for background tasks. Pass `--timeout 9m` when runni
 | `timeout` | Nothing needed attention within the timeout; run the printed next command |
 | `none` | `--all` has no active runs or unseen attention in this repo |
 
-All three outcomes exit 0. `done` means the turn ended; assess its hand-off and checks before accepting the work. `lost` means the daemon cannot supervise the run. Every wait returns a cursor and ends with `next: forman wait ...`, including timeout and none; JSON includes the same command in `next`. `wait` needs run names or `--all`.
+All three outcomes exit 0. `done` means the turn ended; assess its hand-off and checks before accepting the work. `lost` means the daemon cannot supervise the run. Every wait returns a cursor and ends with `next: <executable> wait ...`, including timeout and none; JSON includes the same command in `next`. `wait` needs run names or `--all`.
 
 Unnamed status lists each run's name, state, turn number and kind, elapsed time, pending question ids (`q2 pending`) and a `worktree removed` marker when applicable. Named status keeps the full digest; both JSON forms return `Digests`. Elapsed time runs from creation to now for active runs, and to the last state change for inactive runs.
 
@@ -160,6 +160,8 @@ Settings come from environment variables, then the optional file `$XDG_CONFIG_HO
 | `CODEX_HOME` | | `$HOME/.codex` | Codex configuration and state directory |
 
 The config file is closed: an unknown key makes it invalid, which `doctor` reports.
+
+forman uses the Codex CLI's ChatGPT login and never passes API key variables from the caller's environment to Codex.
 
 ## State and logs
 

@@ -13,6 +13,7 @@ export const DoctorResult = Schema.Struct({
   version: Schema.String,
   platform: Schema.String,
   compiled: Schema.Boolean,
+  formanOnPath: Schema.Boolean,
   configFile: Schema.String,
   dataDir: Schema.String,
   codexBin: Schema.String,

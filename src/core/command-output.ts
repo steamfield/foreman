@@ -1,12 +1,50 @@
-import { DateTime } from "effect";
+import { DateTime, Effect, FileSystem, Path } from "effect";
+import { AppConfig } from "../config";
 import type { DaemonResult, Handoff, RunEventBody } from "../schemas/daemon";
+import { Host } from "../services/host";
 import { renderDigest, renderStatus } from "./runs/digest";
 
 // Keep multiline event payloads on one line without losing their boundaries.
 const oneLine = (text: string) => text.replace(/\r/g, "\\r").replace(/\n/g, "\\n");
 
+const shellQuote = (text: string) =>
+  /^[a-zA-Z0-9_./:-]+$/.test(text) ? text : `'${text.replaceAll("'", "'\\''")}'`;
+
+export const formanExecutable = Effect.fn("output.formanExecutable")(function* () {
+  const host = yield* Host;
+  const config = yield* AppConfig;
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const executable = host.executable.map((part) => path.resolve(part));
+  const running = yield* fs.realPath(executable[0] ?? "").pipe(Effect.result);
+  let onPath = false;
+  for (const directory of config.inheritedEnvironment.PATH?.split(path.sep === "\\" ? ";" : ":") ??
+    []) {
+    const candidate = path.resolve(directory, "forman");
+    const info = yield* fs.stat(candidate).pipe(Effect.result);
+    if (
+      info._tag === "Failure" ||
+      info.success.type !== "File" ||
+      (info.success.mode & 0o111) === 0
+    )
+      continue;
+    const resolved = yield* fs.realPath(candidate).pipe(Effect.result);
+    onPath =
+      executable.length === 1 &&
+      running._tag === "Success" &&
+      resolved._tag === "Success" &&
+      resolved.success === running.success;
+    break;
+  }
+  let command = executable.map(shellQuote).join(" ");
+  if (executable.length > 1) command = `FORMAN_DATA_DIR=${shellQuote(config.dataDir)} ${command}`;
+  return { onPath, command: onPath ? "forman" : command };
+});
+
 function eventSummary(event: RunEventBody): string {
   switch (event._tag) {
+    case "Resumed":
+      return `sandbox=${event.sandbox} model=${event.model}`;
     case "TurnStarted":
       return `turn ${event.turn} (${event.kind})`;
     case "TurnCompleted":
@@ -45,12 +83,12 @@ function renderHandoff(handoff: typeof Handoff.Type | null): string {
     : `Hand-off (turn ${handoff.turn}):\n${handoff.text}`;
 }
 
-export function renderResult(result: DaemonResult, compact = false): string {
+export function renderResult(result: DaemonResult, compact = false, executable = "forman"): string {
   switch (result._tag) {
     case "Pong":
       return `running ${result.version} (pid ${result.pid})`;
     case "Started":
-      return `${result.name}\n${result.runDir}\nnext: forman wait ${result.name}`;
+      return `${result.name}\n${result.runDir}\nnext: ${executable} wait ${result.name}`;
     case "Archived":
       return result.archivePath;
     case "Digests":

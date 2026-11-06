@@ -4,12 +4,20 @@ import { mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promis
 import { join, resolve } from "node:path";
 import { Schema } from "effect";
 import { cleanupFixture } from "./cleanup";
-import { fixture } from "./helpers";
+import { fixture, nextCommand } from "./helpers";
 
 const enabled = process.env.FORMAN_SMOKE === "1";
 const regression = test.skipIf(!enabled);
 if (!enabled) console.log("Harness regressions skipped: enable with FORMAN_SMOKE=1 bun run smoke");
 const proxy = resolve(import.meta.dir, "codex-proxy.ts");
+regression("continuations accept shell-quoted executable paths", () => {
+  expect(
+    nextCommand(
+      "next: '/tmp/build path'\\''s/forman' wait smoke --after cursor",
+      "/tmp/build path's/forman",
+    ),
+  ).toEqual(["wait", "smoke", "--after", "cursor"]);
+});
 const exists = (pid: number) => {
   try {
     process.kill(pid, 0);
