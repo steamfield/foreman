@@ -47,7 +47,13 @@ src/data/*.ts            pure build-time shaping per section: supervision (hero 
                          session (orchestration diagram), lifecycle, evidence, commands
 src/components/landing/  primitives.tsx (Section, DataTable, CodeFrame, StateBadge) and
                          one component per section; console/ and session/ hold subparts
-src/components/Logo.astro the mark (also public/favicon.svg)
+src/components/Logo.astro the mark and "foreman" lockup, inlined from public/brand/
+public/brand/            brand pack sources (icon tile, light and dark marks, horizontal and
+                         stacked lockups); `make brand` (scripts/brand.ts) renders their WebP
+                         sizes, the social cards and public/site.webmanifest.
+                         public/favicon.svg is a copy of foreman-icon.svg
+src/lib/og.ts            the satori social card; src/pages/og/index.webp.ts serves it
+design/logos/            the logo exploration and its preview.html (not shipped)
 src/lib/                 format.ts (forman's elapsed and token formats), analytics, events,
                          blog publication rules
 src/scripts/site.ts      copy buttons, section_viewed tracking, scroll reveals
@@ -175,8 +181,7 @@ only for moved content, never for trailing slashes or `.html` canonicalization.
 
 ## Deferred
 
-Landing page design, final tokens, font imports, event callers and replacing the
-static social image. Generated per-post Open Graph images are off.
+Landing page design, final tokens, font imports and event callers. Generated per-post Open Graph images are off.
 
 ## Pending user actions
 

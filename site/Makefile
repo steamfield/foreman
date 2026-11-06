@@ -9,7 +9,7 @@ PORT_E2E ?= 4322
 export PORT_WEB PORT_E2E
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev lint check test coverage build preview e2e new-article format clean deploy-check deploy-preview deploy
+.PHONY: help install dev lint check test coverage build preview e2e brand new-article format clean deploy-check deploy-preview deploy
 
 help: ## List targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-14s %s\n", $$1, $$2}'
@@ -40,6 +40,9 @@ coverage: ## Tests with coverage
 build: ## Static production build into dist/
 	bunx astro build
 	node --test tests/build.test.mjs
+
+brand: ## Render the WebP icons, lockups, social cards and manifest from public/brand/*.svg
+	bun scripts/brand.ts
 
 deploy-check: build ## Check the build through Cloudflare Pages locally
 	node --test tests/deploy.test.mjs

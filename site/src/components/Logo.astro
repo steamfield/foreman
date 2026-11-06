@@ -1,37 +1,25 @@
 ---
-// The forman mark: an ink tile, the lead (orange bar) over the delegate (paper square).
-// Colors are literal so the same SVG works as the favicon (public/favicon.svg).
+// The foreman mark: three chevrons moving right, the lead (orange) in front. Inlined
+// from the brand pack in public/brand/ so the header, the favicon and the brand files
+// share one drawing; `make brand` renders the WebP sizes from the same SVGs.
+import lockup from "../../public/brand/foreman-lockup-light.svg?raw";
+import mark from "../../public/brand/foreman-mark-light.svg?raw";
+
 interface Props {
+  /** Rendered height in pixels; the width follows the drawing. */
   size?: number;
   class?: string;
+  /** Show the outlined "foreman" wordmark beside the mark. */
   wordmark?: boolean;
 }
 const { size = 24, class: className, wordmark = false } = Astro.props;
+// The brand files carry a <title>; the inline copy is named through aria-label instead.
+const svg = (wordmark ? lockup : mark)
+  .replace(/\s*<title>[^<]*<\/title>/, "")
+  .replace(
+    "<svg ",
+    `<svg role="img" aria-label="foreman" height="${size}" style="width:auto" `,
+  );
 ---
 
-<span class:list={["inline-flex items-center gap-2", className]}>
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    aria-hidden={wordmark ? "true" : undefined}
-    role={wordmark ? undefined : "img"}
-    aria-label={wordmark ? undefined : "forman"}
-  >
-    <rect width="24" height="24" rx="4" fill="#111311"></rect>
-    <rect x="5" y="5" width="14" height="3.5" rx="0.75" fill="#FF5B14"></rect>
-    <rect
-      x="5"
-      y="11.5"
-      width="7.5"
-      height="7.5"
-      rx="0.75"
-      fill="#F1F2EE"
-    ></rect>
-  </svg>
-  {wordmark && (
-    <span class="font-display text-ink text-[1.15rem] leading-none">
-      forman
-    </span>
-  )}
-</span>
+<span class:list={["inline-flex items-center", className]} set:html={svg} />

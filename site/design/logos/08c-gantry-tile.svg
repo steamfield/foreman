@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="forman: Tile">
+  <rect x="1" y="1" width="30" height="30" rx="7" fill="#111311"/>
+  <rect x="7" y="8" width="18" height="4" rx="0.75" fill="#ff5b14"/>
+  <g fill="#f1f2ee">
+    <rect x="7.5" y="14.5" width="3.5" height="9.5" rx="0.75"/>
+    <rect x="14.25" y="14.5" width="3.5" height="9.5" rx="0.75"/>
+    <rect x="21" y="14.5" width="3.5" height="9.5" rx="0.75"/>
+  </g>
+</svg>

@@ -4,6 +4,8 @@
 export const hero = {
   title: "Codex models as subagents for Claude Code.",
   lede: "Claude Code plans the work, writes the contracts and reviews the result. forman hands the implementation to Codex models, each in its own git worktree, and wakes Claude when one finishes or asks a question. Claude can answer it or change its instructions mid-turn, and nothing is committed until Claude has read the diff. It runs on the Codex CLI's ChatGPT login, so there is no OpenAI API key involved.",
+  // The social card's line under the title; it has room for about 160 characters.
+  card: "Claude plans and reviews. sol, terra and astra implement, each in its own git worktree, and nothing is committed until Claude has read the diff.",
   consoleCaption:
     "The fix-supervisor delegate from forman's own release, 70 minutes replayed in one, including the question Codex asked and Claude's answer. Codex's events and forman's output are recorded. Claude's side of the conversation was written for this page.",
 };

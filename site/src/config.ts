@@ -4,7 +4,7 @@ export const site = {
     "forman makes Codex models available to Claude Code as subagents: Claude plans and reviews, and hands implementation to sol, terra or astra, each in its own git worktree. Claude answers their questions and reviews the diff before anything is committed.",
   url: "https://forman.steamfield.io",
   author: "Riley Hilliard",
-  image: "/default-og.svg",
+  image: "/og/index.webp",
   repo: "https://github.com/steamfield/forman",
   readme: "https://github.com/steamfield/forman#readme",
   npm: "https://www.npmjs.com/package/@steamfield/forman",

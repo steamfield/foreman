@@ -1,0 +1,21 @@
+{
+  "name": "foreman",
+  "short_name": "foreman",
+  "description": "Codex models as subagents for Claude Code.",
+  "start_url": "/",
+  "display": "browser",
+  "background_color": "#f1f2ee",
+  "theme_color": "#f1f2ee",
+  "icons": [
+    {
+      "src": "/brand/foreman-icon-192.webp",
+      "sizes": "192x192",
+      "type": "image/webp"
+    },
+    {
+      "src": "/brand/foreman-icon-512.webp",
+      "sizes": "512x512",
+      "type": "image/webp"
+    }
+  ]
+}
