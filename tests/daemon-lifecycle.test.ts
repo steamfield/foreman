@@ -112,6 +112,39 @@ const observeClosures = Effect.fnUntraced(function* () {
 });
 
 describe("daemon lifecycle and protocol", () => {
+  it.live("preserves an old lock whose recorded owner is still alive without a socket", () =>
+    Effect.gen(function* () {
+      const dataDir = yield* temp();
+      const fs = yield* FileSystem.FileSystem;
+      const owner = JSON.stringify({ pid: process.pid });
+      yield* fs.writeFileString(`${dataDir}/daemon.lock`, owner);
+      yield* fs.utimes(`${dataDir}/daemon.lock`, 0, 0);
+      yield* daemon(options(dataDir));
+      assert.strictEqual(yield* fs.readFileString(`${dataDir}/daemon.lock`), owner);
+      assert.isFalse(yield* fs.exists(`${dataDir}/forman.sock`));
+    }).pipe(Effect.provide(platform)),
+  );
+  it.live("reclaims a fresh lock immediately after its recorded owner exits", () =>
+    Effect.gen(function* () {
+      const dataDir = yield* temp();
+      const fs = yield* FileSystem.FileSystem;
+      const child = yield* (yield* ChildProcessSpawner.ChildProcessSpawner).spawn(
+        ChildProcess.make(process.execPath, ["-e", "process.exit(0)"]),
+      );
+      yield* child.exitCode;
+      yield* fs.writeFileString(
+        `${dataDir}/daemon.lock`,
+        JSON.stringify({ pid: Number(child.pid) }),
+      );
+      const pending = yield* daemon(options(dataDir)).pipe(Effect.forkChild);
+      const result = yield* Effect.raceFirst(
+        Fiber.join(pending).pipe(Effect.as(null)),
+        ready(dataDir),
+      ).pipe(Effect.timeout("2 seconds"));
+      assert.isNotNull(result);
+      yield* Fiber.interrupt(pending);
+    }).pipe(Effect.provide(platform)),
+  );
   it.live.each(["new", "existing"] as const)("keeps a %s data directory private", (kind) =>
     Effect.gen(function* () {
       const root = yield* temp();

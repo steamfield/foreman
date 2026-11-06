@@ -133,6 +133,125 @@ function machine(stdout: string) {
 }
 
 describe("command requests through the real parser and daemon", () => {
+  it("review: refuses a managed start before sending it to an outdated busy daemon", async () => {
+    const f = await fixture({ _tag: "Started", name, runDir: "/unsafe" }, "old");
+    const contract = join(f.dataDir, "contract.md");
+    await writeFile(contract, "Work");
+    const result = await f.run([
+      "start",
+      name,
+      "--new-worktree",
+      "--setup",
+      "true",
+      "--contract",
+      contract,
+      "--json",
+    ]);
+    expect(result.status).toBe(4);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("managed worktrees");
+    expect(f.requests.every((request) => request._tag !== "Start")).toBe(true);
+  });
+  it("accepts a one-call managed start and keeps its path and branch with --wait", async () => {
+    const f = await fixture((body) =>
+      body._tag === "Wait"
+        ? {
+            _tag: "Waited",
+            outcome: "timeout",
+            runs: [],
+            cursor,
+            next: "forman wait unit-a --after opaque:42",
+          }
+        : {
+            _tag: "Started",
+            name,
+            runDir: f.dataDir,
+            worktree: "/repo/.claude/worktrees/unit-a",
+            branch: "forman/unit-a",
+          },
+    );
+    const contract = join(f.dataDir, "contract.md");
+    await writeFile(contract, "Work");
+    const result = await f.run([
+      "start",
+      name,
+      "--new-worktree",
+      "--from",
+      "main",
+      "--setup",
+      "bun install",
+      "--contract",
+      contract,
+      "--write",
+      "--wait",
+      "--json",
+    ]);
+    expect(result).toMatchObject({ status: 0, stderr: "" });
+    expect(machine(result.stdout)).toMatchObject({
+      started: { worktree: "/repo/.claude/worktrees/unit-a", branch: "forman/unit-a" },
+    });
+    expect(f.requests[0]).toMatchObject({
+      _tag: "Start",
+      newWorktree: true,
+      from: "main",
+      setup: "bun install",
+      worktree: await realpath("."),
+    });
+    expect((await f.run(["archive", name, "--keep-worktree"])).status).toBe(0);
+    expect(f.requests.at(-1)).toMatchObject({ _tag: "Archive", keepWorktree: true });
+  });
+  it.each(
+    [
+      ["--new-worktree", "--worktree", "."],
+      ["--worktree", ".", "--setup", "true"],
+      ["--worktree", ".", "--from", "main"],
+      [],
+    ].map((flags) => ({ flags })),
+  )("refuses conflicting or incomplete worktree flags: $flags", async ({ flags }) => {
+    const f = await fixture();
+    const result = await f.run(["start", name, ...flags, "--contract", "unused", "--json"]);
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe("");
+    expect(f.requests).toEqual([]);
+  });
+  it.each(["answer", "steer", "followup", "interrupt"])(
+    "prints and waits on the combined continuation for %s",
+    async (command) => {
+      const f = await fixture((body) =>
+        body._tag === "Wait"
+          ? {
+              _tag: "Waited",
+              outcome: "timeout",
+              runs: [],
+              cursor,
+              next: "forman wait --all --after opaque:42",
+            }
+          : { _tag: "Accepted", all: true, cursor },
+      );
+      const messages: Record<string, string[]> = {
+        answer: ["q1", "Proceed"],
+        interrupt: [],
+        steer: ["Continue"],
+        followup: ["Continue"],
+      };
+      const args = [command, name, ...(messages[command] ?? [])];
+      const human = await f.run(args);
+      expect(human).toMatchObject({
+        status: 0,
+        stdout: "ok\nnext: forman wait --all --after opaque:42\n",
+        stderr: "",
+      });
+      const json = await f.run([...args, "--json"]);
+      expect(machine(json.stdout)).toMatchObject({ next: "forman wait --all --after opaque:42" });
+      expect((await f.run([...args, "--wait", "--timeout", "0ms"])).status).toBe(0);
+      expect(f.requests.at(-1)).toMatchObject({
+        _tag: "Wait",
+        all: true,
+        names: [],
+        after: cursor,
+      });
+    },
+  );
   it.each([false, true])(
     "merge: interrupt adapts an older busy daemon's Ok, wait=%s",
     async (waiting) => {

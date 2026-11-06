@@ -16,6 +16,7 @@ import {
   Stream,
 } from "effect";
 import { CodexRequestTimeout, CodexRpcError } from "../codex/client";
+import { archiveWorktree } from "../core/managed-worktree";
 import { buildDigest } from "../core/runs/digest";
 import * as Store from "../core/runs/store";
 import { computeWorktreeFields, type WorktreeFields } from "../core/runs/worktree";
@@ -49,7 +50,53 @@ export interface Run {
 export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir: string) {
   const workers = yield* FiberSet.make<unknown, unknown>();
   const runs = new Map<RunName, Run>();
+  const locks = new Map<RunName, Semaphore.Semaphore>();
+  const lockFor = (name: RunName) =>
+    Effect.sync(() => {
+      let lock = locks.get(name);
+      if (!lock) {
+        lock = Semaphore.makeUnsafe(1);
+        locks.set(name, lock);
+      }
+      return lock;
+    });
   const starts = yield* Semaphore.make(1);
+  const reservations = new Map<string, RunName>();
+  const requireWorktreeAvailable = Effect.fnUntraced(function* (name: RunName, worktree: string) {
+    const reserved = reservations.get(worktree);
+    if (reserved !== undefined && reserved !== name)
+      return yield* new RunConflict({
+        detail: `${reserved} is starting in ${worktree}; wait or interrupt it before reusing this worktree.`,
+      });
+    for (const other of runs.values()) {
+      if (
+        other.record.name !== name &&
+        other.record.worktree === worktree &&
+        activeStates.has(other.record.state)
+      )
+        return yield* new RunConflict({
+          detail: `${other.record.name} is ${other.record.state} in ${worktree}; wait or interrupt it before reusing this worktree.`,
+        });
+    }
+  });
+  const reserveWorktree = (name: RunName, worktree: string) =>
+    starts.withPermits(1)(
+      Effect.gen(function* () {
+        yield* requireWorktreeAvailable(name, worktree);
+        const previous = runs.get(name);
+        if (previous && activeStates.has(previous.record.state))
+          return yield* new RunConflict({
+            detail: `${name} is ${previous.record.state}; wait or interrupt it first.`,
+          });
+        reservations.set(worktree, name);
+      }),
+    );
+  const releaseWorktree = (name: RunName, worktree: string) =>
+    starts.withPermits(1)(
+      Effect.sync(() => {
+        if (reservations.get(worktree) === name) reservations.delete(worktree);
+      }),
+    );
   let changed = yield* Deferred.make<void>();
   const wake = Effect.gen(function* () {
     const previous = changed;
@@ -60,7 +107,7 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
     const run: Run = {
       record,
       dir: yield* Store.runDirectory(dataDir, record.name),
-      lock: yield* Semaphore.make(1),
+      lock: yield* lockFor(record.name),
       calls: new Map(),
       messages: yield* Queue.unbounded<Effect.Effect<void, unknown>, Cause.Done>(),
       items: [],
@@ -298,7 +345,7 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
         }),
       );
   }
-  const archive = Effect.fnUntraced(function* (name: RunName) {
+  const archive = Effect.fnUntraced(function* (name: RunName, keepWorktree = false) {
     const run = yield* lookup(name);
     return yield* run.lock.withPermits(1)(
       starts.withPermits(1)(
@@ -308,6 +355,10 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
             return yield* new RunConflict({
               detail: `${name} is ${run.record.state}; active runs cannot be archived.`,
             });
+          if (!keepWorktree && run.record.managedWorktree) {
+            yield* requireWorktreeAvailable(name, run.record.worktree);
+            yield* archiveWorktree(run.record);
+          }
           const archivePath = yield* Store.archiveRun(dataDir, name);
           runs.delete(name);
           yield* Queue.end(run.messages);
@@ -322,6 +373,11 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
     failed: FiberSet.join(workers),
     runs,
     starts,
+    reservations,
+    reserveWorktree,
+    releaseWorktree,
+    requireWorktreeAvailable,
+    lockFor,
     add,
     save,
     event,
@@ -338,7 +394,11 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
     background,
     enqueue,
     archive,
-    busy: Effect.sync(() => [...runs.values()].some((run) => activeStates.has(run.record.state))),
+    busy: Effect.sync(
+      () =>
+        reservations.size > 0 ||
+        [...runs.values()].some((run) => activeStates.has(run.record.state)),
+    ),
     change: Effect.suspend(() => Effect.succeed(Deferred.await(changed))),
   };
 });

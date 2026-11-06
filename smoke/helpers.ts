@@ -102,8 +102,7 @@ export async function fixture(inherited: NodeJS.ProcessEnv = process.env) {
     return ok([
       "start",
       "smoke",
-      "--worktree",
-      worktree,
+      ...(extra.includes("--new-worktree") ? [] : ["--worktree", worktree]),
       "--contract",
       contract,
       "--effort",

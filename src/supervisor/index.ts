@@ -14,6 +14,7 @@ import {
 import type { ChildProcessSpawner } from "effect/process";
 import { CodexRequestTimeout, CodexRpcError } from "../codex/client";
 import { AppConfig } from "../config";
+import { orphanWorktrees } from "../core/managed-worktree";
 import * as Store from "../core/runs/store";
 import { CodexUnavailable, failure, RunConflict } from "../errors";
 import { defectTrace } from "../logging";
@@ -157,8 +158,11 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
             const active = [...registry.runs.values()]
               .filter((run) => activeStates.has(run.record.state))
               .map((run) => run.record.name);
-            if (active.length > 0)
-              return yield* new RunConflict({ detail: `Active runs: ${active.join(", ")}` });
+            const starting = [...registry.reservations.values()];
+            if (active.length > 0 || starting.length > 0)
+              return yield* new RunConflict({
+                detail: `Active runs: ${[...new Set([...active, ...starting])].join(", ")}`,
+              });
             stopping = true;
             return { _tag: "Ok" as const };
           }),
@@ -177,17 +181,18 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
                 return yield* turns.reserveFollowup(run);
               }),
             );
+            const accepted = yield* acceptedCursor(registry, run);
             yield* turns
               .followup(run, body, threadId)
               .pipe(Effect.tapCause((cause) => registry.recover(run, cause)));
-            return { _tag: "Accepted" as const, cursor: yield* acceptedCursor(run) };
+            return { _tag: "Accepted" as const, ...accepted };
           }),
         );
       }
       case "Wait":
         return yield* wait(registry, body);
       case "Archive":
-        return yield* registry.archive(body.name);
+        return yield* registry.archive(body.name, body.keepWorktree);
       case "Status": {
         const group = body.name === undefined ? yield* groupFor(body.cwd) : "";
         const runs =
@@ -196,6 +201,12 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
             : [yield* registry.lookup(body.name)];
         return {
           _tag: "Digests",
+          ...((orphans) => (orphans.length > 0 ? { orphans } : {}))(
+            yield* orphanWorktrees(
+              runs[0]?.record.group || body.cwd,
+              [...registry.runs.values()].map((run) => run.record),
+            ),
+          ),
           digests: (yield* Effect.forEach(runs, (run) =>
             run.lock.withPermits(1)(
               Effect.gen(function* () {
@@ -216,19 +227,20 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
             FileSystem.FileSystem | Path.Path | ChildProcessSpawner.ChildProcessSpawner
           > {
             yield* registry.requireCurrent(run);
+            if (body._tag === "Events")
+              return yield* Store.readEvents(run.dir, body.after, body.limit);
+            if (body._tag === "Result") {
+              const handoff = yield* Store.readHandoff(run.dir, run.record.turns);
+              return {
+                _tag: "Result",
+                digest: yield* registry.digest(run, true),
+                ...handoff,
+                latestTurnWithoutHandoff:
+                  !activeStates.has(run.record.state) && handoff.latestTurnWithoutHandoff,
+              };
+            }
+            const accepted = yield* acceptedCursor(registry, run);
             switch (body._tag) {
-              case "Events":
-                return yield* Store.readEvents(run.dir, body.after, body.limit);
-              case "Result": {
-                const handoff = yield* Store.readHandoff(run.dir, run.record.turns);
-                return {
-                  _tag: "Result",
-                  digest: yield* registry.digest(run, true),
-                  ...handoff,
-                  latestTurnWithoutHandoff:
-                    !activeStates.has(run.record.state) && handoff.latestTurnWithoutHandoff,
-                };
-              }
               case "Steer":
                 yield* turns.steer(run, body.message);
                 break;
@@ -245,7 +257,7 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
                 );
                 break;
             }
-            return { _tag: "Accepted", cursor: yield* acceptedCursor(run) };
+            return { _tag: "Accepted", ...accepted };
           }),
         );
       }

@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import { Command } from "effect/cli";
+import { renderOrphan } from "../core/command-output";
 import { doctor } from "../core/doctor";
 import { Invocation } from "../services/invocation";
 import { Output } from "../services/output";
@@ -23,6 +24,8 @@ export const doctorCommand = Command.make(
         `Codex: ${result.codexVersion ?? "unavailable"}`,
         `Protocol matches: ${result.protocolMatches ?? "unavailable"}`,
         `Logged in: ${result.loggedIn ?? "unavailable"}`,
+        ...("orphans" in result ? (result.orphans ?? []).map(renderOrphan) : []),
+        ...("orphanError" in result ? [`Orphans: ${result.orphanError}`] : []),
         ...(result.repoHooks.state === "not applicable"
           ? ["Repo hooks: no repo hooks apply."]
           : [

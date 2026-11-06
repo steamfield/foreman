@@ -1,6 +1,15 @@
-import { Clock, DateTime, Effect, FileSystem, Queue, Schema } from "effect";
+import { Cause, Clock, DateTime, Effect, FileSystem, Queue, Schema } from "effect";
 import { CodexRequestTimeout, CodexRpcError } from "../codex/client";
 import type { AppConfig } from "../config";
+import {
+  type CreatedWorktree,
+  createdWorktreeHasWork,
+  createWorktree,
+  managedWorktreePath,
+  removeCreatedWorktree,
+  rollbackOnFailure,
+  setupWorktree,
+} from "../core/managed-worktree";
 import { checkHookTrust, hasRepoHooks } from "../core/preflight/hooks";
 import { defaultModel } from "../core/preflight/model";
 import { validateWorktree } from "../core/preflight/worktree";
@@ -132,31 +141,47 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
     );
   });
   const handoff = (run: Run, server: AppServer) => begin(run, server, timeUp, "handoff", 600_000);
-  const start = Effect.fnUntraced(function* (
+  const startLocked = Effect.fnUntraced(function* (
     body: Extract<DaemonRequestBody, { _tag: "Start" }>,
     accepting: Effect.Effect<void, RunConflict>,
+    destination: string,
   ) {
+    let created: CreatedWorktree | undefined;
     const available = Effect.gen(function* () {
       for (const run of registry.runs.values()) {
         if (
           activeStates.has(run.record.state) &&
-          (run.record.name === body.name || run.record.worktree === body.worktree)
+          (run.record.name === body.name || run.record.worktree === destination)
         )
           return yield* new RunConflict({
             detail: `${run.record.name} is ${run.record.state}; wait or interrupt it before starting another run here.`,
           });
       }
     });
-    yield* available;
-    const validated = yield* validateWorktree(body.worktree, body.skipDepsCheck);
-    yield* checkHookTrust(
-      (yield* servers.get).connection,
-      validated.mainCheckout,
-      validated.worktree,
-    );
-    const model = body.model ?? (yield* defaultModel(config.codexHome));
-    const warning = yield* servers.protocolWarning;
     const previous = registry.runs.get(body.name);
+    yield* accepting;
+    yield* available;
+    if (body.newWorktree) created = yield* createWorktree(body.worktree, body.name, body.from);
+    const prepare = Effect.gen(function* () {
+      const worktree = created?.worktree ?? body.worktree;
+      if (body.setup !== undefined)
+        yield* setupWorktree(worktree, body.setup, yield* servers.environment);
+      const validated = yield* validateWorktree(worktree, body.skipDepsCheck);
+      yield* available;
+      yield* checkHookTrust(
+        (yield* servers.get).connection,
+        validated.mainCheckout,
+        validated.worktree,
+      );
+      return {
+        validated,
+        model: body.model ?? (yield* defaultModel(config.codexHome)),
+        warning: yield* servers.protocolWarning,
+      };
+    });
+    const { validated, model, warning } = yield* created
+      ? rollbackOnFailure(created, prepare)
+      : prepare;
     const register = registry.starts.withPermits(1)(
       Effect.gen(function* () {
         yield* accepting;
@@ -181,6 +206,7 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
           group: validated.mainCheckout,
           worktree: validated.worktree,
           baseCommit: validated.baseCommit,
+          ...(created ? { managedWorktree: created.managed } : {}),
           model,
           effort: body.effort ?? "high",
           tier: body.tier ?? "priority",
@@ -203,9 +229,10 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
         return yield* registry.add(record);
       }).pipe(Effect.uninterruptible),
     );
-    const run = yield* previous ? previous.lock.withPermits(1)(register) : register;
-    yield* run.lock.withPermits(1)(
-      Effect.gen(function* () {
+    const run = yield* created ? rollbackOnFailure(created, register) : register;
+    yield* Effect.gen(function* () {
+      let turnRequested = false;
+      const open = Effect.gen(function* () {
         run.hooksRequired = yield* hasRepoHooks(run.record.group);
         const server = yield* servers.get;
         run.serverGeneration = server.generation;
@@ -221,6 +248,7 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
         );
         yield* registry.save(run, { threadId: opened.thread.id });
         server.loaded.add(opened.thread.id);
+        turnRequested = true;
         yield* begin(
           run,
           server,
@@ -228,25 +256,57 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
           "start",
           body.budgetMs ?? 3_600_000,
         );
-      }).pipe(Effect.tapCause((cause) => registry.recover(run, cause))),
+      });
+      yield* open.pipe(
+        Effect.catchCause((cause) =>
+          Effect.gen(function* () {
+            yield* registry.recover(run, cause);
+            if (created) {
+              if (
+                turnRequested &&
+                (run.record.state === "unknown" || (yield* createdWorktreeHasWork(created)))
+              ) {
+                const warning = `Start refused; retained ${created.worktree} (${created.managed.branch}) because execution is unconfirmed or it holds work. Inspect status, then use forman archive ${body.name} --keep-worktree to retain it.`;
+                yield* registry.save(run, { warnings: [...run.record.warnings, warning] });
+                const error = cause.reasons.find(Cause.isFailReason)?.error;
+                const reason = error instanceof Error ? error.name : "startup failure";
+                return yield* new RunConflict({ detail: `${reason}: ${warning}` });
+              }
+              yield* removeCreatedWorktree(created);
+            }
+            return yield* Effect.failCause(cause);
+          }).pipe(Effect.uninterruptible),
+        ),
+      );
+    });
+    return {
+      _tag: "Started" as const,
+      name: body.name,
+      runDir: run.dir,
+      ...(created ? { worktree: created.worktree, branch: created.managed.branch } : {}),
+    };
+  });
+  const start = Effect.fnUntraced(function* (
+    body: Extract<DaemonRequestBody, { _tag: "Start" }>,
+    accepting: Effect.Effect<void, RunConflict>,
+  ) {
+    const destination = body.newWorktree
+      ? yield* managedWorktreePath(body.worktree, body.name)
+      : body.worktree;
+    return yield* (yield* registry.lockFor(body.name)).withPermits(1)(
+      Effect.acquireUseRelease(
+        registry.reserveWorktree(body.name, destination),
+        () => startLocked(body, accepting, destination),
+        () => registry.releaseWorktree(body.name, destination),
+      ),
     );
-    return { _tag: "Started" as const, name: body.name, runDir: run.dir };
   });
   const reserveFollowup = Effect.fnUntraced(function* (run: Run) {
     if (activeStates.has(run.record.state))
       return yield* new RunConflict({
         detail: `${run.record.name} is ${run.record.state}; answer, steer or interrupt the active turn first.`,
       });
-    for (const other of registry.runs.values()) {
-      if (
-        other !== run &&
-        other.record.worktree === run.record.worktree &&
-        activeStates.has(other.record.state)
-      )
-        return yield* new RunConflict({
-          detail: `${other.record.name} is active in this worktree; wait or interrupt it first.`,
-        });
-    }
+    yield* registry.requireWorktreeAvailable(run.record.name, run.record.worktree);
     if (!(yield* fs.exists(run.record.worktree)))
       return yield* new RunConflict({
         detail: "Worktree no longer exists; prepare a worktree and start a new run.",

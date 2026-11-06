@@ -53,18 +53,21 @@ function questionId(output: string) {
 smoke("1 delegation wakes with hand-off, digest, result and archive", async (f) => {
   const done = await f.start(
     "Write result.txt with exactly SMOKE-WRITE followed by a newline. Finish with exactly one line: DELEGATION-OK",
-    ["--write", "--wait"],
+    ["--new-worktree", "--setup", "true", "--write", "--wait"],
   );
   expect(done).toContain("done        smoke turn 1");
   expect(done).toContain("DELEGATION-OK");
   expect(done).toContain("result.txt");
-  expect(await readFile(join(f.worktree, "result.txt"), "utf8")).toBe("SMOKE-WRITE\n");
+  expect(done).toContain(`branch: forman/smoke`);
+  expect(await readFile(join(f.repo, ".claude/worktrees/smoke/result.txt"), "utf8")).toBe(
+    "SMOKE-WRITE\n",
+  );
   const result = await f.result();
   expect(result.digest.filesWritten).toContain("result.txt");
   expect(result.handoff?.text.trim()).toBe("DELEGATION-OK");
   expect(done).toContain(result.handoff?.text ?? "missing hand-off");
   expect(result.latestTurnWithoutHandoff).toBe(false);
-  const archived = await f.json(["archive", "smoke"]);
+  const archived = await f.json(["archive", "smoke", "--keep-worktree"]);
   expect(archived._tag).toBe("Archived");
   if (archived._tag !== "Archived") throw new Error("Missing archive");
   expect(archived.archivePath.startsWith(join(f.data, "runs/.archive/"))).toBe(true);

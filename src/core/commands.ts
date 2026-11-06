@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import { AppConfig } from "../config";
 import { call } from "../daemon/client";
+import { Usage } from "../errors";
 import type { DaemonRequestBody, DaemonResult, QuestionId, RunName } from "../schemas/daemon";
 import { Output } from "../services/output";
 import { durationMs, type MessageInput, messageText, readText, realPath } from "./command-input";
@@ -32,18 +33,24 @@ const afterAccepted = Effect.fnUntraced(function* (
   if (result._tag !== "Accepted") return result;
   if (options.wait)
     return yield* wait({
-      names: [name],
-      all: false,
+      names: result.all ? [] : [name],
+      all: result.all ?? false,
       after: result.cursor,
       timeout: options.timeout,
     });
   const executable = yield* formanExecutable();
-  return { ...result, next: `${executable.command} wait ${name} --after ${result.cursor}` };
+  return {
+    ...result,
+    next: `${executable.command} wait ${result.all ? "--all" : name} --after ${result.cursor}`,
+  };
 });
 
 interface StartInput extends WaitOptions {
   readonly name: RunName;
-  readonly worktree: string;
+  readonly worktree: string | undefined;
+  readonly newWorktree: boolean;
+  readonly from: string | undefined;
+  readonly setup: string | undefined;
   readonly contract: string;
   readonly write: boolean;
   readonly skipDepsCheck: boolean;
@@ -55,12 +62,20 @@ interface StartInput extends WaitOptions {
 }
 
 export const start = Effect.fn("commands.start")(function* (input: StartInput) {
+  if (
+    input.newWorktree === (input.worktree !== undefined) ||
+    (!input.newWorktree && (input.from !== undefined || input.setup !== undefined))
+  )
+    return yield* new Usage();
   const started = yield* request({
     _tag: "Start",
     name: input.name,
     write: input.write,
     skipDepsCheck: input.skipDepsCheck,
-    worktree: yield* realPath(input.worktree),
+    worktree: yield* realPath(input.worktree ?? "."),
+    ...(input.newWorktree ? { newWorktree: true } : {}),
+    ...(input.from === undefined ? {} : { from: input.from }),
+    ...(input.setup === undefined ? {} : { setup: input.setup }),
     contract: yield* readText(input.contract),
     ...(input.model === undefined ? {} : { model: input.model }),
     ...(input.effort === undefined ? {} : { effort: input.effort }),
@@ -73,7 +88,14 @@ export const start = Effect.fn("commands.start")(function* (input: StartInput) {
   if (!input.wait || started._tag !== "Started") return started;
   const result = yield* wait({ names: [input.name], all: false, timeout: input.timeout });
   return result._tag === "Waited"
-    ? { ...result, started: { name: started.name, runDir: started.runDir } }
+    ? {
+        ...result,
+        started: {
+          name: started.name,
+          runDir: started.runDir,
+          ...(started.worktree ? { worktree: started.worktree, branch: started.branch } : {}),
+        },
+      }
     : result;
 });
 
@@ -138,7 +160,8 @@ export const answer = Effect.fn("commands.answer")(function* (
 
 export const result = (name: RunName) => request({ _tag: "Result", name });
 
-export const archive = (name: RunName) => request({ _tag: "Archive", name });
+export const archive = (name: RunName, keepWorktree = false) =>
+  request({ _tag: "Archive", name, ...(keepWorktree ? { keepWorktree: true } : {}) });
 
 export const wait = Effect.fn("commands.wait")(function* (
   input: Omit<Extract<DaemonRequestBody, { _tag: "Wait" }>, "_tag" | "cwd" | "timeoutMs"> & {

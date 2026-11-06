@@ -11,6 +11,7 @@ import { AppConfig } from "../src/config";
 import { doctor } from "../src/core/doctor";
 import { commandResult } from "../src/core/process";
 import { DaemonSockets } from "../src/daemon/sockets";
+import { RunName, RunRecord } from "../src/schemas/daemon";
 import { DoctorResult } from "../src/schemas/doctor";
 import { Host } from "../src/services/host";
 import { Scenario } from "./fixtures/fake-app-server/scenario";
@@ -50,6 +51,54 @@ const entered = Effect.fnUntraced(function* (marker: string) {
   const fs = yield* FileSystem.FileSystem;
   while (!(yield* fs.exists(marker))) yield* Effect.yieldNow;
 });
+
+it.live("doctor lists clean and dirty managed orphan worktrees but excludes registered runs", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const root = yield* fs.realPath(yield* temp());
+    const repo = `${root}/repo`;
+    yield* fs.makeDirectory(repo);
+    const git = (args: string[]) =>
+      commandResult(ChildProcess.make("git", args, { cwd: repo })).pipe(
+        Effect.tap(({ code }) => Effect.sync(() => expect(code).toBe(0))),
+      );
+    yield* git(["init", "-q"]);
+    yield* git([
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.invalid",
+      "commit",
+      "--allow-empty",
+      "-qm",
+      "initial",
+    ]);
+    for (const name of ["clean", "dirty", "registered"])
+      yield* git(["worktree", "add", "-qb", `forman/${name}`, `${repo}/.claude/worktrees/${name}`]);
+    yield* fs.writeFileString(`${repo}/.claude/worktrees/dirty/result.txt`, "work");
+    yield* fs.makeDirectory(`${root}/runs/registered`, { recursive: true });
+    const record: unknown = JSON.parse(
+      yield* fs.readFileString(fileURLToPath(new URL("./fixtures/runs/run.json", import.meta.url))),
+    );
+    const stored = Schema.decodeUnknownSync(RunRecord)(record);
+    yield* fs.writeFileString(
+      `${root}/runs/registered/run.json`,
+      Schema.encodeSync(Schema.fromJsonString(RunRecord))({
+        ...stored,
+        name: Schema.decodeUnknownSync(RunName)("registered"),
+        worktree: `${repo}/.claude/worktrees/registered`,
+        group: repo,
+      }),
+    );
+    const result = yield* doctor(repo).pipe(Effect.provide(settings(root, `${root}/missing`)));
+    expect(result).toMatchObject({
+      orphans: [
+        { path: `${repo}/.claude/worktrees/clean`, branch: "forman/clean", holdsWork: false },
+        { path: `${repo}/.claude/worktrees/dirty`, branch: "forman/dirty", holdsWork: true },
+      ],
+    });
+  }).pipe(Effect.provide(platform)),
+);
 
 describe("bounded doctor diagnostics", () => {
   it.live.each(["same", "different", "legacy", "absent"] as const)(

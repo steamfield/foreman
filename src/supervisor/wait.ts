@@ -20,10 +20,18 @@ const Positions = Schema.Record(
     seq: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   }),
 );
-const CursorJson = Schema.fromJsonString(Positions);
-const encode = (positions: typeof Positions.Type) =>
+const GroupPositions = Schema.TaggedStruct("GroupCursor", {
+  group: Schema.String,
+  positions: Positions,
+});
+const CursorJson = Schema.fromJsonString(Schema.Union([GroupPositions, Positions]));
+const encode = (positions: typeof Positions.Type, group?: string) =>
   Schema.decodeUnknownSync(Cursor)(
-    btoa(Schema.encodeSync(CursorJson)(positions))
+    btoa(
+      Schema.encodeSync(CursorJson)(
+        group === undefined ? positions : { _tag: "GroupCursor", group, positions },
+      ),
+    )
       .replaceAll("+", "-")
       .replaceAll("/", "_")
       .replace(/=+$/, ""),
@@ -33,19 +41,35 @@ const identity = (run: Run) =>
   `${DateTime.formatIso(run.record.createdAt)}:${run.record.threadId ?? ""}`;
 
 // Call with the run lock held, before queued notifications can advance its position.
-export const acceptedCursor = Effect.fnUntraced(function* (run: Run) {
-  const page = yield* readEvents(run.dir, 0, Number.MAX_SAFE_INTEGER);
-  return encode({ [run.record.name]: { identity: identity(run), seq: page.next } });
+export const acceptedCursor = Effect.fnUntraced(function* (registry: Registry, run: Run) {
+  const group = [...registry.runs.values()].filter(
+    (other) => other.record.group === run.record.group,
+  );
+  const all = group.some((other) => other !== run && activeStates.has(other.record.state));
+  const positions: Record<RunName, { identity: string; seq: number }> = {};
+  // Peer logs expose only committed lines. Taking peer locks here would deadlock two
+  // concurrent mutations, each of which already holds its own run lock.
+  for (const other of all ? group : [run]) {
+    const page = yield* readEvents(other.dir, 0, Number.MAX_SAFE_INTEGER);
+    positions[other.record.name] = { identity: identity(other), seq: page.next };
+  }
+  return {
+    cursor: encode(positions, all ? run.record.group : undefined),
+    ...(all ? { all: true } : {}),
+  };
 });
 const decodeCursor = Effect.fnUntraced(function* (cursor: Cursor | undefined) {
-  if (cursor === undefined) return {};
+  if (cursor === undefined) return { positions: {} };
   const text = yield* Effect.try({
     try: () => atob(cursor.replaceAll("-", "+").replaceAll("_", "/")),
     catch: () => new Usage(),
   });
-  return yield* Schema.decodeUnknownEffect(CursorJson)(text).pipe(
+  const parsed = yield* Schema.decodeUnknownEffect(CursorJson)(text).pipe(
     Effect.mapError(() => new Usage()),
   );
+  return Schema.is(GroupPositions)(parsed)
+    ? { positions: parsed.positions, group: parsed.group }
+    : { positions: parsed };
 });
 
 export const groupFor = Effect.fn("supervisor.groupFor")(function* (cwd: string) {
@@ -123,8 +147,14 @@ export const wait = Effect.fn("supervisor.wait")(function* (
   | import("effect/process").ChildProcessSpawner.ChildProcessSpawner
 > {
   if (!body.all && body.names.length === 0) return yield* new Usage();
-  const positions = yield* decodeCursor(body.after);
-  const group = body.all ? yield* groupFor(body.cwd) : "";
+  const decoded = yield* decodeCursor(body.after);
+  const positions = decoded.positions;
+  let group = decoded.group;
+  if (body.all) group ??= yield* groupFor(body.cwd);
+  else {
+    const only = body.names.length === 1 ? body.names[0] : undefined;
+    group = only === undefined ? undefined : (yield* registry.lookup(only)).record.group;
+  }
   const deadline = (yield* Clock.currentTimeMillis) + body.timeoutMs;
   const result = (
     outcome: "events" | "timeout" | "none",
@@ -137,7 +167,8 @@ export const wait = Effect.fn("supervisor.wait")(function* (
     cursor,
     next: `forman wait ${body.all ? "--all" : body.names.join(" ")} --after ${cursor}`,
   });
-  const timeout = () => result("timeout", [], body.after ?? encode(positions));
+  const encodeNext = (next: typeof Positions.Type) => encode(next, group);
+  const timeout = () => result("timeout", [], body.after ?? encodeNext(positions));
   const consider = Effect.gen(function* () {
     while (true) {
       const change = yield* registry.change;
@@ -163,8 +194,8 @@ export const wait = Effect.fn("supervisor.wait")(function* (
             active ||= activeStates.has(run.record.state);
           }),
         );
-      if (outcomes.length > 0) return result("events", outcomes, encode(next));
-      if (body.all && !active) return result("none", [], encode(next));
+      if (outcomes.length > 0) return result("events", outcomes, encodeNext(next));
+      if (body.all && !active) return result("none", [], encodeNext(next));
       // Ready attention includes a worktree refresh; only waiting for a change can time out.
       const remaining = deadline - (yield* Clock.currentTimeMillis);
       if (remaining <= 0) return timeout();

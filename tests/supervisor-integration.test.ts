@@ -325,6 +325,636 @@ const fixture = Effect.fnUntraced(function* (script: Scenario, legacy = false) {
 });
 
 describe("supervisor over the real daemon socket", () => {
+  it.live("archive preserves unmerged commits when the source branch has been deleted", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario(turnRule([complete()])));
+      yield* f.git(f.repo, ["branch", "source"]);
+      yield* f.launch();
+      yield* f.start({ worktree: f.repo, newWorktree: true, from: "source" });
+      yield* f.wait();
+      const worktree = `${f.repo}/.claude/worktrees/unit`;
+      yield* f.git(worktree, [
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.invalid",
+        "commit",
+        "--allow-empty",
+        "-qm",
+        "work",
+      ]);
+      yield* f.git(f.repo, ["branch", "-D", "source"]);
+      expect(yield* f.request({ _tag: "Archive", name }).pipe(Effect.flip)).toMatchObject({
+        _tag: "RunConflict",
+        detail: expect.stringContaining("unmerged commits"),
+      });
+      expect(yield* f.fs.exists(worktree)).toBe(true);
+    }).pipe(Effect.provide(platform)),
+  );
+  it.live("review: a managed child can start from an active parent's checkout", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario({ ...turnRule(), repeat: true }));
+      yield* f.launch();
+      yield* f.start({ worktree: f.repo, newWorktree: true });
+      expect(
+        yield* f.start({
+          name: Schema.decodeUnknownSync(D.RunName)("child"),
+          worktree: `${f.repo}/.claude/worktrees/unit`,
+          newWorktree: true,
+        }),
+      ).toMatchObject({ _tag: "Started", branch: "forman/child" });
+    }).pipe(Effect.provide(platform)),
+  );
+  it.live("review: archive preserves a managed worktree reserved by another active run", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario(turnRule([complete()]), turnRule()));
+      yield* f.launch();
+      yield* f.start({ worktree: f.repo, newWorktree: true });
+      yield* f.wait();
+      const worktree = `${f.repo}/.claude/worktrees/unit`;
+      yield* f.start({ name: Schema.decodeUnknownSync(D.RunName)("other"), worktree });
+      expect(yield* f.request({ _tag: "Archive", name }).pipe(Effect.flip)).toMatchObject({
+        _tag: "RunConflict",
+        detail: expect.stringContaining("other"),
+      });
+      expect(yield* f.fs.exists(worktree)).toBe(true);
+      yield* f.request({ _tag: "Archive", name, keepWorktree: true });
+      expect(yield* f.fs.exists(worktree)).toBe(true);
+    }).pipe(Effect.provide(platform)),
+  );
+  it.live("review: setup reserves its new path against a differently named start", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario({ ...turnRule(), repeat: true }));
+      yield* f.launch();
+      yield* commandResult(ChildProcess.make("mkfifo", [`${f.root}/release`]));
+      const first = yield* f
+        .start({
+          worktree: f.repo,
+          newWorktree: true,
+          setup: `printf ready > '${f.root}/ready'; cat '${f.root}/release'`,
+        })
+        .pipe(Effect.result, Effect.forkChild);
+      yield* Effect.raceFirst(
+        Effect.gen(function* () {
+          while (!(yield* f.fs.exists(`${f.root}/ready`))) yield* Effect.yieldNow;
+        }),
+        Fiber.join(first).pipe(
+          Effect.flatMap((result) =>
+            Effect.sync(() =>
+              assert.fail(`Setup ended before readiness: ${JSON.stringify(result)}`),
+            ),
+          ),
+        ),
+      );
+      const worktree = `${f.repo}/.claude/worktrees/unit`;
+      expect(yield* f.request({ _tag: "Shutdown" }).pipe(Effect.flip)).toMatchObject({
+        _tag: "RunConflict",
+        detail: expect.stringContaining("unit"),
+      });
+      const second = yield* f
+        .start({ name: Schema.decodeUnknownSync(D.RunName)("other"), worktree })
+        .pipe(Effect.result);
+      if (second._tag === "Success")
+        yield* f.fs.writeFileString(`${worktree}/result.txt`, "other run's work");
+      yield* f.fs.writeFileString(`${f.root}/release`, "go\n");
+      const initial = yield* Fiber.join(first);
+      expect(second).toMatchObject({ _tag: "Failure", failure: { _tag: "RunConflict" } });
+      expect(initial._tag).toBe("Success");
+      expect(yield* f.fs.exists(worktree)).toBe(true);
+    }).pipe(Effect.provide(platform)),
+  );
+  it.live("review: detached managed worktrees refuse archive with the keep command", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario(turnRule([complete()])));
+      yield* f.launch();
+      yield* f.start({ worktree: f.repo, newWorktree: true });
+      yield* f.wait();
+      const worktree = `${f.repo}/.claude/worktrees/unit`;
+      yield* f.git(worktree, ["checkout", "--detach"]);
+      expect(yield* f.request({ _tag: "Archive", name }).pipe(Effect.flip)).toMatchObject({
+        _tag: "RunConflict",
+        detail: expect.stringContaining("detached HEAD"),
+      });
+      expect(yield* f.request({ _tag: "Archive", name }).pipe(Effect.flip)).toMatchObject({
+        detail: expect.stringContaining("forman archive unit --keep-worktree"),
+      });
+      expect(yield* f.fs.exists(worktree)).toBe(true);
+    }).pipe(Effect.provide(platform)),
+  );
+  it.effect("review: a clean but unconfirmed turn retains its worktree for later writes", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario({ method: Codex.Method.turnStart, respond: "none" }));
+      yield* f.launch();
+      const pending = yield* f
+        .start({ worktree: f.repo, newWorktree: true })
+        .pipe(Effect.flip, Effect.forkChild);
+      yield* f.awaitLog(Codex.Method.turnStart);
+      yield* TestClock.adjust("31 seconds");
+      expect(yield* Fiber.join(pending)).toMatchObject({
+        detail: expect.stringContaining("retained"),
+      });
+      const worktree = `${f.repo}/.claude/worktrees/unit`;
+      yield* f.fs.writeFileString(`${worktree}/late.txt`, "late write");
+      expect((yield* f.status()).state).toBe("unknown");
+      expect(yield* f.fs.readFileString(`${worktree}/late.txt`)).toBe("late write");
+    }).pipe(Effect.provide(platform)),
+  );
+  it.live("review: an advancing branch survives archive's checked-tip deletion", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario(turnRule([complete()])));
+      yield* f.launch();
+      yield* f.start({ worktree: f.repo, newWorktree: true });
+      yield* f.wait();
+      const advanced = (yield* f.git(f.repo, [
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.invalid",
+        "commit-tree",
+        "HEAD^{tree}",
+        "-p",
+        "HEAD",
+        "-m",
+        "concurrent work",
+      ])).stdout.trim();
+      const realGit = (yield* commandResult(ChildProcess.make("which", ["git"]))).stdout.trim();
+      yield* f.fs.writeFileString(
+        `${f.root}/git`,
+        `#!/bin/sh\nif [ "$1" = worktree ] && [ "$2" = remove ]; then '${realGit}' -C '${f.repo}' update-ref refs/heads/forman/unit '${advanced}'; fi\nexec '${realGit}' "$@"\n`,
+        { mode: 0o755 },
+      );
+      const previous = process.env.PATH;
+      yield* Effect.acquireUseRelease(
+        Effect.sync(() => {
+          process.env.PATH = `${f.root}:${previous ?? ""}`;
+        }),
+        () =>
+          Effect.gen(function* () {
+            expect(yield* f.request({ _tag: "Archive", name }).pipe(Effect.flip)).toMatchObject({
+              _tag: "RunConflict",
+              detail: expect.stringContaining("forman/unit"),
+            });
+            expect((yield* f.git(f.repo, ["rev-parse", "forman/unit"])).stdout.trim()).toBe(
+              advanced,
+            );
+          }),
+        () =>
+          Effect.sync(() => {
+            if (previous === undefined) delete process.env.PATH;
+            else process.env.PATH = previous;
+          }),
+      );
+    }).pipe(Effect.provide(platform)),
+  );
+  it.live.each([false, true])(
+    "review: peer completion during a mutation remains visible, CLI wait from another repo=%s",
+    (cli) =>
+      Effect.gen(function* () {
+        const f = yield* fixture({
+          onStart: [
+            { awaitRequest: Codex.Method.turnSteer },
+            notify(Codex.Method.turnCompleted, {
+              threadId: "peer",
+              turn: { id: "peer-turn", status: "completed", error: null, items: [] },
+            }),
+          ],
+          rules: [
+            {
+              method: Codex.Method.threadStart,
+              respond: { result: { ...opened, thread: { id: "primary" } } },
+            },
+            {
+              method: Codex.Method.threadStart,
+              respond: { result: { ...opened, thread: { id: "peer" } } },
+            },
+            {
+              method: Codex.Method.threadStart,
+              respond: { result: { ...opened, thread: { id: "third" } } },
+            },
+            turnRule(),
+            {
+              ...turnRule(),
+              respond: {
+                result: { turn: { id: "peer-turn", status: "inProgress", error: null, items: [] } },
+              },
+            },
+            turnRule(),
+            {
+              method: Codex.Method.turnSteer,
+              delayMs: 300,
+              respond: { result: { turnId: "{{turn}}" } },
+            },
+          ],
+        });
+        const otherName = Schema.decodeUnknownSync(D.RunName)("other");
+        const other = `${f.repo}/work/other`;
+        yield* f.git(f.repo, ["worktree", "add", "-qb", "other", other]);
+        yield* f.launch();
+        yield* f.start();
+        yield* f.start({ name: otherName, worktree: other });
+        const third = `${f.repo}/work/third`;
+        yield* f.git(f.repo, ["worktree", "add", "-qb", "third", third]);
+        yield* f.start({ name: Schema.decodeUnknownSync(D.RunName)("third"), worktree: third });
+        if (cli) {
+          const output = Schema.decodeUnknownSync(Schema.fromJsonString(D.DaemonResult))(
+            yield* f.cli(["steer", name, "finish", "--wait", "--timeout", "1s", "--json"]),
+          );
+          expect(output).toMatchObject({
+            _tag: "Waited",
+            runs: [{ name: otherName, kind: "done" }],
+          });
+          if (output._tag !== "Waited") assert.fail("expected Waited");
+          const replay = Schema.decodeUnknownSync(Schema.fromJsonString(D.DaemonResult))(
+            yield* f.cli(["wait", "--all", "--after", output.cursor, "--timeout", "0ms", "--json"]),
+          );
+          expect(replay).toMatchObject({ _tag: "Waited", runs: [] });
+        } else {
+          const accepted = yield* f.request({ _tag: "Steer", name, message: "finish" });
+          if (accepted._tag !== "Accepted") assert.fail("expected Accepted");
+          expect((yield* f.status(otherName)).state).toBe("idle");
+          expect(
+            (yield* f.wait({
+              names: [],
+              all: true,
+              cwd: f.repo,
+              after: accepted.cursor,
+              timeoutMs: 0,
+            })).runs,
+          ).toMatchObject([{ name: otherName, kind: "done" }]);
+        }
+      }).pipe(Effect.provide(platform)),
+  );
+  it.live("orphan diagnostics skip worktree directories already removed outside Git", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario(turnRule([complete()])));
+      const orphan = `${f.repo}/.claude/worktrees/gone`;
+      yield* f.git(f.repo, ["worktree", "add", "-qb", "forman/gone", orphan]);
+      yield* f.fs.remove(orphan, { recursive: true });
+      yield* f.launch();
+      yield* f.start();
+      yield* f.wait();
+      expect(yield* f.request({ _tag: "Status", cwd: f.repo })).toMatchObject({
+        _tag: "Digests",
+        digests: [{ name }],
+      });
+    }).pipe(Effect.provide(platform)),
+  );
+  it.effect("a refused managed turn start retains work written before its timeout", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario({ method: Codex.Method.turnStart, respond: "none" }));
+      yield* f.launch();
+      const pending = yield* f
+        .start({ worktree: f.repo, newWorktree: true })
+        .pipe(Effect.flip, Effect.forkChild);
+      yield* f.awaitLog(Codex.Method.turnStart);
+      const worktree = `${f.repo}/.claude/worktrees/unit`;
+      yield* f.fs.writeFileString(`${worktree}/result.txt`, "preserve");
+      yield* TestClock.adjust("31 seconds");
+      const error = yield* Fiber.join(pending);
+      expect(error).toMatchObject({ detail: expect.stringContaining(worktree) });
+      expect(yield* f.fs.readFileString(`${worktree}/result.txt`)).toBe("preserve");
+      expect((yield* f.status()).warnings).toContainEqual(expect.stringContaining("retained"));
+    }).pipe(Effect.provide(platform)),
+  );
+  it.live("a managed setup holds its own run lock without blocking another start", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario({ ...turnRule(), repeat: true }));
+      yield* f.launch();
+      yield* commandResult(ChildProcess.make("mkfifo", [`${f.root}/release`]));
+      const first = yield* f
+        .start({
+          worktree: f.repo,
+          newWorktree: true,
+          setup: `printf ready > '${f.root}/ready'; cat '${f.root}/release'`,
+        })
+        .pipe(Effect.forkChild);
+      while (!(yield* f.fs.exists(`${f.root}/ready`))) yield* Effect.yieldNow;
+      yield* f
+        .start({
+          name: Schema.decodeUnknownSync(D.RunName)("other"),
+          worktree: f.repo,
+          newWorktree: true,
+        })
+        .pipe(
+          Effect.timeout("2 seconds"),
+          Effect.ensuring(f.fs.writeFileString(`${f.root}/release`, "go\n").pipe(Effect.orDie)),
+        );
+      expect(yield* Fiber.join(first)).toMatchObject({ _tag: "Started" });
+    }).pipe(Effect.provide(platform)),
+  );
+  it.live("managed creation preserves an existing path", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario());
+      const worktree = `${f.repo}/.claude/worktrees/unit`;
+      yield* f.fs.makeDirectory(worktree, { recursive: true });
+      yield* f.fs.writeFileString(`${worktree}/existing.txt`, "keep");
+      yield* f.launch();
+      expect(
+        yield* f.start({ worktree: f.repo, newWorktree: true }).pipe(Effect.flip),
+      ).toMatchObject({ _tag: "WorktreeInvalid" });
+      expect(yield* f.fs.readFileString(`${worktree}/existing.txt`)).toBe("keep");
+      expect((yield* f.git(f.repo, ["branch", "--list", "forman/unit"])).stdout).toBe("");
+    }).pipe(Effect.provide(platform)),
+  );
+  it.live("review: managed creation preserves an existing branch with an absent destination", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario());
+      yield* f.git(f.repo, ["branch", "forman/unit"]);
+      const tip = (yield* f.git(f.repo, ["rev-parse", "forman/unit"])).stdout;
+      yield* f.launch();
+      expect(
+        yield* f.start({ worktree: f.repo, newWorktree: true }).pipe(Effect.flip),
+      ).toMatchObject({ _tag: "WorktreeInvalid" });
+      expect(yield* f.fs.exists(`${f.repo}/.claude/worktrees/unit`)).toBe(false);
+      expect((yield* f.git(f.repo, ["rev-parse", "forman/unit"])).stdout).toBe(tip);
+    }).pipe(Effect.provide(platform)),
+  );
+  it.live("review: successful managed creation preserves an existing ignore rule", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario(turnRule()));
+      yield* f.fs.writeFileString(`${f.repo}/.gitignore`, ".claude/worktrees/\n");
+      const exclude = yield* f.fs.readFileString(`${f.repo}/.git/info/exclude`);
+      yield* f.launch();
+      expect(yield* f.start({ worktree: f.repo, newWorktree: true })).toMatchObject({
+        _tag: "Started",
+      });
+      expect(yield* f.fs.exists(`${f.repo}/.claude/worktrees/unit`)).toBe(true);
+      expect(yield* f.fs.readFileString(`${f.repo}/.git/info/exclude`)).toBe(exclude);
+    }).pipe(Effect.provide(platform)),
+  );
+  it.live("managed hook-trust refusal rolls back the created worktree before thread/start", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario());
+      yield* f.fs.makeDirectory(`${f.repo}/.codex`);
+      yield* f.fs.writeFileString(`${f.repo}/.codex/hooks.json`, '{"hooks":{}}');
+      yield* f.fs.writeFileString(
+        f.scenarioFile,
+        Schema.encodeSync(Schema.fromJsonString(Scenario))(
+          repoHooks(`${f.repo}/.claude/worktrees/unit`, `${f.repo}/.codex/hooks.json`, "untrusted"),
+        ),
+      );
+      yield* f.launch();
+      expect(
+        yield* f.start({ worktree: f.repo, newWorktree: true }).pipe(Effect.flip),
+      ).toMatchObject({ _tag: "RepoHooksUntrusted" });
+      expect(yield* f.fs.exists(`${f.repo}/.claude/worktrees/unit`)).toBe(false);
+      expect((yield* f.git(f.repo, ["branch", "--list", "forman/unit"])).stdout).toBe("");
+      expect((yield* f.readLog).some((entry) => entry.method === Codex.Method.threadStart)).toBe(
+        false,
+      );
+    }).pipe(Effect.provide(platform)),
+  );
+  it.live.each(["Answer", "Steer", "Followup", "Interrupt"] as const)(
+    "combined %s acceptance skips old group attention and wakes for either run",
+    (action) =>
+      Effect.gen(function* () {
+        const f = yield* fixture({
+          rules: [
+            {
+              method: Codex.Method.threadStart,
+              respond: { result: { ...opened, thread: { id: "primary" } } },
+            },
+            {
+              method: Codex.Method.threadStart,
+              respond: { result: { ...opened, thread: { id: "peer" } } },
+            },
+            turnRule(
+              { Answer: [question()], Followup: [complete()], Steer: [], Interrupt: [] }[action],
+            ),
+            {
+              ...turnRule(),
+              respond: {
+                result: { turn: { id: "peer-turn", status: "inProgress", error: null, items: [] } },
+              },
+            },
+            turnRule(),
+            {
+              method: Codex.Method.turnSteer,
+              repeat: true,
+              respond: { result: { turnId: "{{turn}}" } },
+              steps: [
+                notify(Codex.Method.turnCompleted, {
+                  threadId: "peer",
+                  turn: { id: "peer-turn", status: "completed", error: null, items: [] },
+                }),
+              ],
+            },
+            {
+              method: Codex.Method.turnInterrupt,
+              respond: { result: {} },
+              steps: [
+                notify(Codex.Method.turnCompleted, {
+                  threadId: "peer",
+                  turn: { id: "peer-turn", status: "completed", error: null, items: [] },
+                }),
+              ],
+            },
+          ],
+        });
+        const otherName = Schema.decodeUnknownSync(D.RunName)("other");
+        const other = `${f.repo}/work/other`;
+        yield* f.git(f.repo, ["worktree", "add", "-qb", "other", other]);
+        yield* f.launch();
+        yield* f.start();
+        if (action === "Answer" || action === "Followup") yield* f.wait();
+        yield* f.start({ name: otherName, worktree: other });
+        const requests: Record<typeof action, D.DaemonRequestBody> = {
+          Answer: { _tag: "Answer", name, question: q1, text: "Proceed" },
+          Interrupt: { _tag: "Interrupt", name },
+          Followup: { _tag: "Followup", name, message: "Continue" },
+          Steer: { _tag: "Steer", name, message: "Continue" },
+        };
+        const accepted = yield* f.request(requests[action]);
+        if (accepted._tag !== "Accepted") assert.fail("expected Accepted");
+        expect(accepted.all).toBe(true);
+        const snapshot = Schema.decodeUnknownSync(
+          Schema.fromJsonString(
+            Schema.Struct({
+              group: Schema.String,
+              positions: Schema.Record(Schema.String, Schema.Unknown),
+            }),
+          ),
+        )(atob(accepted.cursor.replaceAll("-", "+").replaceAll("_", "/")));
+        expect(snapshot.group).toBe(f.repo);
+        expect(Object.keys(snapshot.positions)).toEqual(["unit", "other"]);
+        if (action === "Steer" || action === "Interrupt") {
+          const first = yield* f.wait({
+            names: [],
+            all: true,
+            cwd: f.repo,
+            after: accepted.cursor,
+          });
+          expect(first.runs).toHaveLength(1);
+          // The fake's current thread is 'other', so this proves a peer can wake the group.
+          expect(first.runs[0]?.name).toBe(otherName);
+          expect(
+            (yield* f.wait({
+              names: [],
+              all: true,
+              cwd: f.repo,
+              after: first.cursor,
+              timeoutMs: 0,
+            })).runs,
+          ).toEqual([]);
+        } else {
+          expect(
+            (yield* f.wait({
+              names: [],
+              all: true,
+              cwd: f.repo,
+              after: accepted.cursor,
+              timeoutMs: 0,
+            })).runs,
+          ).toEqual([]);
+          yield* f.request({ _tag: "Steer", name: otherName, message: "finish" });
+          expect(
+            (yield* f.wait({ names: [], all: true, cwd: f.repo, after: accepted.cursor })).runs,
+          ).toMatchObject([{ name: otherName, kind: "done" }]);
+        }
+      }).pipe(Effect.provide(platform)),
+  );
+  it.live.each([false, true])(
+    "managed worktrees start from the caller HEAD or --from: %s",
+    (from) =>
+      Effect.gen(function* () {
+        const f = yield* fixture(scenario(turnRule([complete()])));
+        const base = (yield* f.git(f.repo, ["rev-parse", "HEAD"])).stdout.trim();
+        yield* f.git(f.worktree, [
+          "-c",
+          "user.name=Test",
+          "-c",
+          "user.email=test@example.invalid",
+          "commit",
+          "--allow-empty",
+          "-qm",
+          "caller",
+        ]);
+        const caller = (yield* f.git(f.worktree, ["rev-parse", "HEAD"])).stdout.trim();
+        yield* f.launch();
+        const worktree = `${f.repo}/.claude/worktrees/unit`;
+        expect(
+          yield* f.start({
+            worktree: f.worktree,
+            newWorktree: true,
+            ...(from ? { from: base } : {}),
+            setup: "mkdir node_modules; printf ready > node_modules/setup",
+          }),
+        ).toMatchObject({ _tag: "Started", worktree, branch: "forman/unit" });
+        yield* f.wait();
+        expect((yield* f.git(worktree, ["rev-parse", "HEAD"])).stdout.trim()).toBe(
+          from ? base : caller,
+        );
+        expect(yield* f.fs.readFileString(`${worktree}/node_modules/setup`)).toBe("ready");
+        expect(yield* f.fs.readFileString(`${f.repo}/.git/info/exclude`)).toContain(
+          ".claude/worktrees/",
+        );
+        expect(yield* Store.readRun(f.runDir)).toMatchObject({
+          managedWorktree: { branch: "forman/unit", baseCommit: from ? base : caller },
+        });
+      }).pipe(Effect.provide(platform)),
+  );
+
+  it.live.each(["setup", "preflight", "thread"] as const)(
+    "managed worktrees roll back a refused %s start",
+    (stage) =>
+      Effect.gen(function* () {
+        const f = yield* fixture(
+          stage === "thread"
+            ? {
+                rules: [
+                  {
+                    method: Codex.Method.threadStart,
+                    respond: { error: { code: -1, message: "refused" } },
+                  },
+                ],
+              }
+            : scenario(),
+        );
+        if (stage === "preflight") {
+          yield* f.fs.writeFileString(`${f.repo}/package.json`, "{}");
+          yield* f.git(f.repo, ["add", "package.json"]);
+          yield* f.git(f.repo, [
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "-qm",
+            "deps",
+          ]);
+        }
+        yield* f.launch();
+        const error = yield* f
+          .start({
+            worktree: f.repo,
+            newWorktree: true,
+            ...(stage === "setup" ? { setup: "printf 'setup tail\\n'; exit 23" } : {}),
+          })
+          .pipe(Effect.flip);
+        expect(error).toMatchObject({
+          _tag: stage === "thread" ? "RunConflict" : "WorktreeInvalid",
+        });
+        if (stage === "setup")
+          expect(error).toMatchObject({
+            detail: expect.stringMatching(/exit(?:ed)? 23[\s\S]*setup tail/),
+          });
+        expect(yield* f.fs.exists(`${f.repo}/.claude/worktrees/unit`)).toBe(false);
+        expect((yield* f.git(f.repo, ["branch", "--list", "forman/unit"])).stdout).toBe("");
+        expect(yield* f.fs.exists(f.worktree)).toBe(true);
+        if (stage !== "thread") expect(yield* f.readLog).toEqual([]);
+      }).pipe(Effect.provide(platform)),
+  );
+
+  it.live.each(["clean", "merged", "dirty", "committed"] as const)(
+    "managed archive protects work: %s",
+    (kind) =>
+      Effect.gen(function* () {
+        const f = yield* fixture(scenario(turnRule([complete()])));
+        yield* f.launch();
+        yield* f.start({ worktree: f.repo, newWorktree: true });
+        yield* f.wait();
+        const worktree = `${f.repo}/.claude/worktrees/unit`;
+        if (kind !== "clean") yield* f.fs.writeFileString(`${worktree}/result.txt`, "work");
+        if (kind === "merged" || kind === "committed") {
+          yield* f.git(worktree, ["add", "result.txt"]);
+          yield* f.git(worktree, [
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "-qm",
+            "work",
+          ]);
+        }
+        if (kind === "merged") yield* f.git(f.repo, ["merge", "--ff-only", "forman/unit"]);
+        if (kind === "dirty" || kind === "committed") {
+          const error = yield* f.request({ _tag: "Archive", name }).pipe(Effect.flip);
+          expect(error).toMatchObject({
+            _tag: "RunConflict",
+            detail: expect.stringContaining(worktree),
+          });
+          expect(error).toMatchObject({ detail: expect.stringContaining("forman/unit") });
+          expect(error).toMatchObject({
+            detail: expect.stringContaining(kind === "dirty" ? "uncommitted" : "unmerged commits"),
+          });
+          expect(error).toMatchObject({
+            detail: expect.stringContaining("forman archive unit --keep-worktree"),
+          });
+          yield* f.request({ _tag: "Archive", name, keepWorktree: true });
+          expect(yield* f.fs.exists(worktree)).toBe(true);
+          const status = yield* f.request({ _tag: "Status", cwd: f.repo });
+          expect(status).toMatchObject({
+            orphans: [{ path: worktree, branch: "forman/unit", holdsWork: true }],
+          });
+        } else {
+          yield* f.request({ _tag: "Archive", name });
+          expect(yield* f.fs.exists(worktree)).toBe(false);
+          expect((yield* f.git(f.repo, ["branch", "--list", "forman/unit"])).stdout).toBe("");
+        }
+      }).pipe(Effect.provide(platform)),
+  );
+
   it.effect("resilience: unknown recovery keeps its deadline when the state write fails", () =>
     Effect.gen(function* () {
       const f = yield* fixture({ rules: [{ method: Codex.Method.threadStart, respond: "none" }] });

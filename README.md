@@ -6,7 +6,7 @@ forman lets Claude Code hand coding tasks to OpenAI's Codex and supervise them w
 
 - Node 26 or newer, Bun 1.4 or newer, and git.
 - Codex CLI 0.166.0, signed in with `codex login`. This is the version forman's protocol schemas were recorded against. `forman doctor` reports protocol compatibility.
-- A git repo with a commit and a linked worktree inside its main checkout. Install the delegated repo's dependencies in that worktree before starting.
+- A git repo with a commit. Use `--new-worktree` to create the delegate's worktree and `--setup` to install its dependencies, or pass a prepared linked worktree with `--worktree`.
 
 ## Install and build
 
@@ -56,23 +56,29 @@ Codex loads the main checkout's hooks. Hook changes made only in a delegated bra
 
 ## Delegating a task
 
-Claude prepares a worktree beneath the main checkout and installs its dependencies, writes a contract, then calls `forman start`. The contract should give the goal, files the delegate may change, checks to run and the expected hand-off. Runs are read-only by default; use `--write` for coding work. The default model is the newest visible `gpt-*-sol` in Codex's model cache, falling back to `gpt-6.1-sol`; effort defaults to `high`, tier to `priority`, budget to one hour and question timeout to 15 minutes.
+Write a contract, then delegate in one call:
+
+```sh
+forman start <name> --new-worktree --setup "bun install" --contract <file> --write --wait
+```
+
+Use the delegated repo's install command in `--setup`. forman creates `<main checkout>/.claude/worktrees/<name>` on `forman/<name>` from the current directory's repository HEAD. `--from <ref>` selects another base. It ignores `.claude/worktrees/` through `.git/info/exclude` when needed, runs setup with Codex's environment before validation or any Codex request, and prints the path and branch. A refused start removes only what that call created; setup failures include the exit code and last output lines in `detail`. An unconfirmed turn start, or a failed turn start that leaves work, retains the worktree and reports its path and branch in the refusal and status. Managed starts refuse an outdated busy daemon; finish its runs and restart it first.
+
+The contract should give the goal, files the delegate may change, checks to run and the expected hand-off. Runs are read-only by default; use `--write` for coding work. The default model is the newest visible `gpt-*-sol` in Codex's model cache, falling back to `gpt-6.1-sol`; effort defaults to `high`, tier to `priority`, budget to one hour and question timeout to 15 minutes.
 
 Here is a small example in this repo. Start from its main checkout, with `forman` on `PATH` and repo setup complete. The branch and worktree names must be unused:
 
 ```sh
-git worktree add -b fix-doctor .worktrees/fix-doctor
-(cd .worktrees/fix-doctor && bun install)
 cat > /tmp/fix-doctor-contract.txt <<'CONTRACT'
 Improve the doctor help description so it mentions repo hook trust.
 May change: src/commands/doctor.ts only.
 Run: bun run lint and bun run typecheck.
 Leave changes uncommitted. Report the change and check results.
 CONTRACT
-forman start fix-doctor --worktree .worktrees/fix-doctor --contract /tmp/fix-doctor-contract.txt --write --wait
+forman start fix-doctor --new-worktree --setup "bun install" --contract /tmp/fix-doctor-contract.txt --write --wait
 ```
 
-Run `start --wait` as one background task so Claude can keep working while the delegate runs. It starts the turn, then waits with the same 60-minute default and `--timeout` option as `wait`. Text prints the run name and directory followed by the wait result and its `next:` line. JSON is one `Waited` value with `started: {name, runDir}` alongside the outcome. Without `--wait`, `start` returns immediately and ends with `next: <executable> wait <name>`. The executable is `forman` when that name on `PATH` resolves to this binary, or the running executable's absolute path otherwise; `doctor` reports the comparison. To watch several runs, use `wait --all`: it covers the repo containing the current directory, including its linked worktrees.
+Run `start --wait` as one background task so Claude can keep working while the delegate runs. It starts the turn, then waits with the same 60-minute default and `--timeout` option as `wait`. Text prints the run name, directory, new worktree path and branch followed by the wait result and its `next:` line. JSON is one `Waited` value with `started: {name, runDir, worktree, branch}` alongside the outcome (`worktree` and `branch` describe forman-created worktrees). Without `--wait`, `start` returns immediately and ends with `next: <executable> wait <name>`. The executable is `forman` when that name on `PATH` resolves to this binary, or the running executable's absolute path otherwise; `doctor` reports the comparison. To watch several runs, use `wait --all`: it covers the repo containing the current directory, including its linked worktrees.
 
 When wait returns, read each run's outcome and digest. A `done`, `failed` or `interrupted` outcome includes that turn's hand-off, or says no hand-off is available. A `question` includes the full text and question id; `answer` resumes the held tool call. Use `steer` to change an active turn with no pending question, `followup` to start another turn on an inactive run, and `result` to reread the available hand-off. For example, these are alternatives at the appropriate run state:
 
@@ -83,28 +89,29 @@ forman followup fix-doctor "Also check the help output manually." --wait
 forman result fix-doctor
 ```
 
-`answer`, `steer` and `followup` print `ok` and `next: <executable> wait <name> --after <cursor>`. Their acknowledgement cursor is captured when the request is accepted, so the wait sees the next outcome without replaying earlier attention. Add `--wait` to return that outcome directly instead of `ok`; `--timeout` sets the wait limit. A task needing no answer takes one call (`start --wait`); one question takes two (`start --wait`, `answer --wait`).
+`answer`, `steer`, `followup` and `interrupt` print `ok` and `next: <executable> wait <name> --after <cursor>`. When another run in the group is active, the continuation uses `wait --all` and its cursor covers every run in the group at acceptance, including the group's identity so it still works from another repo. Positions are captured before sending the mutation, keeping peer completions during that request visible. The wait sees the next outcome of either run without replaying earlier attention. Add `--wait` to return that outcome directly instead of `ok`; `--timeout` sets the wait limit. A task needing no answer takes one call (`start --wait`); one question takes two (`start --wait`, `answer --wait`).
 
 For a busy older daemon that only acknowledges with `Ok`, the CLI captures its cursor before sending the request, so an immediate continuation is still observed. This compatibility probe adds no CLI call.
 
 On a timeout or when continuing to watch, run the final `next:` command. It includes the run names or `--all`, the cursor that prevents repeated attention, and your explicit `--timeout` if given. Review the hand-off and diff before committing; forman does not commit or merge for you.
 
-After merging a run's work, remove its worktree, then archive the inactive run to remove it from status:
+After reviewing and merging useful work, archive the inactive run:
 
 ```sh
-git worktree remove .worktrees/fix-doctor
 forman archive fix-doctor
 ```
 
-Archive prints the destination under `runs/.archive/<name>-<timestamp>/`, preserves the run's records and frees its name for reuse. Status, wait and result still work after worktree removal, with a warning and the last computed file fields (or uncomputed fields after a daemon restart).
+Archive removes a forman-created worktree and its branch when there are no uncommitted or untracked files and the branch has no new commits, or its tip is merged into the branch it came from. Otherwise it refuses with the path, branch, remaining work and `forman archive fix-doctor --keep-worktree`. That option archives the run while keeping the worktree and branch. Status (both forms) and doctor list orphan worktrees on `forman/*` branches with their path, branch and whether they hold work, including worktrees retained this way.
+
+Archive prints the destination under `runs/.archive/<name>-<timestamp>/`, preserves the records and frees the name for reuse. To use a worktree Claude prepared, pass `--worktree <path>` instead of `--new-worktree`; the flags are mutually exclusive, and `--from` and `--setup` require `--new-worktree`. forman never removes a passed worktree or its branch. Status, wait and result still work after external worktree removal, with a warning and the last computed file fields (or uncomputed fields after a daemon restart).
 
 ## Commands
 
-All commands accept `--json` for one schema-encoded result. Messages for `steer`, `followup` and `answer` come from exactly one positional argument or `--file <path>`. `start`, `steer`, `followup` and `answer` accept `--wait [--timeout <dur>]` to wait in the same call. Without `--wait`, the last three return `Accepted` with `cursor` and `next` in JSON; `interrupt` keeps its `Ok` acknowledgement.
+All commands accept `--json` for one schema-encoded result. Messages for `steer`, `followup` and `answer` come from exactly one positional argument or `--file <path>`. `start`, `steer`, `followup`, `answer` and `interrupt` accept `--wait [--timeout <dur>]` to wait in the same call. Without `--wait`, the last four return `Accepted` with `cursor` and `next` in JSON.
 
 | Command | What it does |
 | --- | --- |
-| `forman start <name> --worktree <path> --contract <file>` | Send the contract text and real worktree path; accepts `--write`, `--model`, `--effort`, `--tier`, `--budget`, `--question-timeout`, `--skip-deps-check` |
+| `forman start <name> --new-worktree [--from <ref>] [--setup "<install>"] --contract <file>` | Create an isolated worktree and start the contract; alternatively use `--worktree <path>`. Accepts `--write`, `--model`, `--effort`, `--tier`, `--budget`, `--question-timeout`, `--skip-deps-check` |
 | `forman status [<name>]` | Print one run's digest or one line per run in the current group |
 | `forman events <name> [--after <n>] [--limit <n>]` | Print normalized events and the next sequence number |
 | `forman steer <name> [<message>] [--file <path>]` | Send a change to the active turn |
@@ -112,7 +119,7 @@ All commands accept `--json` for one schema-encoded result. Messages for `steer`
 | `forman interrupt <name>` | Interrupt the active turn |
 | `forman answer <name> <question-id> [<text>] [--file <path>]` | Answer a pending question |
 | `forman result <name>` | Print the digest and available hand-off, naming its turn |
-| `forman archive <name>` | Move an inactive run to the archive, remove it from status and print the archive path |
+| `forman archive <name> [--keep-worktree]` | Archive an inactive run and safely clean its forman-created worktree, or explicitly retain it |
 | `forman wait [<name>...] [--all] [--after <cursor>] [--timeout <dur>]` | Wait for attention, print summaries, digests and turn hand-offs, then the next wait command |
 | `forman doctor` | Inspect local configuration, Codex, repo hook trust and daemon availability |
 | `forman daemon` | Run the daemon in the foreground; normally started automatically |

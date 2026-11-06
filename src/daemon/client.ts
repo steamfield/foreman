@@ -151,6 +151,11 @@ const exchangeRunRequest = Effect.fn("daemon.exchangeRunRequest")(function* (
   reader: Socket.Reader,
   outdated: boolean,
 ) {
+  if (outdated && body._tag === "Start" && body.newWorktree)
+    return yield* new DaemonUnavailable({
+      detail:
+        "Outdated busy daemon cannot safely create managed worktrees; finish its active runs and restart the daemon before starting this run.",
+    });
   if (
     !outdated ||
     (body._tag !== "Answer" &&

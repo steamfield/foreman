@@ -124,6 +124,6 @@ export const makeAppServer = Effect.fn("supervisor.appServer")(function* (
       return server;
     }),
   );
-  return { get, protocolWarning };
+  return { get, protocolWarning, environment: env };
 });
 export type AppServers = Effect.Success<ReturnType<typeof makeAppServer>>;

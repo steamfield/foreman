@@ -60,6 +60,7 @@ export function buildDigest(
     sandbox: handoffActive ? "read-only" : run.sandbox,
     runDir,
     worktree: run.worktree,
+    ...(run.managedWorktree ? { managedWorktree: run.managedWorktree } : {}),
     turn: run.turns,
     turnKind: run.turnKind,
     questions: pendingQuestions(questions).map((question) => ({
@@ -156,6 +157,11 @@ export function renderDigest(digest: Digest): string {
     `run:       ${digest.name}  ${digest.state}  ${duration(digest.elapsedMs)}  (${digest.model}, ${digest.effort}, ${digest.tier}, ${mode})`,
     `dir:       ${digest.runDir}`,
     `worktree:  ${digest.worktree}`,
+    ...(digest.managedWorktree
+      ? [
+          `branch:    ${digest.managedWorktree.branch} (forman-created, base ${digest.managedWorktree.baseCommit})`,
+        ]
+      : []),
     `turn:      ${digest.turn}${digest.turnKind === null ? "" : ` (${digest.turnKind})`}`,
   ];
   if (digest.questions.length === 0) lines.push("question:  (none)");

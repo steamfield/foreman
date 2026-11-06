@@ -59,7 +59,10 @@ export const startCommand = Command.make(
   "start",
   {
     name,
-    worktree: Flag.String("worktree"),
+    worktree: optionalText("worktree"),
+    newWorktree: Flag.Boolean("new-worktree").pipe(Flag.withDefault(false)),
+    from: optionalText("from"),
+    setup: optionalText("setup"),
     contract: Flag.String("contract"),
     write: Flag.Boolean("write").pipe(Flag.withDefault(false)),
     model: optionalText("model"),
@@ -71,7 +74,7 @@ export const startCommand = Command.make(
     ...waiting,
   },
   (input) => print("start", programs.start(input)),
-).pipe(Command.withDescription("Start a Codex run in a prepared worktree."));
+).pipe(Command.withDescription("Start a Codex run in a new or prepared worktree."));
 
 export const statusCommand = Command.make(
   "status",
@@ -133,8 +136,10 @@ export const resultCommand = Command.make("result", { name }, ({ name }) =>
   print("result", programs.result(name)),
 ).pipe(Command.withDescription("Read the digest and latest available hand-off."));
 
-export const archiveCommand = Command.make("archive", { name }, ({ name }) =>
-  print("archive", programs.archive(name)),
+export const archiveCommand = Command.make(
+  "archive",
+  { name, keepWorktree: Flag.Boolean("keep-worktree").pipe(Flag.withDefault(false)) },
+  ({ name, keepWorktree }) => print("archive", programs.archive(name, keepWorktree)),
 ).pipe(Command.withDescription("Archive an inactive run and print its archive path."));
 
 export const waitCommand = Command.make(
