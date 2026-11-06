@@ -1,0 +1,24 @@
+# Build output and Astro caches
+dist/
+.astro/
+
+# Dependencies
+node_modules/
+
+# Test output
+coverage/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# Editors and OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db

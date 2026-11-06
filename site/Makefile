@@ -1,0 +1,55 @@
+# forman development commands.
+#
+# A starting point: adapt the recipes, but keep the target names.
+# `stacks verify` calls install, lint, check, test, build and dev, and CI
+# should call the same targets.
+
+PORT_WEB ?= 4321
+export PORT_WEB
+
+.DEFAULT_GOAL := help
+.PHONY: help install dev lint check test coverage build preview new-article format clean
+
+help: ## List targets
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-14s %s\n", $$1, $$2}'
+
+install: ## Install dependencies (frozen lockfile when CI is set)
+	bun install $(if $(CI),--frozen-lockfile)
+	@if [ -z "$(CI)" ] && [ -f lefthook.yml ] && command -v lefthook >/dev/null 2>&1; then lefthook install; fi
+
+# --ignore-lock keeps astro dev in the foreground when it detects an agent
+# (otherwise it backgrounds itself and exits). Stop a stray one: bunx astro dev stop
+dev: ## Astro dev server on PORT_WEB
+	bunx astro dev --port $(PORT_WEB) --ignore-lock
+
+lint: ## Fail if Prettier would change any file
+	bunx prettier --check .
+
+check: ## Type-check and validate content (astro check)
+	@bun --no-install -e 'require.resolve("@astrojs/check"); require.resolve("typescript")' >/dev/null 2>&1 || { echo 'Missing checker dependencies. Run bun add -d @astrojs/check typescript, then make check.' >&2; exit 1; }
+	bunx --no-install astro check
+
+test: ## Unit and component tests
+	bunx vitest run
+
+coverage: ## Tests with coverage
+	bunx vitest run --coverage
+
+build: ## Static production build into dist/
+	bunx astro build
+	node --test tests/build.test.mjs
+
+preview: ## Serve the production build
+	bunx astro preview --port $(PORT_WEB) --ignore-lock
+
+# SLUG and TITLE reach the script as env vars, so titles with quotes are safe.
+export SLUG TITLE
+new-article: ## Scaffold a draft post: make new-article SLUG=my-post TITLE="My post"
+	@[ -n "$$SLUG" ] && [ -n "$$TITLE" ] || { echo 'Usage: make new-article SLUG=my-post TITLE="My post"'; exit 1; }
+	bun scripts/new-article.mjs
+
+format: ## Format with Prettier
+	bunx prettier --write .
+
+clean: ## Remove build output and Astro caches
+	rm -rf dist .astro

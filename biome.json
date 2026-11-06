@@ -9,7 +9,8 @@
       "!coverage",
       "!node_modules",
       "!logs",
-      "!.stacks"
+      "!.stacks",
+      "!site"
     ]
   },
   "plugins": ["./biome-plugins/boundaries.grit"],

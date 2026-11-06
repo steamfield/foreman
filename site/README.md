@@ -1,0 +1,38 @@
+# forman
+
+<!-- stacks:fill One sentence on what this blog covers. -->
+
+A static [Astro](https://astro.build) blog. Posts are MDX files in `src/content/blog/`, validated against a schema at build time.
+
+## Quickstart
+
+Requires [bun](https://bun.sh) and make.
+
+```bash
+make install
+make dev        # http://localhost:4321
+```
+
+## Writing a post
+
+```bash
+make new-article SLUG=my-first-post TITLE="My first post"
+```
+
+This creates `src/content/blog/my-first-post.mdx` with `status: "draft"`. Drafts show up in `make dev` at their URL but are left out of production pages, the sitemap, and RSS. Set `status: "published"` when it's ready, or `"unlisted"` to publish at its URL without listing it.
+
+## Commands
+
+| Command         | What it does                    |
+| --------------- | ------------------------------- |
+| `make dev`      | Dev server                      |
+| `make lint`     | Check formatting                |
+| `make check`    | Type-check and validate content |
+| `make test`     | Unit and component tests        |
+| `make coverage` | Tests with coverage             |
+| `make build`    | Production build into `dist/`   |
+| `make preview`  | Serve the production build      |
+
+## License
+
+Copyright (c) 2026 Riley Hilliard
