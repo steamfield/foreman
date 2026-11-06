@@ -4,6 +4,8 @@ import fixCli from "../../fixtures/runs/fix-cli.json";
 import fixDaemon from "../../fixtures/runs/fix-daemon.json";
 import fixSupervisor from "../../fixtures/runs/fix-supervisor.json";
 import fixWorktrees from "../../fixtures/runs/fix-worktrees.json";
+import siteCommands from "../../fixtures/runs/site-commands.json";
+import siteConsole from "../../fixtures/runs/site-console.json";
 
 /** forman's run states, as `StateChanged` events report them. */
 export type RunState =
@@ -102,8 +104,11 @@ export const releaseRuns = [
   fixWorktrees,
 ] as Run[];
 
+/** Delegates that built this page: the command tabs (sol) and the hero replay (astra). */
+export const siteRuns = [siteCommands, siteConsole] as Run[];
+
 export function loadRun(name: string): Run {
-  const run = releaseRuns.find((r) => r.name === name);
+  const run = [...releaseRuns, ...siteRuns].find((r) => r.name === name);
   if (!run) throw new Error(`No recorded run named ${name} in fixtures/runs/`);
   return run;
 }

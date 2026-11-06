@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { GET } from "../src/pages/llms.txt";
 import {
+  commands,
   exitCodes,
   guardrails,
   install,
@@ -37,10 +38,8 @@ describe("landing copy agrees with the repository README", () => {
   it("keeps the llms command reference aligned with README without claiming to replay recordings", async () => {
     const text = await GET().text();
     expect(readTable("Command", text)).toEqual(readTable("Command"));
-    expect(text).toContain(
-      "Every command takes `--json` for one machine-readable result.",
-    );
-    expect(text).not.toContain("The output below is recorded from real runs.");
+    expect(text).toContain(commands.lede);
+    expect(text).not.toContain(commands.recorded);
   });
 
   it("compares the Codex version through Markdown and line-wrap changes", () => {

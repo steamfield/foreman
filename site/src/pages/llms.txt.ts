@@ -49,7 +49,7 @@ export function GET() {
     install.setup.lede,
     `\`\`\`sh\n${install.setup.steps.join("\n")}\n\`\`\``,
     "## Commands",
-    commands.lede.replace(" The output below is recorded from real runs.", ""),
+    commands.lede,
     commandTable,
     "## Exit codes",
     table(["Code", "Meaning"], exitCodes),

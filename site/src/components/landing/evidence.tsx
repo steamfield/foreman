@@ -9,7 +9,7 @@ import type { Run } from "../../data/runs";
 import { formatElapsed, formatOffset, formatTokens } from "../../lib/format";
 import { CodeFrame, DataTable, Inline } from "./primitives";
 
-export function WorkOrder({ run }: { run: Run }) {
+export function WorkOrder({ run, note }: { run: Run; note: string }) {
   const excerpt = contractExcerpt(run.contract);
   const digest = digestBlocks(run.digest);
   const contractId = `${run.name}-contract`;
@@ -50,9 +50,6 @@ export function WorkOrder({ run }: { run: Run }) {
             </div>
             <p aria-label="Excerpt omitted">…</p>
           </div>
-          <a href={`#${contractId}`} className="mt-4 inline-block text-sm">
-            Full contract
-          </a>
         </article>
         <details
           id={contractId}
@@ -77,8 +74,7 @@ export function WorkOrder({ run }: { run: Run }) {
           className="[&_code]:relative [&_code]:block [&_code]:before:absolute [&_code]:before:top-(--scope-start) [&_code]:before:-left-2 [&_code]:before:h-(--scope-height) [&_code]:before:border-l-2 [&_code]:before:border-signal"
         />
         <p className="text-ink-3 mt-4 text-sm leading-relaxed">
-          Written for this page: the digest flags these two test files as
-          outside the listed scope, so Claude checked them in review.
+          <Inline text={note} />
         </p>
       </div>
     </div>

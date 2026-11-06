@@ -3,41 +3,44 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { ParallelRuns, QuestionTimeline, WorkOrder } from "./evidence";
 import { loadRun, releaseRuns } from "../../data/runs";
-import { parallel } from "../../data/landing";
+import { handoff, parallel } from "../../data/landing";
 
 const run = loadRun("fix-supervisor");
+const handoffRun = loadRun("site-console");
 
 describe("work order", () => {
-  it("renders the contract excerpt and unmodified digest from real props", () => {
-    const { container } = render(<WorkOrder run={run} />);
+  it("renders the contract excerpt, the unmodified digest and the note", () => {
+    const { container } = render(
+      <WorkOrder run={handoffRun} note={handoff.note} />,
+    );
     expect(screen.getByRole("heading", { level: 3 })).toHaveTextContent(
-      run.contract.split("\n")[0] ?? "",
+      handoffRun.contract.split("\n")[0] ?? "",
     );
-    expect(screen.getByText("May change", { exact: true })).toBeVisible();
+    expect(
+      screen.getByText("May change", { exact: true, selector: "span" }),
+    ).toBeVisible();
     expect(screen.getAllByLabelText("Excerpt omitted")).toHaveLength(2);
-    expect(screen.getByText(`forman status ${run.name}`)).toBeVisible();
+    expect(screen.getByText(`forman status ${handoffRun.name}`)).toBeVisible();
     expect(container.querySelector("figure code")?.textContent).toBe(
-      run.digest,
+      handoffRun.digest,
     );
-    expect(screen.getByText(/Written for this page:/)).toHaveTextContent(
-      /two test files/,
-    );
+    expect(handoffRun.digest).toContain("outside May change:  (none)");
+    expect(screen.getByText(/stayed inside its list/)).toBeVisible();
   });
 
   it("server-renders a native disclosure containing the complete contract", () => {
     const container = document.createElement("div");
-    container.innerHTML = renderToStaticMarkup(<WorkOrder run={run} />);
-    const link = within(container).getByRole("link", { name: "Full contract" });
+    container.innerHTML = renderToStaticMarkup(
+      <WorkOrder run={handoffRun} note={handoff.note} />,
+    );
     const details = container.querySelector("details");
-    expect(link.getAttribute("href")).toBe(`#${details?.id}`);
     expect(details?.querySelector("summary")?.textContent).toBe(
       "Read the full contract",
     );
-    expect(details?.querySelector("pre")?.textContent).toBe(run.contract);
-    expect(details?.open).toBe(false);
-    expect(container.querySelector("figure code")?.textContent).toBe(
-      run.digest,
+    expect(details?.querySelector("pre")?.textContent).toBe(
+      handoffRun.contract,
     );
+    expect(details?.open).toBe(false);
   });
 });
 

@@ -14,6 +14,7 @@ import {
   Inline,
   Section,
 } from "../components/landing/primitives";
+import { SessionDiagram } from "../components/landing/SessionDiagram";
 import { SupervisionConsole } from "../components/landing/SupervisionConsole";
 import { site } from "../config";
 import { loadCommands } from "../data/commands";
@@ -27,12 +28,14 @@ import {
   install,
   lifecycle,
   parallel,
+  session,
   questions,
   waitOutcomes,
   why,
 } from "../data/landing";
 import { lifecycleModel } from "../data/lifecycle";
 import { loadRun, releaseRuns } from "../data/runs";
+import { buildSession } from "../data/session";
 import { buildConsoleScript } from "../data/supervision";
 import doctor from "../../fixtures/cli/doctor.json";
 import BaseLayout from "../layouts/BaseLayout.astro";
@@ -118,27 +121,52 @@ const [npm] = install.options;
     </div>
   </Section>
 
-  <Section track id="lifecycle" title={lifecycle.title} lede={lifecycle.lede}>
+  <Section track id="session" title={session.title} lede={session.lede}>
+    <SessionDiagram
+      client:visible
+      session={buildSession(loadRun("site-commands"))}
+    />
+  </Section>
+
+  <Section
+    band
+    track
+    id="lifecycle"
+    title={lifecycle.title}
+    lede={lifecycle.lede}
+  >
     <Lifecycle client:visible model={lifecycleModel()} />
   </Section>
 
-  <Section band id="handoff" title={handoff.title} lede={handoff.lede}>
-    <WorkOrder run={supervisor} />
+  <Section id="handoff" title={handoff.title} lede={handoff.lede}>
+    <WorkOrder run={loadRun("site-console")} note={handoff.note} />
   </Section>
 
-  <Section track id="questions" title={questions.title} lede={questions.lede}>
+  <Section
+    band
+    track
+    id="questions"
+    title={questions.title}
+    lede={questions.lede}
+  >
     <QuestionTimeline run={supervisor} />
   </Section>
 
-  <Section band id="parallel" title={parallel.title} lede={parallel.lede}>
+  <Section id="parallel" title={parallel.title} lede={parallel.lede}>
     <ParallelRuns runs={releaseRuns} />
   </Section>
 
-  <Section track id="commands" title={commands.title} lede={commands.lede}>
+  <Section
+    band
+    track
+    id="commands"
+    title={commands.title}
+    lede={`${commands.lede} ${commands.recorded}`}
+  >
     <CommandTabs client:visible commands={loadCommands()} />
   </Section>
 
-  <Section band id="guardrails" title={guardrails.title}>
+  <Section id="guardrails" title={guardrails.title}>
     <DataTable
       caption="forman's guardrails"
       head={["Guardrail", "What forman does"]}
@@ -146,7 +174,7 @@ const [npm] = install.options;
     />
   </Section>
 
-  <Section id="agents" title={agentFacing.title} lede={agentFacing.lede}>
+  <Section band id="agents" title={agentFacing.title} lede={agentFacing.lede}>
     <div class="grid gap-8 lg:grid-cols-2">
       <div>
         <h3 class="text-ink mb-3 font-semibold">Wait outcomes</h3>
@@ -169,9 +197,9 @@ const [npm] = install.options;
     </div>
   </Section>
 
-  <Section band track id="install" title={install.title}>
+  <Section track id="install" title={install.title}>
     <div class="grid gap-10 lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-16">
-      <div class="flex flex-col gap-8">
+      <div class="flex min-w-0 flex-col gap-8">
         <InstallPanel client:visible options={install.options} />
         <div>
           <h3 class="text-ink mb-2 font-semibold">{install.setup.title}</h3>
@@ -185,7 +213,7 @@ const [npm] = install.options;
           />
         </div>
       </div>
-      <div>
+      <div class="min-w-0">
         <h3 class="text-ink mb-3 font-semibold">What you need</h3>
         <ul class="flex flex-col gap-2">
           {install.requirements.map((r) => (

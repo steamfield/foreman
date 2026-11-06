@@ -31,6 +31,11 @@ export const why = {
   },
 };
 
+export const session = {
+  title: "How a session runs",
+  lede: "Claude splits a feature into three tasks and gives each to a Codex delegate on the model that suits it, then answers a question, redirects a turn and lands all three. The diagram is a simulation with compressed timings; the commands, states and question text are forman's.",
+};
+
 export const lifecycle = {
   title: "Run states",
   lede: "Every run moves through the same states. Claude waits on it in the background and only steps in when forman reports a question or the end of a turn.",
@@ -38,6 +43,7 @@ export const lifecycle = {
 
 export const handoff = {
   title: "Contracts and digests",
+  note: "forman checks every file Codex wrote against the contract's `May change` line and lists any strays under `outside May change:`. This is the delegate that built the replay at the top of this page; it stayed inside its list.",
   lede: "Claude hands Codex a written contract: the goal, the files it may change, the checks to run and the report to end with. When the turn ends, forman's digest lists every file Codex wrote and flags the ones outside the contract's scope.",
 };
 
@@ -55,7 +61,9 @@ export const parallel = {
 
 export const commands = {
   title: "Commands",
-  lede: "Claude runs these through its shell tool, and every one takes `--json` for a single machine-readable result. The output is recorded from real runs, including the ones that built this page.",
+  lede: "Claude runs these through its shell tool, and every one takes `--json` for a single machine-readable result.",
+  recorded:
+    "The output is recorded from real runs, including the ones that built this page.",
 };
 
 export const guardrails = {

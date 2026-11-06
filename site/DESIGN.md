@@ -65,7 +65,7 @@ H1 is 64px at desktop (`clamp(2.5rem, 5.4vw, 4rem)`), section titles 36px, H3 18
 
 ## Shape and depth
 
-Radius 2px for chips and state badges, 4px for buttons and command boxes, 6px for frames, consoles and tables. Borders over shadows. The only shadow is on consoles: `0 1px 0 #fff inset` on the bar and `0 12px 32px -16px rgb(17 19 17 / 0.35)` under the frame, so a screen reads as an object on paper.
+Radius 2px for chips and state badges, 4px for buttons and command boxes, 6px for frames, consoles and tables. Borders over shadows. The only shadows are on consoles: `inset-shadow-console-bar` (`0 1px 0` at 6% white, inset) on the bar and `0 12px 32px -16px rgb(17 19 17 / 0.35)` under the frame, so a screen reads as an object on paper.
 
 ## Motifs
 

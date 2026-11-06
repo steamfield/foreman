@@ -5,8 +5,6 @@ import type {
   LifecycleModel,
   LifecycleNode,
 } from "../../data/lifecycle";
-import { track } from "../../lib/analytics";
-import { Events } from "../../lib/events";
 import { CodeFrame, Inline, StateBadge } from "./primitives";
 
 // The DOM stays in reading order. Only the desktop diagram changes placement.
@@ -211,7 +209,6 @@ export function Lifecycle({ model }: { model: LifecycleModel }) {
             setSelected(value);
             const node = model.nodes.find((entry) => entry.id === value);
             setAnnouncement(`${node?.label ?? value} details shown.`);
-            track(Events.commandTab, { name: `lifecycle.${value}` });
           }}
           className="relative grid min-w-0 grid-cols-1 gap-y-2 lg:grid-cols-6 lg:grid-rows-[repeat(5,4rem)_auto] lg:gap-y-0"
         >
@@ -222,7 +219,13 @@ export function Lifecycle({ model }: { model: LifecycleModel }) {
                 value={node.id}
                 className={`${positions[node.id].classes} rounded-control relative z-10 min-h-12 min-w-0 border px-2 py-2 text-left lg:mx-4 lg:my-2 lg:min-h-0 lg:text-center ${selected === node.id ? "border-ink bg-band text-ink" : "border-line-strong bg-page text-ink-2 hover:border-ink"}`}
               >
-                <StateBadge state={node.state} label={node.label} />
+                <span className="inline-flex items-center gap-2 font-mono text-[0.8125rem] leading-tight">
+                  <span
+                    aria-hidden="true"
+                    className={`state-square state-${node.state}`}
+                  />
+                  {node.label}
+                </span>
               </Tab>
             ))}
           </TabList>

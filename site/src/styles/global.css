@@ -51,6 +51,7 @@
   --radius-frame: 6px;
 
   --shadow-console: 0 12px 32px -16px rgb(17 19 17 / 0.35);
+  --inset-shadow-console-bar: 0 1px 0 rgb(255 255 255 / 0.06);
 }
 
 @layer base {
