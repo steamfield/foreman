@@ -1,13 +1,10 @@
 export const site = {
-  title: "Field notes",
-  description: "Notes from building and learning.",
-  url: "https://example.com",
-  author: "The author",
+  title: "forman",
+  description: "Delegate coding tasks to Codex from Claude Code.",
+  url: "https://forman.steamfield.io",
+  author: "Riley Hilliard",
   image: "/default-og.svg",
-  nav: [
-    { label: "Home", href: "/" },
-    { label: "RSS", href: "/rss.xml" },
-  ],
+  nav: [{ label: "Home", href: "/" }],
 };
 
 if (!["https:", "http:"].includes(new URL(site.url).protocol)) {

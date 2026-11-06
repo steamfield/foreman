@@ -1,0 +1,34 @@
+:root {
+  --color-background: #fff; /* placeholder: orchestrator sets */
+  --color-surface: #f8fafc; /* placeholder: orchestrator sets */
+  --color-foreground: #0f172a; /* placeholder: orchestrator sets */
+  --color-muted: #475569; /* placeholder: orchestrator sets */
+  --color-faint: #94a3b8; /* placeholder: orchestrator sets */
+  --color-accent: #1d4ed8; /* placeholder: orchestrator sets */
+  --color-border: #cbd5e1; /* placeholder: orchestrator sets */
+  --color-success: #166534; /* placeholder: orchestrator sets */
+  --color-danger: #b91c1c; /* placeholder: orchestrator sets */
+  --color-warning: #92400e; /* placeholder: orchestrator sets */
+
+  --sf-bg: var(--color-background);
+  --sf-surface: var(--color-surface);
+  --sf-fg: var(--color-foreground);
+  --sf-muted: var(--color-muted);
+  --sf-faint: var(--color-faint);
+  --sf-accent: var(--color-accent);
+  --sf-border: var(--color-border);
+  --sf-ok: var(--color-success);
+  --sf-fail: var(--color-danger);
+  --sf-warn: var(--color-warning);
+  --sf-focus: var(--color-accent);
+  --sf-font: var(--font-mono);
+  --sf-radius: 0.5rem; /* placeholder: orchestrator sets */
+
+  --sf-consent-background: var(--color-surface);
+  --sf-consent-foreground: var(--color-foreground);
+  --sf-consent-muted: var(--color-muted);
+  --sf-consent-border: var(--color-border);
+  --sf-consent-accent: var(--color-accent);
+  --sf-consent-accent-foreground: var(--color-background);
+  --sf-consent-font: var(--font-sans);
+}

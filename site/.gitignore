@@ -1,6 +1,7 @@
 # Build output and Astro caches
 dist/
 .astro/
+.wrangler/
 
 # Dependencies
 node_modules/

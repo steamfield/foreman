@@ -20,7 +20,6 @@ Project instructions live in `AGENTS.md` at the repo root, which every coding ag
 | `_destructive-patterns.sh` | (sourced) | The pattern list behind `block-destructive.sh`. Reuse it from any hook that approves or rewrites Bash commands. |
 | `smoke.sh` | (not wired) | The `hooks-smoke` verify step: feeds each guard a deny and a near miss, and checks every hook config present parses and wires its guard. Add a case here when you add a guard. |
 | `_lib.sh` | (sourced) | Shared helpers: the payload reader, the deny and context responses, project root, `find_up`, a portable `with_timeout`, the per-session file list. |
-| <!-- stacks:fill One row per other file in hooks/ (harness, stack, and app hooks such as TypeScript guards): name, event and matcher from settings.json, what it does. Delete this row if there are none. --> | | |
 
 How they behave:
 

@@ -39,7 +39,7 @@ test("post list omits drafts and unlisted posts", () => {
   );
   expect(screen.getByRole("link", { name: "Welcome" })).toHaveAttribute(
     "href",
-    "/welcome",
+    "/blog/welcome",
   );
   expect(screen.queryByRole("link", { name: "Draft" })).not.toBeInTheDocument();
   expect(

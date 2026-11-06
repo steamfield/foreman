@@ -10,7 +10,7 @@ export function PostList({
     <ul>
       {publishedPosts(posts).map((post) => (
         <li key={post.id} className="mb-6">
-          <a className="text-xl underline" href={`/${slugFor(post)}`}>
+          <a className="text-xl underline" href={`/blog/${slugFor(post)}`}>
             {post.data.title}
           </a>
           <p>{post.data.description}</p>
