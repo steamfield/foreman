@@ -63,7 +63,7 @@ const attention = Effect.fnUntraced(function* (registry: Registry, run: Run, aft
     ({ event }) =>
       event._tag === "QuestionAsked" ||
       event._tag === "TurnCompleted" ||
-      (event._tag === "StateChanged" && event.to === "lost"),
+      (event._tag === "StateChanged" && (event.to === "lost" || event.to === "failed")),
   );
   const outcomes: (typeof WaitOutcome.Type)[] = [];
   if (relevant.length === 0) return { outcomes, next: page.next };
@@ -94,14 +94,24 @@ const attention = Effect.fnUntraced(function* (registry: Registry, run: Run, aft
         digest,
         handoff: handoff?.turn === event.turn ? handoff : null,
       });
-    } else if (event._tag === "StateChanged")
+    } else if (event._tag === "StateChanged") {
+      // A normal failed completion already carries its own turn number and hand-off.
+      if (
+        event.to === "failed" &&
+        page.events.some(
+          ({ event }) => event._tag === "TurnCompleted" && event.turn === run.record.turns,
+        )
+      )
+        continue;
       outcomes.push({
         name: run.record.name,
-        kind: "lost",
-        summary: "app server or daemon went away",
+        kind: event.to === "failed" ? "failed" : "lost",
+        summary:
+          event.to === "failed" ? "supervisor operation failed" : "app server or daemon went away",
         digest,
         handoff: null,
       });
+    }
   }
   const latest = outcomes.at(-1);
   return { outcomes: latest ? [latest] : [], next: page.next };

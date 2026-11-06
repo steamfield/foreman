@@ -5,7 +5,6 @@ import {
   pickHandoff,
 } from "../core/runs/normalize";
 import * as Store from "../core/runs/store";
-import { computeWorktreeFields } from "../core/runs/worktree";
 import * as Codex from "../schemas/codex";
 import { activeStates } from "../schemas/daemon";
 import type { AppServer } from "./app-server";
@@ -29,7 +28,8 @@ const decode = Effect.fnUntraced(function* (message: typeof Codex.RpcNotificatio
     case Codex.Method.turnCompleted: {
       const params = yield* Schema.decodeUnknownEffect(Codex.TurnNotification)(message.params).pipe(
         Effect.catchTag("SchemaError", () =>
-          Effect.logWarning("supervisor.turn.minimal", { method: message.method }).pipe(
+          Effect.logWarning("supervisor.turn.minimal").pipe(
+            Effect.annotateLogs({ method: message.method }),
             Effect.andThen(
               Schema.decodeUnknownEffect(Codex.TurnNotificationMinimal)(message.params),
             ),
@@ -86,7 +86,8 @@ export const handleNotification = Effect.fn("supervisor.notification")(function*
   yield* Store.appendCodexMessage(run.dir, message);
   const notification = yield* decode(message).pipe(
     Effect.catchTag("SchemaError", () =>
-      Effect.logWarning("supervisor.notification.invalid", { method: message.method }).pipe(
+      Effect.logWarning("supervisor.notification.invalid").pipe(
+        Effect.annotateLogs({ method: message.method }),
         Effect.as(null),
       ),
     ),
@@ -94,7 +95,9 @@ export const handleNotification = Effect.fn("supervisor.notification")(function*
   if (!notification) {
     if (!message.method.endsWith("/delta")) {
       yield* registry.event(run, { _tag: "Other", method: message.method });
-      yield* Effect.logDebug("supervisor.notification.unknown", { method: message.method });
+      yield* Effect.logDebug("supervisor.notification.unknown").pipe(
+        Effect.annotateLogs({ method: message.method }),
+      );
     }
     return;
   }
@@ -143,22 +146,13 @@ export const handleNotification = Effect.fn("supervisor.notification")(function*
       yield* registry.cancelQuestions(run);
       const handoff = pickHandoff([...run.items, ...notification.params.turn.items]);
       if (handoff !== null) yield* Store.writeHandoff(run.dir, run.record.turns, handoff);
-      run.worktree = yield* computeWorktreeFields(run.record.worktree, run.dir);
+      yield* registry.refreshWorktree(run);
       yield* registry.save(run, {
         activeTurnId: null,
         failure: run.record.failure ?? notification.params.turn.error,
       });
       if (run.budgetExpired && run.record.failure === null) {
-        yield* turns.handoff(run, server).pipe(
-          Effect.catchTags({
-            CodexRpcError: () =>
-              Effect.logWarning("supervisor.handoff.refused", { name: run.record.name }),
-            CodexUnavailable: () =>
-              Effect.logWarning("supervisor.handoff.unavailable", { name: run.record.name }),
-            SchemaError: () =>
-              Effect.logWarning("supervisor.handoff.invalid", { name: run.record.name }),
-          }),
-        );
+        yield* turns.handoff(run, server);
         return;
       }
       let state: "idle" | "interrupted" | "failed" = "idle";

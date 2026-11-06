@@ -3,9 +3,21 @@ import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { NodeServices, NodeSocket, NodeSocketServer } from "@effect/platform-node";
 import { assert, describe, expect, it } from "@effect/vitest";
-import { Deferred, Effect, Exit, Fiber, FileSystem, Layer, Schema, Scope } from "effect";
+import {
+  Deferred,
+  Effect,
+  Exit,
+  Fiber,
+  FileSystem,
+  Layer,
+  Logger,
+  References,
+  Schema,
+  Scope,
+} from "effect";
 import { ChildProcess } from "effect/process";
 import { TestClock } from "effect/testing";
+import { openConnection } from "../src/codex/client";
 import { AppConfig } from "../src/config";
 import { commandResult } from "../src/core/preflight/command";
 import * as Store from "../src/core/runs/store";
@@ -14,6 +26,7 @@ import { call } from "../src/daemon/client";
 import { daemon } from "../src/daemon/server";
 import { DaemonSockets } from "../src/daemon/sockets";
 import { RunConflict } from "../src/errors";
+import { entry, type LogEntry } from "../src/logging";
 import { jsonRequested, main } from "../src/main";
 import { AppLayer } from "../src/runtime";
 import * as Codex from "../src/schemas/codex";
@@ -21,6 +34,8 @@ import * as D from "../src/schemas/daemon";
 import { Host } from "../src/services/host";
 import { makeSupervisor } from "../src/supervisor";
 import { noAnswer, preamble, timeUp } from "../src/supervisor/prompts";
+import { makeQuestions } from "../src/supervisor/questions";
+import { makeRegistry } from "../src/supervisor/registry";
 import { type Rule, Scenario, type Step } from "./fixtures/fake-app-server/scenario";
 import { repoHooks, successfulTurn } from "./fixtures/fake-app-server/scenarios";
 
@@ -310,6 +325,502 @@ const fixture = Effect.fnUntraced(function* (script: Scenario, legacy = false) {
 });
 
 describe("supervisor over the real daemon socket", () => {
+  it.effect("resilience: unknown recovery keeps its deadline when the state write fails", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture({ rules: [{ method: Codex.Method.threadStart, respond: "none" }] });
+      yield* f.launch();
+      const pending = yield* f.start().pipe(Effect.flip, Effect.forkChild);
+      yield* f.awaitLog(Codex.Method.threadStart);
+      yield* f.fs.makeDirectory(`${f.runDir}/run.json.tmp`);
+      yield* TestClock.adjust("180 seconds");
+      expect(yield* Fiber.join(pending)).toMatchObject({ _tag: "CodexUnavailable" });
+      expect((yield* f.status()).state).toBe("unknown");
+      yield* f.fs.remove(`${f.runDir}/run.json.tmp`, { recursive: true });
+      yield* TestClock.adjust("5 minutes");
+      expect((yield* f.status()).state).toBe("lost");
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.effect("resilience: a detached Start still logs its failure once", () => {
+    const records: LogEntry[] = [];
+    const logger = Logger.make((input) =>
+      records.push(
+        entry({
+          date: input.date,
+          level: input.logLevel,
+          message: input.message,
+          annotations: input.fiber.getRef(References.CurrentLogAnnotations),
+        }),
+      ),
+    );
+    return Effect.gen(function* () {
+      const f = yield* fixture({ rules: [{ method: Codex.Method.threadStart, respond: "none" }] });
+      yield* f.launch();
+      const pending = yield* f.start().pipe(Effect.forkChild);
+      yield* f.awaitLog(Codex.Method.threadStart);
+      yield* Fiber.interrupt(pending);
+      yield* TestClock.adjust("180 seconds");
+      expect((yield* f.status()).state).toBe("unknown");
+      expect(records.filter(({ msg }) => msg === "supervisor.request.failed")).toMatchObject([
+        { name: "unit", request: "Start", reasonTag: "CodexRequestTimeout" },
+      ]);
+    }).pipe(Effect.provide(platform), Effect.provide(Logger.layer([logger])));
+  });
+
+  it.live("resilience: dangling repo hooks still require a project hook event", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(
+        scenario(
+          turnRule([
+            notify(Codex.Method.itemStarted, {
+              threadId: "{{thread}}",
+              turnId: "{{turn}}",
+              item: {
+                type: "commandExecution",
+                id: "cmd",
+                command: "true",
+                status: "inProgress",
+                aggregatedOutput: null,
+                exitCode: null,
+              },
+            }),
+          ]),
+          {
+            method: Codex.Method.turnInterrupt,
+            respond: { result: {} },
+            steps: [complete("interrupted")],
+          },
+        ),
+      );
+      yield* f.hooks;
+      yield* f.fs.remove(`${f.repo}/.codex/hooks.json`);
+      yield* f.fs.symlink(`${f.root}/missing-hooks`, `${f.repo}/.codex/hooks.json`);
+      yield* f.launch();
+      yield* f.start();
+      expect((yield* f.wait()).runs).toMatchObject([
+        { kind: "failed", digest: { failure: { message: "repo hooks did not run" } } },
+      ]);
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live.each(["notification", "request", "recovery"])(
+    "resilience: a %s persistence failure leaves the other run alive",
+    (kind) =>
+      Effect.gen(function* () {
+        const primaryQuestion = {
+          ...question("primary"),
+          params: {
+            threadId: "primary",
+            turnId: "primary-turn",
+            callId: "primary",
+            namespace: null,
+            tool: "ask_orchestrator",
+            arguments: { question: "Primary?" },
+          },
+        };
+        const f = yield* fixture({
+          rules: [
+            {
+              method: Codex.Method.threadStart,
+              respond: { result: { ...opened, thread: { id: "primary" } } },
+            },
+            {
+              method: Codex.Method.threadStart,
+              respond: { result: { ...opened, thread: { id: "other" } } },
+            },
+            {
+              ...turnRule(),
+              respond: {
+                result: {
+                  turn: { id: "primary-turn", status: "inProgress", error: null, items: [] },
+                },
+              },
+            },
+            turnRule(),
+            {
+              method: Codex.Method.turnSteer,
+              respond: { result: { turnId: "{{turn}}" } },
+              steps: [
+                kind === "request" ? primaryQuestion : notify("probe", { threadId: "primary" }),
+                complete(),
+              ],
+            },
+          ],
+        });
+        const otherName = Schema.decodeUnknownSync(D.RunName)("other");
+        const other = `${f.repo}/work/other`;
+        yield* f.git(f.repo, ["worktree", "add", "-qb", "other", other]);
+        yield* f.launch();
+        yield* f.start();
+        yield* f.start({ name: otherName, worktree: other });
+        yield* f.status();
+        yield* f.fs.remove(`${f.runDir}/codex.jsonl`, { force: true });
+        yield* f.fs.makeDirectory(`${f.runDir}/codex.jsonl`);
+        if (kind === "recovery") yield* f.fs.makeDirectory(`${f.runDir}/run.json.tmp`);
+        yield* f.request({ _tag: "Steer", name: otherName, message: "finish" });
+        let damaged = yield* f.status();
+        while (damaged.state === "running") {
+          yield* Effect.yieldNow;
+          damaged = yield* f.status();
+        }
+        expect(damaged).toMatchObject({
+          state: "unknown",
+          failure: { message: "Supervisor operation failed" },
+        });
+        expect((yield* Store.readRun(f.runDir)).activeTurnId).toBe("primary-turn");
+        expect(
+          yield* f
+            .start({ name: Schema.decodeUnknownSync(D.RunName)("replacement") })
+            .pipe(Effect.flip),
+        ).toMatchObject({ _tag: "RunConflict", detail: expect.stringContaining("unknown") });
+        expect((yield* f.wait({ names: [otherName] })).runs).toMatchObject([{ kind: "done" }]);
+        expect(yield* f.request({ _tag: "Ping" })).toMatchObject({ _tag: "Pong" });
+      }).pipe(Effect.provide(platform)),
+  );
+
+  it.live.each(["Start", "Followup"] as const)(
+    "resilience: a %s defect fails only its run",
+    (action) =>
+      Effect.gen(function* () {
+        const f = yield* fixture(scenario(turnRule([complete()]), turnRule([complete()])));
+        const { supervisor } = yield* f.launch();
+        if (action === "Followup") {
+          yield* f.start();
+          yield* f.untilState("idle");
+        }
+        const body: D.DaemonRequestBody =
+          action === "Start"
+            ? {
+                _tag: "Start",
+                name,
+                worktree: f.worktree,
+                contract: "Work",
+                write: false,
+                skipDepsCheck: false,
+              }
+            : { _tag: "Followup", name, message: "Continue" };
+        // Fault injection at the direct handler boundary, after this run has been registered.
+        Object.defineProperty(body, action === "Start" ? "budgetMs" : "message", {
+          get() {
+            throw new TypeError("private defect message");
+          },
+        });
+        expect(yield* supervisor.handler(body).pipe(Effect.flip)).toMatchObject({ _tag: "Defect" });
+        expect((yield* f.status()).state).toBe("failed");
+        expect((yield* f.wait({ timeoutMs: 0 })).runs).toMatchObject([{ kind: "failed" }]);
+        expect(
+          (yield* f.wait({ names: [], all: true, cwd: f.repo, timeoutMs: 0 })).runs,
+        ).toMatchObject([{ kind: "failed" }]);
+        const otherName = Schema.decodeUnknownSync(D.RunName)("other");
+        const other = `${f.repo}/work/other`;
+        yield* f.git(f.repo, ["worktree", "add", "-qb", "other", other]);
+        yield* f.start({ name: otherName, worktree: other });
+        expect((yield* f.wait({ names: [otherName] })).runs).toMatchObject([{ kind: "done" }]);
+        expect(yield* f.request({ _tag: "Ping" })).toMatchObject({ _tag: "Pong" });
+      }).pipe(Effect.provide(platform)),
+  );
+
+  it.effect("resilience: an expired question on a closed connection stays local", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario());
+      const registry = yield* makeRegistry(f.dataDir);
+      const stored = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(D.RunRecord))(
+        yield* f.fs.readFileString(
+          fileURLToPath(new URL("./fixtures/runs/run.json", import.meta.url)),
+        ),
+      );
+      const record = { ...stored, name, worktree: f.worktree, questionTimeoutMs: 1000 };
+      yield* Store.createRun(f.dataDir, record, "Work");
+      const run = yield* registry.add(record);
+      const scope = yield* Scope.fork(yield* Effect.scope);
+      const connection = yield* openConnection({
+        codexBin: fake,
+        env: f.env,
+        version: "test",
+        stderr: () => Effect.void,
+      }).pipe(Scope.provide(scope));
+      const params = Schema.decodeUnknownSync(Codex.ToolCallParams)({
+        threadId: "thread-a",
+        turnId: "turn-2",
+        callId: "q",
+        namespace: null,
+        tool: "ask_orchestrator",
+        arguments: { question: "Choose?" },
+      });
+      const message = { id: 42, method: Codex.Method.toolCall, params };
+      const questions = yield* makeQuestions(registry);
+      yield* questions.receive(
+        run,
+        { connection, scope, generation: Symbol(), loaded: new Set() },
+        message,
+        params,
+      );
+      yield* Scope.close(scope, Exit.void);
+      yield* TestClock.adjust(1000);
+      const recovered = Effect.gen(function* () {
+        while ((yield* Store.readRun(run.dir)).state === "waiting") yield* Effect.yieldNow;
+        return "recovered";
+      });
+      expect(
+        yield* Effect.raceFirst(registry.failed.pipe(Effect.exit, Effect.as("stopped")), recovered),
+      ).toBe("recovered");
+      expect((yield* Store.readRun(run.dir)).state).toBe("unknown");
+      expect(
+        yield* Effect.raceFirst(
+          registry.failed.pipe(Effect.as("stopped")),
+          registry.busy.pipe(Effect.as("alive")),
+        ),
+      ).toBe("alive");
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live.each([false, true])("resilience: interrupt continues after turn 1, wait=%s", (waiting) =>
+    Effect.gen(function* () {
+      const f = yield* fixture(
+        scenario(turnRule([complete()]), turnRule(), {
+          method: Codex.Method.turnInterrupt,
+          respond: { result: {} },
+          steps: [complete("interrupted")],
+        }),
+      );
+      yield* f.launch();
+      yield* f.start();
+      yield* f.wait();
+      yield* f.request({ _tag: "Followup", name, message: "turn two" });
+      const stdout = yield* f.cli([
+        "interrupt",
+        "unit",
+        ...(waiting ? ["--wait", "--timeout", "2s"] : []),
+        "--json",
+      ]);
+      let result = Schema.decodeUnknownSync(Schema.fromJsonString(D.DaemonResult))(stdout);
+      if (!waiting) {
+        if (result._tag !== "Accepted" || !result.next) assert.fail("expected a continuation");
+        expect(result.next).toContain(" wait unit --after ");
+        result = yield* f.wait({ after: result.cursor });
+      }
+      expect(result).toMatchObject({
+        _tag: "Waited",
+        runs: [{ kind: "interrupted", summary: "turn 2" }],
+      });
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live.each(["notification", "question"])(
+    "resilience: a slow digest does not delay another run's %s",
+    (kind) =>
+      Effect.gen(function* () {
+        const primaryQuestion = {
+          ...question("primary"),
+          params: {
+            threadId: "primary",
+            turnId: "primary-turn",
+            callId: "primary",
+            namespace: null,
+            tool: "ask_orchestrator",
+            arguments: { question: "Primary?" },
+          },
+        };
+        const f = yield* fixture({
+          rules: [
+            {
+              method: Codex.Method.threadStart,
+              respond: { result: { ...opened, thread: { id: "primary" } } },
+            },
+            {
+              method: Codex.Method.threadStart,
+              respond: { result: { ...opened, thread: { id: "other" } } },
+            },
+            {
+              ...turnRule(),
+              respond: {
+                result: {
+                  turn: { id: "primary-turn", status: "inProgress", error: null, items: [] },
+                },
+              },
+            },
+            turnRule(),
+            {
+              method: Codex.Method.turnSteer,
+              respond: { result: { turnId: "{{turn}}" } },
+              steps:
+                kind === "notification"
+                  ? [notify("held", { threadId: "primary" }), complete()]
+                  : [primaryQuestion, question("other")],
+            },
+          ],
+        });
+        const otherName = Schema.decodeUnknownSync(D.RunName)("other");
+        const other = `${f.repo}/work/other`;
+        yield* f.git(f.repo, ["worktree", "add", "-qb", "other", other]);
+        yield* f.launch();
+        yield* f.start();
+        yield* f.start({ name: otherName, worktree: other });
+        const file = `${f.runDir}/baseline.txt`;
+        const original = yield* f.fs.readFileString(file);
+        yield* f.fs.remove(file);
+        expect((yield* commandResult(ChildProcess.make("mkfifo", [file]))).code).toBe(0);
+        const held = yield* Deferred.make<void>();
+        const release = yield* Deferred.make<void>();
+        const writer = yield* Effect.scoped(
+          Effect.gen(function* () {
+            const handle = yield* Effect.acquireRelease(
+              Effect.promise(() => openFile(file, "w")),
+              (handle) => Effect.promise(() => handle.close()),
+            );
+            yield* Deferred.succeed(held, undefined);
+            yield* Deferred.await(release);
+            yield* Effect.promise(() => handle.writeFile(original));
+          }),
+        ).pipe(Effect.forkScoped);
+        const slow = yield* f.status().pipe(Effect.forkChild);
+        yield* Deferred.await(held);
+        yield* Effect.addFinalizer(() => Deferred.succeed(release, undefined));
+        yield* f.request({ _tag: "Steer", name: otherName, message: "signal both" });
+        const waited = yield* f.wait({ names: [otherName], timeoutMs: 1000 });
+        yield* Deferred.succeed(release, undefined);
+        yield* Fiber.join(writer);
+        yield* f.fs.remove(file);
+        yield* f.fs.writeFileString(file, original);
+        yield* Fiber.join(slow);
+        expect(waited.runs).toMatchObject([
+          { kind: kind === "notification" ? "done" : "question" },
+        ]);
+      }).pipe(Effect.provide(platform)),
+  );
+
+  it.live(
+    "resilience: removing one active worktree leaves the daemon and the other run alive",
+    () =>
+      Effect.gen(function* () {
+        const f = yield* fixture({
+          rules: [
+            {
+              method: Codex.Method.threadStart,
+              respond: { result: { ...opened, thread: { id: "primary" } } },
+            },
+            {
+              method: Codex.Method.threadStart,
+              respond: { result: { ...opened, thread: { id: "other" } } },
+            },
+            {
+              ...turnRule([
+                { awaitRequest: Codex.Method.turnSteer },
+                notify(Codex.Method.turnCompleted, {
+                  threadId: "primary",
+                  turn: { id: "primary-turn", status: "completed", error: null, items: [] },
+                }),
+              ]),
+              respond: {
+                result: {
+                  turn: { id: "primary-turn", status: "inProgress", error: null, items: [] },
+                },
+              },
+            },
+            turnRule([{ awaitRequest: Codex.Method.turnSteer }, complete()]),
+            { method: Codex.Method.turnSteer, respond: { result: { turnId: "{{turn}}" } } },
+          ],
+        });
+        const otherName = Schema.decodeUnknownSync(D.RunName)("other");
+        const other = `${f.repo}/work/other`;
+        yield* f.git(f.repo, ["worktree", "add", "-qb", "other", other]);
+        yield* f.launch();
+        yield* f.start();
+        yield* f.start({ name: otherName, worktree: other });
+        yield* f.git(f.repo, ["worktree", "remove", "--force", f.worktree]);
+        yield* f.request({ _tag: "Steer", name: otherName, message: "finish both" });
+        expect((yield* f.untilState("idle")).warnings).toContain(`worktree removed: ${f.worktree}`);
+        expect((yield* f.wait({ names: [otherName] })).runs).toMatchObject([{ kind: "done" }]);
+        expect(yield* f.request({ _tag: "Ping" })).toMatchObject({ _tag: "Pong" });
+      }).pipe(Effect.provide(platform)),
+  );
+
+  it.live.each(["events.jsonl", "questions.jsonl"])(
+    "resilience: restart repairs a torn %s tail",
+    (file) =>
+      Effect.gen(function* () {
+        const f = yield* fixture(scenario(turnRule([question()])));
+        const first = yield* f.launch();
+        yield* f.start();
+        yield* f.wait();
+        yield* first.stop;
+        yield* f.fs.writeFileString(`${f.runDir}/${file}`, '{"torn":', { flag: "a" });
+        yield* f.launch();
+        expect((yield* f.status()).state).toBe("lost");
+        expect(Store.pendingQuestions(yield* Store.readQuestions(f.runDir))).toEqual([]);
+        expect((yield* Store.readEvents(f.runDir)).events.at(-1)?.event).toMatchObject({
+          _tag: "StateChanged",
+          to: "lost",
+        });
+      }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("resilience: skips a run whose recovery fails and recovers the other run", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario(turnRule(), turnRule()));
+      const otherName = Schema.decodeUnknownSync(D.RunName)("other");
+      const other = `${f.repo}/work/other`;
+      yield* f.git(f.repo, ["worktree", "add", "-qb", "other", other]);
+      const first = yield* f.launch();
+      yield* f.start();
+      yield* f.start({ name: otherName, worktree: other });
+      yield* first.stop;
+      yield* Store.writeRun(f.runDir, { ...(yield* Store.readRun(f.runDir)), state: "running" });
+      yield* f.fs.writeFileString(`${f.runDir}/questions.jsonl`, "broken complete line\n");
+      yield* f.launch();
+      expect((yield* f.status(otherName)).state).toBe("lost");
+      expect(yield* f.status().pipe(Effect.flip)).toMatchObject({ _tag: "RunNotFound" });
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("resilience: starts over an unregistered half-created run directory", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario(turnRule([complete()])));
+      yield* f.fs.makeDirectory(f.runDir, { recursive: true });
+      yield* f.fs.writeFileString(`${f.runDir}/contract.md`, "crashed before run.json");
+      yield* f.launch();
+      expect(yield* f.start()).toMatchObject({ _tag: "Started" });
+      expect((yield* f.untilState("idle")).state).toBe("idle");
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live.each(["Followup", "Archive"] as const)(
+    "resilience: a queued %s on a stalled Start does not delay unrelated runs",
+    (action) =>
+      Effect.gen(function* () {
+        const f = yield* fixture({
+          rules: [
+            { method: Codex.Method.threadStart, respond: "none" },
+            { method: Codex.Method.threadStart, respond: { result: opened } },
+            turnRule([complete()]),
+            turnRule([question()]),
+          ],
+        });
+        const otherName = Schema.decodeUnknownSync(D.RunName)("other");
+        const other = `${f.repo}/work/other`;
+        yield* f.git(f.repo, ["worktree", "add", "-qb", "other", other]);
+        const { supervisor } = yield* f.launch();
+        yield* f.start().pipe(Effect.forkChild);
+        yield* f.awaitLog(Codex.Method.threadStart);
+        const blocked: D.DaemonRequestBody =
+          action === "Followup"
+            ? { _tag: "Followup", name, message: "queued" }
+            : { _tag: "Archive", name };
+        yield* supervisor
+          .handler(blocked)
+          .pipe(Effect.flip, Effect.forkChild({ startImmediately: true }));
+        expect(
+          yield* f.start({ name: otherName, worktree: other }).pipe(Effect.timeout("2 seconds")),
+        ).toMatchObject({ _tag: "Started" });
+        yield* f.wait({ names: [otherName] });
+        const accepted = yield* f.request({ _tag: "Followup", name: otherName, message: "next" });
+        if (accepted._tag !== "Accepted") assert.fail("expected Accepted");
+        expect((yield* f.wait({ names: [otherName], after: accepted.cursor })).runs).toMatchObject([
+          { kind: "question" },
+        ]);
+      }).pipe(Effect.provide(platform)),
+  );
+
   for (const json of [false, true]) {
     for (const kind of ["done", "question"] as const) {
       it.live(`start --wait returns ${kind}, json=${json}`, () =>
@@ -783,7 +1294,7 @@ describe("supervisor over the real daemon socket", () => {
         yield* f.fs.writeFileString(`${f.runDir}/questions.jsonl`, "secret=private invalid JSON\n");
       const error = yield* f.status().pipe(Effect.flip);
       expect(error).toMatchObject({
-        _tag: "DaemonUnavailable",
+        _tag: "RunConflict",
         detail: expect.stringContaining("run data"),
       });
       expect(JSON.stringify(error)).not.toContain("private");
@@ -801,7 +1312,7 @@ describe("supervisor over the real daemon socket", () => {
       yield* f.launch();
       const error = yield* f.start().pipe(Effect.flip);
       expect(error).toMatchObject({
-        _tag: "CodexUnavailable",
+        _tag: "RunConflict",
         detail: expect.stringContaining("Codex refused"),
       });
       expect(JSON.stringify(error)).not.toContain("private");
@@ -913,6 +1424,16 @@ else {
       const f = yield* fixture(scenario(turnRule()));
       yield* f.launch();
       yield* f.start();
+      // Events takes the run lock, so seeing TurnStarted also waits for its record writes.
+      while (true) {
+        const events = yield* f.request({ _tag: "Events", name });
+        if (
+          events._tag === "Events" &&
+          events.events.some(({ event }) => event._tag === "TurnStarted")
+        )
+          break;
+        yield* Effect.yieldNow;
+      }
       const before = yield* f.fs.readFileString(`${f.runDir}/run.json`);
       const app = AppLayer(
         f.env,
@@ -1354,6 +1875,7 @@ if (process.argv.includes("generate-json-schema")) {
       yield* f.hooks;
       yield* f.launch();
       yield* f.start();
+      while (!(yield* f.fs.exists(`${f.runDir}/codex.jsonl`))) yield* Effect.yieldNow;
       while (!(yield* f.fs.readFileString(`${f.runDir}/codex.jsonl`)).includes("newCommandField"))
         yield* Effect.yieldNow;
       const digest = yield* f.status();

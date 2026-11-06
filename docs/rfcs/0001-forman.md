@@ -124,11 +124,11 @@ Normalized events cover what the digest and `forman events` need: turn started a
 
 All commands take `--json` and then print exactly one JSON value on stdout. Without it they print short text meant for Claude to read. Every message argument also accepts `--file <path>`, since follow-up contracts are files.
 
-`start`, `answer`, `followup` and `steer` accept `--wait [--timeout <dur>]`. They send their request and then wait on the same run with the standalone wait's 60-minute default. `start --wait` prints the run name and directory followed by the wait result and its `next:` line. Its JSON is one `Waited` value with `started: {name, runDir}`; the other three return the wait result directly instead of `ok`. Without `--wait`, start behaves as before.
+`start`, `answer`, `followup`, `steer` and `interrupt` accept `--wait [--timeout <dur>]`. They send their request and then wait on the same run with the standalone wait's 60-minute default. `start --wait` prints the run name and directory followed by the wait result and its `next:` line. Its JSON is one `Waited` value with `started: {name, runDir}`; the other four return the wait result directly instead of `ok`. Without `--wait`, start behaves as before.
 
-The daemon acknowledges `answer`, `followup` and `steer` with `Accepted {cursor}`. The cursor includes the run identity and event position, captured under its lock after acceptance and before queued Codex notifications can advance it. Without `--wait`, the CLI adds `next` to this JSON acknowledgement and prints `ok` followed by `next: <executable> wait <name> --after <cursor>` in text. Interrupt keeps `Ok`, as do shutdown and other requests without this continuation.
+The daemon acknowledges `answer`, `followup`, `steer` and `interrupt` with `Accepted {cursor}`. The cursor includes the run identity and event position, captured under its lock after acceptance and before queued Codex notifications can advance it. Without `--wait`, the CLI adds `next` to this JSON acknowledgement and prints `ok` followed by `next: <executable> wait <name> --after <cursor>` in text. Shutdown and other requests without this continuation keep `Ok`.
 
-An outdated daemon stays in service while busy. Before sending these three requests to a different build, the client captures its run position through a nonblocking `Wait`. If that build returns the older `Ok` acknowledgement, the client uses the captured cursor as `Accepted`; if it returns `Accepted`, the daemon's cursor takes precedence. Capturing before dispatch preserves immediate continuations without retrying a mutation. A daemon that cannot provide the cursor is refused before the request is sent.
+An outdated daemon stays in service while busy. Before sending these four requests to a different build, the client captures its run position through a nonblocking `Wait`. If that build returns the older `Ok` acknowledgement, the client uses the captured cursor as `Accepted`; if it returns `Accepted`, the daemon's cursor takes precedence. Capturing before dispatch preserves immediate continuations without retrying a mutation. A daemon that cannot provide the cursor is refused before the request is sent.
 
 | Command | Does |
 | --- | --- |
@@ -137,7 +137,7 @@ An outdated daemon stays in service while busy. Before sending these three reque
 | `forman events <name> [--after <seq>] [--limit <n>]` | Normalized events after a sequence number, with `gap: true` if older events were dropped |
 | `forman steer <name> <message>` | `turn/steer` on the turn in progress. Refused if no turn is in progress, or if a question is pending ("answer q2 first; the answer can carry the change"), because the model won't see a steer until the question is answered |
 | `forman followup <name> <message> [--budget <dur>] [--effort]` | Starts a new turn on an inactive run, resuming the thread first if this daemon didn't start it |
-| `forman interrupt <name>` | `turn/interrupt` on the turn in progress |
+| `forman interrupt <name> [--wait] [--timeout <dur>]` | `turn/interrupt` on the turn in progress; acknowledges with `Accepted {cursor}` and prints `next:` to wait past earlier turns, or waits from that cursor with `--wait` |
 | `forman answer <name> <question-id> <text>` | Answers a pending question; refused if the question is no longer pending |
 | `forman result <name>` | The digest and the hand-off, saying which turn it came from and whether the latest turn ended without one |
 | `forman wait [<name>...] [--all] [--after <cursor>] [--timeout <dur>]` | Blocks until a run needs Claude or the timeout passes; prints outcomes, digests, terminal turn hand-offs and the next wait command |
@@ -289,7 +289,12 @@ The hand-off of a turn is its `agentMessage` with `phase: "final_answer"`, or it
 | --- | --- |
 | App server exits | Active runs become `lost`, pending questions `cancelled`; the next request that needs it restarts the app server; a follow-up resumes the thread |
 | Daemon exits | Same, found from `run.json` at the next daemon start |
+| One run's background work fails | Log once with the run name and reason. An unconfirmed active turn stays `unknown` with its turn ID and worktree reservation; other failures become `failed` and wake waiters. Each run consumes its own ordered message queue, so its lock and worktree scans cannot delay other runs. Acquire run locks before the global registration lock; release registration before thread and turn RPCs. Only infrastructure failures reach the daemon's fatal worker boundary |
+| Worktree removed during a turn | Completion keeps the last available worktree fields. Digests warn that the worktree was removed; the daemon and other runs continue |
+| Crash during a JSONL append | Ignore the final line without a newline and truncate it before the next append. Corruption in complete records still fails that run's recovery; log its name and skip it while recovering the others |
+| Crash during run creation | Build under `runs/.tmp-<name>-<random>` and publish by rename after writing `run.json`. Registry discovery ignores staging directories; Start removes an unregistered directory occupying the requested name |
 | Request times out | `thread/start` waits up to 180 s (MCP servers can take 120 s to start); other requests 30 s. A timed-out `thread/start` or `turn/start` puts the run in `unknown`, and a retry is refused while it is |
+| Recording `unknown` fails | Keep the reservation in memory and the five-minute recovery deadline armed. Once storage is writable, the deadline can still mark the run `lost` |
 | A message fails to decode | Logged and recorded. `turn/started` and `turn/completed` fall back to a minimal decode of `threadId`, `turn.id` and `turn.status`, so a schema change can't leave a run `running` forever |
 | Unknown notification or item type | Recorded as a generic event |
 

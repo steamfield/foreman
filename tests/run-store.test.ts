@@ -264,3 +264,47 @@ it.effect("appends raw Codex messages without dropping unfamiliar fields", () =>
     );
   }).pipe(Effect.provide(NodeServices.layer)),
 );
+
+it.effect.each([false, true])("ignores and repairs torn JSONL tails, prior record=%s", (prior) =>
+  Effect.gen(function* () {
+    const { fs, dir } = yield* setup();
+    const asked: QuestionLine = {
+      _tag: "Asked",
+      id: Schema.decodeUnknownSync(QuestionId)("q1"),
+      turn: 1,
+      kind: "blocked",
+      question: "Choose?",
+      at: DateTime.makeUnsafe(0),
+    };
+    if (prior) {
+      yield* Store.appendEvent(dir, { _tag: "Other", method: "before" });
+      yield* Store.appendQuestion(dir, asked);
+    }
+    for (const file of ["events.jsonl", "questions.jsonl"])
+      yield* fs.writeFileString(`${dir}/${file}`, '{"torn":"é', { flag: "a" });
+    expect((yield* Store.readEvents(dir)).events).toHaveLength(prior ? 1 : 0);
+    expect(yield* Store.readQuestions(dir)).toHaveLength(prior ? 1 : 0);
+    expect((yield* Store.appendEvent(dir, { _tag: "Other", method: "after" })).seq).toBe(
+      prior ? 2 : 1,
+    );
+    yield* Store.appendQuestion(dir, {
+      _tag: "Resolved",
+      id: asked.id,
+      resolution: "cancelled",
+      text: null,
+      at: asked.at,
+    });
+    expect((yield* Store.readEvents(dir)).events).toHaveLength(prior ? 2 : 1);
+    expect(yield* Store.readQuestions(dir)).toHaveLength(prior ? 2 : 1);
+    for (const file of ["events.jsonl", "questions.jsonl"])
+      expect(yield* fs.readFileString(`${dir}/${file}`)).not.toContain("torn");
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("does not discover unpublished staging directories", () =>
+  Effect.gen(function* () {
+    const { fs, root, dir } = yield* setup();
+    yield* fs.rename(dir, `${root}/runs/.tmp-unit-a-crash`);
+    expect(yield* Store.readAllRuns(root)).toEqual({ runs: [], skipped: [] });
+  }).pipe(Effect.provide(NodeServices.layer)),
+);

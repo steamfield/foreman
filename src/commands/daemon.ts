@@ -3,12 +3,11 @@ import { Command } from "effect/cli";
 import { AppConfig } from "../config";
 import { shutdown } from "../daemon/client";
 import { daemon } from "../daemon/server";
-import { entry } from "../logging";
+import { entry, makeLogAppender } from "../logging";
 import { Host } from "../services/host";
 import { Invocation } from "../services/invocation";
 import { Output } from "../services/output";
 import { makeSupervisor } from "../supervisor";
-import { makeLogAppender } from "../supervisor/app-server";
 
 const stopCommand = Command.make(
   "stop",

@@ -114,7 +114,12 @@ export const followup = Effect.fn("commands.followup")(function* (
   return yield* afterAccepted(result, input.name, input);
 });
 
-export const interrupt = (name: RunName) => request({ _tag: "Interrupt", name });
+export const interrupt = Effect.fn("commands.interrupt")(function* (
+  input: WaitOptions & { name: RunName },
+) {
+  const result = yield* request({ _tag: "Interrupt", name: input.name });
+  return yield* afterAccepted(result, input.name, input);
+});
 
 export const answer = Effect.fn("commands.answer")(function* (
   input: MessageInput & WaitOptions & { name: RunName; question: QuestionId },

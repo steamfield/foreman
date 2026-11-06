@@ -113,8 +113,8 @@ export const followupCommand = Command.make(
   (input) => print("followup", programs.followup(input)),
 ).pipe(Command.withDescription("Start a follow-up turn with a message or file."));
 
-export const interruptCommand = Command.make("interrupt", { name }, ({ name }) =>
-  print("interrupt", programs.interrupt(name)),
+export const interruptCommand = Command.make("interrupt", { name, ...waiting }, (input) =>
+  print("interrupt", programs.interrupt(input)),
 ).pipe(Command.withDescription("Interrupt the active turn."));
 
 export const answerCommand = Command.make(
