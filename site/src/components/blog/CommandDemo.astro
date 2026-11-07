@@ -1,0 +1,35 @@
+---
+import { CodeFrame } from "../landing/primitives";
+import { loadCommands } from "../../data/commands";
+interface Props {
+  command:
+    | "answer"
+    | "archive"
+    | "doctor"
+    | "result"
+    | "start-wait"
+    | "status-release"
+    | "wait-all";
+  caption: string;
+}
+const { command, caption } = Astro.props;
+const commands = loadCommands();
+const recording = commands.find((entry) => entry.name === command);
+if (!recording)
+  throw new Error(
+    `CommandDemo: unknown command '${command}' (allowed: ${commands.map((entry) => entry.name).join(" | ")})`,
+  );
+if (!caption?.trim())
+  throw new Error(`CommandDemo '${command}': caption is required`);
+---
+
+<figure class="not-prose my-8 min-w-0">
+  <div data-nosnippet>
+    <CodeFrame
+      title={`Recorded: ${recording.label}`}
+      code={`$ ${recording.command}\n\n${recording.output}`}
+      surface="console"
+    />
+  </div>
+  <figcaption class="text-ink-3 mt-3 text-sm">{caption}</figcaption>
+</figure>

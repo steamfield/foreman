@@ -41,7 +41,7 @@ export function CommandTabs({
   if (commands.length === 0) return null;
 
   return (
-    <div ref={root} className="min-w-0">
+    <div ref={root} className="min-w-0" data-nosnippet>
       <p className="text-ink-3 mb-4 text-sm">
         Command captions are written for this page. Console output is recorded.
       </p>

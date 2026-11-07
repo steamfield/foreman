@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import { frontmatter } from "../scripts/frontmatter.mjs";
+import { fixturePost } from "./blog-fixture.mjs";
 import { postSchema } from "../src/content/schema";
 
 const dirs: string[] = [];
@@ -42,7 +43,10 @@ test("new-article writes a schema-valid draft with a quoted title and refuses ov
   expect(postSchema.parse(frontmatter(source))).toMatchObject({
     title: env.TITLE,
     status: "draft",
+    keyword: "TODO primary query",
+    feature: "delegation",
   });
+  expect(postSchema.parse(frontmatter(source)).description.length).toBe(120);
   expect(run("first-post").status).not.toBe(0);
   expect(
     readFileSync(join(cwd, "src/content/blog/first-post.mdx"), "utf8"),
@@ -56,7 +60,7 @@ test.each(["legacy.md", "legacy/index.mdx"])(
     const cwd = mkdtempSync(join(tmpdir(), "blog-post-"));
     dirs.push(cwd);
     mkdirSync(join(cwd, "src/content/blog"), { recursive: true });
-    const original = readFileSync("src/content/blog/welcome.mdx", "utf8");
+    const original = fixturePost({ status: "draft", demo: false });
     const existing = join(cwd, "src/content/blog", filename);
     mkdirSync(dirname(existing), { recursive: true });
     writeFileSync(existing, original);

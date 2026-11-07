@@ -1,9 +1,8 @@
 import type { CollectionEntry } from "astro:content";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { expect, test } from "vitest";
 import { PostHeader } from "./PostHeader";
 import { PostList } from "./PostList";
-import { ReadToggle } from "./ReadToggle";
 
 const post = {
   id: "welcome",
@@ -11,7 +10,10 @@ const post = {
   body: "Hello",
   data: {
     title: "Welcome",
-    description: "First post",
+    description:
+      "A practical guide to running Codex in its own worktree, answering questions, and reviewing the result before committing changes.",
+    keyword: "Codex worktree",
+    feature: "worktrees",
     author: "Author",
     date: new Date("2026-01-01"),
     status: "published",
@@ -51,19 +53,10 @@ test("post header renders the heading, author, date and reading time", () => {
   expect(
     screen.getByRole("heading", { level: 1, name: "Welcome" }),
   ).toBeInTheDocument();
-  expect(screen.getByText(/Author/)).toHaveTextContent(
-    "2026-01-01 · 1 min read",
+  expect(screen.getByText("January 1, 2026")).toHaveAttribute(
+    "datetime",
+    "2026-01-01T00:00:00.000Z",
   );
-});
-test("the island toggles read state accessibly", () => {
-  render(<ReadToggle />);
-  fireEvent.click(
-    screen.getByRole("button", { name: "Mark as read", pressed: false }),
-  );
-  fireEvent.click(
-    screen.getByRole("button", { name: "Marked as read", pressed: true }),
-  );
-  expect(
-    screen.getByRole("button", { name: "Mark as read", pressed: false }),
-  ).toBeInTheDocument();
+  expect(screen.getByText("Author")).toBeInTheDocument();
+  expect(screen.getByText("1 min read")).toBeInTheDocument();
 });

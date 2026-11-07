@@ -47,7 +47,11 @@ const supervisor = loadRun("fix-supervisor");
 const [npm] = install.options;
 ---
 
-<BaseLayout title={site.title} description={site.description} path="/">
+<BaseLayout
+  title="Codex subagents for Claude Code"
+  description={site.metaDescription}
+  path="/"
+>
   <section
     aria-labelledby="hero-title"
     class="relative overflow-hidden"

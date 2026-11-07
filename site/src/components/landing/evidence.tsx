@@ -153,7 +153,7 @@ export function ParallelRuns({ timeline }: { timeline: RunTimeline }) {
   );
   const percent = (ms: number) => `${(ms / timeline.extentMs) * 100}%`;
   return (
-    <div>
+    <div data-nosnippet>
       <div
         ref={playback.ref}
         aria-hidden="true"

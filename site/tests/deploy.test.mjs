@@ -8,8 +8,10 @@ import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { buildFixtureSite } from "./blog-fixture.mjs";
 import { after, before, test } from "node:test";
 
+let fixtureRoot = "";
 let base = "";
 let child;
 let state = "";
@@ -24,6 +26,7 @@ async function freePort() {
 }
 
 before(async () => {
+  fixtureRoot = buildFixtureSite();
   const port = await freePort();
   state = mkdtempSync(join(tmpdir(), "pages-dev-"));
   child = spawn(
@@ -32,6 +35,7 @@ before(async () => {
       "node_modules/wrangler/bin/wrangler.js",
       "pages",
       "dev",
+      join(fixtureRoot, "dist"),
       "--ip",
       "127.0.0.1",
       "--port",
@@ -77,13 +81,14 @@ after(async () => {
     clearTimeout(force);
   }
   if (state) rmSync(state, { recursive: true, force: true });
+  if (fixtureRoot) rmSync(fixtureRoot, { recursive: true, force: true });
 });
 
 const get = (path) => fetch(new URL(path, base), { redirect: "manual" });
 
 test("hashed assets are cached for a year as immutable", async () => {
   const isCss = (name) => name.endsWith(".css");
-  const asset = readdirSync("dist/_astro").find(isCss);
+  const asset = readdirSync(join(fixtureRoot, "dist/_astro")).find(isCss);
   assert.ok(asset, "astro build emitted no CSS under dist/_astro");
   const response = await get(`/_astro/${asset}`);
   assert.equal(response.status, 200);
@@ -110,12 +115,12 @@ test("Pages gives the blog one canonical URL without redirect rules", async () =
 });
 
 test("drafts are absent on Pages and feeds keep the revalidating cache", async () => {
-  assert.equal((await get("/blog/welcome")).status, 404);
+  assert.equal((await get("/blog/draft")).status, 404);
   for (const path of ["/blog/rss.xml", "/sitemap-0.xml"]) {
     const response = await get(path);
     assert.equal(response.status, 200);
     assert.match(response.headers.get("cache-control") ?? "", /max-age=0/);
-    assert.doesNotMatch(await response.text(), /\/blog\/welcome/);
+    assert.doesNotMatch(await response.text(), /\/blog\/draft/);
   }
 });
 
@@ -123,4 +128,38 @@ test("unknown paths get the built 404 page", async () => {
   const response = await get("/no-such-post");
   assert.equal(response.status, 404);
   assert.match(await response.text(), /Page not found/);
+});
+
+test("published articles and OG cards resolve, with canonical Pages variants", async () => {
+  const post = await get("/blog/engine-probe");
+  assert.equal(post.status, 200);
+  assert.equal(post.headers.get("x-content-type-options"), "nosniff");
+  assert.match(post.headers.get("cache-control") ?? "", /max-age=0/);
+  assert.match(
+    await post.text(),
+    /https:\/\/foreman.steamfield.io\/blog\/engine-probe/,
+  );
+  for (const path of ["/blog/engine-probe/", "/blog/engine-probe.html"]) {
+    const response = await get(path);
+    assert.equal(response.status, 308, path);
+    assert.equal(response.headers.get("location"), "/blog/engine-probe", path);
+  }
+  const card = await get("/og/blog/engine-probe.webp");
+  assert.equal(card.status, 200);
+  assert.match(card.headers.get("content-type") ?? "", /image\/webp/);
+  const bytes = Buffer.from(await card.arrayBuffer());
+  assert.equal(bytes.toString("ascii", 0, 4), "RIFF");
+  assert.equal(bytes.toString("ascii", 8, 12), "WEBP");
+});
+test("robots advertises the real sitemap and the legacy sitemap redirects", async () => {
+  const robots = await get("/robots.txt");
+  assert.equal(robots.status, 200);
+  assert.match(
+    await robots.text(),
+    /Sitemap: https:\/\/foreman.steamfield.io\/sitemap-index.xml/,
+  );
+  assert.equal((await get("/sitemap-index.xml")).status, 200);
+  const legacy = await get("/sitemap.xml");
+  assert.equal(legacy.status, 301);
+  assert.equal(legacy.headers.get("location"), "/sitemap-index.xml");
 });

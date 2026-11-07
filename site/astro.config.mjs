@@ -12,13 +12,18 @@ import { postSchema } from "./src/content/schema.ts";
 
 // Config runs before astro:content exists. Decode the same schema from real YAML.
 const entries = Array.from(globSync("src/content/blog/**/*.{md,mdx}")).map(
-  (file) => ({
-    id: relative("src/content/blog", file),
-    data: postSchema.parse(frontmatter(readFileSync(file, "utf8"))),
-  }),
+  (file) => {
+    const result = postSchema.safeParse(
+      frontmatter(readFileSync(file, "utf8")),
+    );
+    if (!result.success)
+      throw new Error(`Post ${file}: ${result.error.message}`);
+    return { id: relative("src/content/blog", file), data: result.data };
+  },
 );
 const listedPaths = new Set([
   "/",
+  ...(publishedPosts(entries).length ? ["/blog"] : []),
   ...publishedPosts(entries).map((post) => `/blog/${slugFor(post)}`),
 ]);
 

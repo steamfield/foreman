@@ -2,11 +2,31 @@
 import BaseLayout from "../../layouts/BaseLayout.astro";
 import { PostList } from "../../components/PostList";
 import { getPublishedPosts } from "../../lib/collection";
-
+import {
+  blogTitle,
+  blogDescription,
+  collectionJsonLd,
+  breadcrumbs,
+} from "../../lib/blog";
 const posts = await getPublishedPosts();
 ---
 
-<BaseLayout title="Blog" path="/blog" noindex={posts.length === 0}>
-  <h1 class="mb-6 text-3xl font-bold">Blog</h1>
-  <PostList posts={posts} />
+<BaseLayout
+  title={blogTitle}
+  description={blogDescription}
+  path="/blog"
+  image="/og/blog.webp"
+  noindex={posts.length === 0}
+  jsonLd={[collectionJsonLd(posts), breadcrumbs()]}
+>
+  <div class="mx-auto max-w-[1200px] wrap-anywhere px-4 py-20 sm:px-8 sm:py-28">
+    <h1 class="font-display hero-title max-w-[48rem]">{blogTitle}</h1>
+    <p class="text-ink-2 mt-6 max-w-[40rem] text-xl">{blogDescription}</p>
+    <div class="mt-12 max-w-[48rem]">
+      <PostList posts={posts} />
+    </div>
+    {posts.length === 0 && (
+      <p class="text-ink-3 mt-10">The first guides are on their way.</p>
+    )}
+  </div>
 </BaseLayout>

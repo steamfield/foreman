@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { GET } from "../src/pages/llms.txt";
@@ -38,7 +39,7 @@ const installation = readme.split("## Install\n")[1]?.split("\n## ")[0] ?? "";
 
 describe("landing copy agrees with the repository README", () => {
   it("keeps the llms command reference aligned with README without claiming to replay recordings", async () => {
-    const text = await GET().text();
+    const text = await (await GET()).text();
     expect(readTable("Command", text)).toEqual(readTable("Command"));
     expect(text).toContain(commands.lede);
     expect(text).not.toContain(commands.recorded);

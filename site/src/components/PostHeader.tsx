@@ -1,5 +1,5 @@
 import type { CollectionEntry } from "astro:content";
-
+import { formatPostDate } from "../lib/posts";
 export function PostHeader({
   post,
   minutes,
@@ -9,23 +9,28 @@ export function PostHeader({
 }) {
   return (
     <header>
-      <h1 className="text-3xl font-bold">{post.data.title}</h1>
-      <p>
-        {post.data.author} ·{" "}
+      <h1 className="font-display hero-title">
+        {post.data.headline ?? post.data.title}
+      </h1>
+      <p className="text-ink-2 mt-6 text-xl">{post.data.description}</p>
+      <p className="text-ink-3 mt-5 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+        <span>{post.data.author}</span>
         <time dateTime={post.data.date.toISOString()}>
-          {post.data.date.toISOString().slice(0, 10)}
-        </time>{" "}
-        · {minutes} min read
+          {formatPostDate(post.data.date)}
+        </time>
+        {post.data.updated && (
+          <span>
+            Updated{" "}
+            <time dateTime={post.data.updated.toISOString()}>
+              {formatPostDate(post.data.updated)}
+            </time>
+          </span>
+        )}
+        <span>{minutes} min read</span>
       </p>
-      {post.data.updated && (
-        <p>
-          Updated{" "}
-          <time dateTime={post.data.updated.toISOString()}>
-            {post.data.updated.toISOString().slice(0, 10)}
-          </time>
-        </p>
+      {post.data.status !== "published" && (
+        <p className="text-ink-3 mt-2 text-sm">{post.data.status}</p>
       )}
-      {post.data.status !== "published" && <p>{post.data.status}</p>}
     </header>
   );
 }

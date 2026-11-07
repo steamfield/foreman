@@ -10,6 +10,9 @@ import {
   why,
 } from "../data/landing";
 
+import { getPublishedPosts } from "../lib/collection";
+import { absolute, postPath } from "../lib/blog";
+
 // Copied from the repository README's Command reference; tests/drift.test.ts compares them.
 const commandTable = `| Command | Purpose |
 | --- | --- |
@@ -36,7 +39,8 @@ function table(head: readonly string[], rows: readonly (readonly string[])[]) {
     .join("\n");
 }
 
-export function GET() {
+export async function GET() {
+  const posts = await getPublishedPosts();
   const body = [
     "# foreman",
     `> ${hero.title}`,
@@ -68,6 +72,11 @@ export function GET() {
     table(["Outcome", "Meaning"], waitOutcomes),
     `## ${guardrails.title}`,
     ...guardrails.rows.map(([label, meaning]) => `- ${label}: ${meaning}`),
+    "## Blog",
+    ...posts.map(
+      (post) =>
+        `- [${post.data.title}](${absolute(postPath(post))}): ${post.data.description}`,
+    ),
     "## Reference",
     "- [README on GitHub](https://github.com/steamfield/foreman#readme): Full usage, configuration and command reference.",
   ].join("\n\n");

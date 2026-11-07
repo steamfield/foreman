@@ -18,6 +18,10 @@ if (
   throw new Error(`A post with slug ${SLUG} already exists.`);
 }
 // JSON strings are YAML scalars, including titles containing quotes or newlines.
-const post = `---\ntitle: ${JSON.stringify(TITLE)}\ndescription: ${JSON.stringify(TITLE)}\ndate: ${new Date().toISOString().slice(0, 10)}\nauthor: ${JSON.stringify(site.author)}\nstatus: draft\n---\n\nWrite your post here.\n`;
+if (TITLE.trim().length > 48)
+  throw new Error("title must have at most 48 characters");
+const description =
+  "TODO: Replace this description with a summary of the problem, the steps readers will follow, and the result they expect.";
+const post = `---\ntitle: ${JSON.stringify(TITLE)}\ndescription: ${JSON.stringify(description)}\nkeyword: TODO primary query\nfeature: delegation\ndate: ${new Date().toISOString().slice(0, 10)}\nauthor: ${JSON.stringify(site.author)}\nstatus: draft\n---\n\nWrite your post here.\n`;
 writeFileSync(`src/content/blog/${SLUG}.mdx`, post, { flag: "wx" });
 console.log(`Created draft: src/content/blog/${SLUG}.mdx`);

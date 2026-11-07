@@ -20,7 +20,7 @@ export function SessionDiagram({ session }: { session: Session }) {
   );
   const current = session.steps[scene.step];
   return (
-    <div className="min-w-0" data-session-diagram>
+    <div className="min-w-0" data-session-diagram data-nosnippet>
       <p className="sr-only">
         Claude Code writes three contracts and starts Codex delegates on astra,
         sol and terra in separate worktrees. The foreman daemon routes their

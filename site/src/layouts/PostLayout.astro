@@ -1,29 +1,105 @@
 ---
+import type { MarkdownHeading } from "astro";
 import type { CollectionEntry } from "astro:content";
 import BaseLayout from "./BaseLayout.astro";
 import { PostHeader } from "../components/PostHeader";
-import { ReadToggle } from "../components/ReadToggle";
-import { readingTime, slugFor } from "../lib/posts";
-
+import TableOfContents from "../components/blog/TableOfContents.astro";
+import { InstallPanel } from "../components/landing/InstallPanel";
+import { install } from "../data/landing";
+import { site } from "../config";
+import { getPublishedPosts } from "../lib/collection";
+import { readingTime, relatedPosts } from "../lib/posts";
+import { breadcrumbs, postJsonLd, postPath, postImage } from "../lib/blog";
 interface Props {
   post: CollectionEntry<"blog">;
+  headings: MarkdownHeading[];
 }
-const { post } = Astro.props;
+const { post, headings } = Astro.props;
+const toc = headings.filter((heading) => heading.depth === 2);
+const more = relatedPosts(post, await getPublishedPosts());
 ---
 
 <BaseLayout
   title={post.data.title}
   description={post.data.description}
-  path={`/blog/${slugFor(post)}`}
-  image={post.data.ogImage}
+  path={postPath(post)}
+  image={postImage(post)}
   noindex={post.data.status !== "published"}
+  ogType="article"
+  publishedTime={post.data.date.toISOString()}
+  modifiedTime={(post.data.updated ?? post.data.date).toISOString()}
+  jsonLd={[postJsonLd(post), breadcrumbs(post)]}
 >
-  <article>
-    <PostHeader post={post} minutes={readingTime(post.body ?? "")} />
-    {post.data.cover && <img src={post.data.cover} alt="" />}
-    <div class="prose mt-8">
-      <slot />
-    </div>
-    <ReadToggle client:visible />
-  </article>
+  <div class="mx-auto grid max-w-[1200px] wrap-anywhere grid-cols-1 gap-12 px-4 py-10 sm:px-8 sm:py-16 xl:grid-cols-[minmax(0,1fr)_14rem]">
+    <article class="mx-auto w-full min-w-0 max-w-[44rem]">
+      <nav aria-label="Breadcrumb" class="text-ink-3 mb-8 text-sm">
+        <ol class="flex flex-wrap gap-2">
+          <li>
+            <a href="/">Home</a>
+            <span aria-hidden="true"> /</span>
+          </li>
+          <li>
+            <a href="/blog">Blog</a>
+            <span aria-hidden="true"> /</span>
+          </li>
+          <li aria-current="page">{post.data.title}</li>
+        </ol>
+      </nav>
+      <PostHeader post={post} minutes={readingTime(post.body ?? "")} />
+      {toc.length > 0 && (
+        <details class="border-line rounded-frame mt-8 border p-4 text-sm xl:hidden">
+          <summary class="cursor-pointer font-medium">On this page</summary>
+          <nav aria-label="On this page">
+            <TableOfContents headings={toc} />
+          </nav>
+        </details>
+      )}
+      {post.data.cover && (
+        <img class="mt-8 w-full" src={post.data.cover} alt="" />
+      )}
+      <div class="prose blog-prose mt-10 max-w-none">
+        <slot />
+      </div>
+      <aside
+        aria-label="Install foreman"
+        class="border-line bg-band rounded-frame mt-12 border p-5 sm:p-6"
+      >
+        <p class="text-ink-2 mb-5">{site.description.split(":")[0]}.</p>
+        <InstallPanel options={install.options} client:visible />
+        <a class="mt-4 inline-block text-sm" href="/#install">
+          Requirements and setup
+        </a>
+      </aside>
+      {more.length > 0 && (
+        <section
+          aria-labelledby="more-posts"
+          class="border-line mt-12 border-t pt-8"
+        >
+          <h2 id="more-posts" class="font-display mb-6 text-2xl">
+            More from the blog
+          </h2>
+          <ul class="space-y-6">
+            {more.map((other) => (
+              <li>
+                <a href={postPath(other)} class="text-ink font-medium">
+                  {other.data.headline ?? other.data.title}
+                </a>
+                <p class="text-ink-2 mt-2 text-sm">{other.data.description}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </article>
+    {toc.length > 0 && (
+      <nav
+        aria-label="On this page"
+        data-toc
+        class="sticky top-24 hidden self-start text-sm xl:block"
+      >
+        <p class="font-medium">On this page</p>
+        <TableOfContents headings={toc} />
+      </nav>
+    )}
+  </div>
 </BaseLayout>

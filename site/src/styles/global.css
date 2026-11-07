@@ -250,3 +250,22 @@
     opacity: 0.35;
   }
 }
+
+@layer components {
+  .blog-prose {
+    --tw-prose-body: var(--color-ink-2);
+    --tw-prose-headings: var(--color-ink);
+    --tw-prose-links: var(--color-signal-text);
+    --tw-prose-bold: var(--color-ink);
+    --tw-prose-code: var(--color-ink);
+    --tw-prose-quotes: var(--color-ink-2);
+    --tw-prose-quote-borders: var(--color-line-strong);
+    overflow-wrap: anywhere;
+  }
+  .blog-prose h2 {
+    scroll-margin-top: 6rem;
+  }
+  .blog-prose pre {
+    overflow-x: auto;
+  }
+}

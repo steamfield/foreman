@@ -59,6 +59,7 @@ export function SupervisionConsole({ script }: { script: ConsoleScript }) {
   return (
     <figure aria-label="Supervision console">
       <div
+        data-nosnippet
         ref={playback.ref}
         className="border-console-line bg-console text-console-fg shadow-console rounded-frame overflow-hidden border font-mono text-[0.8125rem] leading-relaxed"
       >

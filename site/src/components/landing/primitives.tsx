@@ -142,14 +142,16 @@ export function CodeFrame({
       <figcaption
         className={`border-b px-4 py-2 font-mono text-xs ${consoleSurface ? "border-console-line bg-console-2 text-console-muted" : "border-line text-ink-3"}`}
       >
-        {title}
+        <span data-nosnippet={consoleSurface ? true : undefined}>{title}</span>
       </figcaption>
       <pre
         tabIndex={0}
         aria-label={title}
         className={`overflow-x-auto p-4 font-mono text-[0.8125rem] leading-relaxed ${consoleSurface ? "text-console-fg" : "text-ink"}`}
       >
-        <code>{code}</code>
+        <code>
+          <span data-nosnippet={consoleSurface ? true : undefined}>{code}</span>
+        </code>
       </pre>
     </figure>
   );
