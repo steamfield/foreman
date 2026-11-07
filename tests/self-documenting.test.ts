@@ -123,6 +123,16 @@ describe("installed guidance", () => {
     expect(body).toContain("Before the first foreman command in a session, run `foreman guide`");
   });
 
+  it.each(["contract", "contract tests"] as const)(
+    "keeps the %s template free of one user's plugins and of files Codex already loads",
+    (topic) => {
+      const text = guideTopics[topic];
+      expect(text).not.toMatch(/\bce:|claude-essentials|plugins\/cache|marketplace/);
+      expect(text).not.toMatch(/^- `AGENTS\.md`/m);
+      expect(text).toContain("{ABSOLUTE CONTRACT PATH}");
+    },
+  );
+
   it("names only commands and flags that the real command tree exposes", () => {
     const texts = [...Object.values(guideTopics), skillText];
     const flags = new Set(

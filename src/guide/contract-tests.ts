@@ -4,12 +4,12 @@ export const contractTestsText = `# Contract: acceptance tests for {TITLE}
 Leave REVIEW DIR for the delegate's mktemp output.
 Fill REVIEW MODEL with the literal visible model passed to foreman start --model and confirm
 it in the digest's run: header. Use foreman start <name> --worktree <path> --contract <this-file>
---write --model <model>, then background the printed next: wait command and follow each next:. -->
+--write --model <model>, then background the printed next: wait command and follow each next:.
+Codex loads AGENTS.md from the repo root down to the worktree and lists its installed skills
+itself, so don't ask it to read either. Every file listed below is read before the first edit
+and resent on every later model call: list only what this task needs. -->
 
-You are the test author, separate from the implementer. Work in this git worktree, not in the
-main checkout. Leave changes uncommitted and do not push. Use \`ask_orchestrator\` only when
-blocked by something the contract and repo do not settle, or for a decision with real
-consequences. Calls pause your work; progress, findings and corrections go in the hand-off.
+You are the test author, separate from the implementer.
 
 ## Goal
 
@@ -38,27 +38,18 @@ merge, remove worktrees or clean up the orchestrator's scratch files.
 
 ## Read first
 
-- \`AGENTS.md\`, if present: {testing and conventions sections}.
-- {Applicable testing rules, CLAUDE.md sections, tests and helpers. Codex does not automatically
-  load Claude's rules or CLAUDE.md.}
+- {Existing tests, helpers and fixtures whose patterns to follow.}
+- {Testing instructions Codex does not load itself, such as CLAUDE.md sections or path-scoped
+  rules the repo's Codex hooks don't inject, only where they apply.}
+
+Read anything else when the work reaches it, not up front.
 
 ## Skills to apply
 
-Find the newest installed Claude Code \`claude-essentials\` marketplace copy:
-
-\`\`\`sh
-ce=$(ls -d "$HOME"/.claude/plugins/cache/*/ce/*/ | sort -V | tail -1)
-\`\`\`
-
-- \`ce:writing-tests\`: \`\${ce}skills/writing-tests/SKILL.md\` for every test, including
-  \`references/waiting-typescript.md\` for tests waiting on processes, sockets, timers or files,
-  and \`references/flaky-tests.md\` for isolation and repeat-run checks.
-- \`\${ce}skills/architecting-systems/SKILL.md\` and its \`references/structure.md\`, \`coupling.md\`
-  and \`boundaries.md\`: before deciding an interface's shape.
-- {Other required skills and paths.}
-
-The repo's testing rules win where they differ. Ask if a required skill is missing. Report
-where the skills changed your approach.
+{Optional; delete this section if not needed. Name installed skills that must apply, and when,
+for example "the testing skill for every test". Codex finds them by name.} If a named skill
+is not installed, say so in the hand-off and continue with the repo's rules. The repo's testing
+rules win where they differ. Report where the skills changed your approach.
 
 ## Acceptance and test authoring
 
@@ -113,8 +104,8 @@ failure messages identify the missing behaviour and the fixtures reach the inten
 ## Review before hand-off
 
 Once the tests fail for the right reasons and the other checks are clean as described above,
-get one independent review in a fresh Codex process. Read \`\${ce}agents/code-reviewer.md\` and
-the repo reviewer \`{REPO REVIEWER PATH OR NONE}\`, if present.
+get one independent review in a fresh Codex process. Run it from the worktree root, where Codex
+loads AGENTS.md and its installed skills itself.
 
 Run separate simple commands from the worktree root. First:
 
@@ -123,15 +114,15 @@ mktemp -d
 \`\`\`
 
 Keep its printed absolute directory outside the worktree. With the file-writing tool, write
-\`<review-directory>/prompt.md\`. Include the marketplace reviewer body without frontmatter,
-the writing-tests skill and waiting/flaky reference paths, then the repo reviewer body without
-frontmatter so repo rules win. Append the full filled contract and these task instructions:
+\`<review-directory>/prompt.md\`: the body of \`{REPO REVIEWER PATH OR NONE}\` without
+frontmatter, if present, then these task instructions:
 
 "Review uncommitted changes and new files in {ABSOLUTE WORKTREE PATH} against base
-{BASE BRANCH}. These are failing acceptance tests written ahead of implementation. Check
-that they assert the design's behaviour, reject wrong implementations and avoid races and
-coupling to internals. Your sandbox is read-only; don't run tests or edit files. The author
-ran the checks. Report every real defect with a file:line reference."
+{BASE BRANCH}. Read the contract at {ABSOLUTE CONTRACT PATH} first. These are failing
+acceptance tests written ahead of implementation. Check that they assert the design's
+behaviour, reject wrong implementations and avoid races and coupling to internals, following
+the repo's rules, including path-scoped rules (such as \`.claude/rules/\`) covering the changed
+files. Your sandbox is read-only; don't run tests or edit files. The author ran the checks. Report every real defect with a file:line reference."
 
 Then run this one plain command, filling \`{REVIEW DIR}\` with that printed absolute path:
 
