@@ -1,0 +1,181 @@
+---
+title: "Codex plugin for Claude Code: a guide"
+description: "Install the Codex plugin for Claude Code, run setup, then use its slash commands for read-only reviews, delegated fixes and session transfers."
+date: 2026-11-06
+status: published
+keyword: "Codex plugin for Claude Code"
+feature: delegation
+tags: []
+---
+
+The Codex plugin for Claude Code is OpenAI's official `codex-plugin-cc` integration for running Codex reviews and delegating tasks without leaving Claude Code. Install it through Claude Code's plugin marketplace, then run `/codex:setup`.
+
+Use `/codex:review` to inspect changes, `/codex:adversarial-review` to challenge an implementation, and `/codex:rescue` to hand Codex a task. The plugin also manages background jobs and can transfer your Claude Code session into Codex. You can use Codex directly from its CLI; the plugin puts these operations inside your existing Claude conversation. The [official plugin README](https://github.com/openai/codex-plugin-cc/blob/main/README.md) documents the commands below.
+
+## What is the Codex plugin for Claude Code?
+
+The plugin connects Claude Code to the local Codex app server through the global `codex` binary. It uses your existing Codex authentication and configuration, including trusted project overrides in `.codex/config.toml`. If you've already configured Codex, those settings apply when the plugin calls it. See the README's [Codex integration and configuration notes](https://github.com/openai/codex-plugin-cc/blob/main/README.md#codex-integration).
+
+A review and an implementation task need different instructions. The review commands inspect code without changing it. Rescue delegates work through the `codex:codex-rescue` subagent and can be used to investigate a failure or attempt a fix. Choose the command according to whether you want findings or changes.
+
+## How do you install the Codex plugin?
+
+You need Claude Code and Node.js 18.18 or later. The plugin README lists a ChatGPT account, including the Free plan, or an OpenAI API key as the authentication requirement. Plugin work contributes to your Codex usage limits. These are the plugin's [documented requirements](https://github.com/openai/codex-plugin-cc/blob/main/README.md#requirements).
+
+Run these four steps inside Claude Code, in order:
+
+1. Add OpenAI's marketplace:
+
+   ```text
+   /plugin marketplace add openai/codex-plugin-cc
+   ```
+
+2. Install the plugin from that marketplace:
+
+   ```text
+   /plugin install codex@openai-codex
+   ```
+
+3. Reload plugins:
+
+   ```text
+   /reload-plugins
+   ```
+
+4. Check the local Codex installation and authentication:
+
+   ```text
+   /codex:setup
+   ```
+
+Setup reports whether Codex is ready. If Codex is missing and npm is available, it can offer to install it. If you prefer to install the CLI yourself, run this in your terminal:
+
+```sh
+npm install -g @openai/codex
+```
+
+If Codex is installed but needs authentication, run this inside Claude Code:
+
+```text
+!codex login
+```
+
+The `!` prefix runs a shell command from Claude Code. After installation, the README says you should see the plugin's slash commands and `codex:codex-rescue` in `/agents`. Run `/codex:setup` again after resolving an installation or login problem. The [installation instructions](https://github.com/openai/codex-plugin-cc/blob/main/README.md#install) are the reference if setup needs attention.
+
+## How do /codex:review and /codex:adversarial-review differ?
+
+`/codex:review` runs a read-only review of your uncommitted changes. Add `--base main` to review branch changes against `main`:
+
+```text
+/codex:review
+/codex:review --base main
+```
+
+The normal review command does not accept custom focus text and is not steerable. For a targeted challenge, use `/codex:adversarial-review`. It accepts focus text after the flags and questions implementation choices or failure modes. Both commands support `--base`, `--wait` and `--background`.
+
+```text
+/codex:adversarial-review --base main check whether retries can duplicate a write
+```
+
+Adversarial review is also read-only. A finding about duplicate writes will not itself change the retry code. Use the findings to decide what to fix, then make that a separate implementation request. The README describes [normal review](https://github.com/openai/codex-plugin-cc/blob/main/README.md#codexreview) and [adversarial review](https://github.com/openai/codex-plugin-cc/blob/main/README.md#codexadversarial-review) separately.
+
+Codex already has a native review command. If you only want to run a review from a terminal, you can invoke it directly:
+
+```sh
+codex review
+```
+
+## How do you delegate work with /codex:rescue?
+
+`/codex:rescue` hands a task to Codex through the plugin's rescue subagent. Give it the problem and the permitted scope. For example:
+
+```text
+/codex:rescue --background investigate the failing retry test; propose a fix before editing
+```
+
+Rescue can also attempt a fix. For an implementation request, state which files may change, what checks to run and whether to leave the changes uncommitted. Those instructions make the result easier to review; they are a task brief you supply.
+
+The [rescue command](https://github.com/openai/codex-plugin-cc/blob/main/README.md#codexrescue) supports these flags:
+
+| Flag           | Use                                |
+| -------------- | ---------------------------------- |
+| `--background` | Run the task in the background.    |
+| `--wait`       | Wait for the task.                 |
+| `--resume`     | Continue the previous rescue task. |
+| `--fresh`      | Start a fresh rescue task.         |
+| `--model`      | Select the model.                  |
+| `--effort`     | Select reasoning effort.           |
+
+When you omit `--resume` and `--fresh`, the plugin can offer to continue the latest rescue thread for the repository. Use `--fresh` when a new problem should have its own task context. If you omit model and effort, Codex chooses its defaults. The README documents `spark` as a model alias for `gpt-5.3-codex-spark`.
+
+For a follow-up to the previous task, you could write:
+
+```text
+/codex:rescue --resume apply the proposed retry fix and run the relevant tests; leave changes uncommitted
+```
+
+## How do background jobs, status and results work?
+
+The README recommends background execution for reviews and rescue tasks that may take a while. Start a review in the background, then check its job state:
+
+```text
+/codex:review --background
+/codex:status
+```
+
+`/codex:status` lists running and recent jobs for the current repository. Once a job finishes, `/codex:result` retrieves its stored final output. When available, the result includes a Codex session ID that you can use with `codex resume`.
+
+Use a job ID to select a particular run. Replace `<job-id>` with the ID shown by status; run cancel only for an active background job you want to stop:
+
+```text
+/codex:result <job-id>
+/codex:cancel <job-id>
+```
+
+Both commands also accept no job ID. The README documents [status](https://github.com/openai/codex-plugin-cc/blob/main/README.md#codexstatus), [stored results](https://github.com/openai/codex-plugin-cc/blob/main/README.md#codexresult) and [cancellation](https://github.com/openai/codex-plugin-cc/blob/main/README.md#codexcancel). After a rescue that edits files, Claude Code's native [`/diff` command](https://code.claude.com/docs/en/interactive-mode#review-changes-with-diff) shows uncommitted edits, including changes made outside Claude itself.
+
+### How do you transfer a Claude Code session to Codex?
+
+`/codex:transfer` imports the current Claude Code session into a persistent Codex thread. Run it when you want to continue the conversation directly in Codex:
+
+```text
+/codex:transfer
+```
+
+The command prints a `codex resume <session-id>` command for the imported thread. Its `SessionStart` hook normally provides the transcript path; `--source` lets you supply one manually. The source must be under `~/.claude/projects`. Your Codex version must expose session import, so older versions may need an upgrade. These constraints are in the [transfer documentation](https://github.com/openai/codex-plugin-cc/blob/main/README.md#codextransfer).
+
+### Should you enable the review gate?
+
+Enable the optional review gate only for a session you plan to monitor. It uses a `Stop` hook to run a targeted Codex review based on Claude's response. If the review finds issues, it blocks stopping so Claude can address them.
+
+```text
+/codex:setup --enable-review-gate
+```
+
+The [README's review-gate warning](https://github.com/openai/codex-plugin-cc/blob/main/README.md#enabling-review-gate) says this can create a long-running Claude/Codex loop and consume usage limits quickly. To disable it, run:
+
+```text
+/codex:setup --disable-review-gate
+```
+
+## When does a worktree-per-task workflow fit better?
+
+The plugin is enough for a review inside Claude Code, a one-off rescue or a session handoff. If your immediate problem is getting Codex to inspect a diff, start with `/codex:review`.
+
+Separate working directories are already available without foreman. A [git worktree](https://git-scm.com/docs/git-worktree#_details) has its own working files, HEAD and index. Claude Code supports [parallel sessions with worktrees](https://code.claude.com/docs/en/common-workflows#run-parallel-sessions-with-worktrees), and the Codex CLI has a native `--worktree` flag. In a terminal, choose the command for the agent you want to run:
+
+```sh
+claude --worktree retry-fix
+codex --worktree
+```
+
+[foreman](/) fits when Claude Code is supervising several Codex implementation tasks at once. Each task gets its own worktree and written contract. A local daemon supervises progress and questions; Claude answers questions, reads the handoff and reviews the diff before committing. foreman drives `codex app-server` using the local Codex CLI login. It never commits or merges itself.
+
+The worktree separates Git edits, but a foreman write run has full host and network access without approval prompts. The contract's scope report flags changes outside the declared scope for review; it does not restrict file access. Review the changes and run the repository's checks before committing.
+
+If that workflow matches your task, foreman is MIT licensed and packaged for macOS and Linux. The npm launcher requires Node 26 or newer, git and a repository with at least one commit. Follow the [installation and setup instructions](/#install), then read the installed workflow:
+
+```sh
+npm i -g @steamfield/foreman
+foreman guide
+```
