@@ -48,6 +48,8 @@ foreman doctor
 
 Project hooks should say `trusted` or `managed`, then `foreman start will accept runs here (hook trust).` Start also validates the worktree and dependencies. Without `.codex/hooks.json`, expect `no repo hooks apply`.
 
+Codex loads `AGENTS.md` from the repo root down to the worktree and reads an installed skill's `SKILL.md` when a task matches its description, so contracts don't need to repeat either. Codex has no path-scoped rules. If the repo keeps Claude Code rules in `.claude/rules/`, copy this repo's [`.codex/hooks/inject-rules.ts`](.codex/hooks/inject-rules.ts) and its `apply_patch` and `PostCompact` entries in [`.codex/hooks.json`](.codex/hooks.json). It needs Bun, and sends the matching rules with Codex's first edit to a covered file. Personal skill preferences that should apply to every delegate belong in your own `~/.codex/AGENTS.md`.
+
 Linked worktrees inside the main checkout inherit its approved hooks. Reapprove changed definitions there; hook edits in a delegated branch take effect after reaching the main checkout. foreman never approves hooks or changes Codex trust.
 
 ## Delegate and supervise

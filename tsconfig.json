@@ -20,6 +20,7 @@
     "tests/**/*.ts",
     "e2e/**/*.ts",
     "scripts/**/*.ts",
-    ".claude/hooks/**/*.ts"
+    ".claude/hooks/**/*.ts",
+    ".codex/hooks/**/*.ts"
   ]
 }

@@ -18,6 +18,22 @@
             "type": "command",
             "command": "if root=\"$(git rev-parse --show-toplevel 2>/dev/null)\" && [ -f \"$root/.codex/hooks/check-patch.sh\" ]; then exec bash \"$root/.codex/hooks/check-patch.sh\"; else echo \"BLOCKED: .codex/hooks/check-patch.sh not found under this checkout's git root, so the patch is refused rather than applied unguarded.\" >&2; exit 2; fi",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "if command -v bun >/dev/null 2>&1 && root=\"$(git rev-parse --show-toplevel 2>/dev/null)\" && [ -f \"$root/.codex/hooks/inject-rules.ts\" ]; then exec bun \"$root/.codex/hooks/inject-rules.ts\" \"$root\"; fi",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v bun >/dev/null 2>&1 && root=\"$(git rev-parse --show-toplevel 2>/dev/null)\" && [ -f \"$root/.codex/hooks/inject-rules.ts\" ]; then exec bun \"$root/.codex/hooks/inject-rules.ts\" --reset; fi",
+            "timeout": 10
           }
         ]
       }

@@ -64,16 +64,16 @@ argv flows `bin.ts` -> `main.ts` -> `cli.ts` -> `commands/*` -> `core/*` -> daem
 
 ## Agent harness
 
-Claude Code hooks live in `.claude/hooks/` and are wired in `.claude/settings.json`; [`.claude/README.md`](.claude/README.md) lists each one and [`docs/harness.md`](docs/harness.md) explains the layers. Codex runs the same shell guards through `.codex/hooks.json` (`block-destructive.sh` for Bash, `.codex/hooks/check-patch.sh` for `apply_patch`), refusing the call if a guard is missing. Skills live in `.claude/skills/`; `.agents/skills` is a symlink to it, so Codex sees the same tree. Agents `architect` and `reviewer` are in `.claude/agents/`; commands `/check`, `/test`, `/feature` in `.claude/commands/`.
+Claude Code hooks live in `.claude/hooks/` and are wired in `.claude/settings.json`; [`.claude/README.md`](.claude/README.md) lists each one and [`docs/harness.md`](docs/harness.md) explains the layers. Codex runs the same shell guards through `.codex/hooks.json` (`block-destructive.sh` for Bash, `.codex/hooks/check-patch.sh` for `apply_patch`), refusing the call if a guard is missing; `.codex/hooks/inject-rules.ts` hands Codex the `.claude/rules/` files covering each patch's paths. Skills live in `.claude/skills/`; `.agents/skills` is a symlink to it, so Codex sees the same tree. Agents `architect` and `reviewer` are in `.claude/agents/`; commands `/check`, `/test`, `/feature` in `.claude/commands/`.
 
-Codex does not load `.claude/rules/` automatically: it reads the rules covering the files it changes before editing them.
+Codex has no path-scoped rules of its own. The `apply_patch` hook sends each matching rule once per session (again after a compaction), alongside the first edit to a covered file: check that edit against the rule when it arrives, or read the rule before editing.
 
 | Rule | Covers |
 | --- | --- |
 | `.claude/rules/effect.md` | `**/*.ts`, `**/*.tsx` |
 | `.claude/rules/src/cli.md` | `src/bin.ts`, `src/main.ts`, `src/cli.ts`, `src/commands/**`, `src/services/output.ts`, `src/errors.ts` |
 | `.claude/rules/src/effect-services.md` | `src/services/**`, `src/core/**`, `src/runtime.ts`, `src/config.ts`, `src/errors.ts`, `src/logging.ts` |
-| `.claude/rules/src/typescript.md` | `**/*.ts` under `src/`, `tests/`, `scripts/`, `e2e/`, `.claude/hooks/` |
+| `.claude/rules/src/typescript.md` | `**/*.ts` under `src/`, `tests/`, `scripts/`, `e2e/`, `.claude/hooks/`, `.codex/hooks/` |
 | `.claude/rules/src/testing.md` | `tests/**`, `e2e/**`, `vitest.config.ts`, `bunfig.toml` |
 | `.claude/rules/src/verification.md` | `src/**`, `tests/**`, `e2e/**`, `scripts/**` |
 
