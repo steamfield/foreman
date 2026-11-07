@@ -1,0 +1,125 @@
+---
+title: "Review Codex changes with Claude Code"
+description: "Review Codex changes with Claude Code by checking the worktree, comparing the full diff with the task, and running the project checks before you commit."
+date: 2026-11-06
+status: published
+keyword: "review Codex changes with Claude Code"
+feature: review
+tags: []
+---
+
+import CommandDemo from "../../components/blog/CommandDemo.astro";
+
+To review Codex changes with Claude Code, open the checkout Codex used, inspect the diff and untracked files, then run the project's checks before committing.
+
+Give Claude the original task and the starting commit so it can compare the implementation with what you asked for. Ask for findings before edits. If the implementation needs substantial correction, send Codex a follow-up with the failing case, then review the revised work. You can do this with Claude Code, the Codex CLI and git; a delegation tool becomes useful when you also want a recorded hand-off and run digest.
+
+## How do you review Codex changes with Claude Code?
+
+Start by locating the worktree. Run this from a checkout of the repository:
+
+```sh
+git worktree list
+```
+
+The [git worktree list command](https://git-scm.com/docs/git-worktree#_commands) shows checkout paths and their branches. Open a terminal in the path Codex used, then start Claude Code there:
+
+```sh
+cd /path/to/codex-worktree
+git status --short --branch --untracked-files=all
+claude
+```
+
+Replace the example path with the actual checkout and confirm the branch matches the task. A linked worktree has its own working files and index, so reviewing the main checkout can leave you looking at different files.
+
+Claude Code already has a [built-in `/diff` view](https://code.claude.com/docs/en/interactive-mode#review-changes-with-diff) for working-tree changes, including edits made outside Claude. Run `/diff` in the conversation to inspect Codex's uncommitted work. In the current fullscreen panel, select the uncommitted-changes comparison and expand any collapsed files from before the session.
+
+Ask Claude to perform a review with enough context to identify a real defect. This is an example prompt; replace the placeholders with your task and commit:
+
+> Review the Codex implementation in this checkout against the original task below. Compare tracked files with START_COMMIT, and read the untracked files listed by git status. Check the allowed paths and acceptance criteria. Report actionable bugs with file locations, the triggering case and the expected behavior. Do not edit or commit yet. Original task: [paste the task].
+
+The OpenAI plugin's [`/codex:review` command](https://github.com/openai/codex-plugin-cc/blob/main/README.md#codexreview) goes the other direction: Codex performs the review inside Claude Code.
+
+## Which files did Codex actually change?
+
+Use the commit from immediately before the task as the comparison base. In your shell, replace `START_COMMIT` with that commit's hash:
+
+```sh
+review_base=START_COMMIT
+git status --short --branch --untracked-files=all
+git diff --stat "$review_base" --
+git diff "$review_base" --
+```
+
+The [single-commit form of git diff](https://git-scm.com/docs/git-diff) compares that commit with the working tree. It covers the tracked-file result even if some edits were staged or committed. A comparison between two commits omits uncommitted edits. Ordinary diffs also omit untracked files, so read those separately.
+
+The [status command's `--untracked-files=all` option](https://git-scm.com/docs/git-status) lists individual untracked files inside directories; ignored files remain excluded. Check new tests as carefully as changed implementation files. A new test may be the only place the intended behavior is written down.
+
+If the checkout already had edits when Codex started, the diff alone cannot attribute each change to Codex. Compare it with your pre-task status or saved patch. Preserve work that belonged to someone else, and flag uncertain ownership before asking for cleanup.
+
+[foreman](/) adds run records to this workflow. It lets Claude Code delegate to Codex in git worktrees under a local daemon, then read the run's digest and latest available hand-off:
+
+```sh
+foreman result task-name
+```
+
+Replace `task-name` with your run name. The digest includes state and model, command totals and failures, files written, paths outside the contract's `- May change:` scope, new git status entries and token usage. For a foreman-created worktree, it also prints the branch and base commit. The recording below is a real site-scaffold run:
+
+<CommandDemo
+  command="result"
+  caption="result shows the run's worktree, command failures, file lists and the agent's hand-off."
+/>
+
+Use the digest to decide what to inspect. Its files-written scan uses modification times and skips build and cache directories, so it is not a complete audit of writes. Check the hand-off's turn number too: if the newest turn produced none, `result` can show an older hand-off.
+
+## Did it stay inside the task's scope?
+
+Compare every changed path with the original task's allowed files. Then check the edits within those files against the requested behavior. Permission to change a file does not justify every change inside it.
+
+For example, a task to correct an error message might allow a command handler and its tests. A new dependency or a rewrite of the command parser needs a separate explanation. Ask Claude to identify which requirement each disputed change serves. Keep unrelated cleanup out of the patch unless you explicitly approve it.
+
+Review deletions and weakened assertions closely. A passing test suite is less useful if the patch removed the assertion that would have caught the bug. For a bug fix, look for a test that exercises the reported failure and checks the corrected behavior. For a refactor, check that callers still receive the behavior the task required.
+
+With foreman, scope paths are backticked entries on the `- May change:` line and its continuation lines. The digest reports dirty paths outside those entries. This reporting helps review; it does not restrict writes. Follow-ups retain the original contract's scope, so give Codex corrections that fit it or handle broader work as a separate task.
+
+## How do you run the checks yourself?
+
+Run the repository's documented checks in the reviewed worktree, even when the agent says they passed. Use the project's instructions to choose commands and dependency setup. For the foreman CLI repository, the documented gate is:
+
+```sh
+bun run check
+```
+
+That command is specific to foreman. In your project, use its own gate, including any checks the task explicitly required. Keep the exit status and failure output with your review notes. An unavailable dependency or service means a check is unverified; resolve the setup or record the remaining gap before deciding whether to commit.
+
+Test the requested behavior directly when the automated checks leave it uncovered. For a CLI change, try the input that triggered the bug and inspect both the message and exit status. For a UI change, reproduce the affected interaction. Ask Claude to connect each check with an acceptance criterion so missing coverage is visible.
+
+Inspect status and the diff again after verification. If a formatter rewrote files, review those edits. If a check generated an untracked file, decide whether it belongs in the patch. Any implementation fix after a successful check needs the relevant verification again.
+
+## How do you send it back for fixes?
+
+Send a correction when the review finds a substantial problem. Include a reproducible input or failed command, the expected result, and the files the task permits. A request such as "make this cleaner" leaves the next implementation open to another round of disagreement.
+
+For a task started with `codex exec`, the CLI can [resume the recorded session](https://learn.chatgpt.com/docs/non-interactive-mode). From the same worktree, replace the session ID and example correction:
+
+```sh
+codex exec resume SESSION_ID 'The empty-input case still succeeds. Add a regression test and return the expected usage error. Keep the original scope and leave changes uncommitted.'
+```
+
+For an inactive foreman run, `followup` starts another turn on the saved thread in the existing worktree:
+
+```sh
+foreman followup task-name 'The empty-input case still succeeds. Add a regression test and return the expected usage error. Keep the original scope and leave changes uncommitted.' --wait
+```
+
+After the correction, read the new hand-off and review the revised diff. Run the project checks again before staging the accepted files. foreman never commits or merges; its delegate instructions tell Codex to leave the work uncommitted and avoid pushing.
+
+When review is complete and you are authorized to commit, [stage only the accepted paths](https://git-scm.com/docs/git-add). Replace these example paths with the files you reviewed:
+
+```sh
+git add -- path/to/implementation path/to/regression-test
+git diff --cached --
+git status --short --untracked-files=all
+```
+
+`git diff --cached` shows the staged patch. Confirm it contains only reviewed changes, including anything staged before you started. Then use `git commit` with your repository's message convention. If the task requires leaving changes uncommitted, hand over the reviewed diff and check results at this point.

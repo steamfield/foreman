@@ -1,0 +1,134 @@
+---
+title: "How to give Codex a coding task"
+description: "Give Codex a coding task with repo rules in AGENTS.md and a brief naming the behavior, allowed files, checks to run, and decisions that need your input."
+date: 2026-11-06
+status: published
+keyword: "how to give Codex a coding task"
+feature: contracts
+tags: []
+---
+
+To give Codex a coding task, put recurring repository rules in `AGENTS.md` and give it a separate brief with the desired behavior, allowed files, acceptance commands, and when to ask you.
+
+Make the goal something you can check: an empty argument produces a specific error, for example. Name the interface that must stay compatible and ask for a hand-off listing the changed files and actual check results. You can pass that brief directly to Codex; a supervisor becomes useful when you want Claude Code to handle questions and review the work.
+
+## How do you give Codex a coding task?
+
+Start with a written brief for one observable change. Save it as a Markdown file, such as `/tmp/limit-task.md`, then run Codex from the intended repository directory:
+
+```sh
+codex exec --sandbox workspace-write < /tmp/limit-task.md
+```
+
+`codex exec` accepts a prompt argument or reads the task from stdin. Non-interactive mode defaults to read-only; `--sandbox workspace-write` allows workspace edits. Codex discovers `AGENTS.md` guidance separately, so the brief can concentrate on this change. See OpenAI's [non-interactive Codex guide](https://learn.chatgpt.com/docs/non-interactive-mode#basic-usage).
+
+Codex also has native worktree support: add `--worktree` to start the session in a new managed Git worktree. You do not need foreman for a separate checkout. In Claude Code, the [`!` shell prefix](https://code.claude.com/docs/en/interactive-mode#shell-mode-with--prefix) runs a command and adds its output to the conversation, so you can invoke the same Codex command there.
+
+Treat the final message as the start of your review. Compare the diff with the brief and run the acceptance commands yourself before committing. A successful Codex process exit does not establish that the requested tests passed; ask for the exact commands and their results so you can distinguish completed checks from checks it could not run.
+
+## What belongs in AGENTS.md and what belongs in the task?
+
+Put instructions in `AGENTS.md` when they should apply again on the next task. The repository's test commands, public compatibility rules, and conventions for error handling belong there. A particular bug's expected behavior and the files you authorize for that fix belong in the task brief. Keeping temporary decisions out of the persistent file avoids leaving instructions for a finished task in the next session.
+
+Codex builds its instruction chain once per run. In `CODEX_HOME`, which defaults to `~/.codex`, it uses the first nonempty `AGENTS.override.md` or `AGENTS.md`. It then walks from the project root to the current working directory. In each directory it selects at most one file, checking `AGENTS.override.md`, then `AGENTS.md`, then configured fallback names.
+
+Discovered files are combined root first. Instructions nearer the working directory override earlier guidance, and the project instruction limit defaults to 32 KiB. OpenAI's [AGENTS.md discovery documentation](https://learn.chatgpt.com/docs/agent-configuration/agents-md#how-codex-discovers-guidance) describes the precedence and configuration options.
+
+Name important reading in the brief even when the repository has persistent guidance. A path to the relevant interface or an existing test gives Codex a concrete starting point. If a directory has special instructions you want considered, reference that file explicitly; the discovery walk described above follows the current working directory.
+
+## What should a task brief include?
+
+Describe the behavior before prescribing an implementation. "Reject an empty limit argument with this error" gives a reviewer an input and an expected result. "Improve validation" leaves the agent to decide which inputs count as invalid and how much code to change.
+
+Give the brief these sections:
+
+| Section        | What to specify                                                          |
+| -------------- | ------------------------------------------------------------------------ |
+| Goal           | Observable behavior, including a concrete success case.                  |
+| Read first     | Relevant rules, implementation paths, and an existing pattern to follow. |
+| Scope          | Files the agent may change and explicit exclusions.                      |
+| Interface      | Signatures, exports, or output that must remain compatible.              |
+| Acceptance     | Required behavior and exact commands, with their working directory.      |
+| Open decisions | What the agent may decide and what requires an answer.                   |
+| Hand-off       | Changed files, check results, decisions, and unresolved work.            |
+
+A file boundary gives you a way to reject an unrelated cleanup during review. An interface boundary catches a different problem: a change inside an allowed file can still break a caller. State both. If the fix needs another file, require a question before expanding scope.
+
+Acceptance commands make "tests pass" assessable. Name the targeted test and the repository checks you expect, using the commands your project actually supports. Require failures and skipped checks in the hand-off, including the reason. A test that could not run remains an open check, even if the agent believes the implementation is correct.
+
+## An example brief
+
+This example is for a hypothetical TypeScript CLI with a `parseLimit` helper and npm scripts for its checks. Replace the paths and commands with ones from your project before using it. Save the text as `/tmp/limit-task.md` for the invocation above.
+
+```markdown
+Implement this change in the current checkout. Leave changes uncommitted;
+do not push.
+
+Goal:
+Reject empty and whitespace-only limit arguments with the error message
+"Limit must not be empty." Preserve existing behavior for other inputs.
+For example, parseLimit("12") must still return 12.
+
+Read first:
+
+- AGENTS.md
+- src/parse-limit.ts and tests/parse-limit.test.ts
+- The existing validation and error assertions in those files.
+
+Scope:
+
+- May change: `src/parse-limit.ts`, `tests/parse-limit.test.ts`.
+- Do not add dependencies or change CLI help text.
+
+Interface:
+Keep the exported parseLimit(input: string): number signature.
+Keep the existing error type and valid-input behavior.
+
+Acceptance:
+Add a regression test that fails before the fix for an empty string
+and a whitespace-only string. Keep the existing valid-input tests.
+Run from the repository root:
+
+- npm test -- tests/parse-limit.test.ts
+- npm run lint
+- npm run typecheck
+
+Decisions:
+Follow the existing test style and choose local variable names yourself.
+Ask before changing another file or changing behavior for any other input.
+If existing error conventions conflict with this brief, ask before editing.
+
+Hand-off:
+List changed files, each command and its result, any checks not run,
+and anything the reviewer should inspect closely. Report unresolved questions.
+```
+
+The example leaves implementation choices with Codex while reserving behavior changes for you. It also gives the reviewer something specific to inspect: whether empty inputs get the new message and existing valid inputs keep their behavior. The regression test should demonstrate the missing behavior before the implementation changes.
+
+## How do you tell Codex when to ask instead of guess?
+
+Define the decisions you want to retain. "Ask if unsure" leaves a broad judgment to the agent. "Ask before changing a public signature, adding a dependency, or editing outside these paths" names the boundary. Pair that with permission to make routine choices within the scope, such as following the existing test style.
+
+For a question, request the unresolved choice and the evidence the agent already found. In the example, discovering that all errors use a shared message catalog could make the allowed files insufficient. The useful question would name that catalog and ask whether its path can enter scope. The agent should leave the dependent change undone while it waits.
+
+Keep progress in the hand-off when no decision is needed. A final report should separate the commands actually run from suggested commands and identify unfinished work. That makes the next action clear whether you review the diff yourself or ask Claude Code to review it.
+
+### Using foreman for a supervised contract
+
+[foreman](/) is one option when you want Claude Code to delegate to Codex in a worktree and supervise questions through a local daemon. Claude writes the task contract, answers questions, then reviews the diff and commits. The CLI never commits or merges. Direct Codex already accepts the brief; foreman adds this supervision workflow.
+
+After [installing foreman and completing repository setup](/#install), print its fillable template to a scratch file:
+
+```sh
+foreman guide contract > /tmp/limit-contract.md
+```
+
+The template covers the goal, required reading, interface and scope, acceptance commands, review, and hand-off. Fill its task placeholders and remove sections that do not apply. It is a starting point for your repository's instructions. Pass the completed file with `foreman start --contract`; for a new worktree, the invocation has this form:
+
+```sh
+foreman start limit-validation --new-worktree --contract /tmp/limit-contract.md
+```
+
+That command uses foreman's default read-only mode. An implementation run requires `--write`, which grants full host and network access without approval prompts. Its worktree separates Git edits; it does not restrict host access.
+
+Keep the exact `- May change:` line with backticked repository-relative paths. foreman reads those entries for its digest and reports dirty paths outside the declared scope. This is a review aid, not a write restriction. The orchestrator still needs to inspect the diff, including new files, and run the repository gate before committing.

@@ -1,0 +1,168 @@
+---
+title: "Run Codex in the background"
+description: "Run Codex in the background with codex exec and shell logs, or use native jobs and a daemon to track progress, answer questions, and bound runtime."
+date: 2026-11-06
+status: published
+keyword: "run Codex in background"
+feature: background
+tags: []
+---
+
+import CommandDemo from "../../components/blog/CommandDemo.astro";
+
+To run Codex in background, launch `codex exec` with shell backgrounding and redirect its progress and final answer to files. You can keep working while it runs.
+
+Codex also has a shared local app-server daemon and `codex agents` for browsing sessions. Inside Claude Code, OpenAI's plugin offers `--background` jobs with status and result commands. For tasks that need an attention wait and a runtime budget, [foreman](/) adds daemon-owned supervision. Choose by how you want to check progress and what should happen when the launching session closes.
+
+## How do you run Codex in the background?
+
+Run this from your repository in a macOS or Linux shell, with Codex already installed and signed in:
+
+```sh
+codex exec --sandbox workspace-write --worktree \
+  "Investigate the failing tests, fix the cause, and run the repo checks. Leave changes uncommitted and report checks and open questions." \
+  > /tmp/codex-final.txt 2> /tmp/codex-progress.log &
+codex_pid=$!
+```
+
+The trailing `&` returns your shell prompt. Codex's `--worktree` creates a managed Git worktree for the task, so you can continue editing in your original checkout. Git worktrees have separate working files and indexes, as the [Git worktree documentation](https://git-scm.com/docs/git-worktree#_details) explains.
+
+Codex normally sends progress to stderr and its final message to stdout; the two redirects save them separately. `--sandbox workspace-write` permits workspace edits. Non-interactive mode defaults to read-only. These are documented in [OpenAI's non-interactive mode guide](https://learn.chatgpt.com/docs/non-interactive-mode#basic-usage).
+
+Keep that shell open for this first example. In the same shell, you can wait for the process to exit:
+
+```sh
+wait "$codex_pid"
+codex_exit=$?
+printf 'Codex exit status: %s\n' "$codex_exit"
+cat /tmp/codex-final.txt
+```
+
+A zero exit status alone does not prove the requested tests passed. Read the reported checks and inspect the changes before committing.
+
+If you plan to close the terminal, `nohup` makes the launched utility ignore the hangup signal. Use it with explicit input and output redirection:
+
+```sh
+nohup codex exec --sandbox workspace-write --worktree \
+  "Investigate the failing tests. Leave changes uncommitted and report findings and checks." \
+  < /dev/null > /tmp/codex-final.txt 2> /tmp/codex-progress.log &
+```
+
+This handles shell hangups; it does not provide an attention queue or task budget. Use distinct log filenames for each concurrent task so one run does not overwrite another's files.
+
+## Native ways to background a Codex task
+
+### Use the shared Codex daemon and saved sessions
+
+Codex CLI 0.166.0, the version checked for this article, includes a shared local app-server daemon. Its installed help exposes these commands:
+
+```sh
+codex app-server daemon start
+codex agents
+```
+
+The first starts the daemon if needed; the second browses its agent sessions. Check `codex agents --help` on your installed version before building a workflow around it. A native session browser may cover the progress checks you need without another supervisor.
+
+Saved sessions can also be reopened. `codex resume` gives you a picker for previous interactive sessions; include non-interactive sessions when returning to an exec task:
+
+```sh
+codex resume --include-non-interactive
+```
+
+For another non-interactive turn, use `codex exec resume SESSION_ID "Continue with the remaining checks"`, replacing `SESSION_ID` with the recorded session id. Treat resuming as an explicit continuation, after checking whether the original task is still active.
+
+### Run Codex through Claude Code
+
+Claude Code can already run Bash commands asynchronously. Ask it to run your `codex exec` command in the background, or press `Ctrl+B` during the Bash invocation. It returns a task id and saves output to a file Claude can read. Under tmux, press `Ctrl+B` twice. [Anthropic's background Bash documentation](https://code.claude.com/docs/en/interactive-mode#background-bash-commands) describes this behavior.
+
+Claude Code cleans up those background Bash tasks when it exits. Use this route when you intend to keep that Claude Code session open; the shell's `nohup` behavior is not a promise about Claude Code's task cleanup.
+
+OpenAI's official Codex plugin has its own background job commands. With the plugin installed and set up, its README documents this sequence inside Claude Code:
+
+```text
+/codex:review --background
+/codex:status
+/codex:result
+```
+
+That starts a read-only review. For an investigation or implementation task, the plugin also documents `/codex:rescue --background investigate the failing tests`. `/codex:status` lists running and recent jobs for the repository; `/codex:result` retrieves a finished job's stored output and session id when available. See the [official plugin's command reference](https://github.com/openai/codex-plugin-cc/blob/main/README.md#usage) for setup and job selection. These plugin commands are documentation-checked, not locally exercised here.
+
+## How do you check on a running Codex task?
+
+For the shell example, read the progress log while the task runs:
+
+```sh
+tail -f /tmp/codex-progress.log
+```
+
+For scripts that consume events, `codex exec --json` writes JSONL events to stdout. Save that stream separately from the final message with `-o`; a future invocation could use:
+
+```sh
+codex exec --json -o /tmp/codex-final.txt \
+  "Review the retry logic and report risks without changing files." \
+  > /tmp/codex-events.jsonl 2> /tmp/codex-errors.log &
+```
+
+foreman is another option when Claude Code needs to supervise a named task, handle its questions, and review its work afterward. It uses persistent threads through `codex app-server`. Runs belong to foreman's local daemon, so closing the CLI call that started one leaves the daemon supervising it.
+
+After [installing foreman and checking repo setup](/#install), read `foreman guide`. Save a review brief as `/tmp/codex-task.md`, naming the code to inspect and the findings you want. Then start a read-only run:
+
+```sh
+foreman start retry-audit --new-worktree \
+  --contract /tmp/codex-task.md --budget 45m
+foreman status retry-audit
+foreman events retry-audit
+```
+
+If the repository needs dependencies installed in the new worktree, supply its installation command with `--setup`. foreman defaults to read-only with network access disabled. Editing requires `--write`, which grants full host and network access without approval prompts; the worktree separates Git edits but does not restrict host access.
+
+An unnamed `foreman status` lists the repository group's runs. This recording shows completed turns alongside a running task:
+
+<CommandDemo
+  command="status-release"
+  caption="Recorded status lists each run's state, turn number, and elapsed time."
+/>
+
+`idle` means the last turn completed normally. `waiting` means Codex has a pending question tool call; it does not mean every quiet or slow command is stuck. Read the named run's digest and stored events for context.
+
+Use an attention wait when you want to learn about completion or a question without repeatedly requesting status:
+
+```sh
+foreman wait retry-audit --timeout 9m
+foreman result retry-audit
+```
+
+`wait` returns on attention such as a question, completion, or failure. A timeout means no new attention arrived before the deadline. All successful wait outcomes exit zero, so inspect the outcome itself. Follow the printed continuation command to retain the wait cursor. You can also add `--wait --timeout 9m` to `start`; that wait watches the named run. Run the wait as a background Bash task in Claude Code to keep the conversation available.
+
+`result` reports the latest available hand-off and its turn number. A turn can finish without a hand-off, so check that number before treating an older report as the current result. foreman never commits or merges; reviewing the diff and running the repository gate remain with the orchestrator.
+
+## Can you change a task's direction while it runs?
+
+Codex's native `queue` command queues a message for an existing session:
+
+```sh
+codex queue --thread SESSION_ID \
+  --message "Focus on retry cancellation; leave timeout defaults unchanged."
+```
+
+Replace `SESSION_ID` with the session UUID or exact session name. `--resume` additionally attempts to resume the thread, but a failed resume only produces a warning and the command still succeeds. Confirm the session state afterward.
+
+In foreman, use `steer` for an active, steerable turn:
+
+```sh
+foreman steer retry-audit "Focus on retry cancellation."
+```
+
+Use `followup` after the run becomes inactive. If Codex is holding a question, answer its question id with `foreman answer`. The default fifteen-minute question timeout defers that question and prompts Codex to continue independent work. That prompt is guidance; foreman does not enforce the reasoning behind Codex's next choice.
+
+The OpenAI plugin's normal `/codex:review` is not steerable. Its `/codex:adversarial-review` is a steerable, read-only review with optional focus text, according to the plugin README.
+
+## What stops a background task from running forever?
+
+foreman's working turns have a default `60m` budget. Override it with `--budget`, as in the `45m` review example. The attention wait's `--timeout` is separate: reaching that deadline ends the wait, while the run continues under its working budget.
+
+Budget expiry interrupts the working turn and cancels pending questions. foreman then requests a separate read-only hand-off turn, with instructions to stop work and run no more commands. That turn has its own ten-minute budget. A completed budget hand-off leaves the run `interrupted`; if the hand-off itself times out, it is interrupted without another hand-off attempt.
+
+The daemon exits after thirty minutes with no busy runs and no open client connections. Active runs count as busy, and an open wait connection also keeps it alive.
+
+An app-server crash still loses supervision: foreman marks active runs `lost` and cancels pending questions. The next request needing Codex starts a new app-server child, but it does not silently continue those turns. A daemon restart likewise marks previously active runs lost. Inspect events and the worktree before deciding to continue; resuming an inactive run requires its saved thread id and an existing worktree.

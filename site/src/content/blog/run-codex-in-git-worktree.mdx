@@ -1,0 +1,172 @@
+---
+title: "Run Codex in a git worktree"
+description: "Run Codex in a git worktree with git worktree add or codex exec --worktree, install dependencies there, and review the changes before removing it."
+date: 2026-11-06
+status: published
+keyword: "run Codex in a git worktree"
+feature: worktrees
+tags: []
+---
+
+import CommandDemo from "../../components/blog/CommandDemo.astro";
+
+To run Codex in a git worktree, create a separate checkout with `git worktree add -b`, then start Codex inside it. Your original checkout stays available for your own edits.
+
+Codex also has a native `codex exec --worktree` option that creates a managed worktree for a local task. Either approach gives the task separate working files and a diff to review. Install dependencies in that checkout before asking Codex to test changes, and keep it until you've reviewed and preserved the work.
+
+## How do you run Codex in a git worktree?
+
+From your repository's root, create a branch and checkout for the task:
+
+```sh
+git worktree add -b codex/worktree-task ../codex-task HEAD
+cd ../codex-task
+codex
+```
+
+This assumes Git and the Codex CLI are installed and the repository has a commit. Use a branch name and destination path that don't already exist. The example starts at the current `HEAD`, so choose the commit you want the task to build on before creating it.
+
+Give Codex a concrete task and ask it to leave the changes uncommitted. For example: "Fix the help-text typo I described. Work in this checkout, run the relevant tests, and report the changed files. Leave changes uncommitted and don't push." That last instruction is a request to the agent; you still review what it did.
+
+For a scripted task, use the non-interactive command with the prepared directory as its working root:
+
+```sh
+codex exec -C ../codex-task --sandbox workspace-write \
+  "Fix typos in the CLI help text. Run the relevant tests. Leave changes uncommitted and don't push."
+```
+
+Run this alternative from the original repository root. `-C` selects the working directory; `--sandbox workspace-write` permits workspace edits. [Codex's non-interactive mode defaults to read-only](https://learn.chatgpt.com/docs/non-interactive-mode#basic-usage), so creating a worktree alone doesn't grant permission to edit it.
+
+## Creating a worktree with git
+
+`git worktree add -b codex/worktree-task ../codex-task HEAD` creates the named branch at `HEAD` and checks it out in the destination directory. To inspect the checkouts attached to the repository, run:
+
+```sh
+git worktree list
+```
+
+Git normally refuses to check out the same branch in another worktree. Give each task its own branch so that your session and Codex's session can work in separate directories without competing over the checked-out branch. The [Git worktree reference](https://git-scm.com/docs/git-worktree) documents branch creation and the refusal rules.
+
+Some repository state remains shared:
+
+| Separate for each worktree                        | Shared across the repository        |
+| ------------------------------------------------- | ----------------------------------- |
+| Working files                                     | Git object storage                  |
+| `HEAD` and index, including staged changes        | Ordinary branch and tag refs        |
+| Explicit per-worktree configuration, when enabled | Repository configuration by default |
+
+For per-worktree settings, enable `extensions.worktreeConfig` and use `git config --worktree`.
+
+Git's default hooks directory is also shared through `$GIT_COMMON_DIR/hooks`. These are properties of Git's [repository layout](https://git-scm.com/docs/gitrepository-layout#_description); a worktree is another checkout of the same repository. Creating one doesn't create an independent copy of its branches.
+
+A worktree also doesn't define the agent's filesystem or network permissions. Codex controls those separately through its [sandbox and approval settings](https://learn.chatgpt.com/docs/agent-approvals-security#sandbox-and-approvals).
+
+Claude Code has its own native worktree support too. If you're running a Claude session directly, [start it with a named worktree](https://code.claude.com/docs/en/common-workflows#run-parallel-sessions-with-worktrees):
+
+```sh
+claude --worktree help-fix
+```
+
+## Using Codex's built-in worktree option
+
+`codex exec --worktree` creates a new managed Git worktree for the session. From the repository, you can start a local task without choosing a checkout path yourself:
+
+```sh
+codex exec --worktree --sandbox workspace-write \
+  "Fix typos in the CLI help text. Run the relevant tests. Leave changes uncommitted and don't push."
+```
+
+This flag requires local execution. It also works for a new interactive session with `codex --worktree`. The [official Codex CLI reference](https://learn.chatgpt.com/docs/cli/reference) lists the supported commands and combinations.
+
+Check the CLI you actually have installed:
+
+```sh
+codex --version
+codex exec --help
+```
+
+The installed CLI checked for this article was `0.166.0`, whose exec help includes `--worktree`. If a tutorial says Codex has no worktree flag, compare that advice with your version's help. Plain Git remains useful when you want to choose the branch and checkout location explicitly, or prepare the environment before starting Codex.
+
+## Why is my new worktree missing dependencies?
+
+A fresh Git checkout doesn't reproduce an ignored `node_modules` directory. If your dependencies are untracked and ignored, the repository's committed tree doesn't contain them. Git's [ignore rules](https://git-scm.com/docs/gitignore) describe files that remain outside version control; having them in your original checkout doesn't put them in a new one.
+
+Install dependencies inside the new checkout using the project's documented package manager. For foreman's own repository, that command is:
+
+```sh
+bun install
+```
+
+Run the project's relevant checks there before attributing a missing-package error to Codex's patch. A successful test in the original checkout doesn't establish that the task checkout has everything it needs. The same distinction applies to other ignored local setup files: follow the project's setup instructions in the task directory.
+
+Review project trust and hooks as part of setup; Codex's `/hooks` command lets you inspect and approve non-managed hooks, and foreman never approves them for you.
+
+[foreman](/) is an option when Claude Code is handing the task to Codex and you want setup attached to that hand-off. It uses the local `codex app-server` and supervises the run through a daemon. With `--new-worktree`, it creates `.claude/worktrees/NAME` inside the main checkout on branch `foreman/NAME`, starting at the caller's `HEAD`.
+
+The [installation instructions](/#install) cover the prerequisites: macOS or Linux, Node 26 or newer for the npm launcher, and the supported Codex CLI setup. Install foreman and read its installed workflow:
+
+```sh
+npm i -g @steamfield/foreman
+foreman guide
+foreman guide contract > /tmp/worktree-task.md
+```
+
+Edit that contract template with the task and required checks before starting a run. From the main checkout, this example prepares a new worktree with foreman's repository install command:
+
+```sh
+foreman start help-fix --new-worktree \
+  --contract /tmp/worktree-task.md \
+  --setup "bun install" \
+  --write
+```
+
+Replace the setup command with your project's install command. `--setup` runs in the new worktree before validation and Codex. The dependency check refuses a worktree with a root `package.json` unless it has a `node_modules/` directory or `.pnp.cjs` file; `--skip-deps-check` explicitly bypasses that check. This checks for the dependency marker, not whether every installed dependency is correct.
+
+`--write` gives the Codex run full host and network access without approval prompts. foreman defaults to read-only and doesn't offer a `workspace-write` run mode. Its worktree separates Git edits; it doesn't restrict host access.
+
+For multiple runs, `foreman wait --all` supervises the current repository group.
+
+## Cleaning up without losing unmerged work
+
+Review the task checkout before removing it. From the original checkout, inspect its status and both staged and unstaged changes:
+
+```sh
+git -C ../codex-task status --short
+git -C ../codex-task diff
+git -C ../codex-task diff --cached
+```
+
+Read new files listed by status too, since the diff commands don't show their contents. Run the required checks in the task checkout. If the agent made commits, inspect those separately; a clean status describes working files and doesn't establish that a branch has been merged.
+
+To list commits on the task branch that aren't reachable from your integration branch, use this comparison, replacing `main` if needed:
+
+```sh
+git log --oneline main..codex/worktree-task
+```
+
+The [Git log reference](https://git-scm.com/docs/git-log) explains this two-dot revision range. Preserve or integrate the work you want before cleanup. Once the checkout is clean and you're done with it, remove it from the original checkout:
+
+```sh
+git worktree remove ../codex-task
+```
+
+Git normally refuses removal when tracked modifications or untracked files remain. If removal refuses, inspect what it found before reaching for `--force`. For a directory that was already deleted outside Git, prune its stale administrative records:
+
+```sh
+git worktree prune
+```
+
+foreman's `archive` adds a check for unmerged commits when cleaning up a worktree it created. It refuses dirty or untracked files, and new commits not merged into the recorded source ref. It also refuses an active run or one with queued answers. foreman never commits or merges the work itself; Claude reviews the diff and runs the repository gate before committing.
+
+<CommandDemo
+  command="archive"
+  caption="A successful archive of the site-scaffold run prints its archive path."
+/>
+
+If you want to archive an inactive run's records while retaining its managed worktree and branch for later review, use:
+
+```sh
+foreman archive help-fix --keep-worktree
+```
+
+For a prepared checkout supplied with `foreman start --worktree`, foreman never removes the worktree or its branch. That mode requires the checkout to be inside the main checkout, so the sibling directory used in the plain Git examples would need a different location.

@@ -1,0 +1,129 @@
+---
+title: "Use Codex from Claude Code"
+headline: "How to use Codex from Claude Code: three ways to delegate"
+description: "Use Codex from Claude Code through Bash with codex exec, OpenAI's plugin for reviews and background tasks, or foreman for supervised worktree runs."
+date: 2026-11-06
+status: published
+keyword: "use Codex from Claude Code"
+feature: delegation
+tags: []
+---
+
+import CommandDemo from "../../components/blog/CommandDemo.astro";
+
+You can use Codex from Claude Code by asking Claude to run `codex exec` through Bash. With the Codex CLI installed and logged in, Claude can send a task and read its result.
+
+For recurring use, OpenAI's Codex plugin adds review commands and background delegation inside Claude Code. [foreman](/) is another option when you want a contract per task, separate worktrees and a daemon that routes Codex's questions back to Claude before Claude reviews the changes and commits.
+
+## How do you use Codex from Claude Code?
+
+Start with the shell route for a bounded task. Ask Claude:
+
+> Use codex exec through Bash to investigate the failing test. Give Codex the failure and relevant file paths. Ask it to report its diagnosis without editing files, then assess its findings.
+
+You stay in the Claude conversation; Claude writes the Codex prompt and reads the response. If you want to invoke the command yourself, Claude Code's `!` prefix runs a shell command and adds its output to the conversation.
+
+| Approach                  | Where work runs                                                 | During a long task                                                        | Handling a decision in this workflow                                 |
+| ------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `codex exec` through Bash | Selected working directory, or a new worktree with `--worktree` | Claude can background the Bash command and read its output file           | Ask for blockers in the response, then resume with clarification     |
+| OpenAI's Codex plugin     | Same repository checkout as Claude Code                         | `--background`, `/codex:status` and `/codex:result`                       | Read the findings and send a follow-up with `/codex:rescue --resume` |
+| foreman                   | A new or prepared linked worktree per run                       | A local daemon owns the run between CLI calls; Claude waits for attention | Codex calls `ask_orchestrator`; Claude answers the question id       |
+
+Keep review and commit as explicit steps in all three workflows. Tell Codex to leave edits uncommitted, have Claude inspect the diff and run the repository's checks, then decide whether to commit. foreman's delegate instructions already ask for uncommitted changes; foreman itself never commits or merges.
+
+## Running codex exec from Claude Code's shell
+
+For a read-only investigation, enter this in Claude Code:
+
+```text
+!codex exec "Investigate the failing test. Do not edit files. Report the likely cause and any unresolved questions."
+```
+
+[`codex exec` is non-interactive](https://learn.chatgpt.com/docs/non-interactive-mode): it accepts a task prompt, streams progress to stderr and prints the final agent message to stdout. Read-only is the default. For implementation, Claude can run this through Bash:
+
+```sh
+codex exec --sandbox workspace-write --worktree \
+  "Fix the failing test with the smallest patch. Run the relevant tests. Leave changes uncommitted and report the worktree path, changes, checks and blockers."
+```
+
+`--sandbox workspace-write` permits workspace edits. `--worktree` asks Codex to create a managed Git worktree, so separate working files are available without foreman. Use `-C` with a directory path when you want to select an existing working root.
+
+Claude Code already supports [background Bash commands](https://code.claude.com/docs/en/interactive-mode#background-bash-commands). Ask Claude to background a longer invocation, or press `Ctrl+B` while it runs. Claude can read the background output file while remaining available for new prompts. Claude Code normally cleans up background Bash tasks when it exits, so plan around that lifetime.
+
+Use `codex exec resume` with the recorded session id to continue the task with more instructions. A successful process exit is only one piece of evidence: read the final message and check the test results before accepting the patch.
+
+## What does OpenAI's Codex plugin for Claude Code do?
+
+[OpenAI's Codex plugin](https://github.com/openai/codex-plugin-cc/blob/main/README.md) provides reviews and delegated tasks through your local Codex app server. It uses the installed `codex` binary and existing local authentication and configuration. Its documented setup sequence, entered inside Claude Code, is:
+
+```text
+/plugin marketplace add openai/codex-plugin-cc
+/plugin install codex@openai-codex
+/reload-plugins
+/codex:setup
+```
+
+Use `/codex:review` for a read-only review of uncommitted changes, or add `--base main` to review branch changes against `main`. For a delegated implementation task, use `/codex:rescue`:
+
+```text
+/codex:rescue --background fix the failing test with the smallest patch; run the relevant tests; leave changes uncommitted and report blockers
+/codex:status
+/codex:result
+```
+
+Rescue supports background execution and continuing a previous task with `--resume`. `/codex:cancel` cancels an active background job. The plugin's README says it uses the same repository checkout and machine environment, so choose the checkout before starting work. You can start Claude Code in its own worktree with `claude --worktree codex-task`.
+
+Choose the plugin if review commands and background delegation cover the job. It already supports both; you don't need foreman merely to have Claude hand work to Codex.
+
+## When should Claude Code delegate to Codex in a worktree?
+
+Use a separate worktree when you want to keep a delegated patch apart from the files Claude is editing. Git worktrees have separate working files, HEAD and index, while sharing repository storage. Both `codex exec --worktree` and Claude Code's worktree support can supply that separation.
+
+foreman fits when Claude should supervise implementation runs through completion, often several at once. Claude writes a task contract with allowed files and required checks. foreman starts Codex in its assigned worktree, and a local daemon manages persistent app-server threads between CLI calls.
+
+```sh
+foreman guide
+foreman guide contract
+```
+
+Fill the contract template with the task's scope and acceptance criteria. Claude can then start a run with `foreman start`, supplying `--contract` and either `--new-worktree` or a prepared `--worktree`. New worktrees start at the caller's HEAD unless you choose another base with `--from`.
+
+<CommandDemo
+  command="start-wait"
+  caption="A recorded foreman start creates a worktree, waits for completion and displays the run's digest and hand-off."
+/>
+
+`--wait` waits for the named run to need attention. Without it, start returns after starting the run and the daemon owns its continuing lifetime. For several runs, `foreman wait --all` supervises the current repository group. Claude can inspect `foreman status` and use `foreman result` to read the latest available hand-off before reviewing the diff.
+
+foreman defaults to read-only. Implementation requires `--write`, which selects full host and network access without approval prompts. The worktree separates Git edits; it does not restrict host access. After Codex finishes, Claude still needs to review changed and new files and run the repository gate before committing.
+
+## What happens when Codex has a question mid-task?
+
+For the direct shell and plugin examples above, ask Codex to report unresolved decisions in its findings, then send clarification through a resumed task. This keeps the request bounded when a final report is enough.
+
+foreman provides a question-and-answer path during the run. New threads receive an `ask_orchestrator` tool; when Codex uses it, foreman holds the call and exposes a question id to Claude. Claude can answer it or defer a decision that needs a person:
+
+```sh
+foreman answer test-fix q1 "Keep the public interface unchanged."
+foreman defer test-fix q2 "Waiting for the user's decision."
+```
+
+Those names and ids are examples; use the ones in the run's digest. After the default fifteen-minute question timeout, foreman sends deferral guidance to continue independent work and leave unresolved decisions in the hand-off. A late answer can steer the running turn or start a follow-up after it becomes inactive. The deferral instructions are prompt guidance, so review how Codex handled the decision.
+
+Daemon ownership also has limits. A daemon restart marks previously active runs lost. On resumed threads, question-tool delivery depends on Codex retaining the tool. Read the run's status and worktree before continuing after a supervision failure.
+
+## What you need installed
+
+For the shell route, you need Claude Code and an authenticated Codex CLI. `codex login` supports ChatGPT sign-in; use that account's Codex entitlement and limits if you're using a ChatGPT plan. Codex also supports API-key authentication. The plugin uses that same local login and documents Node.js 18.18 or later as a requirement.
+
+For [foreman installation](/#install), use macOS or Linux on arm64 or x64, git, a repository with at least one commit and Node 26 or newer for the npm launcher. foreman 0.1.0 checks its protocol against Codex CLI 0.166.0:
+
+```sh
+npm i -g @openai/codex@0.166.0
+codex login
+npm i -g @steamfield/foreman
+foreman skill install
+foreman doctor
+```
+
+If the repository has `.codex/hooks.json`, open Codex in the main checkout, trust the project if prompted and inspect and approve the hooks through `/hooks`. Read doctor's probes even when it exits successfully; foreman never approves hooks itself. Then ask Claude Code to use the foreman skill to delegate the task and review the resulting work.

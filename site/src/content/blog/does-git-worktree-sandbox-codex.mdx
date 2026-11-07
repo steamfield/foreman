@@ -1,0 +1,103 @@
+---
+title: "Does a git worktree sandbox Codex?"
+description: "A git worktree does not sandbox Codex: it separates working files, while Codex sandbox settings control filesystem writes and command network access."
+date: 2026-11-06
+status: published
+keyword: "does a git worktree sandbox Codex"
+feature: safety
+tags: []
+---
+
+No. A git worktree does not sandbox Codex. It gives the agent separate working files and a staging area; Codex's sandbox settings determine its filesystem and command network permissions.
+
+The distinction also applies to [foreman](/), an option for delegating tasks from Claude Code to Codex. Its runs default to read-only with command networking off. Adding `--write` grants full host and network access without approval prompts. foreman has no `workspace-write` mode, so its worktree keeps changes reviewable without containing a write run.
+
+## Does a git worktree sandbox Codex?
+
+A worktree changes where the checkout lives. It does not create a separate operating-system user or impose filesystem permissions on the agent. An unsandboxed process still runs with your host account's access, even when its current directory is a worktree. Git's checkout separation and [Codex's execution permissions](https://learn.chatgpt.com/docs/agent-approvals-security#sandbox-and-approvals) are independent controls.
+
+Codex already provides both worktree creation and sandbox selection. For an audit, you can request them together:
+
+```sh
+codex exec --worktree --sandbox read-only \
+  "Audit this code for correctness problems. Report findings without changing files."
+```
+
+Here, `--worktree` requests a new managed Git worktree. `--sandbox read-only` selects the restrictions for model-generated commands. The prompt describes the task; the sandbox supplies the technical write restriction. These flags are available in Codex CLI 0.166.0, the version checked for this article. You can inspect your installation without starting an agent:
+
+```sh
+codex --help
+codex exec --help
+```
+
+Claude Code also has [native worktree sessions](https://code.claude.com/docs/en/common-workflows#run-parallel-sessions-with-worktrees). Run `claude --worktree audit` to start one on a separate branch checkout. Neither tool requires foreman to make a worktree. Choose an orchestration tool for how it manages tasks and review; configure execution permissions separately.
+
+## What does a worktree isolate, and what does it share?
+
+A linked worktree has its own checked-out files, index and `HEAD`. The index is Git's staging area; `HEAD` identifies the checkout's current commit or branch. This lets an agent edit and stage files separately from your main checkout. Git normally refuses to check out the same branch in another worktree.
+
+The repository behind those checkouts is shared:
+
+| Resource                    | Worktree behavior                                          |
+| --------------------------- | ---------------------------------------------------------- |
+| Working files               | Separate checkout                                          |
+| Index and `HEAD`            | Separate for each worktree                                 |
+| Object storage              | Shared through the common Git directory                    |
+| Branch and tag refs         | Shared, with exceptions for certain worktree-specific refs |
+| Repository configuration    | Shared by default                                          |
+| Default Git hooks directory | Shared through `$GIT_COMMON_DIR/hooks`                     |
+
+[Git's worktree documentation](https://git-scm.com/docs/git-worktree#_details) describes the private administrative directory and shared refs. Its [repository layout reference](https://git-scm.com/docs/gitrepository-layout#_description) covers object storage and the common hooks directory. Per-worktree configuration is possible with `extensions.worktreeConfig` and `git config --worktree`; it does not turn configuration into an execution boundary.
+
+Host resources receive no extra isolation from this layout. Without a separate execution restriction, credentials available to your account remain available to the process. Package caches and listening ports still belong to the same host. A new checkout does not provide a private network or a private home directory. This follows from the separation Git implements: files and repository state, with no host-access policy.
+
+## What do Codex's sandbox modes do?
+
+Codex CLI exposes three sandbox mode names. The mode determines what model-generated commands can access:
+
+| Mode                 | Filesystem and command access                                          |
+| -------------------- | ---------------------------------------------------------------------- |
+| `read-only`          | Runs commands within a read-only sandbox                               |
+| `workspace-write`    | Allows workspace edits while restricting writes outside writable roots |
+| `danger-full-access` | Removes command sandboxing, allowing host and network access           |
+
+`workspace-write` also protects metadata paths, including `.git` and the Git directory resolved through a worktree's `.git` pointer. The writable workspace can include temporary directories. Use `/status` in the interactive CLI to inspect it. Command networking defaults off in this mode; `[sandbox_workspace_write] network_access = true` enables it. See the [sandbox defaults and protected paths](https://learn.chatgpt.com/docs/agent-approvals-security#defaults-and-recommendations).
+
+Approval policy is a separate setting. The installed interactive CLI accepts `on-request`, where the model decides when to ask, and `never`, where execution failures return to the model without a prompt. For an interactive editing session with approval requests, run:
+
+```sh
+codex --worktree --sandbox workspace-write --ask-for-approval on-request
+```
+
+`never` does not remove sandbox restrictions. You can combine it with read-only mode:
+
+```sh
+codex --sandbox read-only --ask-for-approval never
+```
+
+`codex exec` has no separate `--ask-for-approval` flag in the checked version and normally uses `never` for headless execution. Its `--approve-for-me` option routes approval requests through automatic review using `workspace-write`. The explicitly named `--dangerously-bypass-approvals-and-sandbox` option skips both confirmation prompts and command sandboxing. A missing prompt alone tells you nothing about which sandbox is active.
+
+## Read-only runs versus write runs
+
+Use read-only runs for audits that need findings rather than edits. Direct Codex already supports this through `--sandbox read-only`; adding orchestration is optional. In foreman, read-only is the default run mode and the turn policy explicitly disables command networking.
+
+foreman adds a local daemon that supervises delegated work and questions through `codex app-server`. Claude Code can answer Codex's questions, then review the diff before committing. A task contract supplies the brief. Once you have followed the [installation instructions](/#install), a read-only run can start with:
+
+```sh
+foreman guide
+foreman start audit --new-worktree --contract audit.md
+```
+
+Prepare `audit.md` with the audit question and the evidence you expect back. The command creates a managed worktree at the caller's `HEAD`. For a task that must edit files, `foreman start` offers `--write`, which selects `danger-full-access` and approval policy `never`. Reserve that mode for trusted repositories and tasks whose commands you are prepared to run with your host account's access.
+
+Use direct Codex when you need `workspace-write`; foreman currently offers only read-only and full-access runs. A contract's allowed paths do not supply a substitute boundary. foreman's scope digest reports dirty paths outside the declared scope, but it does not prevent those writes. Its modification-time file scan also excludes some build and cache directories, so it cannot establish that every host write was recorded.
+
+## What else protects you during a write run?
+
+Repository guard hooks can reject particular tool calls. Codex supports trusted project hooks in `.codex/hooks.json`; a `PreToolUse` hook can deny a supported call before it runs. These hooks are separate from Git's shared default hooks directory. OpenAI documents their [tool coverage and exceptions](https://learn.chatgpt.com/docs/hooks#tool-coverage), including paths that bypass the normal hook mechanism. A command guard only covers the calls and policies it actually checks.
+
+foreman checks hook trust when the main checkout contains `.codex/hooks.json`. Required project hooks must be present and trusted or managed, without loading errors. Set this up by opening Codex in the main checkout, trusting the project if prompted, then using `/hooks` to inspect and approve the definitions. Run `foreman doctor` afterward and read its probes; a zero exit code can still accompany setup that needs attention.
+
+foreman also interrupts a turn if command execution starts before notification that a required project hook started. This confirms that a project hook ran during the turn. It does not prove every command ran every hook, and foreman never approves hooks itself.
+
+Diff review remains necessary after a write run. foreman's delegate instructions tell Codex to leave changes uncommitted and avoid pushing; foreman itself never commits or merges. The orchestrator should inspect `git diff` and `git status`, review new files and run the repository's checks before committing. That review establishes what belongs in the commit. It cannot undo a command's earlier effects outside the checkout.

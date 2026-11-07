@@ -1,0 +1,139 @@
+---
+title: "Codex waiting for input: what it wants"
+description: "Codex waiting for input may mean an approval, a question, or an unfinished command; inspect the last event and answer or adjust the matching setting."
+date: 2026-11-06
+status: published
+keyword: "Codex waiting for input"
+feature: questions
+tags: []
+---
+
+import CommandDemo from "../../components/blog/CommandDemo.astro";
+
+Codex waiting for input can mean an approval prompt, a clarifying question, or a shell command that hasn't finished. Check the last message or tool event before changing permissions.
+
+For an approval, review the requested action and your approval policy. For a question, reply in the session or resume it with your answer. For an unfinished command, inspect its output and replace interactive or long-running commands where appropriate. Disabling approval prompts leaves the other two cases unresolved.
+
+## Why is Codex waiting for input?
+
+The last visible action tells you where to investigate. A quiet terminal alone doesn't identify the cause.
+
+| Last visible action               | What to check                             | Next step                                                            |
+| --------------------------------- | ----------------------------------------- | -------------------------------------------------------------------- |
+| A request to authorize a command  | The command and requested access          | Approve or decline it; adjust policy for future runs if needed.      |
+| A question about the task         | The missing requirement or scope decision | Send a concrete answer to the session.                               |
+| A shell command still in progress | Command output and process state          | Check for a program's own prompt or a process meant to keep running. |
+
+For scripted work, Codex already has a non-interactive entry point. Use its event stream when you need more evidence about where execution stopped:
+
+```sh
+codex exec --json "Inspect the project and report which checks I should run."
+```
+
+`--json` prints events to stdout as JSONL. Without it, non-interactive mode normally sends progress to stderr and the final agent message to stdout, so check both streams before concluding that nothing happened. See the [Codex non-interactive mode documentation](https://learn.chatgpt.com/docs/non-interactive-mode).
+
+An unfinished command deserves inspection before a restart. If the last command launched a dev server, check whether it is serving the app; the task may need a separate server process and a readiness check. If a program is asking for input, use that program's documented non-interactive option or supply its configuration in advance. Avoid piping a blanket yes into an unknown prompt.
+
+Git has a specific option for avoiding its output pager:
+
+```sh
+git --no-pager diff
+```
+
+[`--no-pager` keeps Git output out of a pager](https://git-scm.com/docs/git#Documentation/git.txt---no-pager). It addresses that particular wait, without changing Codex permissions. In Claude Code, you can also [background a Bash command](https://code.claude.com/docs/en/interactive-mode#background-bash-commands) with `Ctrl+B`, or ask Claude to run it in the background; under tmux, press twice. Claude can read the background output file while you continue the conversation.
+
+## Is it an approval prompt or a question?
+
+An approval asks whether an action may execute. A clarifying question asks what the implementation should do. Permission to edit files doesn't resolve an ambiguous requirement, such as whether a fix may change a public interface.
+
+The distinction also exists in Codex's integration protocol. App-server command approvals use `item/commandExecution/requestApproval`, while user-input requests are a separate mechanism. A `commandExecution` item records command status and output, with an optional exit code and duration. If you're diagnosing a client integration, inspect those events separately. The [app-server approval documentation](https://learn.chatgpt.com/docs/app-server#approvals) describes the client response required for an approval request.
+
+For a task question, answer with the decision and its scope. For example, tell the agent to preserve the public interface and add a regression test, rather than replying only with permission to continue.
+
+Codex can resume a saved conversation natively:
+
+```sh
+codex resume
+```
+
+That opens a picker for previous interactive sessions. To include non-interactive sessions in the picker, use:
+
+```sh
+codex resume --include-non-interactive
+```
+
+For a scripted continuation, replace `SESSION_ID` with the recorded session id:
+
+```sh
+codex exec resume SESSION_ID "Preserve the public interface. Add a regression test for the existing behavior."
+```
+
+These commands continue existing context. You can supply the missing decision without starting the task over with a fresh prompt.
+
+## How do you stop Codex asking for approval in non-interactive runs?
+
+Use `codex exec` for unattended work and check the flags in your installed version. The commands here were checked against Codex CLI 0.166.0. Its `exec` help has no separate `--ask-for-approval` option, and its [headless implementation normally defaults to `never`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/exec/src/lib.rs#L594). An apparent `codex exec` approval prompt is a reason to inspect the actual command and events before adding flags.
+
+Workspace edits need a suitable sandbox. Non-interactive mode defaults to read-only; this invocation permits workspace edits:
+
+```sh
+codex exec --sandbox workspace-write "Fix the failing test, run the relevant checks, and leave changes uncommitted."
+```
+
+Approval policy and sandbox access are separate settings. The sandbox controls filesystem and command-network access. Approval policy controls when an action requires approval. In an interactive session, you can explicitly disable approval requests while retaining the workspace sandbox:
+
+```sh
+codex --ask-for-approval never --sandbox workspace-write
+```
+
+With `never`, execution failures return to the model without asking you for approval. It doesn't grant unrestricted access or answer task questions. The [sandbox and approval guide](https://learn.chatgpt.com/docs/agent-approvals-security#sandbox-and-approvals) explains the separation.
+
+The installed CLI also offers `--approve-for-me` for automatic approval review with the workspace-write sandbox. The broader `--dangerously-bypass-approvals-and-sandbox` option removes command sandboxing as well as confirmation prompts; it is intended for externally sandboxed environments. Neither option supplies a missing product decision.
+
+## What happens to a question nobody answers?
+
+For a direct Codex session, you can return with an answer using the resume commands above. If you're delegating through Claude Code and need questions tracked while you're elsewhere, [foreman](/) is one option. Claude writes a task contract, Codex works in a git worktree, and a local daemon supervises the run through `codex app-server`.
+
+Each new foreman thread receives an `ask_orchestrator` tool. When Codex calls it, foreman assigns an id such as `q1`, holds the tool call open, and reports the run as `waiting`. Claude can inspect the named run and answer the question:
+
+```sh
+foreman status fix-tests
+foreman answer fix-tests q1 "Preserve the public interface; make the fix inside the implementation."
+```
+
+The recording below shows an actual answer to a scope question. The reply permits one specific line edit and keeps the existing strict test comparison.
+
+<CommandDemo
+  command="answer"
+  caption="An answer to q1 is accepted, and foreman prints a command to wait for more attention."
+/>
+
+Claude can defer a decision it can't make yet:
+
+```sh
+foreman defer fix-tests q1 "Waiting for the interface decision."
+```
+
+An unanswered question is also deferred automatically after fifteen minutes by default. `start --question-timeout` changes that interval. The deferral prompt includes these instructions:
+
+> No answer yet; the decision may need a person and can take a while. Continue with all work that doesn't depend on it.
+
+> For the question itself, take no irreversible step and nothing outside the contract; if a safe, reversible default exists, use it and say so; otherwise leave that part undone.
+
+> End your turn normally and list the question, and what you did about it, under Open. The answer will arrive as a message later.
+
+This is guidance to the model, not enforcement of its reasoning or choices. The deferred question stays visible as unanswered until answered or superseded. The fifteen-minute timer applies to held `ask_orchestrator` calls; it doesn't diagnose a slow shell command or a Codex approval request.
+
+## Answering after the agent has moved on
+
+Codex already supports queueing a message for an existing session. Replace `SESSION_ID` with its UUID or exact session name:
+
+```sh
+codex queue --thread SESSION_ID --message "Keep the public interface unchanged." --resume
+```
+
+`--resume` attempts to resume the thread after queueing. If that attempt fails, the command still succeeds with a warning, so check the warning before assuming the agent continued.
+
+In foreman, use `answer` with the original question id even after deferral. A late answer steers a running turn, or starts a follow-up after inactivity if steering is refused. Answering an already answered id sends a correction with the original question context. Queued answer delivery lives in daemon memory and isn't reconstructed after a daemon crash.
+
+The orchestrator still owns review and commits. foreman never commits or merges itself; its delegate instructions tell Codex to leave changes uncommitted and avoid pushing. Before committing, inspect the diff and run the repository's checks. If you choose this workflow, start with the [foreman installation and setup instructions](/#install).
