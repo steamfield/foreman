@@ -12,7 +12,7 @@ import CommandDemo from "../../components/blog/CommandDemo.astro";
 
 To run multiple Codex agents in parallel, start a separate Codex session in a git worktree for each independent task. The Codex CLI has a native `--worktree` flag.
 
-Keep the tasks on separate files and give them the same starting commit. Worktrees separate their working files; you still need to track questions and review the combined changes before merging. Several terminals are enough to start. When Claude Code needs to supervise the batch, foreman is one option for collecting attention across runs.
+Keep the tasks on separate files and give them the same starting commit. Worktrees separate their working files; you still need to track questions and review the combined changes before merging. Several terminals are enough to start. When Claude Code needs to supervise the batch, [foreman](/) is one option for collecting attention across runs. The [guide to using Codex from Claude Code](/blog/use-codex-from-claude-code) compares it with the other ways to delegate.
 
 ## How do you run multiple Codex agents in parallel?
 
@@ -140,3 +140,5 @@ git merge --no-ff --no-commit task/validation
 Git's [`--no-commit` option](https://git-scm.com/docs/git-merge#_options) stops before creating a merge commit; `--no-ff` also prevents a fast-forward from bypassing that pause. Run the gate, inspect the result, and commit the merge before integrating the next branch. Use `foreman/validation` instead if that was your task branch.
 
 Recheck each later task against the tree that now includes earlier work. If the combined checks fail, resolve that interaction before bringing in another branch. Keep the task's worktree and hand-off available until its changes pass in the integrated tree.
+
+[Running Codex in a git worktree](/blog/run-codex-in-git-worktree) covers dependency setup and cleanup for each checkout.

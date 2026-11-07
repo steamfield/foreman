@@ -29,7 +29,7 @@ You stay in the Claude conversation; Claude writes the Codex prompt and reads th
 | OpenAI's Codex plugin     | Same repository checkout as Claude Code                         | `--background`, `/codex:status` and `/codex:result`                       | Read the findings and send a follow-up with `/codex:rescue --resume` |
 | foreman                   | A new or prepared linked worktree per run                       | A local daemon owns the run between CLI calls; Claude waits for attention | Codex calls `ask_orchestrator`; Claude answers the question id       |
 
-Keep review and commit as explicit steps in all three workflows. Tell Codex to leave edits uncommitted, have Claude inspect the diff and run the repository's checks, then decide whether to commit. foreman's delegate instructions already ask for uncommitted changes; foreman itself never commits or merges.
+Keep review and commit as explicit steps in all three workflows. Tell Codex to leave edits uncommitted, have Claude inspect the diff and run the repository's checks, then decide whether to commit. foreman's delegate instructions already ask for uncommitted changes; foreman itself never commits or merges. The [checklist for reviewing Codex changes with Claude Code](/blog/review-codex-changes-with-claude-code) walks through each step.
 
 ## Running codex exec from Claude Code's shell
 
@@ -48,7 +48,7 @@ codex exec --sandbox workspace-write --worktree \
 
 `--sandbox workspace-write` permits workspace edits. `--worktree` asks Codex to create a managed Git worktree, so separate working files are available without foreman. Use `-C` with a directory path when you want to select an existing working root.
 
-Claude Code already supports [background Bash commands](https://code.claude.com/docs/en/interactive-mode#background-bash-commands). Ask Claude to background a longer invocation, or press `Ctrl+B` while it runs. Claude can read the background output file while remaining available for new prompts. Claude Code normally cleans up background Bash tasks when it exits, so plan around that lifetime.
+Claude Code already supports [background Bash commands](https://code.claude.com/docs/en/interactive-mode#background-bash-commands). Ask Claude to background a longer invocation, or press `Ctrl+B` while it runs. Claude can read the background output file while remaining available for new prompts. Claude Code normally cleans up background Bash tasks when it exits, so plan around that lifetime. [Running Codex in the background](/blog/run-codex-in-background) covers the other native options.
 
 Use `codex exec resume` with the recorded session id to continue the task with more instructions. A successful process exit is only one piece of evidence: read the final message and check the test results before accepting the patch.
 
@@ -73,11 +73,11 @@ Use `/codex:review` for a read-only review of uncommitted changes, or add `--bas
 
 Rescue supports background execution and continuing a previous task with `--resume`. `/codex:cancel` cancels an active background job. The plugin's README says it uses the same repository checkout and machine environment, so choose the checkout before starting work. You can start Claude Code in its own worktree with `claude --worktree codex-task`.
 
-Choose the plugin if review commands and background delegation cover the job. It already supports both; you don't need foreman merely to have Claude hand work to Codex.
+Choose the plugin if review commands and background delegation cover the job. It already supports both; you don't need foreman merely to have Claude hand work to Codex. The [Codex plugin guide](/blog/codex-plugin-for-claude-code) covers every command.
 
 ## When should Claude Code delegate to Codex in a worktree?
 
-Use a separate worktree when you want to keep a delegated patch apart from the files Claude is editing. Git worktrees have separate working files, HEAD and index, while sharing repository storage. Both `codex exec --worktree` and Claude Code's worktree support can supply that separation.
+Use a separate worktree when you want to keep a delegated patch apart from the files Claude is editing. Git worktrees have separate working files, HEAD and index, while sharing repository storage. Both `codex exec --worktree` and Claude Code's worktree support can supply that separation. [Running Codex in a git worktree](/blog/run-codex-in-git-worktree) covers setup and cleanup.
 
 foreman fits when Claude should supervise implementation runs through completion, often several at once. Claude writes a task contract with allowed files and required checks. foreman starts Codex in its assigned worktree, and a local daemon manages persistent app-server threads between CLI calls.
 
@@ -86,16 +86,16 @@ foreman guide
 foreman guide contract
 ```
 
-Fill the contract template with the task's scope and acceptance criteria. Claude can then start a run with `foreman start`, supplying `--contract` and either `--new-worktree` or a prepared `--worktree`. New worktrees start at the caller's HEAD unless you choose another base with `--from`.
+Fill the contract template with the task's scope and acceptance criteria. Claude can then start a run with `foreman start`, supplying `--contract` and either `--new-worktree` or a prepared `--worktree`. New worktrees start at the caller's HEAD unless you choose another base with `--from`. [How to give Codex a coding task](/blog/how-to-give-codex-a-coding-task) shows what a good brief contains.
 
 <CommandDemo
   command="start-wait"
   caption="A recorded foreman start creates a worktree, waits for completion and displays the run's digest and hand-off."
 />
 
-`--wait` waits for the named run to need attention. Without it, start returns after starting the run and the daemon owns its continuing lifetime. For several runs, `foreman wait --all` supervises the current repository group. Claude can inspect `foreman status` and use `foreman result` to read the latest available hand-off before reviewing the diff.
+`--wait` waits for the named run to need attention. Without it, start returns after starting the run and the daemon owns its continuing lifetime. For several runs, `foreman wait --all` supervises the current repository group. Claude can inspect `foreman status` and use `foreman result` to read the latest available hand-off before reviewing the diff. [Running multiple Codex agents in parallel](/blog/run-multiple-codex-agents) covers choosing tasks and merge order.
 
-foreman defaults to read-only. Implementation requires `--write`, which selects full host and network access without approval prompts. The worktree separates Git edits; it does not restrict host access. After Codex finishes, Claude still needs to review changed and new files and run the repository gate before committing.
+foreman defaults to read-only. Implementation requires `--write`, which selects full host and network access without approval prompts. The worktree separates Git edits; it does not restrict host access. After Codex finishes, Claude still needs to review changed and new files and run the repository gate before committing. [Whether a git worktree sandboxes Codex](/blog/does-git-worktree-sandbox-codex) explains the difference.
 
 ## What happens when Codex has a question mid-task?
 
@@ -108,7 +108,7 @@ foreman answer test-fix q1 "Keep the public interface unchanged."
 foreman defer test-fix q2 "Waiting for the user's decision."
 ```
 
-Those names and ids are examples; use the ones in the run's digest. After the default fifteen-minute question timeout, foreman sends deferral guidance to continue independent work and leave unresolved decisions in the hand-off. A late answer can steer the running turn or start a follow-up after it becomes inactive. The deferral instructions are prompt guidance, so review how Codex handled the decision.
+Those names and ids are examples; use the ones in the run's digest. After the default fifteen-minute question timeout, foreman sends deferral guidance to continue independent work and leave unresolved decisions in the hand-off. A late answer can steer the running turn or start a follow-up after it becomes inactive. The deferral instructions are prompt guidance, so review how Codex handled the decision. [Codex waiting for input](/blog/codex-waiting-for-input) also covers approval prompts and hung commands.
 
 Daemon ownership also has limits. A daemon restart marks previously active runs lost. On resumed threads, question-tool delivery depends on Codex retaining the tool. Read the run's status and worktree before continuing after a supervision failure.
 
@@ -126,4 +126,4 @@ foreman skill install
 foreman doctor
 ```
 
-If the repository has `.codex/hooks.json`, open Codex in the main checkout, trust the project if prompted and inspect and approve the hooks through `/hooks`. Read doctor's probes even when it exits successfully; foreman never approves hooks itself. Then ask Claude Code to use the foreman skill to delegate the task and review the resulting work.
+If the repository has `.codex/hooks.json`, open Codex in the main checkout, trust the project if prompted and inspect and approve the hooks through `/hooks`. Read doctor's probes even when it exits successfully; foreman never approves hooks itself. Then ask Claude Code to use the foreman skill to delegate the task and review the resulting work. If they still don't run, see [Codex hooks not trusted](/blog/codex-hooks-not-trusted).

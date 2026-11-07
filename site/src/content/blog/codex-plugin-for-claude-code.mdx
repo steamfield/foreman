@@ -169,7 +169,7 @@ claude --worktree retry-fix
 codex --worktree
 ```
 
-[foreman](/) fits when Claude Code is supervising several Codex implementation tasks at once. Each task gets its own worktree and written contract. A local daemon supervises progress and questions; Claude answers questions, reads the handoff and reviews the diff before committing. foreman drives `codex app-server` using the local Codex CLI login. It never commits or merges itself.
+[foreman](/) fits when Claude Code is supervising several Codex implementation tasks at once. Each task gets its own worktree and written contract. A local daemon supervises progress and questions; Claude answers questions, reads the handoff and reviews the diff before committing. foreman drives `codex app-server` using the local Codex CLI login. It never commits or merges itself. The [guide to using Codex from Claude Code](/blog/use-codex-from-claude-code) compares it with the other ways to delegate.
 
 The worktree separates Git edits, but a foreman write run has full host and network access without approval prompts. The contract's scope report flags changes outside the declared scope for review; it does not restrict file access. Review the changes and run the repository's checks before committing.
 
@@ -179,3 +179,5 @@ If that workflow matches your task, foreman is MIT licensed and packaged for mac
 npm i -g @steamfield/foreman
 foreman guide
 ```
+
+Whichever tool runs the task, [reviewing Codex changes with Claude Code](/blog/review-codex-changes-with-claude-code) covers checking the result before you commit.

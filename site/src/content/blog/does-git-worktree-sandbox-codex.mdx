@@ -10,7 +10,7 @@ tags: []
 
 No. A git worktree does not sandbox Codex. It gives the agent separate working files and a staging area; Codex's sandbox settings determine its filesystem and command network permissions.
 
-The distinction also applies to [foreman](/), an option for delegating tasks from Claude Code to Codex. Its runs default to read-only with command networking off. Adding `--write` grants full host and network access without approval prompts. foreman has no `workspace-write` mode, so its worktree keeps changes reviewable without containing a write run.
+The distinction also applies to [foreman](/), an option for delegating tasks from Claude Code to Codex. Its runs default to read-only with command networking off. Adding `--write` grants full host and network access without approval prompts. foreman has no `workspace-write` mode, so its worktree keeps changes reviewable without containing a write run. The [guide to using Codex from Claude Code](/blog/use-codex-from-claude-code) compares it with the other ways to delegate.
 
 ## Does a git worktree sandbox Codex?
 
@@ -101,3 +101,5 @@ foreman checks hook trust when the main checkout contains `.codex/hooks.json`. R
 foreman also interrupts a turn if command execution starts before notification that a required project hook started. This confirms that a project hook ran during the turn. It does not prove every command ran every hook, and foreman never approves hooks itself.
 
 Diff review remains necessary after a write run. foreman's delegate instructions tell Codex to leave changes uncommitted and avoid pushing; foreman itself never commits or merges. The orchestrator should inspect `git diff` and `git status`, review new files and run the repository's checks before committing. That review establishes what belongs in the commit. It cannot undo a command's earlier effects outside the checkout.
+
+If those guard hooks aren't running, see [Codex hooks not trusted](/blog/codex-hooks-not-trusted).

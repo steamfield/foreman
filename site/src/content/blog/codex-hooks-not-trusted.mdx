@@ -85,7 +85,7 @@ Use `/hooks` for routine development. Adding the bypass flag to a regular launch
 
 A guard that blocks destructive commands only helps when it runs. If Claude Code is handing tasks to Codex without you watching each tool call, hook loading needs a check in that workflow.
 
-[foreman](/) is one option for that supervision. It lets Claude Code delegate tasks to Codex in git worktrees through a local daemon. When the main checkout contains `.codex/hooks.json`, foreman refuses `start` unless Codex reports project hooks for the target worktree as trusted or managed, with no loading errors. Missing project hooks fail the check too. foreman never approves them for you.
+[foreman](/) is one option for that supervision. It lets Claude Code delegate tasks to Codex in git worktrees through a local daemon. When the main checkout contains `.codex/hooks.json`, foreman refuses `start` unless Codex reports project hooks for the target worktree as trusted or managed, with no loading errors. Missing project hooks fail the check too. foreman never approves them for you. The [guide to using Codex from Claude Code](/blog/use-codex-from-claude-code) compares it with the other ways to delegate.
 
 With foreman's linked worktrees inside the main checkout, approve hooks in the main checkout. Hook edits in a delegated branch take effect after reaching it, so include hook review when those changes land.
 
@@ -105,3 +105,5 @@ Read the hook results even if `doctor` exits successfully. It can exit zero whil
 During a turn that requires project hooks, foreman also interrupts if a command-execution item starts before any project-hook-start notification arrives. That check confirms that a project hook ran in the turn. It does not prove every command ran every hook, or that the hook blocked every dangerous action.
 
 For a failed trust check, return to Codex in the main checkout and review `/hooks`, then inspect `foreman doctor` again. For an approved guard whose behavior is wrong, test and fix the guard itself before relying on it in a delegated task.
+
+For what else limits a delegated write run, see [whether a git worktree sandboxes Codex](/blog/does-git-worktree-sandbox-codex).

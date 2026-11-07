@@ -101,7 +101,7 @@ Run the project's relevant checks there before attributing a missing-package err
 
 Review project trust and hooks as part of setup; Codex's `/hooks` command lets you inspect and approve non-managed hooks, and foreman never approves them for you.
 
-[foreman](/) is an option when Claude Code is handing the task to Codex and you want setup attached to that hand-off. It uses the local `codex app-server` and supervises the run through a daemon. With `--new-worktree`, it creates `.claude/worktrees/NAME` inside the main checkout on branch `foreman/NAME`, starting at the caller's `HEAD`.
+[foreman](/) is an option when Claude Code is handing the task to Codex and you want setup attached to that hand-off. It uses the local `codex app-server` and supervises the run through a daemon. With `--new-worktree`, it creates `.claude/worktrees/NAME` inside the main checkout on branch `foreman/NAME`, starting at the caller's `HEAD`. The [guide to using Codex from Claude Code](/blog/use-codex-from-claude-code) compares it with the other ways to delegate.
 
 The [installation instructions](/#install) cover the prerequisites: macOS or Linux, Node 26 or newer for the npm launcher, and the supported Codex CLI setup. Install foreman and read its installed workflow:
 
@@ -170,3 +170,5 @@ foreman archive help-fix --keep-worktree
 ```
 
 For a prepared checkout supplied with `foreman start --worktree`, foreman never removes the worktree or its branch. That mode requires the checkout to be inside the main checkout, so the sibling directory used in the plain Git examples would need a different location.
+
+To run several of these at once, see [running multiple Codex agents in parallel](/blog/run-multiple-codex-agents).

@@ -57,7 +57,7 @@ The [status command's `--untracked-files=all` option](https://git-scm.com/docs/g
 
 If the checkout already had edits when Codex started, the diff alone cannot attribute each change to Codex. Compare it with your pre-task status or saved patch. Preserve work that belonged to someone else, and flag uncertain ownership before asking for cleanup.
 
-[foreman](/) adds run records to this workflow. It lets Claude Code delegate to Codex in git worktrees under a local daemon, then read the run's digest and latest available hand-off:
+[foreman](/) adds run records to this workflow. It lets Claude Code delegate to Codex in git worktrees under a local daemon, then read the run's digest and latest available hand-off: The [guide to using Codex from Claude Code](/blog/use-codex-from-claude-code) compares it with the other ways to delegate.
 
 ```sh
 foreman result task-name
@@ -123,3 +123,5 @@ git status --short --untracked-files=all
 ```
 
 `git diff --cached` shows the staged patch. Confirm it contains only reviewed changes, including anything staged before you started. Then use `git commit` with your repository's message convention. If the task requires leaving changes uncommitted, hand over the reviewed diff and check results at this point.
+
+Many review problems start in the brief; [how to give Codex a coding task](/blog/how-to-give-codex-a-coding-task) covers writing one that is easier to check.

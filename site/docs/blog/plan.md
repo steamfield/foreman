@@ -70,9 +70,11 @@ Before dispatch: one managed start verified with the both-roots setup (Wave 0 co
 
 Per article: hand-off, diff scope, fact check against `facts.md` and cited lines, forbidden-patterns pass, keyword placement, links. Then sibling cross-links, desktop and 375px screenshots of the index and two posts, `make lint check test build e2e deploy-check` in `site/` and root `bun run check`. Conventional Commits on `blog`, then a local merge to `main`. Pushing waits for your go-ahead (Pages isn't connected yet per `site/AGENTS.md`, so a push won't deploy until it is). Archive every foreman run and remove worktrees.
 
-## foreman friction seen while planning
+## foreman friction seen while running this
 
 `foreman start --new-worktree` without `--setup` creates the worktree, then refuses it with `WorktreeInvalid` (package.json needs node_modules). The message suggests installing in the worktree or `--skip-deps-check`, not `--setup`, which is the fix for a managed worktree; a read-only review never needs deps. It also checks only the root, so a nested app like `site/` needs both installs. Goes in the friction backlog: name `--setup` in the refusal, consider skipping the deps check for read-only runs.
+
+Supervising ten runs with `wait --all` meant copying a cursor of about 2,000 characters from each result into the next command, and the guard hook rightly refuses an `eval` of the printed `next:` line. The workaround was waiting on the still-active runs by name, which needs no cursor. Candidates: a `wait --all --until-idle` (return once every run in the group is inactive, listing each outcome), or a short cursor id stored by the daemon.
 
 ## Verification
 

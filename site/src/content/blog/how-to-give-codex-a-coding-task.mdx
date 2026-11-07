@@ -115,7 +115,7 @@ Keep progress in the hand-off when no decision is needed. A final report should 
 
 ### Using foreman for a supervised contract
 
-[foreman](/) is one option when you want Claude Code to delegate to Codex in a worktree and supervise questions through a local daemon. Claude writes the task contract, answers questions, then reviews the diff and commits. The CLI never commits or merges. Direct Codex already accepts the brief; foreman adds this supervision workflow.
+[foreman](/) is one option when you want Claude Code to delegate to Codex in a worktree and supervise questions through a local daemon. Claude writes the task contract, answers questions, then reviews the diff and commits. The CLI never commits or merges. Direct Codex already accepts the brief; foreman adds this supervision workflow. The [guide to using Codex from Claude Code](/blog/use-codex-from-claude-code) compares it with the other ways to delegate.
 
 After [installing foreman and completing repository setup](/#install), print its fillable template to a scratch file:
 
@@ -132,3 +132,5 @@ foreman start limit-validation --new-worktree --contract /tmp/limit-contract.md
 That command uses foreman's default read-only mode. An implementation run requires `--write`, which grants full host and network access without approval prompts. Its worktree separates Git edits; it does not restrict host access.
 
 Keep the exact `- May change:` line with backticked repository-relative paths. foreman reads those entries for its digest and reports dirty paths outside the declared scope. This is a review aid, not a write restriction. The orchestrator still needs to inspect the diff, including new files, and run the repository gate before committing.
+
+When the run finishes, [review Codex's changes with Claude Code](/blog/review-codex-changes-with-claude-code) against the brief before committing.

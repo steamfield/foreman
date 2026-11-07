@@ -12,7 +12,7 @@ import CommandDemo from "../../components/blog/CommandDemo.astro";
 
 To run Codex in background, launch `codex exec` with shell backgrounding and redirect its progress and final answer to files. You can keep working while it runs.
 
-Codex also has a shared local app-server daemon and `codex agents` for browsing sessions. Inside Claude Code, OpenAI's plugin offers `--background` jobs with status and result commands. For tasks that need an attention wait and a runtime budget, [foreman](/) adds daemon-owned supervision. Choose by how you want to check progress and what should happen when the launching session closes.
+Codex also has a shared local app-server daemon and `codex agents` for browsing sessions. Inside Claude Code, OpenAI's plugin offers `--background` jobs with status and result commands. For tasks that need an attention wait and a runtime budget, [foreman](/) adds daemon-owned supervision. Choose by how you want to check progress and what should happen when the launching session closes. The [guide to using Codex from Claude Code](/blog/use-codex-from-claude-code) compares it with the other ways to delegate.
 
 ## How do you run Codex in the background?
 
@@ -166,3 +166,5 @@ Budget expiry interrupts the working turn and cancels pending questions. foreman
 The daemon exits after thirty minutes with no busy runs and no open client connections. Active runs count as busy, and an open wait connection also keeps it alive.
 
 An app-server crash still loses supervision: foreman marks active runs `lost` and cancels pending questions. The next request needing Codex starts a new app-server child, but it does not silently continue those turns. A daemon restart likewise marks previously active runs lost. Inspect events and the worktree before deciding to continue; resuming an inactive run requires its saved thread id and an existing worktree.
+
+If a background task stops and seems to want something, see [Codex waiting for input](/blog/codex-waiting-for-input).

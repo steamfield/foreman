@@ -92,7 +92,7 @@ The installed CLI also offers `--approve-for-me` for automatic approval review w
 
 ## What happens to a question nobody answers?
 
-For a direct Codex session, you can return with an answer using the resume commands above. If you're delegating through Claude Code and need questions tracked while you're elsewhere, [foreman](/) is one option. Claude writes a task contract, Codex works in a git worktree, and a local daemon supervises the run through `codex app-server`.
+For a direct Codex session, you can return with an answer using the resume commands above. If you're delegating through Claude Code and need questions tracked while you're elsewhere, [foreman](/) is one option. Claude writes a task contract, Codex works in a git worktree, and a local daemon supervises the run through `codex app-server`. The [guide to using Codex from Claude Code](/blog/use-codex-from-claude-code) compares it with the other ways to delegate.
 
 Each new foreman thread receives an `ask_orchestrator` tool. When Codex calls it, foreman assigns an id such as `q1`, holds the tool call open, and reports the run as `waiting`. Claude can inspect the named run and answer the question:
 
@@ -137,3 +137,5 @@ codex queue --thread SESSION_ID --message "Keep the public interface unchanged."
 In foreman, use `answer` with the original question id even after deferral. A late answer steers a running turn, or starts a follow-up after inactivity if steering is refused. Answering an already answered id sends a correction with the original question context. Queued answer delivery lives in daemon memory and isn't reconstructed after a daemon crash.
 
 The orchestrator still owns review and commits. foreman never commits or merges itself; its delegate instructions tell Codex to leave changes uncommitted and avoid pushing. Before committing, inspect the diff and run the repository's checks. If you choose this workflow, start with the [foreman installation and setup instructions](/#install).
+
+[Running Codex in the background](/blog/run-codex-in-background) covers checking on and steering a task that is still working.

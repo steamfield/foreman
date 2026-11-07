@@ -269,3 +269,11 @@
     overflow-x: auto;
   }
 }
+
+/* Typography's inline-code backticks live in the utilities layer; drop them here. */
+@layer utilities {
+  .blog-prose code::before,
+  .blog-prose code::after {
+    content: none;
+  }
+}
