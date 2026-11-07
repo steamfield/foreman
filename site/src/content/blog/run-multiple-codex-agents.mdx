@@ -1,0 +1,142 @@
+---
+title: "Run multiple Codex agents in parallel"
+description: "Run multiple Codex agents in parallel with a worktree per task, a shared base commit, and a review loop that tracks questions before merging changes."
+date: 2026-11-06
+status: published
+keyword: "run multiple Codex agents in parallel"
+feature: parallel
+tags: []
+---
+
+import CommandDemo from "../../components/blog/CommandDemo.astro";
+
+To run multiple Codex agents in parallel, start a separate Codex session in a git worktree for each independent task. The Codex CLI has a native `--worktree` flag.
+
+Keep the tasks on separate files and give them the same starting commit. Worktrees separate their working files; you still need to track questions and review the combined changes before merging. Several terminals are enough to start. When Claude Code needs to supervise the batch, foreman is one option for collecting attention across runs.
+
+## How do you run multiple Codex agents in parallel?
+
+Run each command in a separate terminal from your repository. These examples assume you have a signed-in Codex CLI and tasks that fit the prompts; replace the prompts with your actual acceptance criteria.
+
+```sh
+codex exec --worktree --sandbox workspace-write \
+  'Fix the failing CLI validation test. Run the relevant tests. Leave changes uncommitted and do not push.'
+```
+
+```sh
+codex exec --worktree --sandbox workspace-write \
+  'Correct the broken README setup example. Verify it against the CLI help. Change only README.md. Leave changes uncommitted and do not push.'
+```
+
+`codex exec` runs non-interactively. In Codex CLI 0.166.0, `--worktree` creates a managed Git worktree and `--sandbox workspace-write` allows workspace edits. The [non-interactive mode documentation](https://learn.chatgpt.com/docs/non-interactive-mode#basic-usage) explains the read-only default and how progress goes to stderr while the final message goes to stdout. Keep each terminal associated with its task until review is complete.
+
+Codex also has native session management. `codex agents` browses sessions on its shared local app-server daemon. For an existing session, you can queue instructions with its exact name or ID:
+
+```sh
+codex agents
+codex queue --thread SESSION_ID --message 'Keep the public API unchanged.'
+```
+
+Check `codex exec --help` and `codex agents --help` on your installation; the examples here were checked against 0.166.0. If you already work in Claude Code, it can run Bash commands in the background and read their output files. Ask Claude to run each Codex task as a background Bash command. Anthropic documents that workflow under [background Bash commands](https://code.claude.com/docs/en/interactive-mode#background-bash-commands).
+
+## Which tasks are safe to run at the same time?
+
+Choose tasks whose acceptance criteria can be met independently. A validation fix and a README correction may fit if the correction describes existing behavior. A README rewrite that depends on a new CLI interface should wait until that interface is settled.
+
+Write the allowed files down before starting. If two task briefs need the same file, split the work differently or run those tasks in sequence. Check shared test fixtures and package manifests too: separate implementation files can still depend on the same supporting change.
+
+Use a short contract for each task. Include the bug or desired behavior, the files it may change, and the exact check commands the agent must run. Ask for a hand-off that names unresolved questions and reports which checks passed. An instruction to leave changes uncommitted keeps the review decision with you.
+
+For example, a foreman contract for a doctor-command fix could include this scope line:
+
+```markdown
+- May change: `src/commands/doctor.ts` `tests/commands-doctor.test.ts`
+```
+
+Those paths are an example from foreman's repository. Replace them with your task's files. foreman reads backticked paths on the `- May change:` line and flags dirty paths outside that scope in the run digest. The scope report helps review and does not restrict writes. You must still inspect the diff and new files.
+
+Settle shared design decisions before delegating. If both tasks need a new return type, agree on it and commit that shared change first. Otherwise each agent may implement a reasonable but incompatible interpretation, even when their edited files never overlap.
+
+## How do you give each agent its own worktree and branch?
+
+Capture one commit before starting the batch when you want an explicit, reproducible base. From a clean checkout, create named branches and worktrees yourself, then point Codex at them. This is an alternative to the managed `--worktree` examples above:
+
+```sh
+batch_base=$(git rev-parse --verify HEAD)
+git worktree add -b task/validation ../validation-worktree "$batch_base"
+git worktree add -b task/readme ../readme-worktree "$batch_base"
+git worktree list
+```
+
+Both branches start at the captured commit even if the original branch moves later. Git documents the explicit starting commit and `-b` in its [worktree options](https://git-scm.com/docs/git-worktree#_options); [`git rev-parse --verify HEAD`](https://git-scm.com/docs/git-rev-parse#_examples) resolves the current commit. Each linked worktree has its own working files, HEAD and index.
+
+Run `codex exec -C ../validation-worktree` with the validation prompt in one terminal, and `codex exec -C ../readme-worktree` with the README prompt in another. Include `--sandbox workspace-write` as before. Install each task's dependencies using the repository's documented setup before asking it to run checks.
+
+For a Claude Code supervisor, [foreman's installation instructions](/#install) cover `npm i -g @steamfield/foreman` and one-time repository setup. Read `foreman guide` before delegating, then inspect the setup probes from `foreman doctor`. foreman drives `codex app-server` through persistent threads. It starts a managed worktree per task and lets its local daemon own the continuing runs. It never commits or merges.
+
+With task contracts saved as `validation-task.md` and `readme-task.md`, start each run from the repository:
+
+```sh
+batch_base=$(git rev-parse --verify HEAD)
+foreman start validation --new-worktree --from "$batch_base" \
+  --contract validation-task.md --write --setup 'bun install'
+foreman start readme --new-worktree --from "$batch_base" \
+  --contract readme-task.md --write --setup 'bun install'
+```
+
+The setup command here assumes a Bun project; substitute your repository's dependency command. `--from` pins the base, and `--new-worktree` creates worktrees under the main checkout's `.claude/worktrees/` directory on branches named `foreman/validation` and `foreman/readme`. Without `--wait`, each start returns after starting its run, so the first task can continue while you start the second.
+
+foreman defaults to read-only. The `--write` flag used here enables full host and network access without approval prompts. Its worktrees separate Git edits; they do not limit host access. Choose that mode with the task and repository's hooks in mind.
+
+## How do you know which agent needs you?
+
+Use foreman's repository-group wait when Claude needs one place to collect attention:
+
+```sh
+foreman wait --all
+```
+
+It returns attention for questions or run endings across the group, with refreshed per-run digests. The group is identified by the main checkout's real path, so linked worktrees belong to the same group. Successful waits include a continuation cursor; pass it back with `--after` to continue from the recorded event positions.
+
+<CommandDemo
+  command="wait-all"
+  caption="A repository-group wait times out and prints a cursor plus the command to continue waiting."
+/>
+
+This recording shows a timeout, which means no new attention arrived before its deadline. The `next:` line preserves the cursor and the explicit wait timeout. Follow that continuation instead of repeatedly starting a fresh wait. A `none` outcome means the group has no active runs or unseen attention.
+
+Answer a question using the run name and question ID returned by the wait. For example, if `validation` asks `q1`:
+
+```sh
+foreman answer validation q1 'Keep the existing public API; reject invalid input before calling it.'
+foreman status validation
+foreman result validation
+```
+
+`status validation` gives that run's digest; `result validation` includes its latest available hand-off. An answer goes to the named question, including a late answer after deferral. Unanswered questions default to deferral after fifteen minutes, with instructions to continue work that does not depend on the decision. Deferral is prompt guidance, so review what the agent actually did. After handling a run, resume the group wait with the saved cursor.
+
+foreman's [recorded release-fix session](/) used four delegates, `fix-cli`, `fix-daemon`, `fix-supervisor` and `fix-worktrees`, from one commit. The product notes record durations of 24 to 70 minutes each, a scope question answered in nineteen seconds, and another question deferred after fifteen minutes. These timings describe that session and do not establish how long another batch will take.
+
+## How do you merge parallel agents' work back?
+
+Review one completed task at a time. Read its hand-off, inspect the working tree, and run the contract's checks yourself. For the manually created validation worktree:
+
+```sh
+git -C ../validation-worktree status --short
+git -C ../validation-worktree diff
+git -C ../validation-worktree diff --cached
+```
+
+Inspect untracked files listed by `status` too. [`git diff`](https://git-scm.com/docs/git-diff) covers unstaged changes by default, while `--cached` shows staged changes. A completion message alone is insufficient evidence that the acceptance checks passed.
+
+Commit the reviewed task on its branch when you are satisfied, then integrate it into a clean integration checkout. Replace the path above with the managed worktree path if you used foreman. The orchestrator performs these Git operations; foreman's delegate instructions leave the work uncommitted.
+
+Merge in dependency order and run the repository gate after each integration. From your integration branch, after committing the validation task, you can pause before a merge commit for a combined-tree check:
+
+```sh
+git merge --no-ff --no-commit task/validation
+```
+
+Git's [`--no-commit` option](https://git-scm.com/docs/git-merge#_options) stops before creating a merge commit; `--no-ff` also prevents a fast-forward from bypassing that pause. Run the gate, inspect the result, and commit the merge before integrating the next branch. Use `foreman/validation` instead if that was your task branch.
+
+Recheck each later task against the tree that now includes earlier work. If the combined checks fail, resolve that interaction before bringing in another branch. Keep the task's worktree and hand-off available until its changes pass in the integrated tree.
