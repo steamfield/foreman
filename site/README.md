@@ -4,8 +4,8 @@ The landing site for foreman, a CLI for delegating coding tasks to Codex from
 Claude Code, at https://foreman.steamfield.io.
 
 This directory is a separate Astro project. The landing page replays real foreman
-recordings from `fixtures/`; an MDX publishing pipeline sits under `/blog` with no
-published posts yet. `docs/PRODUCT.md` explains the page and `DESIGN.md` its look.
+recordings from `fixtures/`; the blog under `/blog` holds
+how-to articles for search; `docs/blog/` records how they are planned and sourced. `docs/PRODUCT.md` explains the page and `DESIGN.md` its look.
 
 ## Development
 
@@ -30,7 +30,7 @@ Edit `src/content/blog/my-first-post.mdx`. Drafts are visible in dev at
 `/blog/my-first-post` and absent from production pages, RSS and sitemap.
 Set `status: published` to list a post at `/blog` and in `/blog/rss.xml`;
 `unlisted` makes its production URL available without listing it.
-The header does not link the blog. Pages redirects `/blog/` to `/blog`.
+The header and footer link the blog. Pages redirects `/blog/` to `/blog`.
 
 ## Checks
 

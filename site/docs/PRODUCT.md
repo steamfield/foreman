@@ -70,7 +70,6 @@ Should
 Won't (this version)
 
 - Docs pages. The README is the reference; the page links it.
-- A blog. The stack's blog pipeline stays, unlinked, with no published posts.
 - A light/dark toggle. One theme.
 - Claims about speed or cost savings. There's no measurement to back them.
 

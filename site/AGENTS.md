@@ -3,8 +3,8 @@
 ## Overview
 
 This separate Astro project serves foreman's landing page at https://foreman.steamfield.io.
-It is one page whose demos replay real foreman recordings, plus the stack's MDX blog
-pipeline under `/blog` (no published posts). Why the page is shaped this way:
+It is one page whose demos replay real foreman recordings, plus an SEO blog under `/blog`
+whose articles target the problems foreman solves. Why the page is shaped this way:
 [docs/PRODUCT.md](docs/PRODUCT.md); the visual contract: [DESIGN.md](DESIGN.md).
 Use this directory's Makefile and Bun dependencies, independently of the CLI above it.
 
@@ -58,7 +58,10 @@ src/lib/                 format.ts (foreman's elapsed and token formats), analyt
                          blog publication rules
 src/scripts/site.ts      copy buttons, section_viewed tracking, scroll reveals
 src/styles/              global.css (tokens, DESIGN.md), sf-theme.css (--sf-* mapping)
-src/pages/blog/, src/content/  the stack's blog pipeline, unlinked
+src/pages/blog/, src/content/  the blog: index, posts, RSS; posts in src/content/blog/
+src/lib/blog.ts          blog paths, metadata and JSON-LD builders
+src/components/blog/     CommandDemo, the one component posts may import
+docs/blog/               the blog's method: plan, fact sheet, article contract, briefs
 fixtures/runs/           scrubbed foreman run records (events, questions, contract, digest)
 fixtures/cli/            scrubbed CLI transcripts: { command, output, exitCode }
 scripts/capture-*.mjs    write the fixtures from ~/.foreman; review output before committing
@@ -96,7 +99,11 @@ Parent repository trust and hook approval are already done.
 
 - Keep metadata in `src/config.ts` and publication decisions in `src/lib/posts.ts`.
 - Drafts render at `/blog/<slug>` in dev only; unlisted posts render in production
-  but stay out of listings, RSS and sitemap. The shipped welcome post remains draft.
+  but stay out of listings, RSS and sitemap.
+- Blog posts follow `docs/blog/contract-article.md`: one primary query, claims traced
+  to `docs/blog/facts.md` or a cited source, foreman output only through `CommandDemo`.
+  The schema enforces title (48), headline (110) and description (120 to 160) limits;
+  `tests/build.test.mjs` enforces the SEO rules per published post.
 - Reusable components are React; Astro owns layouts and routes. Hydrate only
   interactive islands. Keep the post prose and single light syntax theme readable.
 - `@steamfield/ui` is restricted to `~0.4.0`; React peers are installed, Markdown
@@ -183,7 +190,7 @@ only for moved content, never for trailing slashes or `.html` canonicalization.
 
 ## Deferred
 
-Landing page design, final tokens, font imports and event callers. Generated per-post Open Graph images are off.
+Landing page design, final tokens, font imports and event callers.
 
 ## Pending user actions
 
