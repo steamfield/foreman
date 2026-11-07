@@ -1,0 +1,107 @@
+---
+title: "Codex hooks not trusted: how to fix it"
+description: "Fix Codex hooks not trusted by trusting the project's configuration, then reviewing and approving each current hook definition through /hooks."
+date: 2026-11-06
+status: published
+keyword: "Codex hooks not trusted"
+feature: hooks
+tags: []
+---
+
+import CommandDemo from "../../components/blog/CommandDemo.astro";
+
+To fix Codex hooks not trusted, open Codex in your repository, trust the project if prompted, then run `/hooks` to review and approve the current hook definitions.
+
+Project trust and hook trust are separate checks. Project trust allows Codex to load the repository's `.codex/` configuration layer; hook trust approves an individual definition. A changed definition needs another review. If you're working in a linked worktree, check the main checkout's hooks too: the Codex release covered here loads the matching hook configuration there.
+
+## Why are my Codex hooks not trusted?
+
+Codex skips new or changed non-managed hooks until you approve them. Having `.codex/hooks.json` in the repository doesn't grant that approval. Trust is recorded against each hook definition's current hash, so an approval applies to the definition you reviewed. OpenAI documents this in its [hook review and trust guide](https://learn.chatgpt.com/docs/hooks#review-and-trust-hooks).
+
+An untrusted project can prevent the file from loading at all. That gives you two different problems to distinguish before editing the hook:
+
+| What you find                                 | What to check                                                                                           |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| The expected project hook source is absent    | Confirm the configuration location and project trust. For a linked worktree, inspect the main checkout. |
+| A hook is listed for review                   | Inspect and approve its current definition in `/hooks`.                                                 |
+| A previously approved hook needs review again | Compare the definition with the version you approved, then review the change.                           |
+
+Keep the existing definition while checking trust. Rewriting a hook to troubleshoot an approval problem gives you another definition to review and makes the original failure harder to isolate.
+
+## Where does Codex load hooks from?
+
+Codex discovers hooks beside active configuration layers. For a local setup, check these locations:
+
+| Location                               | Hook representation                    |
+| -------------------------------------- | -------------------------------------- |
+| `~/.codex/hooks.json`                  | User hook definitions in JSON          |
+| `~/.codex/config.toml`                 | Inline `[hooks]` configuration         |
+| Your repository's `.codex/hooks.json`  | Project hook definitions in JSON       |
+| Your repository's `.codex/config.toml` | Inline project `[hooks]` configuration |
+
+Enabled plugins can also supply hooks. Use the source shown in `/hooks` to identify which definition you're reviewing, especially if similar commands appear in user and project configuration. The [official hook discovery documentation](https://learn.chatgpt.com/docs/hooks#where-codex-looks-for-hooks) lists these sources.
+
+### Which hook file does a linked worktree use?
+
+In Codex CLI 0.166.0, linked-worktree discovery redirects the matching `.codex` hook folder to the root checkout. The loader preserves ordinary worktree-local project configuration while replacing inline hook declarations with those from the matching root-checkout layer. This is version-specific behavior, documented here against the [pinned Codex loader source](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/config/src/loader/mod.rs#L1146).
+
+If you edited only the worktree's `.codex/hooks.json`, inspect the main checkout before trying to approve that edit. Comparing the worktree file alone can leave you debugging a definition Codex isn't loading.
+
+## How do you trust hooks with /hooks?
+
+Start the interactive Codex CLI in the checkout whose hooks you want to review:
+
+```sh
+codex
+```
+
+For the linked-worktree setup above, do this in the main checkout. Accept project trust if Codex asks and you trust the repository. Inside Codex, enter:
+
+```text
+/hooks
+```
+
+Inspect the source and current definition for each hook you intend to enable, then approve it through the hook browser. Review the command it will execute and the script it calls before granting approval. `/hooks` also lets you disable individual non-managed hooks, so check that a hook you expect to run hasn't been disabled.
+
+Managed hooks are an exception: they are trusted by policy and cannot be disabled from the user hook browser. A managed entry does not need the same manual approval as a new project hook.
+
+### What if the hooks are trusted but still don't run?
+
+Check whether hooks have been turned off in configuration. OpenAI's [hook configuration documentation](https://learn.chatgpt.com/docs/hooks#turn-hooks-off) says hooks are enabled by default, but `[features]` with `hooks = false` disables them. Administrators can also force hooks off through `requirements.toml`. Reapproving a definition won't fix a disabled feature.
+
+Test the hook with a harmless action that matches its configured event. For a guard against destructive commands, use a disposable test case; keep real project files out of the experiment. Trust approval establishes permission to run the definition. You still need to check the behavior you depend on.
+
+## Why did my hooks stop running after an edit?
+
+A changed definition has a different hash and needs review again. Return to `/hooks`, inspect the updated definition, and approve it if the change is intended. Avoid assuming the earlier approval covers the new command just because the file has the same name.
+
+Keep hook review in the change process. After editing a definition, check its source and approval before relying on it for the next task. In the linked-worktree setup described above, make that check against the main checkout's active hook configuration.
+
+Codex provides `--dangerously-bypass-hook-trust` for one-off automation that already vets hook sources outside Codex. It runs enabled hooks without requiring persisted hook trust for that invocation. It does not mean those definitions have received your normal review.
+
+Use `/hooks` for routine development. Adding the bypass flag to a regular launcher removes the review requirement for that invocation, including when a definition changes. Reserve it for automation with an explicit review process of its own; it isn't a repair for missing project trust or a hook you haven't inspected.
+
+## Making sure delegated runs keep their hooks
+
+A guard that blocks destructive commands only helps when it runs. If Claude Code is handing tasks to Codex without you watching each tool call, hook loading needs a check in that workflow.
+
+[foreman](/) is one option for that supervision. It lets Claude Code delegate tasks to Codex in git worktrees through a local daemon. When the main checkout contains `.codex/hooks.json`, foreman refuses `start` unless Codex reports project hooks for the target worktree as trusted or managed, with no loading errors. Missing project hooks fail the check too. foreman never approves them for you.
+
+With foreman's linked worktrees inside the main checkout, approve hooks in the main checkout. Hook edits in a delegated branch take effect after reaching it, so include hook review when those changes land.
+
+After approving hooks in Codex, exit the interactive CLI and run:
+
+```sh
+foreman doctor
+```
+
+<CommandDemo
+  command="doctor"
+  caption="doctor lists two trusted project hooks and reports that start will accept runs here on hook trust."
+/>
+
+Read the hook results even if `doctor` exits successfully. It can exit zero while reporting unavailable probes. The recording shows a successful trust check, not a test of every guard's behavior. `doctor` never starts a Codex turn or approves hooks.
+
+During a turn that requires project hooks, foreman also interrupts if a command-execution item starts before any project-hook-start notification arrives. That check confirms that a project hook ran in the turn. It does not prove every command ran every hook, or that the hook blocked every dangerous action.
+
+For a failed trust check, return to Codex in the main checkout and review `/hooks`, then inspect `foreman doctor` again. For an approved guard whose behavior is wrong, test and fix the guard itself before relying on it in a delegated task.
