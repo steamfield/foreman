@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.1] - 2026-11-15
+
+### Added
+
+- Codex threads are titled `<run> (<repo>)` before the first turn, so Codex and the ChatGPT app no longer name every run after the shared preamble.
+- Status and digests name why an interrupted run stopped; a turn budget expiry shows as `budget expired`.
+
+### Changed
+
+- Wait text repeats its outcome above `cursor:` and `next:`, so tailed output and background task previews still show which question or completion woke it.
+- Contract templates list only task-specific reading instead of having Codex re-read guidance it already loads.
+- The supervise guide points to multi-name `foreman wait` instead of status polling loops.
+
 ## [0.1.0] - 2026-11-06
 
 ### Added
