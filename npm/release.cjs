@@ -9,7 +9,7 @@ const hints = {
   ENEEDAUTH: "npm had no credentials. Trusted publishing needs `id-token: write` on the job and a Trusted Publisher on the package.",
   E401: "npm rejected the credentials. Check the package's Trusted Publisher (steamfield/foreman, release.yml).",
   E403: "npm refused this publish: the package's Trusted Publisher is missing or does not match this repository and workflow, or the version already exists.",
-  E404: "npm could not find the package or scope. A new package must be published once by hand before a Trusted Publisher can be configured.",
+  E404: "npm returned 404 for a package that may exist: on publish this usually means the OIDC login failed, so check the package's Trusted Publisher matches this repository and workflow exactly (steamfield/foreman, release.yml, no environment) and that the runner npm is 11.5.1 or newer. It can also mean the scope does not exist or a new package was never published by hand.",
   E422: "npm rejected the provenance. Provenance needs a public repository and `id-token: write`.",
 };
 
@@ -64,35 +64,76 @@ function publishedIntegrity(spec) {
   return JSON.parse(output);
 }
 
+const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+const specOf = (entry) => `${entry.name}@${entry.version}`;
+
+// npm reports a publish well before the registry serves it, usually within 3-5 minutes. Wait for the
+// first check, then poll. A different integrity is a real conflict and fails at once.
+function confirmPublished(entries, state) {
+  if (entries.length === 0) return;
+  const delay = Number(process.env.RELEASE_CONFIRM_DELAY_MS ?? 120000);
+  const interval = Number(process.env.RELEASE_CONFIRM_INTERVAL_MS ?? 15000);
+  const attempts = Number(process.env.RELEASE_CONFIRM_ATTEMPTS ?? 20);
+  console.log(`Waiting for the registry to show ${entries.map(specOf).join(", ")}`);
+  sleep(delay);
+  let waiting = entries;
+  for (let attempt = 1; ; attempt++) {
+    waiting = waiting.filter((entry) => {
+      const found = publishedIntegrity(specOf(entry));
+      if (found === null) return true;
+      if (found !== entry.integrity) throw new Error(`${specOf(entry)} is on npm with different contents than the build.`);
+      console.log(`Confirmed ${specOf(entry)}`);
+      state.unconfirmed.splice(state.unconfirmed.indexOf(specOf(entry)), 1);
+      state.done.push(specOf(entry));
+      return false;
+    });
+    if (waiting.length === 0) return;
+    if (attempt >= attempts)
+      throw new Error(
+        `Could not confirm ${waiting.map(specOf).join(", ")} on the registry after ${Math.round((delay + attempts * interval) / 1000)}s. npm reported the publish, so rerun the job: it skips versions already published.`,
+      );
+    sleep(interval);
+  }
+}
+
+// Publish every entry not yet on npm, then wait for the registry to show them as a group.
+function publishEntries(directory, entries, state) {
+  const published = [];
+  for (const entry of entries) {
+    const spec = specOf(entry);
+    const existing = publishedIntegrity(spec);
+    if (existing === null) {
+      console.log(`Publishing ${spec}`);
+      process.stdout.write(npm(["publish", resolve(directory, entry.filename), "--provenance", "--access", "public"]));
+      state.unconfirmed.push(spec);
+      published.push(entry);
+    } else if (existing !== entry.integrity)
+      throw new Error(`${spec} is already on npm with different contents. Never republish a version: bump the patch and tag again.`);
+    else {
+      console.log(`Verified ${spec}; skipping publish.`);
+      state.done.push(spec);
+    }
+  }
+  confirmPublished(published, state);
+}
+
+// The four platform packages go first and must be visible before the main package that depends on them.
 function publish(directory) {
   const packages = JSON.parse(readFileSync(join(directory, "packages.json"), "utf8"));
   const expectedNames = [...targets.map((target) => `@steamfield/foreman-${target}`), "@steamfield/foreman"];
   if (packages.length !== expectedNames.length || packages.some((entry, index) => entry.name !== expectedNames[index]))
     throw new Error("Release must contain all four platform packages followed by the main package.");
-  const done = [];
-  for (const entry of packages) {
-    const spec = `${entry.name}@${entry.version}`;
-    try {
-      const existing = publishedIntegrity(spec);
-      if (existing === null) {
-        console.log(`Publishing ${spec}`);
-        process.stdout.write(npm(["publish", resolve(directory, entry.filename), "--provenance", "--access", "public"]));
-        if (publishedIntegrity(spec) !== entry.integrity)
-          throw new Error(`Could not confirm ${spec} on the registry after publishing. The registry may be lagging: rerun the job, it skips versions already published.`);
-        done.push(spec);
-      } else if (existing !== entry.integrity)
-        throw new Error(`${spec} is already on npm with different contents. Never republish a version: bump the patch and tag again.`);
-      else {
-        console.log(`Verified ${spec}; skipping publish.`);
-        done.push(spec);
-      }
-    } catch (error) {
-      const remaining = packages.slice(done.length).map((item) => `${item.name}@${item.version}`);
-      throw new Error(
-        `${error.message}\nPublished or verified: ${done.length === 0 ? "nothing" : done.join(", ")}.\nNot published: ${remaining.join(", ")}.\nAfter fixing the cause, rerun the failed job: it skips what is already on npm.`,
-        { cause: error },
-      );
-    }
+  const state = { done: [], unconfirmed: [] };
+  try {
+    publishEntries(directory, packages.slice(0, -1), state);
+    publishEntries(directory, packages.slice(-1), state);
+  } catch (error) {
+    const rest = packages.map(specOf).filter((spec) => !state.done.includes(spec) && !state.unconfirmed.includes(spec));
+    const list = (items) => (items.length === 0 ? "none" : items.join(", "));
+    throw new Error(
+      `${error.message}\nOn npm: ${list(state.done)}.\nPublished but not yet visible: ${list(state.unconfirmed)}.\nNot published: ${list(rest)}.\nAfter fixing the cause, rerun the failed job: it skips what is already on npm.`,
+      { cause: error },
+    );
   }
 }
 
