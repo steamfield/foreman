@@ -141,7 +141,7 @@ lefthook runs Biome on staged files at pre-commit (fixes are re-staged), `bun ru
 Releases are tag-driven and the workflow publishes; agents never run `npm publish`. To cut `X.Y.Z` from a clean `main`:
 
 1. Add a `## [X.Y.Z] - YYYY-MM-DD` section to `CHANGELOG.md` describing user-visible changes in prose bullets under Added, Changed or Fixed.
-2. `bun run release X.Y.Z` rewrites the version in `package.json` (and its four platform `optionalDependencies`), this file's overview, the `docs/architecture.md` title and `bun.lock`. It refuses a dirty tree, a branch other than `main`, an existing tag or a missing changelog section. It never commits or tags.
+2. `bun run release X.Y.Z` rewrites the version in `package.json` (and its four platform `optionalDependencies`), this file's overview, the `docs/architecture.md` title and `bun.lock`. It refuses uncommitted changes other than `CHANGELOG.md`, a branch other than `main`, an existing tag or a missing changelog section. It never commits or tags.
 3. `bun run check`, then `git add -A && git commit -m "chore(release): X.Y.Z"`.
 4. `git tag vX.Y.Z && git push origin main vX.Y.Z`. The pre-push hook takes a couple of minutes. The tag must equal the `package.json` version or the workflow stops.
 5. Watch it with `gh run watch <id> --exit-status` (find the id with `gh run list --workflow Release`), then confirm every package with `npm view @steamfield/foreman version`, repeated for `foreman-darwin-arm64`, `-darwin-x64`, `-linux-x64` and `-linux-arm64`.

@@ -24,7 +24,15 @@ const version = process.argv[2];
 if (!version || !/^\d+\.\d+\.\d+$/.test(version))
   fail("usage: bun run release <major.minor.patch> (no leading v, no prerelease suffix)");
 
-if (run("git", ["status", "--porcelain"]) !== "") fail("the working tree has uncommitted changes");
+// The changelog section is written first (see AGENTS.md: Releasing), so it may be the one change.
+const dirty = run("git", ["status", "--porcelain"])
+  .split("\n")
+  .filter(Boolean)
+  // `run` trims the output, so only the first line may have lost the status column's leading space.
+  .map((line) => line.trim().replace(/^\S+\s+/, ""))
+  .filter((path) => path !== "CHANGELOG.md");
+if (dirty.length > 0)
+  fail(`the working tree has uncommitted changes besides CHANGELOG.md:\n  ${dirty.join("\n  ")}`);
 if (run("git", ["branch", "--show-current"]) !== "main") fail("release from main");
 if (run("git", ["tag", "--list", `v${version}`]) !== "") fail(`tag v${version} already exists`);
 
