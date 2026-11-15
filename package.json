@@ -1,6 +1,6 @@
 {
   "name": "@steamfield/foreman",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Delegate coding tasks to Codex and supervise them from the command line",
   "license": "MIT",
   "repository": {
@@ -24,10 +24,10 @@
     "README.md"
   ],
   "optionalDependencies": {
-    "@steamfield/foreman-darwin-arm64": "0.1.1",
-    "@steamfield/foreman-darwin-x64": "0.1.1",
-    "@steamfield/foreman-linux-x64": "0.1.1",
-    "@steamfield/foreman-linux-arm64": "0.1.1"
+    "@steamfield/foreman-darwin-arm64": "0.1.2",
+    "@steamfield/foreman-darwin-x64": "0.1.2",
+    "@steamfield/foreman-linux-x64": "0.1.2",
+    "@steamfield/foreman-linux-arm64": "0.1.2"
   },
   "type": "module",
   "scripts": {
