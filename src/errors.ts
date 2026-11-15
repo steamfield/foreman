@@ -34,6 +34,8 @@ export class RepoHooksUntrusted extends Schema.TaggedError<RepoHooksUntrusted>()
   detail,
 ) {}
 
+export class UpdateFailed extends Schema.TaggedError<UpdateFailed>()("UpdateFailed", detail) {}
+
 export const errorClasses = [
   Usage,
   InvalidConfig,
@@ -48,6 +50,7 @@ export const errorClasses = [
   WorktreeInvalid,
   RepoHooksUntrusted,
   InputError,
+  UpdateFailed,
 ] as const;
 export type AppError = InstanceType<(typeof errorClasses)[number]>;
 export const errorTable = {
@@ -93,6 +96,7 @@ export const errorTable = {
     retryable: false,
   },
   InputError: { code: 2, message: "The input file can't be read.", retryable: false },
+  UpdateFailed: { code: 11, message: "foreman could not update itself.", retryable: true },
 } as const satisfies Record<
   AppError["_tag"],
   { code: number; message: string; retryable: boolean }
@@ -120,12 +124,22 @@ export const errorEnvelope = (error: AppError): typeof ErrorEnvelope.Type => {
     },
   };
 };
-// The human rendering: the safe message, then the detail on its own line when there is one.
+// The human rendering: the safe message, then the detail on its own line when there is one. A
+// usage error leads with what was wrong and ends with where to look, since the generic message
+// says nothing the detail doesn't.
 export const errorText = (error: AppError): string => {
   const detail = detailFor(error);
-  return detail === undefined
-    ? errorTable[error._tag].message
-    : `${errorTable[error._tag].message}\n${detail}`;
+  if (detail === undefined) return errorTable[error._tag].message;
+  if (error._tag === "Usage") return `${detail}\nRun --help for usage.`;
+  return `${errorTable[error._tag].message}\n${detail}`;
+};
+
+const unknownCommand = (error: CliError.UnknownSubcommand) => {
+  const parent = error.parent && error.parent.length > 1 ? ` for "${error.parent.join(" ")}"` : "";
+  const suggestion = error.suggestions.length
+    ? ` Did you mean ${error.suggestions.map((name) => `"${name}"`).join(" or ")}?`
+    : "";
+  return `Unknown command "${error.subcommand}"${parent}.${suggestion}`;
 };
 
 export function failure(cause: Cause.Cause<unknown>): AppError {
@@ -141,10 +155,11 @@ export function failure(cause: Cause.Cause<unknown>): AppError {
       const errors = reason.error._tag === "ShowHelp" ? reason.error.errors : [reason.error];
       const messages = errors.flatMap((error) => {
         switch (error._tag) {
+          case "UnknownSubcommand":
+            return [redactDiagnosticText(unknownCommand(error))];
           case "MissingOption":
           case "MissingArgument":
           case "ValidationError":
-          case "UnknownSubcommand":
           case "UnrecognizedOption":
           case "UnexpectedArgument":
           case "InvalidValue":

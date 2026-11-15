@@ -229,6 +229,16 @@ describe("real config and emitted logging", () => {
       expect.objectContaining({ msg: "command", command }),
     );
   });
+  it("keeps the failed command record in the log file, not before a human-readable error", async () => {
+    const home = await tempDir();
+    const log = join(home, "cli.jsonl");
+    const result = await runCli(["absent"], { home, env: { TEST_CLI_LOG_FILE: log } });
+    expect(result.status).toBe(2);
+    expect(result.stderr).toBe('Unknown command "absent".\nRun --help for usage.\n');
+    expect(ndjson(await readFile(log, "utf8"))).toContainEqual(
+      expect.objectContaining({ msg: "command", level: "error", errorTag: "Usage" }),
+    );
+  });
   it("emits failed command records at error at the default level", async () => {
     const result = await runCli(["absent", "--json"]);
     expect(result.status).toBe(2);

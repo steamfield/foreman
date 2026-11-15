@@ -127,7 +127,8 @@ export class Logging extends Context.Service<
   Logging,
   {
     logger: Logger.Logger<unknown, void>;
-    flush: (settings: LogSettings) => Effect.Effect<void>;
+    // `fileOnly` names messages that go to the log file but not stderr.
+    flush: (settings: LogSettings, fileOnly?: ReadonlySet<string>) => Effect.Effect<void>;
   }
 >()("app/Logging") {
   static layer = Layer.effect(
@@ -150,17 +151,18 @@ export class Logging extends Context.Service<
       });
       return {
         logger,
-        flush: (settings) =>
+        flush: (settings, fileOnly) =>
           Effect.gen(function* () {
             for (const record of records.splice(0)) {
               const json = JSON.stringify(record);
-              yield* output
-                .note(
-                  output.json || settings.format === "json"
-                    ? json
-                    : `${record.time} ${record.level} ${record.msg} ${JSON.stringify(record)}`,
-                )
-                .pipe(Effect.ignoreCause);
+              if (!fileOnly?.has(record.msg))
+                yield* output
+                  .note(
+                    output.json || settings.format === "json"
+                      ? json
+                      : `${record.time} ${record.level} ${record.msg} ${JSON.stringify(record)}`,
+                  )
+                  .pipe(Effect.ignoreCause);
               if (!settings.file) continue;
               let append = appenders.get(settings.file);
               if (!append) {

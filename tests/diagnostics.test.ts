@@ -29,7 +29,7 @@ describe("actionable CLI diagnostics", () => {
         const envelope = Schema.decodeUnknownSync(ErrorEnvelope)(JSON.parse(result.stderr));
         expect(envelope.error).toMatchObject({ tag: "Usage", retryable: false });
       }
-      expect(result.stderr.match(/Invalid command\./g)).toHaveLength(1);
+      expect(result.stderr.match(/Run --help for usage\./g)).toHaveLength(1);
     }
   });
 
@@ -42,7 +42,7 @@ describe("actionable CLI diagnostics", () => {
       expect(result.status).toBe(2);
       expect(result.stdout).toBe("");
       expect(result.stderr).toContain("Missing required flag: --contract");
-      expect(result.stderr.match(/Invalid command\./g)).toHaveLength(1);
+      expect(result.stderr.match(/Run --help for usage\./g)).toHaveLength(1);
       if (json) Schema.decodeUnknownSync(ErrorEnvelope)(JSON.parse(result.stderr));
     }
   });

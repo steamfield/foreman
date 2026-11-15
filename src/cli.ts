@@ -17,6 +17,7 @@ import {
   waitCommand,
 } from "./commands/runs";
 import { skillCommand } from "./commands/skill";
+import { updateCommand } from "./commands/update";
 import { Output } from "./services/output";
 
 export const cli = (name: string) =>
@@ -53,6 +54,7 @@ export const cli = (name: string) =>
       guideCommand,
       skillCommand,
       daemonCommand,
+      updateCommand,
     ]),
     Command.provideEffectDiscard(({ json }) =>
       Effect.flatMap(Output, (output) => output.setJson(json)),

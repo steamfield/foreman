@@ -1,5 +1,15 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- `foreman update` installs the latest release with the package manager that installed foreman (npm, bun or pnpm global installs); `--check` only reports. Other installs are told how to update. A failed check or install exits 11 with the package manager's error and a next step.
+
+### Changed
+
+- A usage error leads with what was wrong, such as `Unknown command "updat". Did you mean "update"?`, then points to `--help`. The internal command log record no longer prints above it; it stays in the log file and in `--json` output.
+
 ## [0.1.2] - 2026-11-15
 
 ### Changed

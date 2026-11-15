@@ -84,6 +84,7 @@ All commands accept `--json` and `--help`. Commands below follow `foreman`; angl
 | `wait <name>...` or `wait --all` | Wait for attention; accepts `--after <cursor>` and `--timeout <duration>` |
 | `doctor` | Inspect config, Codex, hook trust, home permissions and daemon state |
 | `daemon` / `daemon stop` | Run in the foreground / stop when no runs or accepted answers need the daemon |
+| `update [--check]` | Install the latest release with the npm, bun or pnpm global install that installed this foreman; `--check` only reports. Other installs get instructions |
 
 `--worktree` and `--new-worktree` are mutually exclusive; `--from` and `--setup` require `--new-worktree`. A prepared worktree must be its git root, distinct from and inside the main checkout. With `package.json`, it needs `node_modules/` or `.pnp.cjs` unless you pass `--skip-deps-check`.
 
@@ -131,6 +132,7 @@ On `failed` or `lost`, read status, result, events and the worktree before conti
 | 8 | Run conflict, including unreadable or unsupported run data |
 | 9 | Invalid worktree or missing dependencies |
 | 10 | Repo hook trust not confirmed |
+| 11 | Update failed: the registry check or the install did not complete |
 | 130 | Interrupted CLI invocation |
 
 Failures leave stdout empty and report on stderr. With `--json`, the last stderr line is an error envelope.
@@ -156,7 +158,7 @@ Daemon diagnostics are in `logs/daemon.jsonl`, app-server stderr in `logs/app-se
 
 ## Upgrade
 
-Update with your installation method. For a source install, rebuild and replace the installed binary by copying to a new file in the same directory, then renaming it:
+Run `foreman update` for an npm, bun or pnpm global install; it checks the registry through npm and installs the exact latest version with the same package manager (`foreman update --check` only reports). For a source install, rebuild and replace the installed binary by copying to a new file in the same directory, then renaming it:
 
 ```sh
 bun install

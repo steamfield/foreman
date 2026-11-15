@@ -325,10 +325,7 @@ describe("stdout and error contracts", () => {
       } else {
         expect(result.stdout).toBe("");
         if (json) expect(JSON.parse(result.stderr)).toMatchObject({ error: { tag: "Usage" } });
-        else
-          expect(result.stderr).toBe(
-            'Invalid command. Run --help for usage.\nUnknown subcommand "absent" for "test-cli"\n',
-          );
+        else expect(result.stderr).toBe('Unknown command "absent".\nRun --help for usage.\n');
       }
     }
   });
@@ -401,10 +398,11 @@ describe("stdout and error contracts", () => {
           });
         else {
           let detail = 'Unexpected positional argument: "extra"';
-          if (args[0] === "unknown") detail = 'Unknown subcommand "unknown" for "test-cli"';
+          if (args[0] === "unknown") detail = 'Unknown command "unknown".';
           if (args[1] === "--unknown")
             detail = "Unrecognized flag: --unknown in command test-cli doctor";
-          expect(result.stderr).toBe(`Invalid command. Run --help for usage.\n${detail}\n`);
+          // What was wrong comes first; the pointer to help comes last.
+          expect(result.stderr).toBe(`${detail}\nRun --help for usage.\n`);
         }
       }
     },

@@ -139,7 +139,10 @@ export const main = Effect.fn("main")(function* (
           durationMs: (yield* Clock.currentTimeMillis) - started,
         }),
       );
-      yield* logging.flush(settings);
+      // A person reading a failure gets the rendered error below; the command record repeating it
+      // stays in the log file. Machine output (--json or JSON logs) keeps it on stderr.
+      const human = !output.json && settings.format !== "json";
+      yield* logging.flush(settings, error && human ? new Set(["command"]) : undefined);
       if (error) {
         const written = yield* Effect.exit(output.error(error));
         if (Exit.isFailure(written)) {
