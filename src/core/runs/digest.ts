@@ -50,6 +50,10 @@ export function buildDigest(
   const warnings = run.warnings.filter(
     (warning) => warning !== "Thread resumed: questions may not reach Claude in this turn.",
   );
+  const interruption =
+    run.state === "interrupted"
+      ? events.findLast(({ event }) => event._tag === "Interrupted")?.event
+      : undefined;
   const unanswered = unansweredQuestions(questions).map(({ id, kind, question }) => ({
     id,
     kind,
@@ -95,6 +99,7 @@ export function buildDigest(
             message: run.failure.message,
             hint: failureHint(run.failure.codexErrorInfo),
           },
+    ...(interruption?._tag === "Interrupted" ? { interruptedBy: interruption.by } : {}),
     warnings: [...new Set([...warnings, ...resumeWarnings])],
   };
 }
@@ -134,12 +139,19 @@ function commandPreview(command: string): string {
   return first.length > 160 ? `${first.slice(0, 159)}…` : first;
 }
 
+const interruptions: Record<NonNullable<Digest["interruptedBy"]>, string> = {
+  budget: "turn budget expired; foreman result shows the hand-off",
+  orchestrator: "by the orchestrator",
+  "repo-hooks": "repo hooks did not run",
+};
+
 export function renderStatus(digest: Digest): string {
   return [
     digest.name,
     digest.state,
     `turn ${digest.turn}${digest.turnKind === null ? "" : ` (${digest.turnKind})`}`,
     duration(digest.elapsedMs),
+    ...(digest.interruptedBy === "budget" ? ["budget expired"] : []),
     ...digest.questions.map(({ id }) => `${id} pending`),
     ...(digest.unansweredQuestions ?? []).map(({ id }) => `${id} deferred, unanswered`),
     ...(digest.warnings.some((warning) => warning.startsWith("worktree removed: "))
@@ -171,6 +183,8 @@ export function renderDigest(digest: Digest): string {
       : []),
     `turn:      ${digest.turn}${digest.turnKind === null ? "" : ` (${digest.turnKind})`}`,
   ];
+  if (digest.interruptedBy !== undefined)
+    lines.push(`interrupted: ${interruptions[digest.interruptedBy]}`);
   if (digest.questions.length === 0 && !digest.unansweredQuestions?.length)
     lines.push("question:  (none)");
   for (const question of digest.questions)

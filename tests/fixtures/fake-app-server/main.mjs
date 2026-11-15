@@ -95,6 +95,8 @@ async function receive(line) {
   if (!message.method || message.id === undefined) return;
   const index = scenario.rules.findIndex((rule, index) => (!used.has(index) || rule.repeat) && rule.method === message.method && (!rule.when || subset(rule.when, message.params)));
   const rule = scenario.rules[index];
+  // Real Codex accepts a title for any loaded thread; scenarios add a rule to refuse it.
+  if (!rule && message.method === "thread/name/set") { write({ id: message.id, result: {} }); return; }
   if (!rule) { write({ id: message.id, error: { code: -32601, message: `no rule for ${message.method}` } }); return; }
   used.add(index);
   if (rule.gate) {

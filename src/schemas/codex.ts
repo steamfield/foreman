@@ -20,6 +20,7 @@ export const Method = {
   hooksList: "hooks/list",
   threadStart: "thread/start",
   threadResume: "thread/resume",
+  threadNameSet: "thread/name/set",
   turnStart: "turn/start",
   turnSteer: "turn/steer",
   turnInterrupt: "turn/interrupt",
@@ -93,6 +94,10 @@ export const ThreadStartParams = Schema.Struct({
 // thread/resume takes no dynamicTools. Every setting is passed again so nothing falls back
 // to the user's config.toml defaults.
 export const ThreadResumeParams = Schema.Struct({ threadId: CodexThreadId, ...ThreadSettings });
+
+// The title the Codex and ChatGPT apps show for the thread instead of its first message.
+export const ThreadNameSetParams = Schema.Struct({ threadId: CodexThreadId, name: Schema.String });
+export const ThreadNameSet = Schema.Struct({});
 
 export const TextInput = Schema.Struct({ type: Schema.Literal("text"), text: Schema.String });
 

@@ -424,6 +424,46 @@ const queuedAnswersFixture = Effect.fnUntraced(function* () {
 });
 
 describe("supervisor over the real daemon socket", () => {
+  it.live("start names the Codex thread after the run and its repo", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario(turnRule([complete()])), false, "my-app");
+      yield* f.launch();
+      yield* f.start();
+      const digest = yield* f.untilState("idle");
+      const log = yield* f.readLog;
+      const renames = log.filter((entry) => entry.method === Codex.Method.threadNameSet);
+      expect(renames).toEqual([
+        {
+          method: Codex.Method.threadNameSet,
+          params: { threadId: expect.any(String), name: "unit (my-app)" },
+        },
+      ]);
+      const methods = log.flatMap((entry) => (entry.method ? [entry.method] : []));
+      expect(methods.indexOf(Codex.Method.threadNameSet)).toBeLessThan(
+        methods.indexOf(Codex.Method.turnStart),
+      );
+      expect(digest.warnings.filter((warning) => warning.includes("thread title"))).toEqual([]);
+    }).pipe(Effect.provide(platform)),
+  );
+  it.live("a refused thread name leaves a warning and the run continues", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(
+        scenario(
+          {
+            method: Codex.Method.threadNameSet,
+            respond: { error: { code: -32600, message: "no" } },
+          },
+          turnRule([complete()]),
+        ),
+      );
+      yield* f.launch();
+      yield* f.start();
+      const digest = yield* f.untilState("idle");
+      expect(digest.warnings.filter((warning) => warning.includes("thread title"))).toEqual([
+        expect.stringContaining("Codex did not accept the thread title"),
+      ]);
+    }).pipe(Effect.provide(platform)),
+  );
   it.live("review audit: retained managed work never hides a defect", () =>
     Effect.gen(function* () {
       const f = yield* preflightFixture();

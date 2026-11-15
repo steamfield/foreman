@@ -42,6 +42,7 @@ export const Sandbox = Schema.Literals(["read-only", "danger-full-access"]);
 export type Sandbox = typeof Sandbox.Type;
 
 export const TurnKind = Schema.Literals(["start", "followup", "handoff"]);
+export const InterruptedBy = Schema.Literals(["orchestrator", "budget", "repo-hooks"]);
 export type TurnKind = typeof TurnKind.Type;
 
 // Unversioned storage is version 1. Question/event writers use version 2.
@@ -170,7 +171,7 @@ export const RunEventBody = Schema.TaggedUnion({
     ]),
   },
   Steered: { message: Schema.String },
-  Interrupted: { by: Schema.Literals(["orchestrator", "budget", "repo-hooks"]) },
+  Interrupted: { by: InterruptedBy },
   TokenUsage: { totals: TokenTotals },
   McpStartupFailed: { server: Schema.String, error: Schema.NullOr(Schema.String) },
   Retrying: { message: Schema.String },
@@ -262,6 +263,8 @@ export const Digest = Schema.Struct({
       hint: Schema.NullOr(Schema.Literals(["transient", "usage-limit"])),
     }),
   ),
+  // Set while the run is interrupted: the cause of its latest interruption.
+  interruptedBy: Schema.optionalKey(InterruptedBy),
   warnings: Schema.Array(Schema.String),
 });
 export type Digest = typeof Digest.Type;

@@ -5,6 +5,7 @@ import {
   Deferred,
   Effect,
   FileSystem,
+  Path,
   PlatformError,
   Queue,
   Schema,
@@ -71,6 +72,29 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
     return yield* Deferred.await(pending.done);
   });
   const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  // Codex and the ChatGPT app title an unnamed thread by its first message, which opens with
+  // the same preamble for every run. A refused title is cosmetic, so the run keeps going.
+  const nameThread = (run: Run, server: AppServer, threadId: Codex.CodexThreadId) =>
+    server.connection
+      .request(
+        Codex.Method.threadNameSet,
+        { threadId, name: `${run.record.name} (${path.basename(run.record.group)})` },
+        Codex.ThreadNameSet,
+      )
+      .pipe(
+        Effect.asVoid,
+        Effect.catchIf(
+          (error) => error instanceof CodexRpcError || error instanceof CodexRequestTimeout,
+          (error) =>
+            registry.save(run, {
+              warnings: [
+                ...run.record.warnings,
+                `Codex did not accept the thread title (${error instanceof CodexRpcError ? error.message : `timed out after ${error.timeoutMs} ms`}); the Codex app lists this run under its first message.`,
+              ],
+            }),
+        ),
+      );
   const settings = (run: Run) => ({
     cwd: run.record.worktree,
     model: run.record.model,
@@ -315,6 +339,7 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
         );
         yield* registry.save(run, { threadId: opened.thread.id });
         server.loaded.add(opened.thread.id);
+        yield* nameThread(run, server, opened.thread.id);
         turnRequested = true;
         yield* begin(
           run,

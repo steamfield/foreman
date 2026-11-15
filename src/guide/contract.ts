@@ -5,13 +5,10 @@ this comment and inapplicable sections. Leave REVIEW DIR for the delegate's mkte
 Choose a visible model, fill REVIEW MODEL with its
 literal name, pass the same name to foreman start --model, and confirm the digest's run: header.
 Start with foreman start <name> --worktree <path> --contract <this-file> --write --model <model>.
-Run the printed next: wait command in the background and follow each subsequent next: command. -->
-
-You are working in a git worktree for an orchestrator who reviews, refactors and commits your
-work. Work here, not in the main checkout. Leave changes uncommitted and do not push.
-Ask through \`ask_orchestrator\` only when blocked by something the contract and repo do not
-settle, or when a decision with real consequences is needed. Those calls pause your work.
-Progress reports, findings and corrections go in the hand-off, not in questions.
+Run the printed next: wait command in the background and follow each subsequent next: command.
+Codex loads AGENTS.md from the repo root down to the worktree and lists its installed skills
+itself, so don't ask it to read either. Every file listed below is read before the first edit
+and resent on every later model call: list only what this task needs. -->
 
 ## Goal
 
@@ -19,29 +16,18 @@ Progress reports, findings and corrections go in the hand-off, not in questions.
 
 ## Read first
 
-- \`AGENTS.md\`, if present: {applicable sections}.
-- {Applicable rule and convention paths, including Claude rules and CLAUDE.md sections that
-  Codex does not load automatically.}
-- {Design sections and existing files whose patterns to follow.}
+- {Design sections and existing files whose patterns to follow, with line ranges where useful.}
+- {Instructions Codex does not load itself, such as CLAUDE.md sections or path-scoped rules the
+  repo's Codex hooks don't inject, only where they apply to this task.}
+
+Read anything else when the work reaches it, not up front.
 
 ## Skills to apply
 
-Find the newest installed Claude Code \`claude-essentials\` marketplace copy:
-
-\`\`\`sh
-ce=$(ls -d "$HOME"/.claude/plugins/cache/*/ce/*/ | sort -V | tail -1)
-\`\`\`
-
-Read the applicable skills; say in the hand-off where they changed your approach. If a required
-skill is missing, ask the orchestrator. The repo's own rules win where they differ.
-
-- \`ce:writing-tests\`: \`\${ce}skills/writing-tests/SKILL.md\` for every test, including
-  \`references/waiting-typescript.md\` for tests waiting on processes, sockets, timers or files,
-  and \`references/flaky-tests.md\` for isolation and repeat-run checks.
-- \`\${ce}skills/architecting-systems/SKILL.md\` and its \`references/structure.md\`, \`coupling.md\`
-  and \`boundaries.md\`: before changing a module, service, schema or contract.
-- \`\${ce}skills/handling-errors/SKILL.md\`: for error handling you add.
-- {Other skills the task needs, with their paths.}
+{Optional; delete this section if not needed. Name installed skills that must apply, and when,
+for example "the testing skill for every test". Codex finds them by name.} If a named skill
+is not installed, say so in the hand-off and continue with the repo's rules. Say in the
+hand-off where skills changed your approach. The repo's own rules win where they differ.
 
 ## Interface
 
@@ -105,8 +91,8 @@ with nothing new to run, explain that and QA what can be exercised.
 ## Review before hand-off
 
 Once acceptance checks pass, get one independent review in a fresh Codex process and resolve
-its findings. Read \`\${ce}agents/code-reviewer.md\`. If the repo has its own reviewer agent,
-read \`{REPO REVIEWER PATH OR NONE}\` too; use its body last so repo guidance wins.
+its findings. Run it from the worktree root, where Codex loads AGENTS.md and its installed
+skills itself.
 
 Use separate simple commands and the file-writing tool, not a shell function, grouped command,
 heredoc or generated shell script. Run from the worktree root:
@@ -118,15 +104,14 @@ mktemp -d
 Keep the printed absolute directory as the review directory, outside the worktree. With the
 file-writing tool, write \`<review-directory>/prompt.md\` containing, in this order:
 
-1. The marketplace reviewer agent body without YAML frontmatter.
-2. The applicable skill paths, including writing-tests and its waiting/flaky references.
-3. The repo reviewer body without frontmatter, if present.
-4. These task instructions and the full filled contract:
+1. The body of \`{REPO REVIEWER PATH OR NONE}\` without YAML frontmatter, if present.
+2. These task instructions:
 
    "Review uncommitted changes and new files in {ABSOLUTE WORKTREE PATH} against base
-   {BASE BRANCH}. Your sandbox is read-only; don't run tests or edit files. The author already
-   ran the checks. Check the contract and repo rules and report every real defect with a
-   file:line reference."
+   {BASE BRANCH}. Read the contract at {ABSOLUTE CONTRACT PATH} first. Your sandbox is
+   read-only; don't run tests or edit files. The author already ran the checks. Check the
+   contract and repo rules, including path-scoped rules (such as \`.claude/rules/\`) covering
+   the changed files, and report every real defect with a file:line reference."
 
 Then run one plain command, replacing \`{REVIEW DIR}\` with that printed absolute path:
 

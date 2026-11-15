@@ -7,7 +7,7 @@ What's in the tree:
 | Piece | What it does | Where |
 | --- | --- | --- |
 | Hooks | Guards that deny (destructive commands, secrets, generated files, the project's boundary violations, wrong commands); lint and type feedback after each edit; formatting at the end of a turn; repo state at session start | `.claude/hooks/`, wired in `.claude/settings.json`; per-hook detail in [`.claude/README.md`](../.claude/README.md) |
-| Path-scoped rules | Guidance that loads only when the agent touches matching files | `.claude/rules/` |
+| Path-scoped rules | Guidance that loads only when the agent touches matching files. Claude Code loads them natively; for Codex, `.codex/hooks/inject-rules.ts` sends the matching ones with each `apply_patch`, once per session and again after a compaction (keyed by session id under `$TMPDIR/codex-rules/`, at most about 2,000 tokens per patch). It runs under Bun and is self-contained, so other repos can copy it. | `.claude/rules/` |
 | Slash commands | `/check`, `/test`, `/feature` | `.claude/commands/` |
 | Agents | `architect` and `reviewer`, both read-only | `.claude/agents/` |
 | Skills | `effect-development`: where to look up Effect names, the API reference and the test-kit patterns. Codex reads the same tree through the `.agents/skills` symlink. | `.claude/skills/` |

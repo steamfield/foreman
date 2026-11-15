@@ -150,26 +150,30 @@ export function renderResult(
           ? [`Latest turn (${result.digest.turn}) ended without a hand-off.`]
           : []),
       ].join("\n\n");
-    case "Waited":
+    case "Waited": {
+      const outcome =
+        result.outcome === "events"
+          ? result.runs.map(
+              ({ kind, name, summary }) => `${kind.padEnd(12)}${name} ${oneLine(summary)}`,
+            )
+          : [result.outcome];
       return [
         ...(result.started
           ? [result.started.name, result.started.runDir, ...worktreeLines(result.started)]
           : []),
-        ...(result.outcome === "events"
-          ? result.runs.map(
-              ({ kind, name, summary }) => `${kind.padEnd(12)}${name} ${oneLine(summary)}`,
-            )
-          : [result.outcome]),
+        ...outcome,
         ...result.runs.flatMap(({ kind, digest, handoff }) => [
           "",
           renderDigest(digest),
           ...(["done", "failed", "interrupted"].includes(kind) ? ["", renderHandoff(handoff)] : []),
         ]),
         ...(result.skipped ?? []).map(renderSkipped),
-        ...(result.runs.length === 0 ? [] : [""]),
+        // Agents tail long wait output and task previews show its end, so repeat the outcome there.
+        ...(result.runs.length === 0 ? [] : ["", ...outcome]),
         `cursor: ${result.cursor}`,
         `next: ${result.next}`,
         ...(result.alternative ? [`or: ${result.alternative}`] : []),
       ].join("\n");
+    }
   }
 }
