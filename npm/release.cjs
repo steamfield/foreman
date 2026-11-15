@@ -33,6 +33,7 @@ function npm(args) {
       { cause: error },
     );
     failure.stdout = error.stdout;
+    failure.npmCode = code;
     throw failure;
   }
 }
@@ -104,7 +105,13 @@ function publishEntries(directory, entries, state) {
     const existing = publishedIntegrity(spec);
     if (existing === null) {
       console.log(`Publishing ${spec}`);
-      process.stdout.write(npm(["publish", resolve(directory, entry.filename), "--provenance", "--access", "public"]));
+      try {
+        process.stdout.write(npm(["publish", resolve(directory, entry.filename), "--provenance", "--access", "public"]));
+      } catch (error) {
+        // An earlier run published this version and the registry is not serving it yet.
+        if (error.npmCode !== "E409") throw error;
+        console.log(`${spec} was already published; waiting for the registry.`);
+      }
       state.unconfirmed.push(spec);
       published.push(entry);
     } else if (existing !== entry.integrity)

@@ -62,6 +62,7 @@ it.each([
   "publish-fails",
   "unconfirmed",
   "lagging",
+  "conflict",
 ])("release publishing handles %s without publishing main prematurely", async (mode) => {
   const root = await realpath(await tempDir());
   const bin = `${root}/bin`;
@@ -83,18 +84,24 @@ it.each([
     await mkdir(directory);
     await writeFile(`${directory}/package.json`, JSON.stringify(entry));
   }
+  const hidden =
+    mode === "conflict" ? { __lag: { "@steamfield/foreman-darwin-x64@1.2.3": 2 } } : {};
   await writeFile(
     `${root}/registry.json`,
-    JSON.stringify(
-      Object.fromEntries(
+    JSON.stringify({
+      ...hidden,
+      ...Object.fromEntries(
         packages
-          .filter((_, index) => mode === "complete" || index === 0)
+          .filter(
+            (_, index) =>
+              mode === "complete" || index === 0 || (mode === "conflict" && index === 1),
+          )
           .map((entry) => [
             `${entry.name}@${entry.version}`,
             mode === "mismatch" ? "sha512-wrong" : entry.integrity,
           ]),
       ),
-    ),
+    }),
   );
   await writeFile(`${root}/calls.jsonl`, "");
   await writeFile(
@@ -116,7 +123,7 @@ if (args[0] === "view") {
   if (mode === "publish-fails") process.exit(1);
   const packages = JSON.parse(fs.readFileSync(root + "/packages.json"));
   const entry = args[1].endsWith(".tgz") ? packages.find(p => args[1].endsWith(p.filename)) : JSON.parse(fs.readFileSync(process.cwd() + "/package.json"));
-  if (registry[entry.name + "@" + entry.version]) process.exit(1);
+  if (registry[entry.name + "@" + entry.version]) { console.error("npm error code E409"); console.error("npm error 403 You cannot publish over the previously published versions"); process.exit(1); }
   if (mode !== "unconfirmed") registry[entry.name + "@" + entry.version] = entry.integrity;
   if (mode === "lagging") registry.__lag = { ...registry.__lag, [entry.name + "@" + entry.version]: 2 };
   fs.writeFileSync(root + "/registry.json", JSON.stringify(registry));
@@ -168,8 +175,15 @@ if (args[0] === "view") {
     .filter(Boolean)
     .map((line) => Schema.decodeUnknownSync(Schema.Array(Schema.String))(JSON.parse(line)));
   const published = calls.filter((call) => call[0] === "publish").map((call) => call[1]);
-  expect(status).toBe(mode === "partial" || mode === "complete" || mode === "lagging" ? 0 : 1);
+  expect(status).toBe(
+    mode === "partial" || mode === "complete" || mode === "lagging" || mode === "conflict" ? 0 : 1,
+  );
   if (mode === "lagging")
+    expect(published).toEqual(
+      packages.slice(1).map((entry) => `${root}/dist/release/${entry.filename}`),
+    );
+  if (mode === "conflict")
+    // A version npm already holds but the registry has not served yet counts as published.
     expect(published).toEqual(
       packages.slice(1).map((entry) => `${root}/dist/release/${entry.filename}`),
     );
