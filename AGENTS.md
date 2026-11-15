@@ -29,6 +29,7 @@ Run these from the repo root. They are the only supported way to build, test, an
 | `bun run build:npm` | Build the main and four platform npm packages under `dist/npm/` |
 | `bun run build --npm-host` | Build the main and host platform npm packages for packaging tests |
 | `bun run check` | lint, typecheck, test and e2e: the gate before a commit |
+| `bun run release <x.y.z>` | Prepare a release: bump every version reference and the lockfile (see Releasing) |
 | `bun run clean` | Remove `dist/`, `coverage/`, `logs/`, `.dev/` |
 | `stacks verify` | The scaffold's definition of done (every check above plus doc and hook checks) |
 
@@ -134,6 +135,18 @@ lefthook runs Biome on staged files at pre-commit (fixes are re-staged), `bun ru
 `.github/workflows/ci.yml` runs one `ci-ok` job on pushes to `main`, pull requests and manual dispatch: frozen install, lint, typecheck, coverage, then e2e, uploading logs and coverage on failure. Actions are pinned by commit SHA with the tag in a comment; Dependabot (`.github/dependabot.yml`) proposes weekly grouped updates for actions and bun dependencies, or resolve a new SHA with `git ls-remote --tags`.
 
 `.github/workflows/release.yml` runs the full checks on `v*` tags, verifies the package version, cross-compiles all four platform packages and publishes them before the main npm package with provenance. It authenticates through npm trusted publishing (OIDC); there is no npm token secret.
+
+## Releasing
+
+Releases are tag-driven and the workflow publishes; agents never run `npm publish`. To cut `X.Y.Z` from a clean `main`:
+
+1. Add a `## [X.Y.Z] - YYYY-MM-DD` section to `CHANGELOG.md` describing user-visible changes in prose bullets under Added, Changed or Fixed.
+2. `bun run release X.Y.Z` rewrites the version in `package.json` (and its four platform `optionalDependencies`), this file's overview, the `docs/architecture.md` title and `bun.lock`. It refuses a dirty tree, a branch other than `main`, an existing tag or a missing changelog section. It never commits or tags.
+3. `bun run check`, then `git add -A && git commit -m "chore(release): X.Y.Z"`.
+4. `git tag vX.Y.Z && git push origin main vX.Y.Z`. The pre-push hook takes a couple of minutes. The tag must equal the `package.json` version or the workflow stops.
+5. Watch it with `gh run watch <id> --exit-status` (find the id with `gh run list --workflow Release`), then confirm every package with `npm view @steamfield/foreman version`, repeated for `foreman-darwin-arm64`, `-darwin-x64`, `-linux-x64` and `-linux-arm64`.
+
+If a publish step fails partway, fix the cause and rerun the failed job (`gh run rerun <id> --failed`). `npm/release.cjs` skips any version already on npm with the same integrity and fails on a mismatch, so a rerun never double-publishes. Never move or reuse a published version: bump the patch instead. Trusted publishing needs each of the five packages to list `steamfield/foreman` and `release.yml` as its Trusted Publisher on npmjs.com; a new platform package must be published once by hand before it can be configured.
 
 ## Build workarounds
 

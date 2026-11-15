@@ -203,7 +203,7 @@ Enable the question hold with `FOREMAN_SMOKE=1 FOREMAN_SMOKE_LONG=1 bun run smok
 
 ### Releasing
 
-Bump `version` and all four platform `optionalDependencies` versions in `package.json`, then run `bun install` to update the lockfile. Commit and push a matching `vX.Y.Z` tag. The release workflow verifies the version, runs lint, typecheck, coverage and e2e, builds four platform packages and publishes them before `@steamfield/foreman`, with npm provenance. It authenticates through npm trusted publishing, so each of the five packages needs a Trusted Publisher for `steamfield/foreman` and `release.yml`; no token is stored.
+Write the `CHANGELOG.md` section for the new version, then run `bun run release X.Y.Z`. It bumps `package.json` (including the four platform `optionalDependencies`), the version mentioned in `AGENTS.md` and `docs/architecture.md`, and `bun.lock`, and prints the remaining steps: `bun run check`, commit, then push `main` and a matching `vX.Y.Z` tag. The release workflow verifies the version, runs lint, typecheck, coverage and e2e, builds four platform packages and publishes them before `@steamfield/foreman`, with npm provenance. It authenticates through npm trusted publishing, so each of the five packages needs a Trusted Publisher for `steamfield/foreman` and `release.yml`; no token is stored. [AGENTS.md](AGENTS.md#releasing) has the full procedure and recovery notes.
 
 `bun run build:npm` builds packages under `dist/npm/`; `bun run build --npm-host` builds only the host platform and main package. Inspect each generated package with `npm publish --dry-run --access public` from its directory. The main package is `dist/npm/foreman`; its manifest omits development dependencies and lifecycle scripts.
 
