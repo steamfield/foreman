@@ -133,7 +133,7 @@ lefthook runs Biome on staged files at pre-commit (fixes are re-staged), `bun ru
 
 `.github/workflows/ci.yml` runs one `ci-ok` job on pushes to `main`, pull requests and manual dispatch: frozen install, lint, typecheck, coverage, then e2e, uploading logs and coverage on failure. Actions are pinned by commit SHA with the tag in a comment; Dependabot (`.github/dependabot.yml`) proposes weekly grouped updates for actions and bun dependencies, or resolve a new SHA with `git ls-remote --tags`.
 
-`.github/workflows/release.yml` runs the full checks on `v*` tags, verifies the package version, cross-compiles all four platform packages and publishes them before the main npm package with provenance. It uses the `NPM_TOKEN` repository secret.
+`.github/workflows/release.yml` runs the full checks on `v*` tags, verifies the package version, cross-compiles all four platform packages and publishes them before the main npm package with provenance. It authenticates through npm trusted publishing (OIDC); there is no npm token secret.
 
 ## Build workarounds
 
@@ -145,7 +145,7 @@ The MCP server wrapper, Channels push, launchd installation and an archive-delet
 
 ## Pending user actions
 
-Verify that the repository branch ruleset requires `ci-ok`; repository files do not establish the hosted setting. Configure `NPM_TOKEN` for release publishing if it is not already set. Confirm local repo trust and hook approval with `foreman doctor`; follow [README repo setup](README.md#one-time-repo-setup) for this repo and others.
+Verify that the repository branch ruleset requires `ci-ok`; repository files do not establish the hosted setting. Confirm local repo trust and hook approval with `foreman doctor`; follow [README repo setup](README.md#one-time-repo-setup) for this repo and others.
 
 ## Deeper context
 

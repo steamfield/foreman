@@ -52,7 +52,6 @@ jobs:
           path: dist/release/
           if-no-files-found: error
       - name: Publish platform packages, then main package
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        # Authenticates through npm trusted publishing (OIDC); no token is stored.
         run: |
           node npm/release.cjs publish dist/release
