@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.2] - 2026-11-15
+
+### Changed
+
+- Releases publish from CI through npm trusted publishing with provenance, and `bun run release <version>` prepares the version bump. A failed publish now explains its cause and which packages already went out.
+
 ## [0.1.1] - 2026-11-15
 
 ### Added
