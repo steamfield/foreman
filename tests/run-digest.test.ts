@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { DateTime, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { buildDigest, renderDigest } from "../src/core/runs/digest";
+import { buildDigest, renderDigest, renderStatus } from "../src/core/runs/digest";
 import {
   Digest,
   QuestionLine,
@@ -157,6 +157,44 @@ describe("digest data", () => {
       expect(renderDigest(digest).split("\n")[0]).toContain(`${state}  1m05s`);
     },
   );
+
+  it("names the latest interruption cause only while the run is interrupted", () => {
+    const interrupted = (by: "budget" | "orchestrator" | "repo-hooks", index: number) =>
+      event({ _tag: "Interrupted", by }, index);
+    const budget = buildDigest(
+      { ...run, state: "interrupted", turnKind: "handoff" },
+      [interrupted("orchestrator", 0), interrupted("budget", 1)],
+      [],
+      "/runs/unit-a",
+      now,
+      null,
+    );
+    expect(budget.interruptedBy).toBe("budget");
+    expect(renderStatus(budget)).toContain("interrupted  turn 2 (handoff)  12m04s  budget expired");
+    expect(renderDigest(budget)).toContain(
+      "interrupted: turn budget expired; foreman result shows the hand-off",
+    );
+    const byOrchestrator = buildDigest(
+      { ...run, state: "interrupted" },
+      [interrupted("orchestrator", 0)],
+      [],
+      "/runs/unit-a",
+      now,
+      null,
+    );
+    expect(renderDigest(byOrchestrator)).toContain("interrupted: by the orchestrator");
+    expect(renderStatus(byOrchestrator)).not.toContain("budget");
+    const resumed = buildDigest(
+      { ...run, state: "idle" },
+      [interrupted("budget", 0)],
+      [],
+      "/runs/unit-a",
+      now,
+      null,
+    );
+    expect(resumed.interruptedBy).toBeUndefined();
+    expect(renderDigest(resumed)).not.toContain("interrupted:");
+  });
 
   it("uses the record timestamp for an inactive run without state events", () => {
     expect(

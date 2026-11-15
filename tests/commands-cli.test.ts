@@ -931,7 +931,8 @@ const outputCases: { label: string; args: string[]; response: DaemonResult; text
       "run:       unit-lost",
       "Hand-off (turn 1):\nThe full hand-off.\nChecks.",
       "No hand-off available.",
-      "cursor: opaque:42\nnext: foreman wait --all --after opaque:42\n",
+      // The outcome repeats above the cursor so `| tail` and task-output previews keep it.
+      "warning:   protocol mismatch\n\nquestion    unit-a q2 (blocked): Which API?\ndone        unit-done turn 1\nfailed      unit-failed turn 1\ninterrupted unit-interrupted turn 1\nlost        unit-lost turn 1\ncursor: opaque:42\nnext: foreman wait --all --after opaque:42\n",
     ],
   },
   ...(["timeout", "none"] as const).map((outcome) => ({
