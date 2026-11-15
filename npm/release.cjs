@@ -28,11 +28,14 @@ function npm(args) {
     return execFileSync("npm", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout, killSignal: "SIGKILL" });
   } catch (error) {
     const target = args.map((arg) => (arg.includes("/") ? arg.split("/").slice(-1)[0] : arg)).slice(0, 2).join(" ");
-    if (error.code === "ETIMEDOUT")
-      throw new Error(
+    if (error.code === "ETIMEDOUT") {
+      const failure = new Error(
         `npm ${target} timed out after ${Math.round(timeout / 1000)}s. The registry is slow or unreachable; rerun the failed job.`,
         { cause: error },
       );
+      failure.npmCode = "ETIMEDOUT";
+      throw failure;
+    }
     const stderr = String(error.stderr ?? "");
     const code = /^npm error code (\w+)/m.exec(stderr)?.[1];
     const lines = stderr
@@ -60,10 +63,44 @@ function pack(source, destination) {
   writeFileSync(join(destination, "packages.json"), JSON.stringify(packages));
 }
 
+// Failures worth another try: registry overload (429, 5xx), our own call timeout and network drops.
+// Auth, 404 and anything else npm reports are answers, not hiccups, and fail at once.
+const transient = /^(E429|E5\d\d|ETIMEDOUT|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ENETUNREACH|EPIPE)$/;
+const viewAttempts = Number(process.env.RELEASE_VIEW_ATTEMPTS ?? 4);
+const retryBaseMs = Number(process.env.RELEASE_RETRY_BASE_MS ?? 5000);
+
+// `npm view` is a read, so retrying it is safe. Backoff doubles from the base with full jitter
+// (about 5s, 10s, 20s by default), keeping the worst case under a minute on top of the call timeouts.
+// `npm publish` is never retried here: a rerun of the job re-checks the registry first.
+function viewWithRetry(spec) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return npm(["view", spec, "dist.integrity", "--json"]);
+    } catch (error) {
+      const code = error.npmCode ?? registryCode(error);
+      if (!transient.test(code ?? "") || attempt >= viewAttempts) {
+        if (attempt > 1) error.message += `\n(gave up after ${attempt} attempts)`;
+        throw error;
+      }
+      const delay = Math.round(Math.random() * retryBaseMs * 2 ** (attempt - 1));
+      console.log(`npm view ${spec} failed with ${code}; retrying in ${Math.round(delay / 1000)}s (attempt ${attempt + 1} of ${viewAttempts}).`);
+      sleep(delay);
+    }
+  }
+}
+
+function registryCode(error) {
+  try {
+    return JSON.parse(error.stdout).error?.code;
+  } catch {
+    return undefined;
+  }
+}
+
 function publishedIntegrity(spec) {
   let output;
   try {
-    output = npm(["view", spec, "dist.integrity", "--json"]);
+    output = viewWithRetry(spec);
   } catch (error) {
     // Only an explicit registry 404 means the version can be published.
     let diagnostic;

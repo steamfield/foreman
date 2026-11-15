@@ -65,6 +65,8 @@ it.each([
   "conflict",
   "main-unconfirmed",
   "hang",
+  "flaky",
+  "denied",
 ])("release publishing handles %s without publishing main prematurely", async (mode) => {
   const root = await realpath(await tempDir());
   const bin = `${root}/bin`;
@@ -117,6 +119,8 @@ fs.appendFileSync(root + "/calls.jsonl", JSON.stringify(args) + "\\n");
 const registry = JSON.parse(fs.readFileSync(root + "/registry.json"));
 if (args[0] === "view") {
   if (mode === "hang" && args[1] === "@steamfield/foreman-darwin-x64@1.2.3") setTimeout(() => {}, 60000);
+  else if (mode === "denied") { console.log(JSON.stringify({error:{code:"E401"}})); console.error("npm error code E401"); process.exit(1); }
+  else if (mode === "flaky" && !(registry.__flaked ?? []).includes(args[1])) { registry.__flaked = [...(registry.__flaked ?? []), args[1]]; fs.writeFileSync(root + "/registry.json", JSON.stringify(registry)); console.log(JSON.stringify({error:{code:"E503"}})); console.error("npm error code E503"); process.exit(1); }
   else if (mode === "registry-error") { console.log(JSON.stringify({error:{code:"E503"}})); console.error("npm error code E503"); process.exit(1); }
   else {
   const lag = registry.__lag ?? {};
@@ -158,6 +162,8 @@ if (args[0] === "view") {
         RELEASE_CONFIRM_ATTEMPTS: "3",
         RELEASE_CONFIRM_INTERVAL_MS: "0",
         RELEASE_VIEW_TIMEOUT_MS: "2000",
+        RELEASE_VIEW_ATTEMPTS: "3",
+        RELEASE_RETRY_BASE_MS: "0",
       },
     }));
   } catch (error) {
@@ -187,10 +193,17 @@ if (args[0] === "view") {
     .filter(Boolean)
     .map((line) => Schema.decodeUnknownSync(Schema.Array(Schema.String))(JSON.parse(line)));
   const published = calls.filter((call) => call[0] === "publish").map((call) => call[1]);
+  const views = (spec: string) =>
+    calls.filter((call) => call[0] === "view" && call[1] === spec).length;
+  // Transient registry failures are retried up to the attempt limit; an auth answer is not.
+  if (mode === "registry-error") expect(views("@steamfield/foreman-darwin-arm64@1.2.3")).toBe(3);
+  if (mode === "denied") expect(views("@steamfield/foreman-darwin-arm64@1.2.3")).toBe(1);
   expect(status).toBe(
-    ["partial", "complete", "lagging", "conflict", "main-unconfirmed"].includes(mode) ? 0 : 1,
+    ["partial", "complete", "lagging", "conflict", "main-unconfirmed", "flaky"].includes(mode)
+      ? 0
+      : 1,
   );
-  if (mode === "lagging" || mode === "main-unconfirmed")
+  if (mode === "lagging" || mode === "main-unconfirmed" || mode === "flaky")
     expect(published).toEqual(
       packages.slice(1).map((entry) => `${root}/dist/release/${entry.filename}`),
     );
