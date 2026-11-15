@@ -27,7 +27,7 @@ jobs:
         run: >-
           node -e 'const v = require("./package.json").version;
           if (process.env.GITHUB_REF_NAME !== `v${v}`) {
-          console.error(`Tag ${process.env.GITHUB_REF_NAME} does not match package.json version ${v}`);
+          console.error(`::error title=Tag does not match package.json::Tag ${process.env.GITHUB_REF_NAME} points at a commit whose package.json version is ${v}. Run bun run release X.Y.Z, commit, and tag that commit. Delete the bad tag with: git push origin :refs/tags/${process.env.GITHUB_REF_NAME}`);
           process.exit(1); }'
       - run: bun install --frozen-lockfile
       - run: bun run lint

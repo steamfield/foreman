@@ -116,6 +116,7 @@ if (args[0] === "view") {
       { mode: 0o755 },
     );
     let status = 0;
+    let stderr = "";
     const workflow = await readFile(".github/workflows/release.yml", "utf8");
     const publishStep = workflow
       .split("      - name: Publish platform packages, then main package")[1]
@@ -134,7 +135,17 @@ if (args[0] === "view") {
       if (!(error instanceof Error) || !("code" in error) || typeof error.code !== "number")
         throw error;
       status = error.code;
+      stderr = "stderr" in error ? String(error.stderr) : "";
     }
+    if (status !== 0) {
+      // A failed publish reads as one explanation, not a Node stack trace.
+      expect(stderr).toContain("release: ");
+      expect(stderr).toContain("Not published:");
+      expect(stderr).not.toContain("node:internal");
+    }
+    if (mode === "publish-fails") expect(stderr).toContain("npm publish darwin-x64.tgz failed");
+    if (mode === "mismatch") expect(stderr).toContain("already on npm with different contents");
+    if (mode === "unconfirmed") expect(stderr).toContain("Could not confirm");
     const calls = (await readFile(`${root}/calls.jsonl`, "utf8"))
       .trim()
       .split("\n")
