@@ -13,12 +13,26 @@ const hints = {
   E422: "npm rejected the provenance. Provenance needs a public repository and `id-token: write`.",
 };
 
+// A hung registry call fails the step instead of running until the job's timeout.
+const timeouts = {
+  view: Number(process.env.RELEASE_VIEW_TIMEOUT_MS ?? 60000),
+  publish: Number(process.env.RELEASE_PUBLISH_TIMEOUT_MS ?? 300000),
+  pack: 300000,
+};
+
 // Run npm and fail with the command, npm's own error lines and a hint, not a dump of the child process.
 // stdout is kept on the error because `npm view --json` reports registry errors there.
 function npm(args) {
+  const timeout = timeouts[args[0]];
   try {
-    return execFileSync("npm", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    return execFileSync("npm", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout, killSignal: "SIGKILL" });
   } catch (error) {
+    const target = args.map((arg) => (arg.includes("/") ? arg.split("/").slice(-1)[0] : arg)).slice(0, 2).join(" ");
+    if (error.code === "ETIMEDOUT")
+      throw new Error(
+        `npm ${target} timed out after ${Math.round(timeout / 1000)}s. The registry is slow or unreachable; rerun the failed job.`,
+        { cause: error },
+      );
     const stderr = String(error.stderr ?? "");
     const code = /^npm error code (\w+)/m.exec(stderr)?.[1];
     const lines = stderr
@@ -27,7 +41,6 @@ function npm(args) {
       .map((line) => line.replace(/^npm error ?/, "").trim())
       .filter(Boolean)
       .slice(0, 6);
-    const target = args.map((arg) => (arg.includes("/") ? arg.split("/").slice(-1)[0] : arg)).slice(0, 2).join(" ");
     const failure = new Error(
       [`npm ${target} failed${code ? ` (${code})` : ""}`, ...lines.map((line) => `  ${line}`), ...(hints[code] ? [`Hint: ${hints[code]}`] : [])].join("\n"),
       { cause: error },
@@ -69,8 +82,9 @@ const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 
 const specOf = (entry) => `${entry.name}@${entry.version}`;
 
 // npm reports a publish well before the registry serves it, usually within 3-5 minutes. Wait for the
-// first check, then poll. A different integrity is a real conflict and fails at once.
-function confirmPublished(entries, state) {
+// first check, then poll. A different integrity is a real conflict and fails at once. With `required`
+// false, a version npm accepted but the registry has not shown yet is a warning, not a failure.
+function confirmPublished(entries, state, required) {
   if (entries.length === 0) return;
   const delay = Number(process.env.RELEASE_CONFIRM_DELAY_MS ?? 120000);
   const interval = Number(process.env.RELEASE_CONFIRM_INTERVAL_MS ?? 15000);
@@ -89,16 +103,26 @@ function confirmPublished(entries, state) {
       return false;
     });
     if (waiting.length === 0) return;
-    if (attempt >= attempts)
+    if (attempt >= attempts) {
+      const specs = waiting.map(specOf).join(", ");
+      const seconds = Math.round((delay + attempts * interval) / 1000);
+      if (!required) {
+        warn(
+          "Release not yet visible on npm",
+          `npm accepted ${specs} but the registry had not shown it after ${seconds}s. Check \`npm view ${waiting[0].name} version\` in a few minutes; rerun this job only if it never appears.`,
+        );
+        return;
+      }
       throw new Error(
-        `Could not confirm ${waiting.map(specOf).join(", ")} on the registry after ${Math.round((delay + attempts * interval) / 1000)}s. npm reported the publish, so rerun the job: it skips versions already published.`,
+        `Could not confirm ${specs} on the registry after ${seconds}s. npm reported the publish, so rerun the job: it skips versions already published.`,
       );
+    }
     sleep(interval);
   }
 }
 
 // Publish every entry not yet on npm, then wait for the registry to show them as a group.
-function publishEntries(directory, entries, state) {
+function publishEntries(directory, entries, state, required) {
   const published = [];
   for (const entry of entries) {
     const spec = specOf(entry);
@@ -121,10 +145,11 @@ function publishEntries(directory, entries, state) {
       state.done.push(spec);
     }
   }
-  confirmPublished(published, state);
+  confirmPublished(published, state, required);
 }
 
 // The four platform packages go first and must be visible before the main package that depends on them.
+// Nothing depends on the main package, so its own confirmation only warns.
 function publish(directory) {
   const packages = JSON.parse(readFileSync(join(directory, "packages.json"), "utf8"));
   const expectedNames = [...targets.map((target) => `@steamfield/foreman-${target}`), "@steamfield/foreman"];
@@ -132,8 +157,8 @@ function publish(directory) {
     throw new Error("Release must contain all four platform packages followed by the main package.");
   const state = { done: [], unconfirmed: [] };
   try {
-    publishEntries(directory, packages.slice(0, -1), state);
-    publishEntries(directory, packages.slice(-1), state);
+    publishEntries(directory, packages.slice(0, -1), state, true);
+    publishEntries(directory, packages.slice(-1), state, false);
   } catch (error) {
     const rest = packages.map(specOf).filter((spec) => !state.done.includes(spec) && !state.unconfirmed.includes(spec));
     const list = (items) => (items.length === 0 ? "none" : items.join(", "));
@@ -142,6 +167,11 @@ function publish(directory) {
       { cause: error },
     );
   }
+}
+
+function warn(title, message) {
+  if (process.env.GITHUB_ACTIONS) console.log(`::warning title=${title}::${message}`);
+  else console.log(`warning: ${message}`);
 }
 
 // One readable line group on stderr plus a GitHub annotation, instead of Node's stack trace.

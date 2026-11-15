@@ -63,6 +63,8 @@ it.each([
   "unconfirmed",
   "lagging",
   "conflict",
+  "main-unconfirmed",
+  "hang",
 ])("release publishing handles %s without publishing main prematurely", async (mode) => {
   const root = await realpath(await tempDir());
   const bin = `${root}/bin`;
@@ -114,17 +116,20 @@ const args = process.argv.slice(2);
 fs.appendFileSync(root + "/calls.jsonl", JSON.stringify(args) + "\\n");
 const registry = JSON.parse(fs.readFileSync(root + "/registry.json"));
 if (args[0] === "view") {
-  if (mode === "registry-error") { console.log(JSON.stringify({error:{code:"E503"}})); console.error("npm error code E503"); process.exit(1); }
+  if (mode === "hang" && args[1] === "@steamfield/foreman-darwin-x64@1.2.3") setTimeout(() => {}, 60000);
+  else if (mode === "registry-error") { console.log(JSON.stringify({error:{code:"E503"}})); console.error("npm error code E503"); process.exit(1); }
+  else {
   const lag = registry.__lag ?? {};
   if (lag[args[1]] > 0) { lag[args[1]]--; registry.__lag = lag; fs.writeFileSync(root + "/registry.json", JSON.stringify(registry)); delete registry[args[1]]; }
   if (!(args[1] in registry)) { console.log(JSON.stringify({error:{code:"E404"}})); console.error("npm error code E404"); process.exit(1); }
   console.log(JSON.stringify(registry[args[1]]));
+  }
 } else if (args[0] === "publish") {
   if (mode === "publish-fails") process.exit(1);
   const packages = JSON.parse(fs.readFileSync(root + "/packages.json"));
   const entry = args[1].endsWith(".tgz") ? packages.find(p => args[1].endsWith(p.filename)) : JSON.parse(fs.readFileSync(process.cwd() + "/package.json"));
   if (registry[entry.name + "@" + entry.version]) { console.error("npm error code E409"); console.error("npm error 403 You cannot publish over the previously published versions"); process.exit(1); }
-  if (mode !== "unconfirmed") registry[entry.name + "@" + entry.version] = entry.integrity;
+  if (mode !== "unconfirmed" && !(mode === "main-unconfirmed" && entry.name === "@steamfield/foreman")) registry[entry.name + "@" + entry.version] = entry.integrity;
   if (mode === "lagging") registry.__lag = { ...registry.__lag, [entry.name + "@" + entry.version]: 2 };
   fs.writeFileSync(root + "/registry.json", JSON.stringify(registry));
 } else process.exit(2);
@@ -133,6 +138,7 @@ if (args[0] === "view") {
   );
   let status = 0;
   let stderr = "";
+  let stdout = "";
   const workflow = await readFile(".github/workflows/release.yml", "utf8");
   const publishStep = workflow
     .split("      - name: Publish platform packages, then main package")[1]
@@ -143,7 +149,7 @@ if (args[0] === "view") {
     .map((line) => line.replace(/^ {10}/, ""))
     .join("\n");
   try {
-    await exec("/bin/bash", ["-e", "-c", script], {
+    ({ stdout } = await exec("/bin/bash", ["-e", "-c", script], {
       cwd: root,
       env: {
         HOME: root,
@@ -151,8 +157,9 @@ if (args[0] === "view") {
         RELEASE_CONFIRM_DELAY_MS: "0",
         RELEASE_CONFIRM_ATTEMPTS: "3",
         RELEASE_CONFIRM_INTERVAL_MS: "0",
+        RELEASE_VIEW_TIMEOUT_MS: "2000",
       },
-    });
+    }));
   } catch (error) {
     if (!(error instanceof Error) || !("code" in error) || typeof error.code !== "number")
       throw error;
@@ -169,6 +176,11 @@ if (args[0] === "view") {
   if (mode === "publish-fails") expect(stderr).toContain("npm publish darwin-x64.tgz failed");
   if (mode === "mismatch") expect(stderr).toContain("already on npm with different contents");
   if (mode === "unconfirmed") expect(stderr).toContain("Could not confirm");
+  // Nothing depends on the main package, so registry lag after its publish warns instead of failing.
+  if (mode === "main-unconfirmed")
+    expect(stdout).toContain("warning: npm accepted @steamfield/foreman@1.2.3");
+  if (mode === "hang")
+    expect(stderr).toContain("npm view foreman-darwin-x64@1.2.3 timed out after 2s");
   const calls = (await readFile(`${root}/calls.jsonl`, "utf8"))
     .trim()
     .split("\n")
@@ -176,9 +188,9 @@ if (args[0] === "view") {
     .map((line) => Schema.decodeUnknownSync(Schema.Array(Schema.String))(JSON.parse(line)));
   const published = calls.filter((call) => call[0] === "publish").map((call) => call[1]);
   expect(status).toBe(
-    mode === "partial" || mode === "complete" || mode === "lagging" || mode === "conflict" ? 0 : 1,
+    ["partial", "complete", "lagging", "conflict", "main-unconfirmed"].includes(mode) ? 0 : 1,
   );
-  if (mode === "lagging")
+  if (mode === "lagging" || mode === "main-unconfirmed")
     expect(published).toEqual(
       packages.slice(1).map((entry) => `${root}/dist/release/${entry.filename}`),
     );
@@ -201,7 +213,12 @@ if (args[0] === "view") {
         "dist.integrity",
         "--json",
       ]);
-  } else if (mode === "complete" || mode === "mismatch" || mode === "registry-error")
+  } else if (
+    mode === "complete" ||
+    mode === "mismatch" ||
+    mode === "registry-error" ||
+    mode === "hang"
+  )
     expect(published).toEqual([]);
   else if (mode === "publish-fails")
     expect(published).toEqual([`${root}/dist/release/darwin-x64.tgz`]);

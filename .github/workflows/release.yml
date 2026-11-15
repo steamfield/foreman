@@ -6,12 +6,13 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
+# verify and build run in parallel; publish needs both. Rerunning a failed publish job reruns only
+# that job and reuses the tarballs the build job uploaded, so the same bytes go to npm.
 jobs:
-  release:
+  verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -22,7 +23,6 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
-          registry-url: https://registry.npmjs.org
       - name: Verify release version
         run: >-
           node -e 'const v = require("./package.json").version;
@@ -34,23 +34,49 @@ jobs:
       - run: bun run typecheck
       - run: bun run coverage
       - run: bun run e2e
-      - name: Restore release artifacts
-        id: artifacts
-        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
-        continue-on-error: true
+
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          name: release-packages
-          path: dist/release
-      - if: steps.artifacts.outcome != 'success'
-        run: bun run build:npm
-      - if: steps.artifacts.outcome != 'success'
-        run: node npm/release.cjs pack dist/npm dist/release
-      - if: steps.artifacts.outcome != 'success'
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - run: bun install --frozen-lockfile
+      - run: bun run build:npm
+      - run: node npm/release.cjs pack dist/npm dist/release
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-packages
           path: dist/release/
           if-no-files-found: error
+
+  publish:
+    needs: [verify, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Only this job can mint the OIDC token npm trusted publishing exchanges for a publish credential.
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: release-packages
+          path: dist/release
       - name: Publish platform packages, then main package
         # Authenticates through npm trusted publishing (OIDC); no token is stored.
         run: |
