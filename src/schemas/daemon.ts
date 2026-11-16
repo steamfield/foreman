@@ -329,7 +329,11 @@ export const DaemonRequestBody = Schema.TaggedUnion({
 });
 export type DaemonRequestBody = typeof DaemonRequestBody.Type;
 
-export const DaemonRequest = Schema.Struct({ id: Schema.Int, body: DaemonRequestBody });
+export const DaemonRequest = Schema.Struct({
+  id: Schema.Int,
+  body: DaemonRequestBody,
+  passive: Schema.optionalKey(Schema.Literal(true)),
+});
 export type DaemonRequest = typeof DaemonRequest.Type;
 
 export const WaitOutcome = Schema.Struct({
