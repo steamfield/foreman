@@ -170,6 +170,20 @@ export function duration(ms: number): string {
   return `${Math.floor(seconds / 3600)}h${String(Math.floor((seconds % 3600) / 60)).padStart(2, "0")}m`;
 }
 const age = (at: DateTime.Utc, now: number) => duration(now - epoch(at));
+const two = (value: number) => String(value).padStart(2, "0");
+/** Local wall-clock time, HH:MM:SS. */
+export function clockTime(at: DateTime.Utc): string {
+  const date = new Date(epoch(at));
+  return `${two(date.getHours())}:${two(date.getMinutes())}:${two(date.getSeconds())}`;
+}
+/** Local time with the date when it is not today, then the age. */
+function stamp(at: DateTime.Utc, now: number): string {
+  const date = new Date(epoch(at));
+  const day = `${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())}`;
+  const sameDay = date.toDateString() === new Date(now).toDateString();
+  return `${sameDay ? "" : `${day} `}${clockTime(at)} · ${age(at, now)} ago`;
+}
+const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 export function stateTone(state: RunView["state"]): Tone {
   switch (state) {
     case "running":
@@ -674,7 +688,7 @@ const textLines = (text: string, tone: Tone = "fg"): DetailLine[] =>
   text.split(/\r?\n/).map((text) => ({ text: cleanText(text), tone }));
 function feedLines(events: readonly RunEvent[], data: Detail): DetailLine[] {
   return events.flatMap(({ at, event }): DetailLine[] => {
-    const timestamp = DateTime.formatIso(at).slice(11, 19);
+    const timestamp = clockTime(at);
     const line = (text: string, tone: Tone = "muted", symbol?: string): DetailLine[] => [
       { text: oneLine(text), tone, at: timestamp, ...(symbol === undefined ? {} : { symbol }) },
     ];
@@ -773,13 +787,17 @@ function detailView(state: State): DetailView | null {
       ],
     };
   const { run, record, digest } = data;
-  const unavailable = (files: readonly string[] | null) =>
-    files === null ? "not computed" : String(files.length);
+  // The worktree fields stay null until a turn ends or status refreshes them.
+  const files = [
+    digest.filesWritten && `${digest.filesWritten.length} written`,
+    digest.outsideMayChange && `${digest.outsideMayChange.length} outside May change`,
+    digest.newInGitStatus && `${digest.newInGitStatus.length} new in git status`,
+  ].filter((part) => part !== null);
   const tokens = digest.tokens;
   const digestLines = [
     `commands  ${digest.commands.total} total · ${digest.commands.failed} failed · ${digest.commands.blockedByHooks} hooks blocked`,
     `last command  ${digest.commands.last?.command ?? "none"}${digest.commands.last?.exitCode === null || !digest.commands.last ? "" : ` · exit ${digest.commands.last.exitCode}`}`,
-    `files  ${unavailable(digest.filesWritten)} written · ${unavailable(digest.outsideMayChange)} outside May change · ${unavailable(digest.newInGitStatus)} new in git status`,
+    `files  ${files.length > 0 ? files.join(" · ") : "counted when the turn ends"}`,
     `tokens  ${tokens?.input ?? 0} input · ${tokens?.cachedInput ?? 0} cached (${!tokens?.input ? 0 : Math.round((100 * tokens.cachedInput) / tokens.input)}% hit)`,
     `        ${tokens?.output ?? 0} output · ${tokens?.reasoningOutput ?? 0} reasoning`,
     ...(digest.failure ? [`failure  ${digest.failure.message}`] : []),
@@ -802,7 +820,7 @@ function detailView(state: State): DetailView | null {
     questions: data.questions.length
       ? data.questions.flatMap((q) => [
           {
-            text: `${q.id} · ${q.kind} · ${q.status} · ${age(q.askedAt, state.now)} ago${q.resolvedAt ? ` · resolved ${DateTime.formatIso(q.resolvedAt)}` : ""}`,
+            text: `${q.id} · ${q.kind} · ${q.status} · ${age(q.askedAt, state.now)} ago${q.resolvedAt ? ` · resolved ${clockTime(q.resolvedAt)}` : ""}`,
             tone: questionTones[q.status],
           },
           ...textLines(q.text),
@@ -816,7 +834,7 @@ function detailView(state: State): DetailView | null {
             kind: agent.state === "working" ? ("working" as const) : ("subagent-idle" as const),
           },
           {
-            text: `started ${DateTime.formatIso(agent.startedAt)} · ${agent.interactions} interactions · ${age(agent.lastInteractionAt, state.now)} ago`,
+            text: `started ${clockTime(agent.startedAt)} · ${plural(agent.interactions, "interaction")} · ${age(agent.lastInteractionAt, state.now)} ago`,
             tone: "muted" as const,
           },
         ])
@@ -902,10 +920,10 @@ function detailView(state: State): DetailView | null {
     header: [
       ["worktree", record.worktree],
       ["branch", record.branch ?? "not recorded"],
-      ["base", record.baseCommit],
+      ["base", record.baseCommit.slice(0, 12)],
       ["--from", record.fromRef ?? "not recorded"],
-      ["created", DateTime.formatIso(record.createdAt)],
-      ["updated", DateTime.formatIso(record.updatedAt)],
+      ["created", stamp(record.createdAt, state.now)],
+      ["updated", stamp(record.updatedAt, state.now)],
       ["run dir", record.runDir],
       ["model", `${run.model} · ${run.effort} · ${run.tier}`],
       ["turn", `${run.turn} ${run.turnKind ?? ""}`],

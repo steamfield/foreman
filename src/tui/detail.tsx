@@ -12,13 +12,15 @@ import { type Theme, theme } from "./theme";
 
 function rule(title: string, value: string, width: number, tone: "fg" | "line", colors: Theme) {
   const right = truncate(value, Math.max(0, Math.floor(width / 2)));
-  const left = truncate(title, Math.max(0, width - stringWidth(right) - 8));
-  const remaining = Math.max(0, width - stringWidth(left + right) - 7);
+  // `╭─ title ───╮` alone, or `╭─ title ─── value ─╮` with a value.
+  const fixed = right === "" ? 6 : 8;
+  const left = truncate(title, Math.max(0, width - stringWidth(right) - fixed - 1));
+  const remaining = Math.max(0, width - stringWidth(left) - stringWidth(right) - fixed);
   return (
     colors.paint("╭─ ", tone) +
     left +
-    colors.paint(` ${"─".repeat(remaining)} `, tone) +
-    colors.paint(right, "muted") +
+    colors.paint(` ${"─".repeat(remaining)}`, tone) +
+    (right === "" ? "" : ` ${colors.paint(right, "muted")} `) +
     colors.paint("─╮", tone)
   );
 }
