@@ -89,7 +89,15 @@ export const print = Effect.fnUntraced(function* <E, R>(
       verbose,
       result._tag === "Overview" && !output.json
         ? {
-            group: (yield* mainCheckout(yield* realPath("."))) ?? "",
+            group:
+              (yield* realPath(".").pipe(
+                Effect.flatMap(mainCheckout),
+                Effect.catch((error) =>
+                  Effect.logDebug("status.cwd-group-unavailable", { errorTag: error._tag }).pipe(
+                    Effect.as(""),
+                  ),
+                ),
+              )) ?? "",
             now: yield* Clock.currentTimeMillis,
           }
         : undefined,
@@ -226,7 +234,9 @@ export const eventsCommand = Command.make(
     ),
     follow: Flag.Boolean("follow").pipe(
       Flag.withDefault(false),
-      Flag.withDescription("Stream events live until the run becomes inactive (text only)."),
+      Flag.withDescription(
+        "Stream events passively until the run becomes inactive (text only). Never starts, replaces or keeps a daemon alive; without a compatible daemon, prints saved events and stops.",
+      ),
     ),
   },
   (input) =>

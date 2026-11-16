@@ -1,6 +1,7 @@
 import chalk from "chalk";
 import { Effect, FileSystem, Schema, Stream } from "effect";
 import { Command } from "effect/cli";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import { describe, expect, it } from "vitest";
 import { cli } from "../src/cli";
 import { makeMonitorCommand } from "../src/commands/monitor";
@@ -27,6 +28,63 @@ const parsed = (
     renderErrors: false,
   })(args).pipe(Effect.provide(terminal.layer));
 describe("monitor command", () => {
+  it.each(["monitor", "status"])(
+    "keeps %s readable when cwd git discovery fails",
+    async (command) => {
+      const terminal = monitorTerminal();
+      const args = command === "status" ? ["status", "--all"] : ["monitor"];
+      const program = Effect.gen(function* () {
+        const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+        return yield* parsed(args, terminal).pipe(
+          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, {
+            ...spawner,
+            spawn: () =>
+              spawner.spawn(
+                ChildProcess.make(process.execPath, [
+                  "-e",
+                  "process.stderr.write('fatal: unsafe repository'); process.exit(128)",
+                ]),
+              ),
+          }),
+        );
+      });
+      if (command === "monitor") {
+        const pending = runCli(args, { program, env: { LOG_LEVEL: "debug" } });
+        try {
+          await expect.poll(() => terminal.output(), { timeout: 5000 }).toContain("fix-hooks");
+          terminal.stdin.push("q");
+          const result = await pending;
+          expect(result.status).toBe(0);
+          expect(result.stdout).toBe("");
+          expect(result.stderr).toContain("monitor.cwd-group-unavailable");
+        } finally {
+          terminal.stdin.push("q");
+          await pending;
+        }
+      } else {
+        await Effect.runPromise(
+          Effect.scoped(
+            Effect.gen(function* () {
+              const fixture = yield* eventsFixture(successfulTurn());
+              yield* fixture.untilState("idle");
+              const result = yield* Effect.promise(() =>
+                runCli(args, {
+                  program,
+                  env: { ...fixture.env, LOG_LEVEL: "debug" },
+                  home: fixture.root,
+                }),
+              );
+              expect(result.status).toBe(0);
+              expect(result.stdout).toMatch(/^1 run: 1 idle\n/);
+              expect(result.stdout).toContain("other repo: its own session supervises it");
+              expect(result.stdout).not.toContain("next:");
+              expect(result.stderr).toContain("status.cwd-group-unavailable");
+            }),
+          ).pipe(Effect.provide(eventsPlatform)),
+        );
+      }
+    },
+  );
   it("opens a named detail, cancels on Esc, reopens on Enter and restores the terminal", async () => {
     const terminal = monitorTerminal();
     const subscriptions: string[] = [];

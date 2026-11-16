@@ -102,6 +102,15 @@ export function updateTurnAttention(cache: TurnAttention, event: RunEventBody, a
     cache.hooksBlocked = 0;
   } else if (event._tag === "Retrying") cache.retrying = { at, message: event.message };
   else if (event._tag === "HookBlocked") cache.hooksBlocked += 1;
+  else if (
+    event._tag === "TurnCompleted" ||
+    event._tag === "Interrupted" ||
+    (event._tag === "StateChanged" && !activeStates.has(event.to)) ||
+    event._tag === "AgentMessage" ||
+    event._tag === "Command" ||
+    event._tag === "FileChange"
+  )
+    cache.retrying = null;
 }
 
 export const questionTime = (entry: QuestionCacheEntry, timeoutMs: number) =>

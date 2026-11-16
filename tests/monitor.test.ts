@@ -163,6 +163,36 @@ describe("monitor attention", () => {
     expect(cache).toEqual({ retrying: { message: "usage limit", at: 20 }, hooksBlocked: 1 });
     updateTurnAttention(cache, { _tag: "TurnStarted", turn: 2, kind: "followup" }, 30);
     expect(cache).toEqual({ retrying: null, hooksBlocked: 0 });
+    const clearsRetry: D.RunEventBody[] = [
+      ...["completed", "failed", "interrupted"].map((status) => ({
+        _tag: "TurnCompleted" as const,
+        turn: 2,
+        status,
+        failure: null,
+      })),
+      { _tag: "Interrupted", by: "orchestrator" },
+      { _tag: "StateChanged", from: "running", to: "lost" },
+      { _tag: "AgentMessage", text: "Back to work", phase: "commentary" },
+      {
+        _tag: "Command",
+        command: "bun run lint",
+        status: "inProgress",
+        exitCode: null,
+        outputTail: "",
+      },
+      { _tag: "FileChange", paths: ["src/cli.ts"] },
+    ];
+    for (const event of clearsRetry) {
+      updateTurnAttention(cache, { _tag: "Retrying", message: "try again" }, 40);
+      updateTurnAttention(
+        cache,
+        { _tag: "HookBlocked", event: "PreToolUse", feedback: "scope" },
+        40,
+      );
+      const hooks = cache.hooksBlocked;
+      updateTurnAttention(cache, event, 50);
+      expect(cache, event._tag).toEqual({ retrying: null, hooksBlocked: hooks });
+    }
   });
 });
 
@@ -385,6 +415,7 @@ describe("overview projection", () => {
           state: "running" as const,
           stateSince: DateTime.makeUnsafe(0),
           quiet: true,
+          outsideMayChange: 2,
           lastActivityAt: at,
           questions: [
             {
@@ -427,7 +458,19 @@ describe("overview projection", () => {
         expect(text).toContain("q1 (blocked) pending 9m59s, auto-defer in 5m00s: Which path?");
         expect(text).toContain("  /root/tests  working · 9m59s ago");
         expect(text).toContain('next: FOREMAN_HOME=/home /bin/foreman answer run-0 q1 "<answer>"');
-        expect(text).toContain("next: FOREMAN_HOME=/home /bin/foreman events run-0 --follow");
+        expect.soft(text).toContain("next: FOREMAN_HOME=/home /bin/foreman events run-0\n");
+        expect.soft(text).not.toContain("--follow");
+        expect.soft(text).toContain("2 outside scope");
+        expect
+          .soft(
+            renderOverview(
+              { _tag: "Overview", version: 1, daemon: metadata, runs: [local] },
+              "/repo",
+              "foreman",
+              600000,
+            ),
+          )
+          .toMatch(/^1 run: 1 running\n/);
         expect(text.split("other repo: its own session supervises it")[1]).not.toContain("next:");
       }).pipe(Effect.provide(NodeServices.layer)),
   );

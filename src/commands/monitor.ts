@@ -42,7 +42,15 @@ export const makeMonitorCommand = (
       yield* runMonitor(
         terminal,
         {
-          group: (yield* mainCheckout(yield* realPath("."))) ?? "",
+          group:
+            (yield* realPath(".").pipe(
+              Effect.flatMap(mainCheckout),
+              Effect.catch((error) =>
+                Effect.logDebug("monitor.cwd-group-unavailable", { errorTag: error._tag }).pipe(
+                  Effect.as(""),
+                ),
+              ),
+            )) ?? "",
           defaults: {
             model: yield* defaultModel(config.codexHome),
             effort: "high",
@@ -61,7 +69,7 @@ export const makeMonitorCommand = (
     }),
   ).pipe(
     Command.withDescription(
-      "Watch runs across repositories or open one run's detail in an interactive terminal. Enter opens detail or expands older idle runs; Tab changes pane, j/k scroll, f toggles follow and Esc returns to the list. Read-only; never starts a daemon in the live view. With --json, redirected streams or CODEX_DELEGATE, prints status <name> for a named run or status --all otherwise. Exits 0 on q or a snapshot, 2 for usage, 3 for config, 4 for daemon failure, 6 for permissions, 7 for a missing snapshot run, 130 when interrupted, 1 on an internal error.",
+      "Watch runs across repositories or open one run's detail in an interactive terminal. Enter opens detail or expands older idle runs; Tab changes pane, j/k scroll, f toggles follow and Esc returns to the list. The live view is read-only and never starts a daemon. With --json, redirected streams or CODEX_DELEGATE, prints status <name> for a named run or status --all otherwise. The snapshot uses the normal status path and may start the daemon. Exits 0 on q or a snapshot, 2 for usage, 3 for config, 4 for daemon failure, 6 for permissions, 7 for a missing snapshot run, 130 when interrupted, 1 on an internal error.",
     ),
     Command.withShortDescription("Watch a live list or run detail; otherwise print a snapshot."),
     Command.withExamples([
