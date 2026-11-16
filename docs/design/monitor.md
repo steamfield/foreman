@@ -70,6 +70,8 @@ The run-row lead glyph by state:
 | `unknown` | `◐` amber |
 | `lost` | `◌` muted |
 
+When no daemon is running, the saved record can say `starting`, `running`, `waiting` or `unknown` for runs that nothing supervises. Those rows use a static muted `◌` and read `<state> · not supervised`. They lose the budget bar and the quiet flag, and their subagents stop animating. While an older daemon is still running, its runs keep animating, because it may still be supervising them, and the header says the data is saved state.
+
 ## Motion
 
 Motion shows that work is happening, nothing else. One shared 100 ms tick drives every animation, and it runs only while something on screen animates; an all-idle screen does not re-render. Spinners use one color, with no color cycling. Rows whose data did not change re-render only their glyph cell: memoise row components on the run's view-model identity, and take the moving parts from the tick. This mirrors rr's card cache, so a frame with ten runs stays cheap.
