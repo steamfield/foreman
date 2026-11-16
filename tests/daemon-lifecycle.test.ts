@@ -21,7 +21,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import { Socket } from "effect/socket";
 import { TestClock } from "effect/testing";
 import { call, shutdown } from "../src/daemon/client";
-import { takeLock } from "../src/daemon/lock";
+import { recordOwner, takeLock } from "../src/daemon/lock";
 import { lines, requestJson, respond, responseJson } from "../src/daemon/protocol";
 import { type DaemonOptions, daemon } from "../src/daemon/server";
 import { DaemonSockets } from "../src/daemon/sockets";
@@ -111,6 +111,40 @@ const observeClosures = Effect.fnUntraced(function* () {
 });
 
 describe("daemon lifecycle and protocol", () => {
+  it.effect("publishes a complete owner record without rewriting a reader's open lock file", () =>
+    Effect.gen(function* () {
+      const dataDir = yield* temp();
+      const fs = yield* FileSystem.FileSystem;
+      const lock = `${dataDir}/daemon.lock`;
+      const previous = JSON.stringify({ pid: process.pid + 1 });
+      assert.isTrue(yield* takeLock(dataDir));
+      yield* fs.writeFileString(lock, previous, { mode: 0o600 });
+      const reader = yield* fs.open(lock);
+      yield* recordOwner(dataDir);
+      const buffer = new Uint8Array(100);
+      const read = yield* reader.read(buffer);
+      assert.strictEqual(new TextDecoder().decode(buffer.subarray(0, read)), previous);
+      assert.strictEqual(yield* fs.readFileString(lock), JSON.stringify({ pid: process.pid }));
+      assert.strictEqual((yield* fs.stat(lock)).mode & 0o777, 0o600);
+      assert.deepStrictEqual((yield* fs.readDirectory(dataDir)).sort(), [
+        "daemon.guard.sqlite",
+        "daemon.lock",
+      ]);
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.effect("removes the temporary owner record when publication fails", () =>
+    Effect.gen(function* () {
+      const dataDir = yield* temp();
+      const fs = yield* FileSystem.FileSystem;
+      yield* fs.makeDirectory(`${dataDir}/daemon.lock`);
+      const result = yield* recordOwner(dataDir).pipe(Effect.result);
+      assert.strictEqual(result._tag, "Failure");
+      assert.deepStrictEqual(yield* fs.readDirectory(dataDir), ["daemon.lock"]);
+      assert.isTrue((yield* fs.stat(`${dataDir}/daemon.lock`)).type === "Directory");
+    }).pipe(Effect.provide(platform)),
+  );
+
   it.live(
     "a killed Bun owner releases its lock even when its PID record names a live Node process",
     () =>

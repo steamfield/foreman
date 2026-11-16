@@ -283,22 +283,16 @@ describe("daemon ownership regressions", () => {
       });
       const observed: FileSystem.FileSystem = {
         ...fs,
-        stat: (path) =>
-          fs
-            .stat(path)
-            .pipe(Effect.tap(() => (path === `${dataDir}/daemon.lock` ? pause : Effect.void))),
-        writeFileString: (path, text, config) =>
-          fs
-            .writeFileString(path, text, config)
-            .pipe(
-              Effect.tap(() =>
-                path === `${dataDir}/daemon.lock` && config?.flag !== "wx" ? pause : Effect.void,
-              ),
-            ),
+        rename: (from, to) =>
+          (from === `${dataDir}/daemon.lock.tmp` && to === `${dataDir}/daemon.lock`
+            ? pause
+            : Effect.void
+          ).pipe(Effect.andThen(fs.rename(from, to))),
       };
       const first = yield* Effect.forkScoped(
         daemon(options(dataDir)).pipe(Effect.provideService(FileSystem.FileSystem, observed)),
       );
+      yield* Effect.addFinalizer(() => Deferred.succeed(release, undefined));
       yield* Deferred.await(entered);
       yield* TestClock.adjust("31 seconds");
       // Force the old guard's age independently of wall-clock scheduling.

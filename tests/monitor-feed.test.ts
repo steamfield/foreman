@@ -3,7 +3,9 @@ import { NodeServices, NodeSocket, NodeSocketServer } from "@effect/platform-nod
 import { assert, it } from "@effect/vitest";
 import {
   Clock,
+  DateTime,
   Deferred,
+  Duration,
   Effect,
   Exit,
   Fiber,
@@ -21,19 +23,16 @@ import { Socket } from "effect/socket";
 import { TestClock } from "effect/testing";
 import { AppConfig } from "../src/config";
 import { connection } from "../src/core/monitor/connection";
-import {
-  type MonitorFeed,
-  monitorFeed,
-  RECONNECT_INITIAL_MS,
-  SAVED_PROBE_MS,
-} from "../src/core/monitor/feed";
+import { detailFeed } from "../src/core/monitor/detail-feed";
+import { monitorFeed, RECONNECT_INITIAL_MS, SAVED_PROBE_MS } from "../src/core/monitor/feed";
 import { commandResult } from "../src/core/process";
 import { call, probe } from "../src/daemon/client";
 import { lines, requestJson } from "../src/daemon/protocol";
 import { daemon } from "../src/daemon/server";
 import { DaemonSockets } from "../src/daemon/sockets";
 import { DaemonUnavailable } from "../src/errors";
-import { RunName, RunRecord } from "../src/schemas/daemon";
+import { Method } from "../src/schemas/codex";
+import { type DaemonRequest, RunName, RunRecord } from "../src/schemas/daemon";
 import { Host } from "../src/services/host";
 import { makeSupervisor } from "../src/supervisor";
 import { Scenario } from "./fixtures/fake-app-server/scenario";
@@ -84,7 +83,35 @@ const savedRecord = (group: string) =>
     updatedAt: "2026-11-16T12:00:00Z",
   });
 
-const fixture = Effect.fnUntraced(function* () {
+const collectFeed = <A, R>(stream: Stream.Stream<A, never, R>) =>
+  Effect.gen(function* () {
+    const values = yield* Queue.unbounded<A>();
+    const sleeps = yield* Queue.unbounded<number>();
+    const clock = yield* Clock.Clock;
+    const fiber = yield* stream.pipe(
+      Stream.runForEach((value) => Queue.offer(values, value)),
+      Effect.provideService(Clock.Clock, {
+        currentTimeMillisUnsafe: () => clock.currentTimeMillisUnsafe(),
+        currentTimeMillis: clock.currentTimeMillis,
+        currentTimeNanosUnsafe: () => clock.currentTimeNanosUnsafe(),
+        currentTimeNanos: clock.currentTimeNanos,
+        monotonicTimeNanosUnsafe: () => clock.monotonicTimeNanosUnsafe(),
+        monotonicTimeNanos: clock.monotonicTimeNanos,
+        sleep: (duration) =>
+          Queue.offer(sleeps, Duration.toMillis(duration)).pipe(
+            Effect.andThen(clock.sleep(duration)),
+          ),
+      }),
+      Effect.forkScoped,
+    );
+    const waiting = (ms: number) =>
+      Effect.gen(function* () {
+        while ((yield* Queue.take(sleeps)) !== ms) yield* Effect.yieldNow;
+      });
+    return { next: Queue.take(values), values, fiber, waiting };
+  });
+
+const fixture = Effect.fnUntraced(function* (scenario = successfulTurn()) {
   const fs = yield* FileSystem.FileSystem;
   const root = yield* fs.realPath(
     yield* fs.makeTempDirectoryScoped({ directory: "/tmp", prefix: "fm-feed-" }),
@@ -120,7 +147,7 @@ const fixture = Effect.fnUntraced(function* () {
   const scenarioFile = `${root}/scenario.json`;
   yield* fs.writeFileString(
     scenarioFile,
-    Schema.encodeSync(Schema.fromJsonString(Scenario))(successfulTurn()),
+    Schema.encodeSync(Schema.fromJsonString(Scenario))(scenario),
   );
   const env = {
     HOME: root,
@@ -131,7 +158,12 @@ const fixture = Effect.fnUntraced(function* () {
     FAKE_APP_SERVER_SCENARIO: scenarioFile,
   };
   const polling = yield* Queue.unbounded<number>();
-  const launch = Effect.fnUntraced(function* (build = "test", refuse = false) {
+  const detailPolling = yield* Queue.unbounded<number | undefined>();
+  const launch = Effect.fnUntraced(function* (
+    build = "test",
+    refuse = false,
+    idleLimitMs = 60_000,
+  ) {
     const scope = yield* Scope.make();
     yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
     const supervisor = yield* makeSupervisor().pipe(
@@ -144,6 +176,7 @@ const fixture = Effect.fnUntraced(function* () {
         dataDir: home,
         version: "test",
         ...supervisor,
+        idleLimitMs,
         handler: (body) => {
           if (body._tag === "Overview") {
             if (refuse)
@@ -152,7 +185,9 @@ const fixture = Effect.fnUntraced(function* () {
               Effect.andThen(supervisor.handler(body)),
             );
           }
-          return supervisor.handler(body);
+          return (
+            body._tag === "Detail" ? Queue.offer(detailPolling, body.after) : Effect.void
+          ).pipe(Effect.andThen(supervisor.handler(body)));
         },
       }).pipe(Effect.provide(Host.layer({ ...host, build }))),
     ).pipe(Effect.forkIn(scope));
@@ -174,15 +209,8 @@ const fixture = Effect.fnUntraced(function* () {
     },
     { dataDir: home, connectOnly: true },
   );
-  const feed = Effect.gen(function* () {
-    const values = yield* Queue.unbounded<MonitorFeed>();
-    const fiber = yield* monitorFeed(home).pipe(
-      Stream.runForEach((value) => Queue.offer(values, value)),
-      Effect.forkScoped,
-    );
-    return { next: Queue.take(values), values, fiber };
-  });
-  return { home, repo, fs, launch, start, feed, polling };
+  const feed = collectFeed(monitorFeed(home));
+  return { home, repo, fs, launch, start, feed, polling, detailPolling };
 });
 
 it.live(
@@ -227,6 +255,118 @@ it.live(
 );
 
 it.effect(
+  "delivers real supervisor detail and steered events, then falls back after daemon shutdown",
+  () =>
+    Effect.gen(function* () {
+      const scenario = successfulTurn();
+      const f = yield* fixture({
+        rules: [
+          ...scenario.rules.map((rule) =>
+            rule.method === Method.turnStart ? { ...rule, steps: [] } : rule,
+          ),
+          { method: Method.turnSteer, respond: { result: { turnId: "{{turn}}" } } },
+        ],
+      });
+      const server = yield* f.launch();
+      yield* f.start;
+      const feed = yield* collectFeed(detailFeed(f.home, name));
+      const initial = yield* feed.next;
+      assert.strictEqual(initial._tag, "Live");
+      if (initial._tag !== "Live") return;
+      assert.strictEqual(initial.detail.run.name, "unit");
+      assert.strictEqual(initial.detail.run.state, "running");
+      assert.isFalse(initial.gap);
+      assert.isUndefined(yield* Queue.take(f.detailPolling));
+      assert.strictEqual(yield* Queue.take(f.detailPolling), initial.detail.version);
+      const steered = yield* call(
+        { _tag: "Steer", name, message: "Focus on feeds." },
+        { dataDir: f.home, connectOnly: true },
+      );
+      assert.strictEqual(steered._tag, "Accepted");
+      const update = yield* feed.next;
+      assert.strictEqual(update._tag, "Live");
+      if (update._tag !== "Live") return;
+      assert.deepStrictEqual(update.events, [
+        {
+          seq: (initial.events.at(-1)?.seq ?? 0) + 1,
+          at: DateTime.makeUnsafe(yield* Clock.currentTimeMillis),
+          event: { _tag: "Steered", message: "Focus on feeds." },
+        },
+      ]);
+      assert.isFalse(update.gap);
+      assert.isAbove(update.detail.version, initial.detail.version);
+      while ((yield* Queue.take(f.detailPolling)) !== update.detail.version) yield* Effect.yieldNow;
+      yield* server.stop;
+      const reconnecting = yield* feed.next;
+      assert.strictEqual(reconnecting._tag, "Reconnecting");
+      if (reconnecting._tag === "Reconnecting")
+        assert.deepStrictEqual(reconnecting.last, update.detail);
+      yield* feed.waiting(RECONNECT_INITIAL_MS);
+      yield* TestClock.adjust(RECONNECT_INITIAL_MS);
+      const saved = yield* feed.next;
+      assert.strictEqual(saved._tag, "Saved");
+      if (saved._tag === "Saved") {
+        assert.strictEqual(saved.reason, "no-daemon");
+        assert.strictEqual(saved.detail.run.name, "unit");
+        assert.deepStrictEqual(saved.events, []);
+      }
+      assert.isFalse(yield* f.fs.exists(`${f.home}/foreman.sock`));
+      yield* Fiber.interrupt(feed.fiber);
+    }).pipe(Effect.provide(platform)),
+);
+
+it.effect("keeps a real inactive run's Detail long-poll after an immediate empty event page", () =>
+  Effect.gen(function* () {
+    const f = yield* fixture();
+    const server = yield* f.launch();
+    yield* f.start;
+    yield* call(
+      { _tag: "Wait", names: [name], all: false, cwd: f.repo, timeoutMs: 60_000 },
+      { dataDir: f.home, connectOnly: true },
+    );
+    const feed = yield* collectFeed(detailFeed(f.home, name));
+    const initial = yield* feed.next;
+    assert.strictEqual(initial._tag, "Live");
+    if (initial._tag !== "Live") return;
+    assert.strictEqual(initial.detail.run.state, "idle");
+    assert.isUndefined(yield* Queue.take(f.detailPolling));
+    assert.strictEqual(yield* Queue.take(f.detailPolling), initial.detail.version);
+    yield* TestClock.adjust(15_000);
+    assert.deepStrictEqual(yield* feed.next, {
+      ...initial,
+      receivedAt: 15_000,
+      events: [],
+    });
+    assert.strictEqual(yield* Queue.take(f.detailPolling), initial.detail.version);
+    yield* Fiber.interrupt(feed.fiber);
+    yield* server.stop;
+  }).pipe(Effect.provide(platform)),
+);
+
+it.effect("lets a real supervisor daemon idle out while the overview feed is polling", () =>
+  Effect.gen(function* () {
+    const f = yield* fixture();
+    const server = yield* f.launch("test", false, 1000);
+    const feed = yield* f.feed;
+    assert.strictEqual((yield* feed.next)._tag, "Live");
+    assert.strictEqual(yield* Queue.take(f.polling), 0);
+    yield* TestClock.adjust(1100);
+    yield* Fiber.join(server.serving);
+    assert.isFalse(yield* f.fs.exists(`${f.home}/foreman.sock`));
+    assert.strictEqual((yield* feed.next)._tag, "Reconnecting");
+    yield* feed.waiting(RECONNECT_INITIAL_MS);
+    yield* TestClock.adjust(RECONNECT_INITIAL_MS);
+    const saved = yield* feed.next;
+    assert.strictEqual(saved._tag, "Saved");
+    if (saved._tag === "Saved") {
+      assert.strictEqual(saved.reason, "no-daemon");
+      assert.deepStrictEqual(saved.overview.runs, []);
+    }
+    yield* Fiber.interrupt(feed.fiber);
+  }).pipe(Effect.provide(platform)),
+);
+
+it.effect(
   "does not spawn a daemon, suppresses unchanged saved content, rereads disk, and switches to Live on the ten-second probe",
   () =>
     Effect.gen(function* () {
@@ -238,7 +378,11 @@ it.effect(
       assert.strictEqual(saved.reason, "no-daemon");
       assert.deepStrictEqual(saved.overview.runs, []);
       assert.strictEqual(saved.nextProbeAt - saved.receivedAt, SAVED_PROBE_MS);
-      yield* TestClock.adjust(SAVED_PROBE_MS * 2);
+      for (let i = 0; i < 2; i++) {
+        yield* feed.waiting(SAVED_PROBE_MS);
+        yield* TestClock.adjust(SAVED_PROBE_MS);
+      }
+      yield* feed.waiting(SAVED_PROBE_MS);
       assert.strictEqual(yield* Queue.size(feed.values), 0);
       assert.isFalse(yield* f.fs.exists(f.home));
       const dir = `${f.home}/runs/saved`;
@@ -256,6 +400,7 @@ it.effect(
         ["saved"],
       );
       assert.isFalse(yield* f.fs.exists(`${f.home}/foreman.sock`));
+      yield* feed.waiting(SAVED_PROBE_MS);
       const server = yield* f.launch();
       yield* TestClock.adjust(SAVED_PROBE_MS);
       assert.strictEqual((yield* feed.next)._tag, "Live");
@@ -267,6 +412,7 @@ it.effect(
         reconnecting.retryAt - (yield* Clock.currentTimeMillis),
         RECONNECT_INITIAL_MS,
       );
+      yield* feed.waiting(RECONNECT_INITIAL_MS);
       yield* TestClock.adjust(RECONNECT_INITIAL_MS);
       assert.strictEqual((yield* feed.next)._tag, "Saved");
       yield* Fiber.interrupt(feed.fiber);
@@ -292,6 +438,7 @@ it.effect.each(protocolPeers)(
       const listener = yield* NodeSocketServer.make({ path: `${f.home}/foreman.sock` });
       const overviewEntered = yield* Deferred.make<void>();
       const pings = yield* Queue.unbounded<void>();
+      const requests = yield* Queue.unbounded<DaemonRequest>();
       let connections = 0;
       let peerPid = process.pid;
       if (kind === "legacy")
@@ -306,7 +453,7 @@ it.effect.each(protocolPeers)(
               Stream.runForEach((line) =>
                 Effect.gen(function* () {
                   const request = yield* Schema.decodeUnknownEffect(requestJson)(line);
-                  assert.strictEqual(request.passive, true);
+                  yield* Queue.offer(requests, request);
                   if (kind === "closed") {
                     yield* writer.write(new Socket.CloseEvent());
                     return;
@@ -366,15 +513,28 @@ it.effect.each(protocolPeers)(
         assert.strictEqual(value.reason, "outdated");
         if (kind === "legacy") {
           yield* Queue.take(pings);
-          yield* TestClock.adjust(SAVED_PROBE_MS * 3);
+          for (let i = 0; i < 3; i++) {
+            yield* feed.waiting(SAVED_PROBE_MS);
+            yield* TestClock.adjust(SAVED_PROBE_MS);
+          }
+          yield* feed.waiting(SAVED_PROBE_MS);
           assert.strictEqual(connections, 1);
           assert.strictEqual(yield* Queue.size(feed.values), 0);
           // Rewriting the same PID is not a replacement, even if the lock's mtime changes.
-          yield* f.fs.writeFileString(`${f.home}/daemon.lock`, JSON.stringify({ pid: peerPid }));
+          yield* f.fs.writeFileString(
+            `${f.home}/daemon.lock.tmp`,
+            JSON.stringify({ pid: peerPid }),
+          );
+          yield* f.fs.rename(`${f.home}/daemon.lock.tmp`, `${f.home}/daemon.lock`);
           yield* TestClock.adjust(SAVED_PROBE_MS);
+          yield* feed.waiting(SAVED_PROBE_MS);
           assert.strictEqual(connections, 1);
           peerPid += 1;
-          yield* f.fs.writeFileString(`${f.home}/daemon.lock`, JSON.stringify({ pid: peerPid }));
+          yield* f.fs.writeFileString(
+            `${f.home}/daemon.lock.tmp`,
+            JSON.stringify({ pid: peerPid }),
+          );
+          yield* f.fs.rename(`${f.home}/daemon.lock.tmp`, `${f.home}/daemon.lock`);
           yield* TestClock.adjust(SAVED_PROBE_MS);
           yield* Queue.take(pings);
           assert.strictEqual(connections, 2);
@@ -396,6 +556,15 @@ it.effect.each(protocolPeers)(
       }
       yield* Fiber.interrupt(feed.fiber);
       yield* Fiber.interrupt(serving);
+      const received = yield* Queue.takeAll(requests);
+      assert.isNotEmpty(received);
+      for (const request of received) assert.strictEqual(request.passive, true);
+      assert.deepStrictEqual(
+        received.slice(0, kind === "closed" || kind === "legacy" ? 1 : 2).map((r) => r.body),
+        kind === "closed" || kind === "legacy"
+          ? [{ _tag: "Ping" }]
+          : [{ _tag: "Ping" }, { _tag: "Overview" }],
+      );
     }).pipe(Effect.provide(platform)),
 );
 
@@ -462,6 +631,7 @@ it.effect.each(["other-build", "refused"] as const)(
       assert.strictEqual(saved.reason, "outdated");
       assert.deepStrictEqual(saved.overview.runs, []);
       assert.isTrue(yield* f.fs.exists(`${f.home}/foreman.sock`));
+      yield* feed.waiting(SAVED_PROBE_MS);
       const dir = `${f.home}/runs/saved`;
       yield* f.fs.makeDirectory(dir, { recursive: true });
       yield* f.fs.writeFileString(
@@ -479,6 +649,7 @@ it.effect.each(["other-build", "refused"] as const)(
       assert.strictEqual(pong?._tag, "Pong");
       if (pong?._tag !== "Pong") return;
       assert.strictEqual(pong.build, kind === "other-build" ? "old" : "test");
+      yield* feed.waiting(SAVED_PROBE_MS);
       yield* server.stop;
       yield* TestClock.adjust(SAVED_PROBE_MS);
       const absent = yield* feed.next;

@@ -20,11 +20,11 @@ import { type DetailFeed, detailFeed } from "../src/core/monitor/detail-feed";
 import { RECONNECT_INITIAL_MS, RECONNECT_MAX_MS, SAVED_PROBE_MS } from "../src/core/monitor/feed";
 import { diskDetail } from "../src/core/runs/disk-detail";
 import * as Store from "../src/core/runs/store";
-import { probe } from "../src/daemon/client";
 import { lines, requestJson, responseJson } from "../src/daemon/protocol";
 import { DaemonSockets } from "../src/daemon/sockets";
 import {
   activeStates,
+  type DaemonRequest,
   type DaemonRequestBody,
   RunEvent,
   RunName,
@@ -83,10 +83,10 @@ const fixture = Effect.fnUntraced(function* () {
   yield* fs.makeDirectory(dir, { recursive: true });
   yield* Store.writeRun(dir, record);
   const requests = yield* Queue.unbounded<DaemonRequestBody>();
+  const envelopes = yield* Queue.unbounded<DaemonRequest>();
   let version = 1;
   let pid = process.pid;
   let build = "test";
-  let detailTimeoutMs = 15_000;
   let mode:
     | "normal"
     | "closed"
@@ -103,7 +103,6 @@ const fixture = Effect.fnUntraced(function* () {
   const launch = Effect.gen(function* () {
     const scope = yield* Scope.make();
     yield* Effect.addFinalizer((exit) => Scope.close(scope, exit));
-    const stopped = yield* Deferred.make<void>();
     const listener = yield* NodeSocketServer.make({ path: `${home}/foreman.sock` }).pipe(
       Scope.provide(scope),
     );
@@ -117,7 +116,7 @@ const fixture = Effect.fnUntraced(function* () {
               Stream.runForEach((line) =>
                 Effect.gen(function* () {
                   const request = yield* Schema.decodeUnknownEffect(requestJson)(line);
-                  assert.strictEqual(request.passive, true);
+                  yield* Queue.offer(envelopes, request);
                   const body = request.body;
                   const respond = Effect.gen(function* () {
                     yield* Queue.offer(requests, body);
@@ -166,7 +165,7 @@ const fixture = Effect.fnUntraced(function* () {
                         activeDetails += 1;
                         yield* Effect.raceFirst(
                           Deferred.await(detailChanged),
-                          Effect.sleep(detailTimeoutMs),
+                          Effect.sleep(15_000),
                         ).pipe(
                           Effect.ensuring(
                             Effect.sync(() => {
@@ -176,8 +175,7 @@ const fixture = Effect.fnUntraced(function* () {
                         );
                       }
                       const detail = yield* diskDetail(home, name);
-                      assert.isNotNull(detail);
-                      if (detail === null) return;
+                      if (detail === null) return yield* Effect.die("fake peer run is missing");
                       yield* writer.write(
                         `${Schema.encodeSync(responseJson)({ id: request.id, result: { ...detail, version } })}\n`,
                       );
@@ -200,7 +198,7 @@ const fixture = Effect.fnUntraced(function* () {
                       yield* writer.write(
                         `${Schema.encodeSync(responseJson)({ id: request.id, result: page })}\n`,
                       );
-                    } else assert.fail(`unexpected request: ${body._tag}`);
+                    } else return yield* Effect.die(`unexpected request: ${body._tag}`);
                   });
                   yield* respond.pipe(Effect.forkScoped);
                 }),
@@ -213,9 +211,8 @@ const fixture = Effect.fnUntraced(function* () {
           ),
         ),
       )
-      .pipe(Effect.ensuring(Deferred.succeed(stopped, undefined)), Effect.forkIn(scope));
+      .pipe(Effect.forkIn(scope));
     return {
-      stopped,
       stop: Scope.close(scope, Exit.void).pipe(
         Effect.andThen(Fiber.await(serving)),
         Effect.andThen(fs.remove(`${home}/foreman.sock`, { force: true })),
@@ -277,17 +274,16 @@ const fixture = Effect.fnUntraced(function* () {
     feed,
     seen,
     requests,
+    checkRequests: Effect.gen(function* () {
+      const received = yield* Queue.takeAll(envelopes);
+      assert.isNotEmpty(received);
+      for (const request of received) assert.strictEqual(request.passive, true);
+    }),
     append,
-    configure: (options: {
-      mode?: typeof mode;
-      build?: string;
-      pid?: number;
-      detailTimeoutMs?: number;
-    }) => {
+    configure: (options: { mode?: typeof mode; build?: string; pid?: number }) => {
       mode = options.mode ?? mode;
       build = options.build ?? build;
       pid = options.pid ?? pid;
-      detailTimeoutMs = options.detailTimeoutMs ?? detailTimeoutMs;
     },
     bump: Effect.gen(function* () {
       version += 1;
@@ -298,35 +294,28 @@ const fixture = Effect.fnUntraced(function* () {
   };
 });
 
-it.effect(
-  "delivers event-only writes within one long-poll and detail-only changes by version",
-  () =>
-    Effect.gen(function* () {
-      const f = yield* fixture();
-      const server = yield* f.launch;
-      const feed = yield* f.feed;
-      const initial = yield* feed.next;
-      assert.strictEqual(initial._tag, "Live");
-      yield* f.seen((body) => body._tag === "Events" && (body.waitMs ?? 0) > 1);
-      const event = yield* f.append;
-      const update = yield* feed.next;
-      assert.strictEqual(update._tag, "Live");
-      if (update._tag !== "Live") return;
-      assert.deepStrictEqual(update.events, [event]);
-      assert.isFalse(update.gap);
-      assert.strictEqual(update.detail.version, 1);
-      assert.strictEqual(update.receivedAt, yield* Clock.currentTimeMillis);
-      yield* f.seen((body) => body._tag === "Detail" && body.after === 1);
-      yield* f.bump;
-      const changed = yield* feed.next;
-      assert.strictEqual(changed._tag, "Live");
-      if (changed._tag === "Live") {
-        assert.strictEqual(changed.detail.version, 2);
-        assert.deepStrictEqual(changed.events, []);
-      }
-      yield* Fiber.interrupt(feed.fiber);
-      yield* server.stop;
-    }).pipe(Effect.provide(platform)),
+it.effect("delivers a version-only peer change without repeating events", () =>
+  Effect.gen(function* () {
+    const f = yield* fixture();
+    const event = yield* f.append;
+    const server = yield* f.launch;
+    const feed = yield* f.feed;
+    const initial = yield* feed.next;
+    assert.strictEqual(initial._tag, "Live");
+    if (initial._tag !== "Live") return;
+    assert.deepStrictEqual(initial.events, [event]);
+    yield* f.seen((body) => body._tag === "Detail" && body.after === 1);
+    yield* f.bump;
+    const changed = yield* feed.next;
+    assert.strictEqual(changed._tag, "Live");
+    if (changed._tag === "Live") {
+      assert.strictEqual(changed.detail.version, 2);
+      assert.deepStrictEqual(changed.events, []);
+    }
+    yield* Fiber.interrupt(feed.fiber);
+    yield* server.stop;
+    yield* f.checkRequests;
+  }).pipe(Effect.provide(platform)),
 );
 
 it.effect.each(["Live", "Saved"] as const)(
@@ -372,6 +361,7 @@ it.effect.each(["Live", "Saved"] as const)(
       );
       yield* Fiber.interrupt(feed.fiber);
       if (server !== null) yield* server.stop;
+      if (server !== null) yield* f.checkRequests;
     }).pipe(Effect.provide(platform)),
 );
 
@@ -442,6 +432,7 @@ it.effect(
       assert.strictEqual((yield* feed.next)._tag, "Live");
       yield* Fiber.interrupt(feed.fiber);
       yield* server.stop;
+      yield* f.checkRequests;
     }).pipe(Effect.provide(platform)),
 );
 
@@ -467,6 +458,7 @@ it.effect.each([
     assert.strictEqual((yield* feed.next)._tag, "Live");
     yield* Fiber.interrupt(feed.fiber);
     yield* server.stop;
+    yield* f.checkRequests;
   }).pipe(Effect.provide(platform)),
 );
 
@@ -516,6 +508,7 @@ it.effect(
       if (resumed._tag === "Live") assert.deepStrictEqual(resumed.events, []);
       yield* Fiber.interrupt(feed.fiber);
       yield* recovered.stop;
+      yield* f.checkRequests;
     }).pipe(Effect.provide(platform)),
 );
 
@@ -529,6 +522,7 @@ it.effect("archives a daemon not-found response even while disk data remains", (
     assert.isTrue(yield* f.fs.exists(`${f.dir}/run.json`));
     yield* Fiber.interrupt(feed.fiber);
     yield* server.stop;
+    yield* f.checkRequests;
   }).pipe(Effect.provide(platform)),
 );
 
@@ -561,41 +555,6 @@ it.effect.each(["Saved", "Live"] as const)(
         assert.deepStrictEqual(next.events, [replacement]);
       yield* Fiber.interrupt(feed.fiber);
       if (server !== null) yield* server.stop;
+      if (server !== null) yield* f.checkRequests;
     }).pipe(Effect.provide(platform)),
-);
-
-it.live(
-  "keeps the Detail long-poll when an inactive run returns an immediate empty event page",
-  () =>
-    Effect.gen(function* () {
-      const f = yield* fixture();
-      f.configure({ detailTimeoutMs: 20 });
-      yield* Store.writeRun(f.dir, { ...record, state: "idle" });
-      const server = yield* f.launch;
-      const feed = yield* f.feed;
-      assert.strictEqual((yield* feed.next)._tag, "Live");
-      yield* f.seen((b) => b._tag === "Detail" && b.after === undefined);
-      yield* f.seen((b) => b._tag === "Detail" && b.after === 1);
-      // After a real protocol timeout, the next Detail is another versioned poll.
-      const pending = yield* f.seen((b) => b._tag === "Detail");
-      assert.isTrue(pending._tag === "Detail" && pending.after === 1);
-      yield* Fiber.interrupt(feed.fiber);
-      yield* server.stop;
-    }).pipe(Effect.provide(platform)),
-);
-
-it.effect("closes a fake daemon when its owner scope is interrupted", () =>
-  Effect.gen(function* () {
-    const f = yield* fixture();
-    const server = yield* Effect.scoped(
-      Effect.gen(function* () {
-        const server = yield* f.launch;
-        assert.strictEqual((yield* probe(f.home, true))?._tag, "Pong");
-        return server;
-      }),
-    );
-    yield* Effect.gen(function* () {
-      assert.isTrue(yield* Deferred.isDone(server.stopped));
-    }).pipe(Effect.ensuring(server.stop.pipe(Effect.orDie)));
-  }).pipe(Effect.provide(platform)),
 );

@@ -42,7 +42,15 @@ export const recordOwner = Effect.fn("daemon.recordOwner")(function* (dataDir: s
   const owner = Schema.encodeSync(Schema.fromJsonString(DaemonLockOwner))({
     pid: (yield* Host).pid,
   });
-  yield* fs.writeFileString(path.join(dataDir, "daemon.lock"), owner, { mode: 0o600 });
+  const file = path.join(dataDir, "daemon.lock");
+  const temporary = `${file}.tmp`;
+  yield* fs
+    .writeFileString(temporary, owner, { mode: 0o600 })
+    .pipe(
+      Effect.andThen(fs.rename(temporary, file)),
+      Effect.ensuring(fs.remove(temporary, { force: true }).pipe(Effect.orDie)),
+      Effect.uninterruptible,
+    );
 });
 
 export const releaseLock = Effect.fn("daemon.releaseLock")(function* (
