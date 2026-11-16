@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.2.0] - 2026-11-16
+
+### Added
+
+- `foreman monitor` opens a live, read-only terminal view of every run across repositories, grouped by repo. Each run shows its state, budget, attention flags and what it is doing right now, with its Codex subagents listed underneath. Pending questions appear at the top with the command to answer them. Enter, or `foreman monitor <name>`, opens a run's detail: task, digest, questions, subagents, a live event feed, the last hand-off and copyable commands. The monitor never starts or keeps alive a daemon. Without a running daemon of this build it shows saved state from disk. Without a terminal, with `--json` or inside a Codex delegate it prints a snapshot instead.
+- `foreman status --all` lists every run on the machine in one call, as text or JSON. It suggests next steps only for runs in the current repository; runs in other repos are labelled as supervised by their own session.
+- `foreman events <name> --follow` prints a run's events as they happen and exits once the run is no longer active. It never starts a daemon; with none running it prints the saved events and stops.
+
+### Changed
+
+- Run event logs no longer store command output deltas, moderation metadata or diff updates, which made up most of a busy run's log.
+
+### Fixed
+
+- The daemon writes its ownership lock atomically, so another foreman process can no longer read a half-written lock file while a daemon starts.
+
 ## [0.1.3] - 2026-11-15
 
 ### Added

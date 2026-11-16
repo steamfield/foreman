@@ -1,4 +1,4 @@
-# foreman 0.1.3 architecture
+# foreman 0.2.0 architecture
 
 foreman keeps supervision in a local daemon so a coding turn can outlive the CLI call that started it. The daemon owns run state and one shared Codex app-server child. The CLI resolves inputs and renders results; it does not own the lifetime of a turn.
 
