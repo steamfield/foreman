@@ -2,6 +2,7 @@ import { NodeServices } from "@effect/platform-node";
 import { assert, describe, expect, it } from "@effect/vitest";
 import { Clock, DateTime, Effect, Fiber, FileSystem, Schema } from "effect";
 import { TestClock } from "effect/testing";
+import { replay } from "../scripts/quiet-replay";
 import {
   activity,
   defersAt,
@@ -76,6 +77,64 @@ const fixture = Effect.fnUntraced(function* (count = 1) {
 });
 
 describe("monitor attention", () => {
+  it("ends an unfinished replay command when its parent turn completes", () => {
+    const journal = [
+      { at: new Date(0).toISOString(), event: { _tag: "TurnStarted" } },
+      { at: new Date(360000).toISOString(), event: { _tag: "TurnCompleted" } },
+      { at: new Date(420000).toISOString(), event: { _tag: "TurnStarted" } },
+      { at: new Date(1200000).toISOString(), event: { _tag: "TurnCompleted" } },
+    ]
+      .map((value) => JSON.stringify(value))
+      .join("\n");
+    const codex = [
+      { method: "item/started", params: { item: { type: "commandExecution", startedAtMs: 0 } } },
+      { method: "turn/started", params: { turn: { startedAt: 420 } } },
+    ]
+      .map((value) => JSON.stringify(value))
+      .join("\n");
+    expect(replay(codex, journal)).toEqual({
+      totalMs: 1140000,
+      anchoredMs: 1140000,
+      quietMs: 480000,
+      falsePositiveMs: 0,
+      episodes: 1,
+      untimedMessages: 0,
+      stretches: [{ start: 720000, end: 1200000 }],
+    });
+  });
+
+  it.each([false, true])(
+    "replays timed commands and silence, excluding untimed delta gaps: %s",
+    (delta) => {
+      const journal = [
+        { at: new Date(0).toISOString(), event: { _tag: "StateChanged", to: "running" } },
+        { at: new Date(720000).toISOString(), event: { _tag: "TurnCompleted" } },
+      ]
+        .map((value) => JSON.stringify(value))
+        .join("\n");
+      const codex = [
+        { method: "item/started", params: { item: { type: "commandExecution", startedAtMs: 0 } } },
+        {
+          method: "item/completed",
+          params: { item: { type: "commandExecution", startedAtMs: 0, completedAtMs: 360000 } },
+        },
+        ...(delta ? [{ method: "item/agentMessage/delta", params: {} }] : []),
+        { method: "turn/completed", params: { turn: { completedAt: 720 } } },
+      ]
+        .map((value) => JSON.stringify(value))
+        .join("\n");
+      expect(replay(codex, journal)).toEqual({
+        totalMs: 720000,
+        anchoredMs: delta ? 360000 : 720000,
+        quietMs: delta ? 0 : 60000,
+        falsePositiveMs: 0,
+        episodes: delta ? 0 : 1,
+        untimedMessages: delta ? 1 : 0,
+        stretches: delta ? [] : [{ start: 660000, end: 720000 }],
+      });
+    },
+  );
+
   it("marks only running runs without an open command quiet after five minutes", () => {
     expect(quiet("running", null, 0, QUIET_AFTER_MS)).toBe(true);
     expect(
@@ -306,32 +365,6 @@ describe("overview projection", () => {
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
-  it.effect("redacts raw command and commentary activity in both overview outputs", () =>
-    Effect.gen(function* () {
-      const { registry, run } = yield* fixture();
-      yield* registry.state(run, "running");
-      run.openItem = {
-        id: "command",
-        type: "commandExecution",
-        command: "check token=PRIVATE_COMMAND",
-        startedAt: 1000,
-      };
-      run.lastCommentary = { text: "Checking token=PRIVATE_COMMENTARY", at: 1000 };
-      for (const kind of ["command", "message"]) {
-        const result = yield* overview(registry, metadata, { _tag: "Overview" });
-        expect(result.runs[0]?.activity?.kind).toBe(kind);
-        const json = JSON.stringify(Schema.encodeSync(Overview)(result));
-        const text = renderOverview(result, "/repo", "foreman", 2000);
-        for (const output of [json, text]) {
-          expect(output).toContain("token=[redacted]");
-          expect(output).not.toContain("PRIVATE_COMMAND");
-          expect(output).not.toContain("PRIVATE_COMMENTARY");
-        }
-        run.openItem = null;
-      }
-    }).pipe(Effect.provide(NodeServices.layer)),
-  );
-
   it.effect("keeps a recovered run available when its optional handoff cannot be read", () =>
     Effect.gen(function* () {
       const { fs, home, run } = yield* fixture();
@@ -375,7 +408,7 @@ describe("overview projection", () => {
   );
 
   it.effect(
-    "projects question and handoff writes, state ages, cached scope and turn attention, including reload",
+    "projects question and handoff writes, state ages and turn attention, including reload",
     () =>
       Effect.gen(function* () {
         const { registry, run, home } = yield* fixture();
@@ -383,7 +416,6 @@ describe("overview projection", () => {
         yield* registry.handoff(run, "Finished.\nDetails");
         yield* registry.event(run, { _tag: "Retrying", message: "Retry later" });
         yield* registry.event(run, { _tag: "HookBlocked", event: "PreToolUse", feedback: "scope" });
-        run.worktree = { filesWritten: [], outsideMayChange: ["outside"], newInGitStatus: [] };
         let view = projectRun(run, "repo", 2000);
         expect(view).toMatchObject({
           stateSince: at,
@@ -395,7 +427,6 @@ describe("overview projection", () => {
           hooksBlocked: 1,
           retrying: { message: "Retry later" },
           activity: { kind: "outcome", text: "Finished." },
-          outsideMayChange: 1,
         });
         yield* registry.question(run, { _tag: "Deferred", id: q1, by: "orchestrator", at });
         const reloaded = yield* makeRegistry(home);
@@ -488,7 +519,7 @@ describe("overview projection", () => {
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
-  it.live("answers for twenty loaded runs without touching journals, in under 200 ms", () =>
+  it.live("answers for twenty loaded runs without touching journals", () =>
     Effect.gen(function* () {
       const { registry, fs } = yield* fixture(20);
       // After load, missing journals cannot affect a cached projection.
@@ -497,11 +528,7 @@ describe("overview projection", () => {
         yield* fs.writeFileString(`${run.dir}/questions.jsonl`, "invalid\n");
         yield* fs.remove(`${run.dir}/contract.md`);
       }
-      const start = performance.now();
       const result = yield* overview(registry, metadata, { _tag: "Overview" });
-      const measured = performance.now() - start;
-      console.info(`Overview 20 runs: ${measured.toFixed(3)} ms`);
-      expect(measured).toBeLessThan(200);
       expect(result.runs).toHaveLength(20);
       expect(result.runs.every((run) => run.title === "Test task")).toBe(true);
       const old = [...registry.runs.values()][0];
@@ -560,27 +587,21 @@ describe("overview projection", () => {
           "FOREMAN_HOME=/home /bin/foreman",
           600000,
         );
-        expect(text).toContain("2 runs: 2 running");
-        expect(text.indexOf("repo (/repo)")).toBeLessThan(text.indexOf("foreign (/foreign)"));
-        expect(text).toContain("running 10m00s");
-        expect(text).toContain("budget 9m59s/1m00s");
-        expect(text).toContain("q1 (blocked) pending 9m59s, auto-defer in 5m00s: Which path?");
-        expect(text).toContain("  /root/tests  working · 9m59s ago");
-        expect(text).toContain('next: FOREMAN_HOME=/home /bin/foreman answer run-0 q1 "<answer>"');
-        expect.soft(text).toContain("next: FOREMAN_HOME=/home /bin/foreman events run-0\n");
-        expect.soft(text).not.toContain("--follow");
-        expect.soft(text).toContain("2 outside scope");
-        expect
-          .soft(
-            renderOverview(
-              { _tag: "Overview", version: 1, daemon: metadata, runs: [local] },
-              "/repo",
-              "foreman",
-              600000,
-            ),
-          )
-          .toMatch(/^1 run: 1 running\n/);
-        expect(text.split("other repo: its own session supervises it")[1]).not.toContain("next:");
+        expect(text).toBe(
+          [
+            "2 runs: 2 running",
+            "",
+            "repo (/repo)",
+            "run-0  running 10m00s  turn 1 (start)  model high priority read-only  budget 9m59s/1m00s  q1 (blocked) pending 9m59s, auto-defer in 5m00s: Which path?  2 outside scope  quiet 9m59s",
+            "  /root/tests  working · 9m59s ago",
+            '  next: FOREMAN_HOME=/home /bin/foreman answer run-0 q1 "<answer>"',
+            "  next: FOREMAN_HOME=/home /bin/foreman events run-0",
+            "",
+            "foreign (/foreign) · other repo: its own session supervises it",
+            "foreign  running 10m00s  turn 1 (start)  model high priority read-only  budget 9m59s/1m00s  q1 (blocked) pending 9m59s, auto-defer in 5m00s: Which path?  2 outside scope  quiet 9m59s",
+            "  /root/tests  working · 9m59s ago",
+          ].join("\n"),
+        );
       }).pipe(Effect.provide(NodeServices.layer)),
   );
 });

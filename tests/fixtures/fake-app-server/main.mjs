@@ -65,6 +65,11 @@ async function steps(script) {
     } else if ("awaitRequest" in step) await waitFor((message) => message.method === step.awaitRequest, step.timeoutMs);
     else if ("sleepMs" in step) await delay(step.sleepMs);
     else if ("stderr" in step) process.stderr.write(`${step.stderr}\n`);
+    else if ("writeFile" in step) writeFileSync(step.writeFile, step.text);
+    else if ("gate" in step) {
+      writeFileSync(step.gate.ready, "ready");
+      readFileSync(step.gate.release);
+    }
     else if ("exit" in step) process.exit(step.exit);
   }
 }
