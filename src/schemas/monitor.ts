@@ -82,3 +82,38 @@ export const Overview = Schema.TaggedStruct("Overview", {
   runs: Schema.Array(RunView),
 }).annotate({ title: "Overview", description: "All current runs across repository groups" });
 export type Overview = typeof Overview.Type;
+
+export const DetailQuestion = Schema.Struct({
+  id: RunView.fields.questions.value.fields.id,
+  kind: Schema.Literals(["question", "blocked"]),
+  text: Schema.String,
+  askedAt: Timestamp,
+  status: Schema.Literals(["pending", "deferred", "resolved", "cancelled"]),
+  resolvedAt: Schema.NullOr(Timestamp),
+});
+
+// The protocol supplies its existing schemas, avoiding a runtime cycle back to daemon.ts.
+export const makeDetailSchema = (
+  digest: typeof import("./daemon").Digest,
+  handoff: typeof import("./daemon").Handoff,
+) =>
+  Schema.TaggedStruct("Detail", {
+    version: Schema.Int,
+    run: RunView,
+    digest,
+    record: Schema.Struct({
+      runDir: Schema.String,
+      worktree: Schema.String,
+      branch: Schema.NullOr(Schema.String),
+      baseCommit: Schema.String,
+      fromRef: Schema.NullOr(Schema.String),
+      createdAt: Timestamp,
+      updatedAt: Timestamp,
+    }),
+    contract: Schema.String,
+    contractTruncated: Schema.Boolean,
+    contractByteLimit: Schema.Int,
+    questions: Schema.Array(DetailQuestion),
+    handoff: Schema.NullOr(handoff),
+  }).annotate({ title: "Detail", description: "Read-only run detail without worktree refreshes" });
+export type Detail = ReturnType<typeof makeDetailSchema>["Type"];

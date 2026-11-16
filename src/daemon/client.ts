@@ -2,7 +2,7 @@ import { Effect, FileSystem, Option, Path, PlatformError, Predicate, Schema, Str
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import type { Socket } from "effect/socket";
 import { type AppError, DaemonUnavailable, PermissionDenied } from "../errors";
-import type { DaemonRequestBody, DaemonResult } from "../schemas/daemon";
+import type { DaemonRequestBody, DaemonResult, RunName } from "../schemas/daemon";
 import { Host } from "../services/host";
 import { takeLock } from "./lock";
 import { errorFromResponse, lines, requestJson, responseJson } from "./protocol";
@@ -268,6 +268,68 @@ export const passiveOverview = Effect.fn("daemon.passiveOverview")(
   }),
   Effect.catchTag("SocketError", () => Effect.fail(closedRequest({ _tag: "Overview" }))),
 );
+
+const passiveRead = Effect.fn("daemon.passiveRead")(
+  function* (dataDir: string, body: DaemonRequestBody, timeoutMs: number) {
+    const path = yield* Path.Path;
+    const socketPath = path.join(dataDir, "foreman.sock");
+    yield* validateSocketPath(socketPath);
+    const { socket, reader } = yield* open(socketPath).pipe(
+      Effect.mapError((error) => socketFailure(socketPath, error)),
+    );
+    const writer = yield* socket.writer;
+    const json = yield* Schema.encodeEffect(requestJson)({ id: 1, body, passive: true });
+    yield* writer.write(`${json}\n`);
+    const response = yield* lines(reader).pipe(
+      Stream.mapEffect((line) => Schema.decodeUnknownEffect(responseJson)(line)),
+      Stream.filter((reply) => reply.id === 1),
+      Stream.runHead,
+      Effect.catchTag("SchemaError", () => Effect.succeed(null)),
+      Effect.timeoutOrElse({
+        duration: timeoutMs,
+        orElse: () =>
+          Effect.fail(
+            new DaemonUnavailable({
+              detail: `Daemon ${body._tag} reply timed out; reconnect and inspect the daemon log.`,
+            }),
+          ),
+      }),
+    );
+    if (response === null) return null;
+    if (Option.isNone(response)) return yield* closedRequest(body);
+    if ("result" in response.value) return response.value.result;
+    const error = errorFromResponse(response.value.error);
+    if (error?._tag === "RunNotFound") return yield* error;
+    return null;
+  },
+  Effect.scoped,
+  Effect.catchTag("SocketError", () =>
+    Effect.fail(new DaemonUnavailable({ detail: "Passive daemon connection closed; reconnect." })),
+  ),
+);
+
+export const passiveDetail = Effect.fn("daemon.passiveDetail")(function* (
+  home: string,
+  name: RunName,
+  after?: number,
+) {
+  const result = yield* passiveRead(
+    home,
+    { _tag: "Detail", name, ...(after === undefined ? {} : { after }) },
+    OVERVIEW_REQUEST_TIMEOUT_MS,
+  );
+  return result?._tag === "Detail" ? result : null;
+});
+
+export const passiveEvents = Effect.fn("daemon.passiveEvents")(function* (
+  home: string,
+  name: RunName,
+  after: number,
+  waitMs: number,
+) {
+  const result = yield* passiveRead(home, { _tag: "Events", name, after, waitMs }, waitMs + 5000);
+  return result?._tag === "Events" ? result : null;
+});
 
 const exchangeRunRequest = Effect.fn("daemon.exchangeRunRequest")(function* (
   body: DaemonRequestBody,

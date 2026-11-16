@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { Overview } from "./monitor";
+import { makeDetailSchema, Overview } from "./monitor";
 
 // Shapes shared by the foreman CLI, the daemon and the run store: run state on disk, the
 // normalized event log, the digest, and the socket protocol. docs/rfcs/0001-foreman.md is the
@@ -301,6 +301,13 @@ export const DaemonRequestBody = Schema.TaggedUnion({
       Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 60000 })),
     ),
   },
+  Detail: {
+    name: RunName,
+    after: Schema.optionalKey(Schema.Int),
+    timeoutMs: Schema.optionalKey(
+      Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 60000 })),
+    ),
+  },
   Events: {
     name: RunName,
     after: Schema.optionalKey(Schema.Int),
@@ -346,6 +353,7 @@ export const WaitOutcome = Schema.Struct({
 });
 
 export const DaemonResult = Schema.TaggedUnion({
+  Detail: makeDetailSchema(Digest, Handoff).fields,
   Overview: {
     version: Overview.fields.version,
     daemon: Overview.fields.daemon,

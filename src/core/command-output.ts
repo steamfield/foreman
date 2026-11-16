@@ -123,6 +123,8 @@ export function renderResult(
   overviewContext = { group: "", now: 0 },
 ): string {
   switch (result._tag) {
+    case "Detail":
+      return renderDigest(result.digest);
     case "Overview":
       return renderOverview(result, overviewContext.group, executable, overviewContext.now);
     case "Pong":
