@@ -10,10 +10,9 @@ import {
 } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { NodeServices, NodeSocket, NodeSocketServer } from "@effect/platform-node";
-import { Effect, Fiber, Layer, ManagedRuntime, Schema } from "effect";
+import { Deferred, Effect, Fiber, Layer, ManagedRuntime, Schema } from "effect";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { allowedPaths } from "../src/core/runs/worktree";
-import { call } from "../src/daemon/client";
 import { daemon } from "../src/daemon/server";
 import { DaemonSockets } from "../src/daemon/sockets";
 import { type AppError, errorEnvelope, PermissionDenied, RunConflict, Usage } from "../src/errors";
@@ -27,7 +26,7 @@ import {
 } from "../src/schemas/daemon";
 import { DoctorResult } from "../src/schemas/doctor";
 import { Host } from "../src/services/host";
-import { ndjson, runCli } from "./helpers/cli";
+import { listeningSockets, ndjson, runCli } from "./helpers/cli";
 
 const name = Schema.decodeUnknownSync(RunName)("unit-a");
 const cursor = Schema.decodeUnknownSync(Cursor)("opaque:42");
@@ -88,6 +87,7 @@ async function fixture(
       }),
     ),
   );
+  const ready = await runtime.runPromise(Deferred.make<void>());
   const fiber = runtime.runFork(
     daemon({
       dataDir,
@@ -100,7 +100,7 @@ async function fixture(
         if (response instanceof Error) return Effect.fail(response);
         return Effect.succeed(typeof response === "function" ? response(body) : response);
       },
-    }),
+    }).pipe(Effect.provide(listeningSockets(Deferred.succeed(ready, undefined)))),
   );
   onTestFinished(async () => {
     await runtime.runPromise(Fiber.interrupt(fiber));
@@ -108,16 +108,7 @@ async function fixture(
     await rm(dataDir, { recursive: true, force: true });
   });
   await runtime.runPromise(
-    Effect.raceFirst(
-      Fiber.join(fiber),
-      Effect.gen(function* () {
-        while (true) {
-          const ping = yield* Effect.result(call({ _tag: "Ping" }, { dataDir, connectOnly: true }));
-          if (ping._tag === "Success") return;
-          yield* Effect.yieldNow;
-        }
-      }),
-    ).pipe(Effect.timeout("3 seconds")),
+    Effect.raceFirst(Fiber.join(fiber), Deferred.await(ready)).pipe(Effect.timeout("3 seconds")),
   );
   const run = (args: readonly string[], env: Record<string, string> = {}) =>
     runCli(args, {

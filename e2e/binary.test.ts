@@ -20,6 +20,7 @@ import { Schema } from "effect";
 import { responseJson } from "../src/daemon/protocol";
 import { DaemonResult } from "../src/schemas/daemon";
 import { DoctorResult } from "../src/schemas/doctor";
+import { Overview } from "../src/schemas/monitor";
 import { PackageInfo } from "../src/schemas/package";
 import { askOrchestrator, successfulTurn } from "../tests/fixtures/fake-app-server/scenarios";
 
@@ -454,6 +455,12 @@ test.each(["compiled", "path", "development"])(
       const attention = await run(["wait", "--all", "--timeout", "9m"]);
       expect(attention).toMatchObject({ status: 0, stderr: "" });
       expect(attention.stdout).toContain("question    unit q1");
+      const all = await run(["status", "--all", "--json"]);
+      expect(all).toMatchObject({ status: 0, stderr: "" });
+      const overview = Schema.decodeUnknownSync(Overview)(JSON.parse(all.stdout));
+      expect(overview.runs.map(({ name, group }) => ({ name: String(name), group }))).toEqual([
+        { name: "unit", group: await realpath(repo) },
+      ]);
       let upgrade: { busy: Extract<DaemonResult, { _tag: "Pong" }>; binary: string } | undefined;
       if (mode === "compiled") {
         const busy = await pong(env.FOREMAN_HOME);

@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Cause, Effect, Stream } from "effect";
 import { createElement } from "react";
-import { afterEach, expect, it, vi } from "vitest";
+import { expect, it } from "vitest";
 import { Terminal } from "../src/services/terminal";
 import { runMonitor } from "../src/tui/run";
 import { MonitorApp } from "../src/tui/screen";
@@ -10,23 +10,6 @@ import { ndjson, runCli, tempDir } from "./helpers/cli";
 import { defaults, live, now } from "./helpers/monitor";
 import { monitorTerminal } from "./helpers/monitor-terminal";
 
-const { cleanedUp } = vi.hoisted(() => ({ cleanedUp: vi.fn() }));
-vi.mock("ink", async (importOriginal) => {
-  const ink = await importOriginal<typeof import("ink")>();
-  return {
-    ...ink,
-    render: (...args: Parameters<typeof ink.render>) => {
-      const app = ink.render(...args);
-      const cleanup = app.cleanup;
-      app.cleanup = () => {
-        cleanup();
-        cleanedUp();
-      };
-      return app;
-    },
-  };
-});
-afterEach(() => vi.clearAllMocks());
 const renderError = new Error("private render fixture text");
 const ThrowingApp: typeof MonitorApp = (props) => {
   if (props.model.screen === "list") throw renderError;
@@ -58,10 +41,14 @@ it("restores the terminal and reports one defect when a component throws during 
       );
     }).pipe(Effect.provide(terminal.layer)),
   });
-  expect(result).toMatchObject({ status: 1, stdout: "" });
-  expect(result.stderr.match(/Internal error\.\n/g)).toHaveLength(1);
+  expect({
+    ...result,
+    stderr: result.stderr.replace(
+      /^\S+ error (monitor\.render\.failed|defect) \{[^\n]*\}$/gm,
+      "$1",
+    ),
+  }).toEqual({ status: 1, stdout: "", stderr: "monitor.render.failed\ndefect\nInternal error.\n" });
   expect(defects).toEqual([renderError]);
-  expect(cleanedUp).toHaveBeenCalledOnce();
   const records = ndjson(await readFile(log, "utf8"));
   expect(
     records.filter(
@@ -72,6 +59,6 @@ it("restores the terminal and reports one defect when a component throws during 
   expect(records).toContainEqual(expect.objectContaining({ msg: "monitor.render.failed" }));
   expect(JSON.stringify(records)).not.toContain(renderError.message);
   expect(terminal.output()).toContain("\u001b[?1049h");
-  expect(terminal.output()).toContain("\u001b[?1049l");
+  expect(terminal.output().split("\u001b[?1049l")).toHaveLength(2);
   expect(terminal.stdin.isRaw).toBe(false);
 });
