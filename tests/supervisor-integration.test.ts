@@ -18,6 +18,7 @@ import {
   References,
   Schema,
   Scope,
+  Stream,
 } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import { TestClock } from "effect/testing";
@@ -40,12 +41,10 @@ import { Overview } from "../src/schemas/monitor";
 import { Host } from "../src/services/host";
 import { makeSupervisor } from "../src/supervisor";
 import { makeAppServer } from "../src/supervisor/app-server";
-import { handleNotification } from "../src/supervisor/notifications";
-import { overview, projectRun } from "../src/supervisor/overview";
 import { deferral, preamble, timeUp } from "../src/supervisor/prompts";
 import { makeQuestions } from "../src/supervisor/questions";
 import { makeRegistry } from "../src/supervisor/registry";
-import { makeTurns, type Turns } from "../src/supervisor/turns";
+import { makeTurns } from "../src/supervisor/turns";
 import { type Rule, Scenario, type Step } from "./fixtures/fake-app-server/scenario";
 import { repoHooks, successfulTurn } from "./fixtures/fake-app-server/scenarios";
 import { runCli } from "./helpers/cli";
@@ -289,6 +288,28 @@ const fixture = Effect.fnUntraced(function* (script: Scenario, legacy = false, r
       yield* Effect.yieldNow;
     }
   });
+  const view = () =>
+    request({ _tag: "Overview" }).pipe(
+      Effect.map((reply) => {
+        assert(reply._tag === "Overview");
+        return reply;
+      }),
+    );
+  const untilEvent = Effect.fnUntraced(function* (method: string) {
+    let after = 0;
+    while (true) {
+      const reply = yield* request({ _tag: "Events", name, after, waitMs: 60000 });
+      assert(reply._tag === "Events");
+      if (
+        reply.events.some(
+          ({ event }) =>
+            event._tag === method || (event._tag === "Other" && event.method === method),
+        )
+      )
+        return;
+      after = reply.next;
+    }
+  });
   const readLog = fs.readFileString(log).pipe(
     Effect.map((text) =>
       text
@@ -337,6 +358,8 @@ const fixture = Effect.fnUntraced(function* (script: Scenario, legacy = false, r
     wait,
     status,
     untilState,
+    view,
+    untilEvent,
     readLog,
     awaitLog,
     hooks,
@@ -474,7 +497,7 @@ describe("supervisor over the real daemon socket", () => {
     }).pipe(Effect.provide(platform)),
   );
 
-  it.live(
+  it.effect(
     "Overview and status --all show both repo groups and subagents without scanning worktrees",
     () =>
       Effect.gen(function* () {
@@ -513,22 +536,23 @@ describe("supervisor over the real daemon socket", () => {
             }),
           );
           const other = yield* fixture(scenario(), false, "a-other");
+          yield* TestClock.setTime(1000);
           yield* f.launch();
           yield* f.start();
           const otherName = Schema.decodeUnknownSync(D.RunName)("foreign");
           yield* f.start({ name: otherName, worktree: other.worktree });
-          let result: Overview;
-          while (true) {
-            const reply = yield* f.request({ _tag: "Overview" });
-            assert(reply._tag === "Overview");
-            result = reply;
-            if (
-              result.runs.length === 2 &&
-              result.runs.every((run) => run.questions.length === 1 && run.state === "waiting")
-            )
-              break;
-            yield* Effect.yieldNow;
-          }
+          yield* f.wait({ timeoutMs: 60000 });
+          yield* f.wait({ names: [otherName], timeoutMs: 60000 });
+          const result = yield* f.view();
+          expect(
+            result.runs.map(({ state, questions }) => ({
+              state,
+              questions: questions.map(({ id }) => id),
+            })),
+          ).toEqual([
+            { state: "waiting", questions: [q1] },
+            { state: "waiting", questions: [q1] },
+          ]);
           expect(result.daemon).toMatchObject({ version: "test", build: "test" });
           expect(result.runs.map((run) => run.group).sort()).toEqual([f.repo, other.repo].sort());
           expect(result.runs.every((run) => run.subagents[0]?.path === "/root/tests")).toBe(true);
@@ -552,14 +576,23 @@ describe("supervisor over the real daemon socket", () => {
                   true,
                 );
                 const text = yield* f.cli(["status", "--all"]);
-                expect(text).toContain("2 runs: 2 waiting");
-                expect(text.indexOf(`repo (${f.repo})`)).toBeLessThan(
-                  text.indexOf(`a-other (${other.repo})`),
+                expect(text).toBe(
+                  [
+                    "2 runs: 2 waiting",
+                    "",
+                    `repo (${f.repo})`,
+                    "unit  waiting 0s  turn 1 (start)  gpt-6.1-sol high priority read-only  budget 0s/1h0m  q1 (blocked) pending 0s, auto-defer in 15m00s: Which path?",
+                    "  /root/tests  working · 0s ago",
+                    `  warning: Could not check the Codex protocol for "${fake}": Codex schema generation exited with code 1. Install Codex 0.166.0 or correct CODEX_BIN, then run foreman doctor to check compatibility.`,
+                    `  next: FOREMAN_HOME=${f.dataDir} foreman answer unit q1 "<answer>"`,
+                    "",
+                    `a-other (${other.repo}) · other repo: its own session supervises it`,
+                    "foreign  waiting 0s  turn 1 (start)  gpt-6.1-sol high priority read-only  budget 0s/1h0m  q1 (blocked) pending 0s, auto-defer in 15m00s: Which path?",
+                    "  /root/tests  working · 0s ago",
+                    `  warning: Could not check the Codex protocol for "${fake}": Codex schema generation exited with code 1. Install Codex 0.166.0 or correct CODEX_BIN, then run foreman doctor to check compatibility.`,
+                    "",
+                  ].join("\n"),
                 );
-                expect(text).toContain("  /root/tests  working · ");
-                expect(text).toContain(`next: FOREMAN_HOME=${f.dataDir} foreman answer unit q1`);
-                expect(text).not.toContain("foreman answer foreign");
-                expect(text).toContain("other repo: its own session supervises it");
                 const dotGit = `${f.worktree}/.git`;
                 const pointer = yield* f.fs.readFileString(dotGit);
                 yield* Effect.acquireUseRelease(
@@ -622,24 +655,33 @@ describe("supervisor over the real daemon socket", () => {
             respond: { result: { turnId: "{{turn}}" } },
           }),
         );
-        const { supervisor } = yield* f.launch();
+        const entered = yield* Deferred.make<void>();
+        yield* f.launch((body) =>
+          body._tag === "Overview" && body.after !== undefined
+            ? Deferred.succeed(entered, undefined)
+            : Effect.void,
+        );
         yield* f.start();
-        while (true) {
-          const reply = yield* f.request({ _tag: "Events", name });
-          assert(reply._tag === "Events");
-          if (reply.events.some(({ event }) => event._tag === "TurnStarted")) break;
-          yield* Effect.yieldNow;
-        }
+        yield* f.untilEvent("TurnStarted");
         const initial = yield* f.request({ _tag: "Overview" });
         assert(initial._tag === "Overview");
-        const start = performance.now();
-        const pending = yield* supervisor
-          .handler({ _tag: "Overview", after: initial.version, timeoutMs: 4000 })
-          .pipe(Effect.forkChild({ startImmediately: true }));
+        const pending = yield* f
+          .request({ _tag: "Overview", after: initial.version, timeoutMs: 4000 })
+          .pipe(Effect.forkChild);
+        yield* Deferred.await(entered);
         yield* f.request({ _tag: "Steer", name, message: "Continue" });
-        const response = yield* Fiber.join(pending);
-        assert(response._tag === "Overview");
-        expect(performance.now() - start).toBeLessThan(3000);
+        const first = yield* Fiber.join(pending);
+        assert(first._tag === "Overview");
+        let response: Overview = first;
+        while (response.runs[0]?.state !== "waiting") {
+          const next = yield* f.request({
+            _tag: "Overview",
+            after: response.version,
+            timeoutMs: 4000,
+          });
+          assert(next._tag === "Overview");
+          response = next;
+        }
         expect(response.version).toBeGreaterThan(initial.version);
         expect(response.runs).toMatchObject([
           { state: "waiting", tokensTotal: 30, questions: [{ id: q1 }] },
@@ -812,44 +854,34 @@ describe("supervisor over the real daemon socket", () => {
           : Effect.void,
       );
       yield* f.start();
-      while (true) {
-        const page = yield* f.request({ _tag: "Events", name });
-        assert(page._tag === "Events");
-        if (page.events.some(({ event }) => event._tag === "TurnStarted")) break;
-        yield* Effect.yieldNow;
-      }
+      yield* f.untilEvent("TurnStarted");
       const initial = yield* f.request({ _tag: "Detail", name });
       assert(initial._tag === "Detail");
       expect(initial.handoff).toBeNull();
-      const startedAt = performance.now();
       const pending = yield* f
         .request({ _tag: "Detail", name, after: initial.version, timeoutMs: 4000 })
         .pipe(Effect.forkChild);
       yield* Queue.take(entered);
+      yield* f.status();
+      expect(pending.pollUnsafe()).toBeUndefined();
       yield* f.request({ _tag: "Steer", name, message: "Continue" });
       const reply = yield* Fiber.join(pending);
       assert(reply._tag === "Detail");
-      expect(performance.now() - startedAt).toBeLessThan(3000);
       expect(reply.version).toBeGreaterThan(initial.version);
       // A wake can precede the next notification; the fake holds it until another steer.
       expect(reply.run).toMatchObject({ state: "running", questions: [] });
       expect(reply.questions).toEqual([]);
-      const nextStartedAt = performance.now();
       const next = yield* f
         .request({ _tag: "Detail", name, after: reply.version, timeoutMs: 4000 })
         .pipe(Effect.forkChild);
       yield* Queue.take(entered);
+      yield* f.status();
+      expect(next.pollUnsafe()).toBeUndefined();
       yield* f.request({ _tag: "Steer", name, message: "Ask now" });
-      while (true) {
-        const page = yield* f.request({ _tag: "Events", name });
-        assert(page._tag === "Events");
-        if (page.events.some(({ event }) => event._tag === "QuestionAsked")) break;
-        yield* Effect.yieldNow;
-      }
+      yield* f.untilEvent("QuestionAsked");
       const changed = yield* Fiber.join(next);
       assert(changed._tag === "Detail");
       expect(changed.version).toBeGreaterThan(reply.version);
-      expect(performance.now() - nextStartedAt).toBeLessThan(3000);
       const latest = yield* f.request({ _tag: "Detail", name });
       assert(latest._tag === "Detail");
       expect(latest.run).toMatchObject({ state: "waiting", questions: [{ id: q1 }] });
@@ -891,11 +923,11 @@ describe("supervisor over the real daemon socket", () => {
       }).pipe(Effect.provide(platform)),
   );
 
-  it.effect("tracks live items, commentary and independent subagents without persisting them", () =>
+  it.effect("tracks live commands, commentary and independent subagents through the daemon", () =>
     Effect.gen(function* () {
-      const itemStep = (method: string, item: unknown, turnId = "{{turn}}") =>
-        notify(method, { threadId: "{{thread}}", turnId, item });
-      const activity = (kind: string, id: string, thread = "child-a", at = 100) => ({
+      const item = (method: string, value: unknown) =>
+        notify(method, { threadId: "{{thread}}", turnId: "{{turn}}", item: value });
+      const child = (kind: string, id: string, thread = "child-a", at = 100) => ({
         type: "subAgentActivity",
         id,
         kind,
@@ -906,9 +938,9 @@ describe("supervisor over the real daemon socket", () => {
         startedAtMs: at,
         completedAtMs: at,
       });
-      const activitySteps = (kind: string, id: string, thread = "child-a", at = 100) => [
-        itemStep(Codex.Method.itemStarted, activity(kind, id, thread, at)),
-        itemStep(Codex.Method.itemCompleted, activity(kind, id, thread, at)),
+      const childSteps = (kind: string, id: string, thread = "child-a", at = 100) => [
+        item(Codex.Method.itemStarted, child(kind, id, thread, at)),
+        item(Codex.Method.itemCompleted, child(kind, id, thread, at)),
       ];
       const command = {
         type: "commandExecution",
@@ -919,109 +951,64 @@ describe("supervisor over the real daemon socket", () => {
         exitCode: null,
       };
       const batches: Step[][] = [
+        [item(Codex.Method.itemCompleted, { type: "reasoning", id: "other" })],
+        [item(Codex.Method.itemCompleted, { ...command, status: "completed", exitCode: 0 })],
         [
-          notify("item/commandExecution/outputDelta", {
-            threadId: "{{thread}}",
-            turnId: "old-turn",
-            delta: "chunk",
-          }),
-        ],
-        [itemStep(Codex.Method.itemCompleted, { type: "reasoning", id: "other" })],
-        [itemStep(Codex.Method.itemCompleted, { ...command, status: "completed", exitCode: 0 })],
-        [itemStep(Codex.Method.itemStarted, { type: "reasoning", id: "reasoning" })],
-        [
-          itemStep(Codex.Method.itemCompleted, message("Working on it", "commentary")),
-          itemStep(Codex.Method.itemCompleted, message("Done")),
+          item(Codex.Method.itemStarted, { type: "reasoning", id: "reasoning" }),
+          item(Codex.Method.itemCompleted, message("Working on it", "commentary")),
+          item(Codex.Method.itemCompleted, message("Done")),
         ],
         [complete()],
       ];
+      const checkpoint = (id: string) => notify(id, { threadId: "{{thread}}" });
       const f = yield* fixture(
         scenario(
           turnRule([
-            ...activitySteps("started", "a-start"),
-            ...activitySteps("interacted", "a-interact", "child-a", 200),
-            ...activitySteps("completed", "a-done"),
-            ...activitySteps("interacted", "a-wake", "child-a", 300),
-            itemStep(Codex.Method.itemCompleted, {
-              ...activity("started", "a-repeat"),
+            ...childSteps("started", "a-start"),
+            ...childSteps("interacted", "a-interact", "child-a", 200),
+            ...childSteps("completed", "a-done"),
+            ...childSteps("interacted", "a-wake", "child-a", 300),
+            item(Codex.Method.itemCompleted, {
+              ...child("started", "a-repeat"),
               model: "other-model",
               reasoningEffort: "low",
             }),
-            ...activitySteps("completed", "b-done", "child-b"),
-            ...activitySteps("interacted", "c-wake", "child-c"),
-            ...activitySteps("future_kind", "future", "ignored"),
-            itemStep(Codex.Method.itemStarted, command),
+            ...childSteps("completed", "b-done", "child-b"),
+            ...childSteps("interacted", "c-wake", "child-c"),
+            ...childSteps("future_kind", "future", "ignored"),
+            item(Codex.Method.itemStarted, command),
+            checkpoint("ready"),
           ]),
           ...batches.map(
-            (steps): Rule => ({
+            (steps, index): Rule => ({
               method: Codex.Method.turnSteer,
               respond: { result: { turnId: "{{turn}}" } },
-              steps,
+              steps: [...steps, checkpoint(`batch-${index}`)],
             }),
           ),
         ),
       );
-      const config = yield* Effect.service(AppConfig).pipe(Effect.provide(AppConfig.layer(f.env)));
-      const registry = yield* makeRegistry(f.dataDir);
-      const servers = yield* makeAppServer(
-        config,
-        "test",
-        registry,
-        (server, notification) =>
-          Effect.gen(function* () {
-            const identity = yield* Schema.decodeUnknownEffect(
-              Schema.Struct({ threadId: Schema.String }),
-            )(notification.params);
-            const run = [...registry.runs.values()].find(
-              (run) => run.record.threadId === identity.threadId,
-            );
-            if (run)
-              yield* registry.enqueue(
-                run,
-                handleNotification(registry, turns, run, server, notification),
-              );
-          }),
-        () => Effect.void,
-      );
-      const turns: Turns = yield* makeTurns(registry, servers, config);
       yield* TestClock.setTime(1000);
-      yield* turns.start(
-        {
-          _tag: "Start",
-          name,
-          worktree: f.worktree,
-          contract: "# Add the thing",
-          write: false,
-          skipDepsCheck: false,
-        },
-        Effect.void,
-      );
-      const run = yield* registry.lookup(name);
-      const until = (predicate: () => boolean) =>
-        Effect.gen(function* () {
-          while (true) {
-            const changed = yield* registry.change;
-            if (yield* run.lock.withPermits(1)(Effect.sync(predicate))) return;
-            yield* changed;
-          }
-        });
-      yield* until(() => run.openItem?.id === "command");
-      expect(run.title).toBe("Add the thing");
-      expect(run.openItem).toEqual({
-        type: "commandExecution",
-        command: "bun run check",
-        startedAt: 1000,
-        id: "command",
-      });
-      expect([...run.subagents.values()]).toEqual([
+      const server = yield* f.launch();
+      yield* f.start({ contract: "# Add the thing" });
+      yield* f.untilEvent("ready");
+      const initial = (yield* f.view()).runs[0];
+      expect(initial?.title).toBe("Add the thing");
+      const commandActivity = {
+        kind: "command",
+        text: "bun run check",
+        since: DateTime.makeUnsafe(1000),
+      };
+      expect(initial?.activity).toEqual(commandActivity);
+      const agents = [
         {
           threadId: "child-a",
           path: "/root/child-a",
           model: "gpt-6.1-sol",
           effort: "high",
           state: "working",
-          startedAt: 100,
-          lastInteractionAt: 300,
+          startedAt: DateTime.makeUnsafe(100),
+          lastInteractionAt: DateTime.makeUnsafe(300),
           interactions: 2,
         },
         {
@@ -1030,8 +1017,8 @@ describe("supervisor over the real daemon socket", () => {
           model: null,
           effort: null,
           state: "idle",
-          startedAt: 100,
-          lastInteractionAt: 100,
+          startedAt: DateTime.makeUnsafe(100),
+          lastInteractionAt: DateTime.makeUnsafe(100),
           interactions: 0,
         },
         {
@@ -1040,84 +1027,345 @@ describe("supervisor over the real daemon socket", () => {
           model: null,
           effort: null,
           state: "working",
-          startedAt: 100,
-          lastInteractionAt: 100,
+          startedAt: DateTime.makeUnsafe(100),
+          lastInteractionAt: DateTime.makeUnsafe(100),
           interactions: 1,
         },
-      ]);
-      const eventsBefore = yield* Store.readEvents(run.dir);
-      yield* TestClock.setTime(2000);
-      yield* run.lock.withPermits(1)(turns.steer(run, "delta"));
-      yield* until(() => run.lastActivityAt === 2000);
-      expect((yield* Store.readEvents(run.dir)).events.map(({ event }) => event)).toEqual([
-        ...eventsBefore.events.map(({ event }) => event),
-        { _tag: "Steered", message: "delta" },
-      ]);
-      expect(run.openItem?.id).toBe("command");
-      yield* TestClock.setTime(3000);
-      yield* run.lock.withPermits(1)(turns.steer(run, "unrelated completion"));
-      yield* until(() => run.items.some((item) => item.id === "other"));
-      expect(run.openItem?.id).toBe("command");
-      yield* run.lock.withPermits(1)(turns.steer(run, "command completion"));
-      yield* until(() => run.openItem === null);
-      yield* TestClock.setTime(3000 + QUIET_AFTER_MS);
-      expect(projectRun(run, "repo", yield* Clock.currentTimeMillis).quiet).toBe(true);
-      const metadata = { version: "test", build: "test", startedAt: DateTime.makeUnsafe(0) };
-      const quietView = yield* overview(registry, metadata, { _tag: "Overview" });
-      const resumed = yield* overview(registry, metadata, {
-        _tag: "Overview",
-        after: quietView.version,
-        timeoutMs: 15000,
-      }).pipe(Effect.forkChild);
-      yield* TestClock.adjust(1);
-      const server = yield* servers.get;
-      const delta = { method: "item/agentMessage/delta", params: { delta: "Working" } };
-      yield* run.lock.withPermits(1)(handleNotification(registry, turns, run, server, delta));
-      yield* TestClock.adjust(250);
-      expect(resumed.pollUnsafe()).toBeDefined();
-      expect((yield* Fiber.join(resumed)).runs[0]?.quiet).toBe(false);
-      const resumedVersion = registry.version;
-      yield* run.lock.withPermits(1)(handleNotification(registry, turns, run, server, delta));
-      expect(registry.version).toBe(resumedVersion);
-      const resumedAt = yield* Clock.currentTimeMillis;
-      yield* run.lock.withPermits(1)(turns.steer(run, "reasoning"));
-      yield* until(() => run.openItem?.id === "reasoning");
-      expect(run.openItem?.command).toBeNull();
-      yield* run.lock.withPermits(1)(turns.steer(run, "commentary and final answer"));
-      yield* until(() =>
-        run.items.some(
-          (item) => Schema.is(Codex.AgentMessageItem)(item) && item.phase === "final_answer",
+      ];
+      expect(initial?.subagents).toEqual(agents);
+      yield* f.request({ _tag: "Steer", name, message: "unrelated completion" });
+      yield* f.untilEvent("batch-0");
+      expect((yield* f.view()).runs[0]?.activity).toEqual(commandActivity);
+      yield* f.request({ _tag: "Steer", name, message: "command completion" });
+      yield* f.untilEvent("batch-1");
+      expect((yield* f.view()).runs[0]?.activity).toBeNull();
+      yield* f.request({ _tag: "Steer", name, message: "commentary and final answer" });
+      yield* f.untilEvent("batch-2");
+      expect((yield* f.view()).runs[0]?.activity).toEqual({
+        kind: "message",
+        text: "Working on it",
+        since: DateTime.makeUnsafe(1000),
+      });
+      yield* f.request({ _tag: "Steer", name, message: "finish" });
+      yield* f.wait({ timeoutMs: 60000 });
+      const final = (yield* f.view()).runs[0];
+      expect(final?.subagents).toEqual(agents.map((agent) => ({ ...agent, state: "idle" })));
+      expect(final?.activity).toEqual({
+        kind: "outcome",
+        text: "Done",
+        since: DateTime.makeUnsafe(1000),
+      });
+      expect(yield* Store.readRun(`${f.dataDir}/runs/unit`)).not.toHaveProperty("subagents");
+      yield* server.stop;
+      const recoveredServer = yield* f.launch();
+      expect((yield* f.view()).runs[0]?.subagents).toEqual([]);
+      expect((yield* f.view()).runs[0]?.title).toBe("Add the thing");
+      yield* recoveredServer.stop;
+      const contract = `${f.dataDir}/runs/unit/contract.md`;
+      yield* f.fs.writeFileString(contract, "\n Plain task \nmore");
+      const plainServer = yield* f.launch();
+      expect((yield* f.view()).runs[0]?.title).toBe("Plain task");
+      yield* plainServer.stop;
+      yield* f.fs.remove(contract);
+      yield* f.fs.makeDirectory(contract);
+      yield* f.launch();
+      expect((yield* f.view()).runs[0]?.title).toBeNull();
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("A subagent reused on a follow-up keeps its entry", () =>
+    Effect.gen(function* () {
+      const child = (kind: string, at: number): Step[] => {
+        const item = {
+          type: "subAgentActivity",
+          id: `${kind}-${at}`,
+          kind,
+          agentThreadId: "child-a",
+          agentPath: "/root/child-a",
+          model: kind === "started" ? "gpt-6.1-sol" : null,
+          reasoningEffort: kind === "started" ? "high" : null,
+          startedAtMs: at,
+          completedAtMs: at,
+        };
+        return [Codex.Method.itemStarted, Codex.Method.itemCompleted].map((method) =>
+          notify(method, { threadId: "{{thread}}", turnId: "{{turn}}", item }),
+        );
+      };
+      const f = yield* fixture(
+        scenario(
+          turnRule([
+            ...child("started", 100),
+            ...child("interacted", 200),
+            ...child("completed", 300),
+            complete(),
+          ]),
+          turnRule([...child("interacted", 400), complete()]),
         ),
       );
-      expect(run.lastCommentary).toEqual({ text: "Working on it", at: resumedAt });
-      yield* run.lock.withPermits(1)(turns.steer(run, "finish"));
-      yield* until(() => run.record.state === "idle");
-      expect(run.openItem).toBeNull();
-      expect([...run.subagents.values()].map((agent) => agent.state)).toEqual([
-        "idle",
-        "idle",
-        "idle",
+      yield* f.launch();
+      yield* f.start();
+      yield* f.wait({ timeoutMs: 60000 });
+      const followup = yield* f.request({ _tag: "Followup", name, message: "Continue" });
+      assert(followup._tag === "Accepted");
+      yield* f.wait({ after: followup.cursor, timeoutMs: 60000 });
+      expect((yield* f.view()).runs[0]?.subagents).toEqual([
+        {
+          threadId: "child-a",
+          path: "/root/child-a",
+          model: "gpt-6.1-sol",
+          effort: "high",
+          state: "idle",
+          startedAt: DateTime.makeUnsafe(100),
+          lastInteractionAt: DateTime.makeUnsafe(400),
+          interactions: 2,
+        },
       ]);
-      expect(yield* Store.readRun(run.dir)).not.toHaveProperty("subagents");
-      const recovered = yield* registry.add(yield* Store.readRun(run.dir));
-      expect(recovered.title).toBe("Add the thing");
-      expect(recovered.subagents.size).toBe(0);
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.effect("a resumed delta wakes a quiet overview once, without persisting delta events", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario());
+      const ready = `${f.root}/delta-ready`;
+      const release = `${f.root}/delta-release`;
+      yield* commandResult(ChildProcess.make("mkfifo", [ready, release]));
+      const gate: Step = { gate: { ready, release } };
       yield* f.fs.writeFileString(
-        `${run.dir}/contract.md`,
-        "# Add the thing\n- May change: `result.txt`",
+        f.scenarioFile,
+        Schema.encodeSync(Schema.fromJsonString(Scenario))(
+          scenario(
+            turnRule([
+              notify("delta-ready", { threadId: "{{thread}}" }),
+              gate,
+              notify("item/agentMessage/delta", {
+                threadId: "{{thread}}",
+                turnId: "old-turn",
+                delta: "resumed",
+              }),
+              gate,
+              notify("item/agentMessage/delta", {
+                threadId: "{{thread}}",
+                turnId: "{{turn}}",
+                delta: "ordinary",
+              }),
+              gate,
+            ]),
+          ),
+        ),
       );
-      const beforeRefresh = recovered.version;
-      yield* recovered.lock.withPermits(1)(registry.refreshWorktree(recovered));
-      expect(recovered.version).toBeGreaterThan(beforeRefresh);
-      expect(projectRun(recovered, "repo", resumedAt).outsideMayChange).toBe(0);
-      const afterRefresh = recovered.version;
-      yield* recovered.lock.withPermits(1)(registry.refreshWorktree(recovered));
-      expect(recovered.version).toBe(afterRefresh);
-      yield* f.fs.writeFileString(`${run.dir}/contract.md`, "\n Plain task \nmore");
-      expect((yield* registry.add(recovered.record)).title).toBe("Plain task");
-      yield* f.fs.remove(`${run.dir}/contract.md`);
-      yield* f.fs.makeDirectory(`${run.dir}/contract.md`);
-      expect((yield* registry.add(recovered.record)).title).toBeNull();
+      const entered = yield* Deferred.make<void>();
+      yield* f.launch((body) =>
+        body._tag === "Overview" && body.after !== undefined
+          ? Deferred.succeed(entered, undefined)
+          : Effect.void,
+      );
+      yield* TestClock.setTime(1000);
+      yield* f.start();
+      yield* f.untilEvent("delta-ready");
+      yield* f.fs.readFileString(ready);
+      const before = yield* f.request({ _tag: "Events", name });
+      yield* TestClock.adjust(QUIET_AFTER_MS);
+      const initial = yield* f.view();
+      expect(initial.runs[0]?.quiet).toBe(true);
+      const pending = yield* f
+        .request({ _tag: "Overview", after: initial.version, timeoutMs: 15000 })
+        .pipe(Effect.forkChild);
+      yield* Deferred.await(entered);
+      const log = `${f.dataDir}/runs/unit/codex.jsonl`;
+      const awaitDelta = (delta: string) =>
+        f.fs.watch(log).pipe(
+          Stream.mapEffect(() => f.fs.readFileString(log)),
+          Stream.filter((text) => text.includes(`"delta":"${delta}"`)),
+          Stream.take(1),
+          Stream.runDrain,
+          Effect.forkChild({ startImmediately: true }),
+        );
+      const resumed = yield* awaitDelta("resumed");
+      yield* f.fs.writeFileString(release, "go");
+      yield* Fiber.join(resumed);
+      yield* f.fs.readFileString(ready);
+      yield* TestClock.adjust(250);
+      expect(pending.pollUnsafe()).toBeDefined();
+      const response = yield* Fiber.join(pending);
+      assert(response._tag === "Overview");
+      expect(response.runs[0]?.quiet).toBe(false);
+      expect(response.runs[0]?.lastActivityAt).toEqual(DateTime.makeUnsafe(1000 + QUIET_AFTER_MS));
+      yield* TestClock.adjust(1);
+      const ordinary = yield* awaitDelta("ordinary");
+      yield* f.fs.writeFileString(release, "go");
+      yield* Fiber.join(ordinary);
+      yield* f.fs.readFileString(ready);
+      const latest = yield* f.view();
+      expect(latest.version).toBe(response.version);
+      expect(latest.runs[0]?.lastActivityAt).toEqual(DateTime.makeUnsafe(1251 + QUIET_AFTER_MS));
+      expect(yield* f.request({ _tag: "Events", name })).toEqual(before);
+      yield* f.fs.writeFileString(release, "go");
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.effect("Quiet respects an open command", () =>
+    Effect.gen(function* () {
+      const command = {
+        type: "commandExecution",
+        id: "check",
+        command: "bun run check",
+        status: "inProgress",
+        aggregatedOutput: null,
+        exitCode: null,
+      };
+      const f = yield* fixture(
+        scenario(
+          turnRule([
+            notify(Codex.Method.itemStarted, {
+              threadId: "{{thread}}",
+              turnId: "{{turn}}",
+              item: command,
+            }),
+            notify("command-open", { threadId: "{{thread}}" }),
+          ]),
+          {
+            method: Codex.Method.turnSteer,
+            respond: { result: { turnId: "{{turn}}" } },
+            steps: [
+              notify(Codex.Method.itemCompleted, {
+                threadId: "{{thread}}",
+                turnId: "{{turn}}",
+                item: { ...command, status: "completed", exitCode: 0 },
+              }),
+              notify("command-closed", { threadId: "{{thread}}" }),
+            ],
+          },
+        ),
+      );
+      yield* TestClock.setTime(1000);
+      yield* f.launch();
+      yield* f.start({ budgetMs: 3600000 });
+      yield* f.untilEvent("command-open");
+      yield* TestClock.adjust(QUIET_AFTER_MS + 1);
+      expect((yield* f.view()).runs[0]?.quiet).toBe(false);
+      yield* Effect.acquireUseRelease(
+        Effect.sync(() => {
+          const previous = process.cwd();
+          process.chdir(f.worktree);
+          return previous;
+        }),
+        () =>
+          Effect.gen(function* () {
+            const active = yield* f.cli(["status", "--all"]);
+            expect(active).not.toContain("quiet");
+            expect(active).not.toContain("next:");
+            yield* f.request({ _tag: "Steer", name, message: "Complete command" });
+            yield* f.untilEvent("command-closed");
+            yield* TestClock.adjust(QUIET_AFTER_MS + 1);
+            expect((yield* f.view()).runs[0]?.quiet).toBe(true);
+            expect(yield* f.cli(["status", "--all"])).toContain(
+              `  next: FOREMAN_HOME=${f.dataDir} foreman events unit\n`,
+            );
+          }),
+        (previous) => Effect.sync(() => process.chdir(previous)),
+      );
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.effect("redacts command and commentary activity through both status --all outputs", () =>
+    Effect.gen(function* () {
+      const command = {
+        type: "commandExecution",
+        id: "check",
+        command: "check token=PRIVATE_COMMAND",
+        status: "inProgress",
+        aggregatedOutput: null,
+        exitCode: null,
+      };
+      const f = yield* fixture(
+        scenario(
+          turnRule([
+            notify(Codex.Method.itemCompleted, {
+              threadId: "{{thread}}",
+              turnId: "{{turn}}",
+              item: message("Checking token=PRIVATE_COMMENTARY", "commentary"),
+            }),
+            notify(Codex.Method.itemStarted, {
+              threadId: "{{thread}}",
+              turnId: "{{turn}}",
+              item: command,
+            }),
+            notify("redaction-ready", { threadId: "{{thread}}" }),
+          ]),
+          {
+            method: Codex.Method.turnSteer,
+            respond: { result: { turnId: "{{turn}}" } },
+            steps: [
+              notify(Codex.Method.itemCompleted, {
+                threadId: "{{thread}}",
+                turnId: "{{turn}}",
+                item: { ...command, status: "completed", exitCode: 0 },
+              }),
+              notify("redaction-closed", { threadId: "{{thread}}" }),
+            ],
+          },
+        ),
+      );
+      yield* TestClock.setTime(1000);
+      yield* f.launch();
+      yield* f.start();
+      yield* f.untilEvent("redaction-ready");
+      for (const [kind, text] of [
+        ["command", "check token=[redacted]"],
+        ["message", "Checking token=[redacted]"],
+      ]) {
+        expect((yield* f.view()).runs[0]?.activity).toEqual({
+          kind,
+          text,
+          since: DateTime.makeUnsafe(1000),
+        });
+        for (const args of [
+          ["status", "--all"],
+          ["status", "--all", "--json"],
+        ]) {
+          const output = yield* f.cli(args);
+          expect(output).toContain(text);
+          expect(output).not.toMatch(/PRIVATE_COMMAND|PRIVATE_COMMENTARY/);
+        }
+        if (kind === "command") {
+          yield* f.request({ _tag: "Steer", name, message: "Complete" });
+          yield* f.untilEvent("redaction-closed");
+        }
+      }
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("projects outside-scope changes from a real fake-Codex write", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario());
+      yield* f.fs.writeFileString(
+        f.scenarioFile,
+        Schema.encodeSync(Schema.fromJsonString(Scenario))(
+          scenario(
+            turnRule([
+              { writeFile: `${f.worktree}/outside.txt`, text: "outside scope" },
+              notify(Codex.Method.itemCompleted, {
+                threadId: "{{thread}}",
+                turnId: "{{turn}}",
+                item: {
+                  type: "fileChange",
+                  id: "write",
+                  status: "completed",
+                  changes: [{ path: "outside.txt", kind: { type: "add" }, diff: "+outside scope" }],
+                },
+              }),
+              complete(),
+            ]),
+          ),
+        ),
+      );
+      yield* f.launch();
+      yield* f.start();
+      yield* f.wait({ timeoutMs: 60000 });
+      expect((yield* f.view()).runs[0]?.outsideMayChange).toBe(1);
+      const beforeRefresh = yield* f.view();
+      expect((yield* f.status()).outsideMayChange).toEqual(["outside.txt"]);
+      expect((yield* f.view()).version).toBe(beforeRefresh.version);
     }).pipe(Effect.provide(platform)),
   );
   it.live("keeps noisy notifications only in the raw Codex log", () =>
@@ -2929,7 +3177,6 @@ describe("supervisor over the real daemon socket", () => {
       yield* f.untilState("running");
       const before = yield* f.request({ _tag: "Events", name });
       assert(before._tag === "Events");
-      const start = yield* Clock.currentTimeMillis;
       const pending = yield* f
         .request({ _tag: "Events", name, after: before.next, waitMs: 5000 })
         .pipe(Effect.forkChild);
@@ -2963,29 +3210,57 @@ describe("supervisor over the real daemon socket", () => {
       assert(notifications._tag === "Events");
       expect(notifications.events.map(({ event }) => event._tag)).toContain("AgentMessage");
       yield* f.untilState("idle");
-      expect((yield* Clock.currentTimeMillis) - start).toBeLessThan(3000);
     }).pipe(Effect.provide(platform)),
   );
 
-  it.live("long-polling events times out with an empty page and the current state", () =>
+  it.effect("long-polling events times out with an empty page and the current state", () =>
     Effect.gen(function* () {
       const f = yield* fixture(scenario(turnRule()));
-      yield* f.launch();
+      const clock = yield* Clock.Clock;
+      const armed = yield* Deferred.make<void>();
+      let observing = false;
+      yield* f
+        .launch((body) =>
+          Effect.sync(() => {
+            if (body._tag === "Events" && body.waitMs === 150) observing = true;
+          }),
+        )
+        .pipe(
+          Effect.provideService(Clock.Clock, {
+            ...clock,
+            sleep: (duration) =>
+              Effect.gen(function* () {
+                if (observing) {
+                  observing = false;
+                  yield* Deferred.succeed(armed, undefined);
+                }
+                yield* clock.sleep(duration);
+              }),
+          }),
+        );
       yield* f.start();
-      yield* f.untilState("running");
+      yield* f.untilEvent("TurnStarted");
       const before = yield* f.request({ _tag: "Events", name });
       assert(before._tag === "Events");
-      const start = yield* Clock.currentTimeMillis;
-      const page = yield* f.request({
-        _tag: "Events",
-        name,
-        after: before.next,
-        waitMs: 150,
-      });
-      const elapsed = (yield* Clock.currentTimeMillis) - start;
-      expect(page).toEqual({ ...before, events: [], state: "running" });
-      expect(elapsed).toBeGreaterThanOrEqual(130);
-      expect(elapsed).toBeLessThan(1500);
+      const pending = yield* f
+        .request({
+          _tag: "Events",
+          name,
+          after: before.next,
+          waitMs: 150,
+        })
+        .pipe(Effect.forkChild);
+      // Socket receipt precedes the journal read. Wait for the fake clock to arm the deadline.
+      const registered = yield* Effect.raceFirst(
+        Deferred.await(armed).pipe(Effect.as(true)),
+        Fiber.join(pending).pipe(Effect.as(false)),
+      );
+      expect(registered).toBe(true);
+      yield* TestClock.adjust(149);
+      yield* f.status();
+      expect(pending.pollUnsafe()).toBeUndefined();
+      yield* TestClock.adjust(1);
+      expect(yield* Fiber.join(pending)).toEqual({ ...before, events: [], state: "running" });
     }).pipe(Effect.provide(platform)),
   );
 

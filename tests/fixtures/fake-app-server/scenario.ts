@@ -31,6 +31,10 @@ export const Step = Schema.Union([
   Schema.Struct({ awaitRequest: Schema.String, timeoutMs: Schema.optionalKey(Schema.Int) }),
   Schema.Struct({ sleepMs: Schema.Int }),
   Schema.Struct({ stderr: Schema.String }),
+  // A real worktree write performed by the fake Codex process.
+  Schema.Struct({ writeFile: Schema.String, text: Schema.String }),
+  // Hold a notification sequence using the same FIFO handshake as a gated response.
+  Schema.Struct({ gate: Schema.Struct({ ready: Schema.String, release: Schema.String }) }),
   // Exit the process with this code, as an app server crash.
   Schema.Struct({ exit: Schema.Int }),
 ]);
