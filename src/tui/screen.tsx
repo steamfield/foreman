@@ -10,16 +10,22 @@ const NoteHeading = memo(function NoteHeading({
   title,
   width,
   colors,
+  saved,
 }: {
   title: string;
   width: number;
   colors: Theme;
+  saved: boolean;
 }) {
   const label = truncate(title, width - 6);
   return (
     <Text wrap="truncate-end">
       {colors.fill(colors.paint("╭─ ", "line"))}
-      <Glyph kind="waiting" tone="signal" colors={colors} />
+      {saved ? (
+        colors.fill(colors.paint("■", "signal"))
+      ) : (
+        <Glyph kind="waiting" tone="signal" colors={colors} />
+      )}
       {colors.fill(
         colors.paint(label.slice(1), "signal") +
           colors.paint(` ${"─".repeat(Math.max(0, width - stringWidth(label) - 6))}─╮`, "line"),
@@ -50,11 +56,12 @@ const RunRow = memo(
         tail += `  ${colors.paint("━".repeat(row.budget.filled), row.budget.tone)}${colors.paint("─".repeat(Math.max(0, model.budgetCells - row.budget.filled)), "line")} ${colors.paint(row.budget.label.padStart(7), "muted")}`;
       tail += row.flags.map((flag) => colors.paint(` · ${flag.text}`, flag.tone)).join("");
     }
+    const stateLabel = row.stale ? `${row.state} · not supervised` : row.state;
     const nameWidth = Math.max(
       1,
-      Math.min(layout === "narrow" ? 24 : 20, width - row.state.length - 12),
+      Math.min(layout === "narrow" ? 24 : 20, width - stateLabel.length - 12),
     );
-    const prefix = ` ${colors.paint(pad(truncate(row.name, nameWidth), nameWidth), "fg", true)}  ${colors.paint(row.state.padEnd(11), row.tone)} ${colors.paint(row.age, "muted")}`;
+    const prefix = ` ${colors.paint(pad(truncate(row.name, nameWidth), nameWidth), "fg", true)}  ${colors.paint(stateLabel.padEnd(11), row.tone)} ${colors.paint(row.age, "muted")}`;
     let activity = colors.paint(`    ${row.activity}`, row.activityTone);
     if (row.activityAge !== null)
       activity = `    ${colors.paint("…", "running")}${colors.paint(row.activity.slice(1), "fg")}${colors.paint(` · ${row.activityAge}`, "muted")}`;
@@ -65,7 +72,14 @@ const RunRow = memo(
         suffix += colors.paint(` · ${row.subagents.length} subagents`, "muted");
       activity = truncate(activity, Math.max(4, width - stringWidth(suffix))) + suffix;
     }
-    const lead = <Glyph kind={row.state} tone={row.tone} colors={colors} selected={selected} />;
+    const lead = (
+      <Glyph
+        kind={row.stale ? "lost" : row.state}
+        tone={row.tone}
+        colors={colors}
+        selected={selected}
+      />
+    );
     const content = pad(truncate(prefix + tail, Math.max(0, width - 2)), Math.max(0, width - 2));
     return (
       <Box flexDirection="column" width={width}>
@@ -203,7 +217,14 @@ export const Screen = memo(function Screen({ model, colors }: { model: ViewModel
     blocks.push({
       key: `${note.id}:heading`,
       height: 1,
-      content: <NoteHeading title={note.title} width={width} colors={bodyColors} />,
+      content: (
+        <NoteHeading
+          title={note.title}
+          width={width}
+          colors={bodyColors}
+          saved={model.screen === "saved"}
+        />
+      ),
     });
     const noteLines = [
       bodyColors.paint("│ ", "line") +

@@ -209,6 +209,17 @@ describe("monitor detail frames", () => {
     { _tag: "Reconnecting", last: sample, reason: "Connection lost", retryAt: now + 4000 },
     { _tag: "Reconnecting", last: null, reason: "Connection lost", retryAt: now + 4000 },
     { _tag: "Archived", receivedAt: now },
+    ...(["running", "starting"] as const).map(
+      (state): DetailFeed => ({
+        _tag: "Saved",
+        detail: detail(run("fix-hooks", { state })),
+        events,
+        gap: false,
+        receivedAt: now,
+        reason: "no-daemon",
+        nextProbeAt: now + 10000,
+      }),
+    ),
   ];
   for (const [index, feed] of feeds.entries()) {
     it.each([70, 100, 140])(`state block ${index} at %i columns`, async (columns) => {

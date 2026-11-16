@@ -14,6 +14,7 @@ export const runMonitor = Effect.fn("tui.runMonitor")(function* <R>(
   feed: Stream.Stream<MonitorFeed, never, R>,
   detail: (name: RunName) => Stream.Stream<DetailFeed, never, R>,
   noColor: boolean,
+  App: typeof MonitorApp = MonitorApp,
 ) {
   const { stdin, stdout, stderr } = terminal;
   if (stdin === null || stdout === null || stderr === null)
@@ -41,7 +42,7 @@ export const runMonitor = Effect.fn("tui.runMonitor")(function* <R>(
       Deferred.doneUnsafe(done, Effect.succeed(key === "q" ? "quit" : "interrupt"));
     else update({ type: "key", key });
   };
-  const frame = () => <MonitorApp model={model} colors={colors} onKey={onKey} onTick={onTick} />;
+  const frame = () => <App model={model} colors={colors} onKey={onKey} onTick={onTick} />;
   const mounted = yield* Effect.acquireRelease(
     Effect.sync(() => {
       instance = render(frame(), {
@@ -59,9 +60,13 @@ export const runMonitor = Effect.fn("tui.runMonitor")(function* <R>(
     }),
     (app) =>
       Effect.promise(async () => {
-        app.unmount();
-        await app.waitUntilExit();
-        app.cleanup();
+        try {
+          app.unmount();
+          // The input effect owns render failures; teardown must still finish.
+          await app.waitUntilExit().catch(() => undefined);
+        } finally {
+          app.cleanup();
+        }
       }),
   );
   const updates = feed.pipe(
@@ -80,9 +85,14 @@ export const runMonitor = Effect.fn("tui.runMonitor")(function* <R>(
     ),
     Stream.runDrain,
   );
-  const input = Effect.promise(async () => {
-    await mounted.waitUntilExit();
-  });
+  const input = Effect.tryPromise({
+    try: () => mounted.waitUntilExit(),
+    catch: (error) => error,
+  }).pipe(
+    Effect.catch((error) =>
+      Effect.logError("monitor.render.failed").pipe(Effect.andThen(Effect.die(error))),
+    ),
+  );
   const worker = yield* Effect.forkChild(
     Effect.all([updates, details, resizes, input], { concurrency: "unbounded" }),
   );

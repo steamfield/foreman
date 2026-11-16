@@ -8,6 +8,43 @@ const state = (runs = mixedRuns(), columns = 140, rows = 40) =>
     value: live(runs),
   });
 describe("monitor list model", () => {
+  it.each(["no-daemon", "outdated"] as const)(
+    "distinguishes unsupervised work from an outdated daemon (%s)",
+    (reason) => {
+      const runs = (["running", "starting", "waiting"] as const).map((name) =>
+        run(name, {
+          state: name,
+          quiet: true,
+          activity: null,
+          questions: mixedRuns()[0]?.questions ?? [],
+          subagents: mixedRuns()[0]?.subagents ?? [],
+        }),
+      );
+      const model = view(
+        reduce(state(runs), {
+          type: "feed",
+          value: {
+            _tag: "Saved",
+            reason,
+            overview: { _tag: "Overview", daemon: null, runs },
+            receivedAt: now,
+            nextProbeAt: now + 10000,
+          },
+        }),
+      );
+      expect(model.animating).toBe(reason === "outdated");
+      for (const row of model.groups.flatMap((group) => group.rows)) {
+        expect(row).toMatchObject({ stale: reason === "no-daemon" });
+        if (reason === "no-daemon") {
+          expect(row.tone).toBe("muted");
+          expect(row.budget).toBeNull();
+          expect(row.flags.some((flag) => flag.text.startsWith("quiet"))).toBe(false);
+          expect(row.subagents.some((agent) => agent.working)).toBe(false);
+        } else expect(row.budget).not.toBeNull();
+      }
+      expect(model.header.daemon).toContain(reason === "outdated" ? "outdated" : "not running");
+    },
+  );
   it("returns to the attention notes with Home after navigating a tall first run", () => {
     const questions = mixedRuns()[0]?.questions ?? [];
     const current = state(

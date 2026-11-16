@@ -51,6 +51,26 @@ const feeds: { name: string; feed: MonitorFeed | null; key?: string }[] = [
     },
   },
   {
+    name: "saved starting",
+    feed: {
+      _tag: "Saved",
+      reason: "no-daemon",
+      overview: { _tag: "Overview", daemon: null, runs: [run("starting", { state: "starting" })] },
+      receivedAt: now,
+      nextProbeAt: now + 10000,
+    },
+  },
+  {
+    name: "outdated active",
+    feed: {
+      _tag: "Saved",
+      reason: "outdated",
+      overview: { _tag: "Overview", daemon: null, runs: mixedRuns() },
+      receivedAt: now,
+      nextProbeAt: now + 10000,
+    },
+  },
+  {
     name: "outdated",
     feed: {
       _tag: "Saved",
