@@ -10,6 +10,13 @@ import { AppLayer, runInvocation } from "../../src/runtime";
 import { Host } from "../../src/services/host";
 import type { Writer } from "../../src/services/output";
 
+// SocketServer.make completes when the real listener is bound.
+export const listeningSockets = (ready: Effect.Effect<unknown>) =>
+  DaemonSockets.layer({
+    connect: (path) => NodeSocket.makeNet({ path }),
+    listen: (path) => NodeSocketServer.make({ path }).pipe(Effect.tap(() => ready)),
+  });
+
 export async function tempDir() {
   const dir = await mkdtemp(join(tmpdir(), "cli-test-"));
   onTestFinished(() => rm(dir, { recursive: true, force: true }));

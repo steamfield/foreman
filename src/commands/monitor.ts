@@ -14,10 +14,7 @@ import { Output } from "../services/output";
 import { Terminal } from "../services/terminal";
 import { print } from "./runs";
 
-export const makeMonitorCommand = (
-  source: typeof monitorFeed = monitorFeed,
-  detail: typeof detailFeed = detailFeed,
-) =>
+export const makeMonitorCommand = (source: typeof monitorFeed = monitorFeed) =>
   Command.make(
     "monitor",
     {
@@ -63,7 +60,7 @@ export const makeMonitorCommand = (
           ...(name === undefined ? {} : { name }),
         },
         source(config.home),
-        (name) => detail(config.home, name),
+        (name) => detailFeed(config.home, name),
         config.inheritedEnvironment.NO_COLOR !== undefined,
       ).pipe(Effect.scoped);
     }),

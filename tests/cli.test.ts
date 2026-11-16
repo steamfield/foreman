@@ -1,7 +1,8 @@
+import { watch } from "node:fs";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { join } from "node:path";
-import { Effect, Fiber, FileSystem, Schema } from "effect";
+import { Deferred, Effect, Fiber, FileSystem, Schema } from "effect";
 import { CliError } from "effect/cli";
 import { assert, describe, expect, it } from "vitest";
 import { print } from "../src/commands/runs";
@@ -17,7 +18,7 @@ import {
 import { Method } from "../src/schemas/codex";
 import { DaemonRequest } from "../src/schemas/daemon";
 import { DoctorResult } from "../src/schemas/doctor";
-import { successfulTurn } from "./fixtures/fake-app-server/scenarios";
+import { askOrchestrator, successfulTurn } from "./fixtures/fake-app-server/scenarios";
 import { ndjson, runCli, tempDir } from "./helpers/cli";
 import { eventsFixture, eventsPlatform } from "./helpers/events";
 
@@ -74,6 +75,42 @@ async function savedRun(home: string) {
 }
 
 describe("events --follow", () => {
+  it("keeps exactly the events already printed when Ctrl-C aborts a live follow", async () => {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const f = yield* eventsFixture(askOrchestrator());
+        yield* f.untilState("waiting");
+        const snapshot = yield* Effect.promise(() =>
+          runCli(["events", "unit", "--verbose"], { home: f.root, env: f.env }),
+        );
+        expect(snapshot).toMatchObject({ status: 0, stderr: "" });
+        expect(snapshot.stdout).toContain("QuestionAsked");
+        const expected = snapshot.stdout
+          .split("\n")
+          .filter((line) => !line.startsWith("next:"))
+          .join("\n");
+        const controller = new AbortController();
+        let stdout = "";
+        const result = yield* Effect.promise((signal) =>
+          runCli(["events", "unit", "--follow", "--verbose", "--limit", "1"], {
+            home: f.root,
+            env: f.env,
+            signal: AbortSignal.any([signal, controller.signal]),
+            stdout: async (text) => {
+              stdout += text;
+              if (stdout === expected) controller.abort();
+            },
+          }),
+        ).pipe(Effect.timeout("3 seconds"));
+        expect({ ...result, stdout }).toEqual({
+          status: 130,
+          stdout: expected,
+          stderr: "Interrupted.\n",
+        });
+      }).pipe(Effect.scoped, Effect.provide(eventsPlatform)),
+    );
+  });
+
   it.each(["none", "events", "probe"])(
     "uses passive requests and drains remaining saved events on disconnect=%s",
     async (disconnect) => {
@@ -219,6 +256,7 @@ describe("events --follow", () => {
             .concat({ method: Method.turnSteer, respond: { result: { turnId: "{{turn}}" } } }),
         });
         let stdout = "";
+        const message = yield* Deferred.make<void>();
         const pending = yield* Effect.promise((signal) =>
           runCli(["events", "unit", "--follow", "--limit", "1"], {
             env: f.env,
@@ -226,10 +264,12 @@ describe("events --follow", () => {
             signal,
             stdout: async (text) => {
               stdout += text;
+              if (stdout.includes("AgentMessage Created result.txt."))
+                Deferred.doneUnsafe(message, Effect.void);
             },
           }),
         ).pipe(Effect.forkChild);
-        while (!stdout.includes("AgentMessage Created result.txt.")) yield* Effect.yieldNow;
+        yield* Deferred.await(message);
         yield* f.untilState("running");
         expect(pending.pollUnsafe()).toBeUndefined();
         yield* f.request({ _tag: "Steer", name: f.name, message: "Finish" });
@@ -312,9 +352,18 @@ describe("events --follow", () => {
           const page = yield* f.request({ _tag: "Events", name: f.name, after: 2 });
           assert(page._tag === "Events");
           if (mode === "absent") {
+            const removed = yield* Deferred.make<void>();
+            yield* Effect.acquireRelease(
+              Effect.sync(() =>
+                watch(f.env.FOREMAN_HOME, (event, file) => {
+                  if (event === "rename" && file === "foreman.sock")
+                    Deferred.doneUnsafe(removed, Effect.void);
+                }).on("error", (error) => Deferred.doneUnsafe(removed, Effect.die(error))),
+              ),
+              (watcher) => Effect.sync(() => watcher.close()),
+            );
             yield* f.request({ _tag: "Shutdown" });
-            const fs = yield* FileSystem.FileSystem;
-            while (yield* fs.exists(`${f.env.FOREMAN_HOME}/foreman.sock`)) yield* Effect.yieldNow;
+            yield* Deferred.await(removed);
           }
           const result = yield* Effect.promise((signal) =>
             runCli(["events", "unit", "--follow", "--after", "2", "--limit", "1", "--verbose"], {
