@@ -1,7 +1,9 @@
-import { Deferred, Effect, Fiber, Stream } from "effect";
+import { Deferred, Effect, Fiber, Queue, Stream } from "effect";
 import { render } from "ink";
+import type { DetailFeed } from "../core/monitor/detail-feed";
 import type { MonitorFeed } from "../core/monitor/feed";
 import { initialState, type Message, reduce, type State, view } from "../core/monitor/model";
+import type { RunName } from "../schemas/daemon";
 import type { Terminal } from "../services/terminal";
 import { MonitorApp } from "./screen";
 import { theme } from "./theme";
@@ -10,6 +12,7 @@ export const runMonitor = Effect.fn("tui.runMonitor")(function* <R>(
   terminal: Terminal["Service"],
   options: Parameters<typeof initialState>[0],
   feed: Stream.Stream<MonitorFeed, never, R>,
+  detail: (name: RunName) => Stream.Stream<DetailFeed, never, R>,
   noColor: boolean,
 ) {
   const { stdin, stdout, stderr } = terminal;
@@ -20,9 +23,14 @@ export const runMonitor = Effect.fn("tui.runMonitor")(function* <R>(
   let state: State = initialState(options);
   let model = view(state);
   let instance: ReturnType<typeof render> | undefined;
+  const opened = yield* Queue.unbounded<RunName | null>();
+  yield* Effect.addFinalizer(() => Queue.shutdown(opened));
+  Queue.offerUnsafe(opened, state.detail?.name ?? null);
   const update = (message: Message) => {
     const next = reduce(state, message);
     if (next === state) return;
+    if (next.detail?.name !== state.detail?.name)
+      Queue.offerUnsafe(opened, next.detail?.name ?? null);
     state = next;
     model = view(state, model);
     instance?.rerender(frame());
@@ -62,11 +70,21 @@ export const runMonitor = Effect.fn("tui.runMonitor")(function* <R>(
   const resizes = terminal.resize.pipe(
     Stream.runForEach((size) => Effect.sync(() => update({ type: "resize", ...size }))),
   );
+  const details = Stream.fromQueue(opened).pipe(
+    Stream.switchMap((name) =>
+      name === null
+        ? Stream.empty
+        : detail(name).pipe(
+            Stream.tap((value) => Effect.sync(() => update({ type: "detail-feed", name, value }))),
+          ),
+    ),
+    Stream.runDrain,
+  );
   const input = Effect.promise(async () => {
     await mounted.waitUntilExit();
   });
   const worker = yield* Effect.forkChild(
-    Effect.all([updates, resizes, input], { concurrency: "unbounded" }),
+    Effect.all([updates, details, resizes, input], { concurrency: "unbounded" }),
   );
   const result = yield* Effect.raceFirst(Deferred.await(done), Fiber.join(worker));
   if (result === "interrupt") return yield* Effect.interrupt;

@@ -83,7 +83,7 @@ exports[`monitor frames > all states at 100 columns 1`] = `
 
 
 
-↑↓/jk select  Enter expand  a attention  ? help  q quit                             updated 0.0s ago"
+↑↓/jk select  Enter open  a attention  ? help  q quit                               updated 0.0s ago"
 `;
 
 exports[`monitor frames > all states at 140 columns 1`] = `
@@ -126,7 +126,7 @@ exports[`monitor frames > all states at 140 columns 1`] = `
 
 
 
-↑↓/jk select  Enter expand  a attention  ? help  q quit                                                                     updated 0.0s ago"
+↑↓/jk select  Enter open  a attention  ? help  q quit                                                                       updated 0.0s ago"
 `;
 
 exports[`monitor frames > all states colors 1`] = `
@@ -169,7 +169,7 @@ exports[`monitor frames > all states colors 1`] = `
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
-[48;2;27;30;26m[1m[38;2;228;232;224m↑↓/jk[22m[38;2;154;162;148m select[39m  [1m[38;2;228;232;224mEnter[22m[38;2;154;162;148m expand[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m attention[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                                                                     [38;2;154;162;148mupdated 0.0s ago[39m[49m"
+[48;2;27;30;26m[1m[38;2;228;232;224m↑↓/jk[22m[38;2;154;162;148m select[39m  [1m[38;2;228;232;224mEnter[22m[38;2;154;162;148m open[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m attention[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                                                                       [38;2;154;162;148mupdated 0.0s ago[39m[49m"
 `;
 
 exports[`monitor frames > attention at 70 columns 1`] = `
@@ -255,7 +255,7 @@ exports[`monitor frames > attention at 100 columns 1`] = `
 
 
 
-↑↓/jk select  Enter expand  a all runs  ? help  q quit                              updated 0.0s ago"
+↑↓/jk select  Enter open  a all runs  ? help  q quit                                updated 0.0s ago"
 `;
 
 exports[`monitor frames > attention at 140 columns 1`] = `
@@ -298,7 +298,7 @@ exports[`monitor frames > attention at 140 columns 1`] = `
 
 
 
-↑↓/jk select  Enter expand  a all runs  ? help  q quit                                                                      updated 0.0s ago"
+↑↓/jk select  Enter open  a all runs  ? help  q quit                                                                        updated 0.0s ago"
 `;
 
 exports[`monitor frames > attention colors 1`] = `
@@ -341,7 +341,7 @@ exports[`monitor frames > attention colors 1`] = `
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
-[48;2;27;30;26m[1m[38;2;228;232;224m↑↓/jk[22m[38;2;154;162;148m select[39m  [1m[38;2;228;232;224mEnter[22m[38;2;154;162;148m expand[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m all runs[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                                                                      [38;2;154;162;148mupdated 0.0s ago[39m[49m"
+[48;2;27;30;26m[1m[38;2;228;232;224m↑↓/jk[22m[38;2;154;162;148m select[39m  [1m[38;2;228;232;224mEnter[22m[38;2;154;162;148m open[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m all runs[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                                                                        [38;2;154;162;148mupdated 0.0s ago[39m[49m"
 `;
 
 exports[`monitor frames > empty at 70 columns 1`] = `
@@ -427,7 +427,7 @@ exports[`monitor frames > empty at 100 columns 1`] = `
 
 
 
-↑↓/jk select  Enter expand  a attention  ? help  q quit                             updated 0.0s ago"
+↑↓/jk select  Enter open  a attention  ? help  q quit                               updated 0.0s ago"
 `;
 
 exports[`monitor frames > empty at 140 columns 1`] = `
@@ -470,7 +470,7 @@ exports[`monitor frames > empty at 140 columns 1`] = `
 
 
 
-↑↓/jk select  Enter expand  a attention  ? help  q quit                                                                     updated 0.0s ago"
+↑↓/jk select  Enter open  a attention  ? help  q quit                                                                       updated 0.0s ago"
 `;
 
 exports[`monitor frames > empty colors 1`] = `
@@ -513,7 +513,7 @@ exports[`monitor frames > empty colors 1`] = `
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
-[48;2;27;30;26m[1m[38;2;228;232;224m↑↓/jk[22m[38;2;154;162;148m select[39m  [1m[38;2;228;232;224mEnter[22m[38;2;154;162;148m expand[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m attention[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                                                                     [38;2;154;162;148mupdated 0.0s ago[39m[49m"
+[48;2;27;30;26m[1m[38;2;228;232;224m↑↓/jk[22m[38;2;154;162;148m select[39m  [1m[38;2;228;232;224mEnter[22m[38;2;154;162;148m open[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m attention[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                                                                       [38;2;154;162;148mupdated 0.0s ago[39m[49m"
 `;
 
 exports[`monitor frames > help at 70 columns 1`] = `
@@ -535,7 +535,7 @@ exports[`monitor frames > help at 70 columns 1`] = `
 │ ↑/k previous       ↓/j next                                        │
 │ Home first         End last                                        │
 │ PgUp scroll up     PgDn scroll down                                │
-│ a attention only   Enter expand older idle runs                    │
+│ a attention only   Enter open / expand                             │
 │ ? close help       Esc close help                                  │
 │ q quit             Ctrl-C interrupt                                │
 │                                                                    │
@@ -578,7 +578,7 @@ exports[`monitor frames > help at 100 columns 1`] = `
             │ ↑/k previous       ↓/j next                                              │
             │ Home first         End last                                              │
             │ PgUp scroll up     PgDn scroll down                                      │
-            │ a attention only   Enter expand older idle runs                          │
+            │ a attention only   Enter open / expand                                   │
             │ ? close help       Esc close help                                        │
             │ q quit             Ctrl-C interrupt                                      │
             │                                                                          │
@@ -599,7 +599,7 @@ exports[`monitor frames > help at 100 columns 1`] = `
 
 
 
-↑↓/jk select  Enter expand  a attention  ? help  q quit                             updated 0.0s ago"
+↑↓/jk select  Enter open  a attention  ? help  q quit                               updated 0.0s ago"
 `;
 
 exports[`monitor frames > help at 140 columns 1`] = `
@@ -621,7 +621,7 @@ exports[`monitor frames > help at 140 columns 1`] = `
                                 │ ↑/k previous       ↓/j next                                              │
                                 │ Home first         End last                                              │
                                 │ PgUp scroll up     PgDn scroll down                                      │
-                                │ a attention only   Enter expand older idle runs                          │
+                                │ a attention only   Enter open / expand                                   │
                                 │ ? close help       Esc close help                                        │
                                 │ q quit             Ctrl-C interrupt                                      │
                                 │                                                                          │
@@ -642,7 +642,7 @@ exports[`monitor frames > help at 140 columns 1`] = `
 
 
 
-↑↓/jk select  Enter expand  a attention  ? help  q quit                                                                     updated 0.0s ago"
+↑↓/jk select  Enter open  a attention  ? help  q quit                                                                       updated 0.0s ago"
 `;
 
 exports[`monitor frames > help colors 1`] = `
@@ -664,7 +664,7 @@ exports[`monitor frames > help colors 1`] = `
 [48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224m↑/k previous       ↓/j next                                             [38;2;45;50;43m │[39m                                [49m
 [48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224mHome first         End last                                             [38;2;45;50;43m │[39m                                [49m
 [48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224mPgUp scroll up     PgDn scroll down                                     [38;2;45;50;43m │[39m                                [49m
-[48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224ma attention only   Enter expand older idle runs                         [38;2;45;50;43m │[39m                                [49m
+[48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224ma attention only   Enter open / expand                                  [38;2;45;50;43m │[39m                                [49m
 [48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224m? close help       Esc close help                                       [38;2;45;50;43m │[39m                                [49m
 [48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224mq quit             Ctrl-C interrupt                                     [38;2;45;50;43m │[39m                                [49m
 [48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224m                                                                        [38;2;45;50;43m │[39m                                [49m
@@ -685,7 +685,7 @@ exports[`monitor frames > help colors 1`] = `
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
-[48;2;27;30;26m[1m[38;2;228;232;224m↑↓/jk[22m[38;2;154;162;148m select[39m  [1m[38;2;228;232;224mEnter[22m[38;2;154;162;148m expand[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m attention[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                                                                     [38;2;154;162;148mupdated 0.0s ago[39m[49m"
+[48;2;27;30;26m[1m[38;2;228;232;224m↑↓/jk[22m[38;2;154;162;148m select[39m  [1m[38;2;228;232;224mEnter[22m[38;2;154;162;148m open[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m attention[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                                                                       [38;2;154;162;148mupdated 0.0s ago[39m[49m"
 `;
 
 exports[`monitor frames > list at 70 columns 1`] = `
@@ -771,7 +771,7 @@ exports[`monitor frames > list at 100 columns 1`] = `
 
 
 
-↑↓/jk select  Enter expand  a attention  ? help  q quit                             updated 0.0s ago"
+↑↓/jk select  Enter open  a attention  ? help  q quit                               updated 0.0s ago"
 `;
 
 exports[`monitor frames > list at 140 columns 1`] = `
@@ -814,7 +814,7 @@ exports[`monitor frames > list at 140 columns 1`] = `
 
 
 
-↑↓/jk select  Enter expand  a attention  ? help  q quit                                                                     updated 0.0s ago"
+↑↓/jk select  Enter open  a attention  ? help  q quit                                                                       updated 0.0s ago"
 `;
 
 exports[`monitor frames > list colors 1`] = `
@@ -857,7 +857,7 @@ exports[`monitor frames > list colors 1`] = `
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
-[48;2;27;30;26m[1m[38;2;228;232;224m↑↓/jk[22m[38;2;154;162;148m select[39m  [1m[38;2;228;232;224mEnter[22m[38;2;154;162;148m expand[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m attention[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                                                                     [38;2;154;162;148mupdated 0.0s ago[39m[49m"
+[48;2;27;30;26m[1m[38;2;228;232;224m↑↓/jk[22m[38;2;154;162;148m select[39m  [1m[38;2;228;232;224mEnter[22m[38;2;154;162;148m open[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m attention[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                                                                       [38;2;154;162;148mupdated 0.0s ago[39m[49m"
 `;
 
 exports[`monitor frames > outdated at 70 columns 1`] = `
@@ -943,7 +943,7 @@ exports[`monitor frames > outdated at 100 columns 1`] = `
 
 
 
-↑↓/jk select  Enter expand  a attention  ? help  q quit                             updated 0.0s ago"
+↑↓/jk select  Enter open  a attention  ? help  q quit                               updated 0.0s ago"
 `;
 
 exports[`monitor frames > outdated at 140 columns 1`] = `
@@ -986,7 +986,7 @@ exports[`monitor frames > outdated at 140 columns 1`] = `
 
 
 
-↑↓/jk select  Enter expand  a attention  ? help  q quit                                                                     updated 0.0s ago"
+↑↓/jk select  Enter open  a attention  ? help  q quit                                                                       updated 0.0s ago"
 `;
 
 exports[`monitor frames > outdated colors 1`] = `
@@ -1029,7 +1029,7 @@ exports[`monitor frames > outdated colors 1`] = `
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
-[48;2;27;30;26m[1m[38;2;228;232;224m↑↓/jk[22m[38;2;154;162;148m select[39m  [1m[38;2;228;232;224mEnter[22m[38;2;154;162;148m expand[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m attention[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                                                                     [38;2;154;162;148mupdated 0.0s ago[39m[49m"
+[48;2;27;30;26m[1m[38;2;228;232;224m↑↓/jk[22m[38;2;154;162;148m select[39m  [1m[38;2;228;232;224mEnter[22m[38;2;154;162;148m open[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m attention[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                                                                       [38;2;154;162;148mupdated 0.0s ago[39m[49m"
 `;
 
 exports[`monitor frames > probing at 70 columns 1`] = `
@@ -1115,7 +1115,7 @@ exports[`monitor frames > probing at 100 columns 1`] = `
 
 
 
-↑↓/jk select  Enter expand  a attention  ? help  q quit                             updated 0.0s ago"
+↑↓/jk select  Enter open  a attention  ? help  q quit                               updated 0.0s ago"
 `;
 
 exports[`monitor frames > probing at 140 columns 1`] = `
@@ -1158,7 +1158,7 @@ exports[`monitor frames > probing at 140 columns 1`] = `
 
 
 
-↑↓/jk select  Enter expand  a attention  ? help  q quit                                                                     updated 0.0s ago"
+↑↓/jk select  Enter open  a attention  ? help  q quit                                                                       updated 0.0s ago"
 `;
 
 exports[`monitor frames > probing colors 1`] = `
@@ -1201,7 +1201,7 @@ exports[`monitor frames > probing colors 1`] = `
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
-[48;2;27;30;26m[1m[38;2;228;232;224m↑↓/jk[22m[38;2;154;162;148m select[39m  [1m[38;2;228;232;224mEnter[22m[38;2;154;162;148m expand[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m attention[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                                                                     [38;2;154;162;148mupdated 0.0s ago[39m[49m"
+[48;2;27;30;26m[1m[38;2;228;232;224m↑↓/jk[22m[38;2;154;162;148m select[39m  [1m[38;2;228;232;224mEnter[22m[38;2;154;162;148m open[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m attention[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                                                                       [38;2;154;162;148mupdated 0.0s ago[39m[49m"
 `;
 
 exports[`monitor frames > reconnecting at 70 columns 1`] = `
@@ -1287,7 +1287,7 @@ exports[`monitor frames > reconnecting at 100 columns 1`] = `
 
 
 
-↑↓/jk select  Enter expand  a attention  ? help  q quit                           reconnecting in 4s"
+↑↓/jk select  Enter open  a attention  ? help  q quit                             reconnecting in 4s"
 `;
 
 exports[`monitor frames > reconnecting at 140 columns 1`] = `
@@ -1330,7 +1330,7 @@ exports[`monitor frames > reconnecting at 140 columns 1`] = `
 
 
 
-↑↓/jk select  Enter expand  a attention  ? help  q quit                                                                   reconnecting in 4s"
+↑↓/jk select  Enter open  a attention  ? help  q quit                                                                     reconnecting in 4s"
 `;
 
 exports[`monitor frames > reconnecting colors 1`] = `
@@ -1373,7 +1373,7 @@ exports[`monitor frames > reconnecting colors 1`] = `
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
-[48;2;27;30;26m[1m[38;2;228;232;224m↑↓/jk[22m[38;2;154;162;148m select[39m  [1m[38;2;228;232;224mEnter[22m[38;2;154;162;148m expand[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m attention[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                                                                   [38;2;226;192;79mreconnecting in 4s[39m[49m"
+[48;2;27;30;26m[1m[38;2;228;232;224m↑↓/jk[22m[38;2;154;162;148m select[39m  [1m[38;2;228;232;224mEnter[22m[38;2;154;162;148m open[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m attention[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                                                                     [38;2;226;192;79mreconnecting in 4s[39m[49m"
 `;
 
 exports[`monitor frames > reconnecting without history at 70 columns 1`] = `
@@ -1459,7 +1459,7 @@ exports[`monitor frames > reconnecting without history at 100 columns 1`] = `
 
 
 
-↑↓/jk select  Enter expand  a attention  ? help  q quit                           reconnecting in 4s"
+↑↓/jk select  Enter open  a attention  ? help  q quit                             reconnecting in 4s"
 `;
 
 exports[`monitor frames > reconnecting without history at 140 columns 1`] = `
@@ -1502,7 +1502,7 @@ exports[`monitor frames > reconnecting without history at 140 columns 1`] = `
 
 
 
-↑↓/jk select  Enter expand  a attention  ? help  q quit                                                                   reconnecting in 4s"
+↑↓/jk select  Enter open  a attention  ? help  q quit                                                                     reconnecting in 4s"
 `;
 
 exports[`monitor frames > reconnecting without history colors 1`] = `
@@ -1545,7 +1545,7 @@ exports[`monitor frames > reconnecting without history colors 1`] = `
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
-[48;2;27;30;26m[1m[38;2;228;232;224m↑↓/jk[22m[38;2;154;162;148m select[39m  [1m[38;2;228;232;224mEnter[22m[38;2;154;162;148m expand[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m attention[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                                                                   [38;2;226;192;79mreconnecting in 4s[39m[49m"
+[48;2;27;30;26m[1m[38;2;228;232;224m↑↓/jk[22m[38;2;154;162;148m select[39m  [1m[38;2;228;232;224mEnter[22m[38;2;154;162;148m open[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m attention[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                                                                     [38;2;226;192;79mreconnecting in 4s[39m[49m"
 `;
 
 exports[`monitor frames > saved at 70 columns 1`] = `
@@ -1631,7 +1631,7 @@ exports[`monitor frames > saved at 100 columns 1`] = `
 
 
 
-↑↓/jk select  Enter expand  a attention  ? help  q quit                             updated 0.0s ago"
+↑↓/jk select  Enter open  a attention  ? help  q quit                               updated 0.0s ago"
 `;
 
 exports[`monitor frames > saved at 140 columns 1`] = `
@@ -1674,7 +1674,7 @@ exports[`monitor frames > saved at 140 columns 1`] = `
 
 
 
-↑↓/jk select  Enter expand  a attention  ? help  q quit                                                                     updated 0.0s ago"
+↑↓/jk select  Enter open  a attention  ? help  q quit                                                                       updated 0.0s ago"
 `;
 
 exports[`monitor frames > saved colors 1`] = `
@@ -1717,7 +1717,7 @@ exports[`monitor frames > saved colors 1`] = `
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
-[48;2;27;30;26m[1m[38;2;228;232;224m↑↓/jk[22m[38;2;154;162;148m select[39m  [1m[38;2;228;232;224mEnter[22m[38;2;154;162;148m expand[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m attention[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                                                                     [38;2;154;162;148mupdated 0.0s ago[39m[49m"
+[48;2;27;30;26m[1m[38;2;228;232;224m↑↓/jk[22m[38;2;154;162;148m select[39m  [1m[38;2;228;232;224mEnter[22m[38;2;154;162;148m open[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m attention[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                                                                       [38;2;154;162;148mupdated 0.0s ago[39m[49m"
 `;
 
 exports[`monitor frames > saved empty at 70 columns 1`] = `
@@ -1803,7 +1803,7 @@ exports[`monitor frames > saved empty at 100 columns 1`] = `
 
 
 
-↑↓/jk select  Enter expand  a attention  ? help  q quit                             updated 0.0s ago"
+↑↓/jk select  Enter open  a attention  ? help  q quit                               updated 0.0s ago"
 `;
 
 exports[`monitor frames > saved empty at 140 columns 1`] = `
@@ -1846,7 +1846,7 @@ exports[`monitor frames > saved empty at 140 columns 1`] = `
 
 
 
-↑↓/jk select  Enter expand  a attention  ? help  q quit                                                                     updated 0.0s ago"
+↑↓/jk select  Enter open  a attention  ? help  q quit                                                                       updated 0.0s ago"
 `;
 
 exports[`monitor frames > saved empty colors 1`] = `
@@ -1889,5 +1889,5 @@ exports[`monitor frames > saved empty colors 1`] = `
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
-[48;2;27;30;26m[1m[38;2;228;232;224m↑↓/jk[22m[38;2;154;162;148m select[39m  [1m[38;2;228;232;224mEnter[22m[38;2;154;162;148m expand[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m attention[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                                                                     [38;2;154;162;148mupdated 0.0s ago[39m[49m"
+[48;2;27;30;26m[1m[38;2;228;232;224m↑↓/jk[22m[38;2;154;162;148m select[39m  [1m[38;2;228;232;224mEnter[22m[38;2;154;162;148m open[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m attention[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                                                                       [38;2;154;162;148mupdated 0.0s ago[39m[49m"
 `;

@@ -1,9 +1,49 @@
 import { DateTime } from "effect";
-import { activeStates } from "../../schemas/daemon";
-import type { RunView } from "../../schemas/monitor";
+import { activeStates, type RunEvent, type RunName } from "../../schemas/daemon";
+import type { Detail, RunView } from "../../schemas/monitor";
+import type { DetailFeed } from "./detail-feed";
 import type { MonitorFeed } from "./feed";
 
 export const OLDER_IDLE_MS = 24 * 60 * 60_000;
+export const EVENT_BUFFER_LIMIT = 1000;
+export const DETAIL_PANES = [
+  "task",
+  "digest",
+  "questions",
+  "subagents",
+  "handoff",
+  "commands",
+  "feed",
+] as const;
+export type PaneId = (typeof DETAIL_PANES)[number];
+export type DetailLine = {
+  readonly text: string;
+  readonly tone: Tone;
+  readonly kind?: "working" | "subagent-idle";
+  readonly at?: string;
+  readonly symbol?: string;
+  readonly frame?: "top" | "body" | "bottom";
+};
+export type PaneView = {
+  readonly id: PaneId;
+  readonly title: string;
+  readonly value: string;
+  readonly lines: readonly DetailLine[];
+  readonly height: number;
+  readonly offset: number;
+  readonly focused: boolean;
+};
+export type DetailView = {
+  readonly name: string;
+  readonly state: RunView["state"] | null;
+  readonly tone: Tone;
+  readonly status: "loading" | "ready" | "archived" | "reconnecting";
+  readonly message: readonly string[];
+  readonly header: readonly (readonly [string, string])[];
+  readonly warnings: readonly string[];
+  readonly panes: readonly PaneView[];
+  readonly focus: PaneId;
+};
 export type Tone =
   | "fg"
   | "muted"
@@ -59,6 +99,7 @@ export type ViewModel = {
   readonly overlay: boolean;
   readonly animating: boolean;
   readonly offset: number;
+  readonly detail: DetailView | null;
 };
 export type State = {
   readonly group: string;
@@ -73,14 +114,27 @@ export type State = {
   readonly attentionOnly: boolean;
   readonly help: boolean;
   readonly scroll: number | null;
+  readonly detail: {
+    readonly name: RunName;
+    readonly feed: DetailFeed | null;
+    readonly events: readonly RunEvent[];
+    readonly gap: boolean;
+    readonly dropped: number;
+    readonly focus: PaneId;
+    readonly offsets: Readonly<Record<PaneId, number>>;
+    readonly follow: boolean;
+  } | null;
 };
 export type Message =
   | { readonly type: "feed"; readonly value: MonitorFeed }
+  | { readonly type: "detail-feed"; readonly name: RunName; readonly value: DetailFeed }
   | { readonly type: "key"; readonly key: string }
   | { readonly type: "tick"; readonly now: number }
   | { readonly type: "resize"; readonly columns: number; readonly rows: number };
 export const initialState = (
-  options: Pick<State, "group" | "defaults" | "version" | "now" | "columns" | "rows">,
+  options: Pick<State, "group" | "defaults" | "version" | "now" | "columns" | "rows"> & {
+    readonly name?: RunName;
+  },
 ): State => ({
   ...options,
   feed: null,
@@ -89,8 +143,22 @@ export const initialState = (
   attentionOnly: false,
   help: false,
   scroll: null,
+  detail: options.name === undefined ? null : openDetail(options.name),
 });
+function openDetail(name: RunName): NonNullable<State["detail"]> {
+  return {
+    name,
+    feed: null,
+    events: [],
+    gap: false,
+    dropped: 0,
+    focus: "task",
+    follow: true,
+    offsets: { task: 0, digest: 0, questions: 0, subagents: 0, handoff: 0, commands: 0, feed: 0 },
+  };
+}
 const epoch = DateTime.toEpochMillis;
+const cleanText = (text: string) => text.replace(/\p{Cc}/gu, " ");
 const oneLine = (text: string) => text.split(/\r?\n/, 1)[0]?.replace(/\p{Cc}/gu, " ") ?? "";
 export function duration(ms: number): string {
   const seconds = Math.floor(Math.max(0, ms) / 1000);
@@ -194,6 +262,46 @@ function selectable(state: State) {
 }
 export function reduce(state: State, msg: Message): State {
   let next: State;
+  if (msg.type === "detail-feed") {
+    let detail = state.detail;
+    if (!detail || detail.name !== msg.name) return state;
+    const data = currentDetail(state);
+    let incomingDetail: Detail | null = null;
+    if (msg.value._tag === "Live" || msg.value._tag === "Saved") incomingDetail = msg.value.detail;
+    else if (msg.value._tag === "Reconnecting") incomingDetail = msg.value.last;
+    if (
+      msg.value._tag === "Archived" ||
+      (data &&
+        incomingDetail &&
+        epoch(data.record.createdAt) !== epoch(incomingDetail.record.createdAt))
+    )
+      detail = { ...openDetail(detail.name), focus: detail.focus, follow: detail.follow };
+    const incoming =
+      msg.value._tag === "Live" || msg.value._tag === "Saved" ? msg.value.events : [];
+    const lastSeq = detail.events.at(-1)?.seq ?? 0;
+    const appended = [...detail.events, ...incoming.filter((entry) => entry.seq > lastSeq)];
+    const dropped = Math.max(0, appended.length - EVENT_BUFFER_LIMIT);
+    const gap =
+      detail.gap || ((msg.value._tag === "Live" || msg.value._tag === "Saved") && msg.value.gap);
+    const removedLines = data ? feedLines(detail.events.slice(0, dropped), data).length : 0;
+    const addedMarkers = Number(!detail.gap && gap) + Number(detail.dropped === 0 && dropped > 0);
+    return {
+      ...state,
+      now:
+        msg.value._tag === "Reconnecting" ? state.now : Math.max(state.now, msg.value.receivedAt),
+      detail: {
+        ...detail,
+        feed: msg.value,
+        events: appended.slice(-EVENT_BUFFER_LIMIT),
+        dropped: detail.dropped + dropped,
+        gap,
+        offsets: {
+          ...detail.offsets,
+          feed: Math.max(0, detail.offsets.feed - removedLines + addedMarkers),
+        },
+      },
+    };
+  }
   if (msg.type === "tick") {
     if (Math.floor(state.now / 1000) === Math.floor(msg.now / 1000)) return state;
     next = { ...state, now: msg.now };
@@ -210,6 +318,50 @@ export function reduce(state: State, msg: Message): State {
     if (msg.key === "?" || (state.help && msg.key === "escape"))
       return { ...state, help: !state.help };
     if (state.help) return state;
+    if (state.detail) {
+      const detail = state.detail;
+      if (msg.key === "escape") return { ...state, detail: null };
+      if (msg.key === "tab" || msg.key === "\t")
+        return {
+          ...state,
+          detail: {
+            ...detail,
+            focus:
+              DETAIL_PANES[(DETAIL_PANES.indexOf(detail.focus) + 1) % DETAIL_PANES.length] ??
+              "task",
+          },
+        };
+      if (msg.key === "f") {
+        const offset = detailView(state)?.panes.find((pane) => pane.id === "feed")?.offset ?? 0;
+        return {
+          ...state,
+          detail: {
+            ...detail,
+            follow: !detail.follow,
+            offsets: { ...detail.offsets, feed: offset },
+          },
+        };
+      }
+      const pane = detailView(state)?.panes.find((entry) => entry.id === detail.focus);
+      if (!pane) return state;
+      const page = Math.max(1, pane.height - 2);
+      const maximum = Math.max(0, pane.lines.length - page);
+      let offset = pane.offset;
+      if (msg.key === "home") offset = 0;
+      else if (msg.key === "end") offset = maximum;
+      else if (["j", "down", "k", "up", "page-up", "page-down"].includes(msg.key)) {
+        const up = ["k", "up", "page-up"].includes(msg.key);
+        offset += (up ? -1 : 1) * (msg.key.startsWith("page-") ? page : 1);
+      } else return state;
+      return {
+        ...state,
+        detail: {
+          ...detail,
+          follow: detail.focus === "feed" && offset < pane.offset ? false : detail.follow,
+          offsets: { ...detail.offsets, [detail.focus]: Math.max(0, Math.min(maximum, offset)) },
+        },
+      };
+    }
     if (msg.key === "page-up" || msg.key === "page-down")
       return {
         ...state,
@@ -221,7 +373,12 @@ export function reduce(state: State, msg: Message): State {
     if (msg.key === "a") next = { ...state, attentionOnly: !state.attentionOnly };
     else if (msg.key === "enter" && state.selected?.startsWith("older:"))
       next = { ...state, expanded: new Set([...state.expanded, state.selected.slice(6)]) };
-    else {
+    else if (msg.key === "enter" && state.selected) {
+      const run = grouped(state)
+        .flatMap((group) => group.runs)
+        .find((run) => run.name === state.selected);
+      return run ? { ...state, detail: openDetail(run.name) } : state;
+    } else {
       const keys = selectable(state);
       const index = Math.max(0, keys.indexOf(state.selected ?? ""));
       let target = index;
@@ -414,6 +571,23 @@ export function view(state: State, previous?: ViewModel): ViewModel {
     state.scroll === null
       ? automaticOffset
       : Math.min(state.scroll, Math.max(0, position - available));
+  const detail = detailView(state);
+  let footerStatus = reconnecting
+    ? `reconnecting in ${Math.max(0, Math.ceil((feed.retryAt - state.now) / 1000))}s`
+    : `updated ${(Math.max(0, state.now - (feed?.receivedAt ?? state.now)) / 1000).toFixed(1)}s ago`;
+  let footerCaution = reconnecting;
+  const detailFeed = state.detail?.feed;
+  if (detailFeed?._tag === "Reconnecting") {
+    footerStatus = `reconnecting in ${Math.max(0, Math.ceil((detailFeed.retryAt - state.now) / 1000))}s`;
+    footerCaution = true;
+  } else if (detailFeed?._tag === "Saved") {
+    footerStatus =
+      detailFeed.reason === "outdated" ? "saved · daemon outdated" : "saved · daemon not running";
+    footerCaution = true;
+  } else if (detailFeed?._tag === "Live") {
+    footerStatus = `updated ${(Math.max(0, state.now - detailFeed.receivedAt) / 1000).toFixed(1)}s ago`;
+    footerCaution = false;
+  }
   return {
     columns: state.columns,
     rows: state.rows,
@@ -435,18 +609,309 @@ export function view(state: State, previous?: ViewModel): ViewModel {
     selected: state.selected,
     footer: {
       compact: state.rows < 24,
-      status: reconnecting
-        ? `reconnecting in ${Math.max(0, Math.ceil((feed.retryAt - state.now) / 1000))}s`
-        : `updated ${(Math.max(0, state.now - (feed?.receivedAt ?? state.now)) / 1000).toFixed(1)}s ago`,
-      caution: reconnecting,
+      status: footerStatus,
+      caution: footerCaution,
       attentionOnly: state.attentionOnly,
     },
     overlay: state.help,
     offset,
+    detail,
     animating:
       !state.help &&
-      (feed === null ||
-        (reconnecting && state.rows >= 24) ||
-        animatedLines.some((line) => line >= offset && line < offset + available)),
+      (state.detail
+        ? detailAnimating(state, detail)
+        : feed === null ||
+          (reconnecting && state.rows >= 24) ||
+          animatedLines.some((line) => line >= offset && line < offset + available)),
+  };
+}
+
+function currentDetail(state: State): Detail | null {
+  const feed = state.detail?.feed;
+  if (!feed || feed._tag === "Archived") return null;
+  return feed._tag === "Reconnecting" ? feed.last : feed.detail;
+}
+export function detailLayout(detail: DetailView, columns: number, rows: number) {
+  const height = Math.max(1, rows - 2 - detail.message.length);
+  const headerHeight =
+    (columns < 80 ? detail.header.length : Math.ceil(detail.header.length / 2)) +
+    2 +
+    detail.warnings.length;
+  let position = headerHeight;
+  let start = 0;
+  let end = 0;
+  for (const pane of detail.panes) {
+    if (columns >= 120 && pane.id === "feed") continue;
+    if (pane.focused) {
+      start = position;
+      end = position + pane.height;
+    }
+    position += pane.height;
+  }
+  return { headerHeight, offset: end > height ? Math.min(start, end - height) : 0, height };
+}
+function detailAnimating(state: State, detail: DetailView | null): boolean {
+  if (!detail || detail.status === "archived") return false;
+  if (detail.status === "loading" || detail.status === "reconnecting") return true;
+  const { offset, headerHeight, height } = detailLayout(detail, state.columns, state.rows);
+  const visible = (position: number) => position >= offset && position < offset + height;
+  if (detail.state && ["running", "starting", "waiting"].includes(detail.state) && visible(0))
+    return true;
+  let position = headerHeight;
+  for (const pane of detail.panes) {
+    if (state.columns >= 120 && pane.id === "feed") continue;
+    if (
+      pane.lines
+        .slice(pane.offset, pane.offset + pane.height - 2)
+        .some((line, index) => line.kind === "working" && visible(position + 1 + index))
+    )
+      return true;
+    position += pane.height;
+  }
+  return false;
+}
+const textLines = (text: string, tone: Tone = "fg"): DetailLine[] =>
+  text.split(/\r?\n/).map((text) => ({ text: cleanText(text), tone }));
+function feedLines(events: readonly RunEvent[], data: Detail): DetailLine[] {
+  return events.flatMap(({ at, event }): DetailLine[] => {
+    const timestamp = DateTime.formatIso(at).slice(11, 19);
+    const line = (text: string, tone: Tone = "muted", symbol?: string): DetailLine[] => [
+      { text: oneLine(text), tone, at: timestamp, ...(symbol === undefined ? {} : { symbol }) },
+    ];
+    switch (event._tag) {
+      case "Command": {
+        const open =
+          event.exitCode === null && !["completed", "failed", "declined"].includes(event.status);
+        const failed =
+          ["failed", "declined"].includes(event.status) ||
+          (event.exitCode !== null && event.exitCode !== 0);
+        if (open) return line(event.command, "running", "…");
+        if (failed) return line(event.command, "failed", `×${event.exitCode ?? ""}`);
+        return line(event.command, "done", "✓");
+      }
+      case "FileChange":
+        return event.paths.flatMap((path) => line(`write ${path}`, "fg"));
+      case "AgentMessage":
+        return line(event.text, "fg");
+      case "QuestionAsked":
+      case "HookBlocked": {
+        const pending =
+          event._tag === "QuestionAsked" &&
+          data.questions.some((q) => q.id === event.id && q.status === "pending");
+        let tone: Tone = pending ? "signal" : "muted";
+        if (event._tag === "HookBlocked") tone = "failed";
+        const title =
+          event._tag === "QuestionAsked" ? `■ ${event.kind} ${event.id}` : "■ hooks blocked";
+        const text =
+          event._tag === "QuestionAsked" ? event.question : `${event.event}: ${event.feedback}`;
+        return [
+          { text: title, tone, at: timestamp, frame: "top" },
+          { text: oneLine(text), tone: "fg", frame: "body" },
+          { text: "", tone: "line", frame: "bottom" },
+        ];
+      }
+      case "StateChanged":
+        return line(`${event.from} → ${event.to}`);
+      case "TurnStarted":
+        return line(`turn ${event.turn} ${event.kind}`);
+      case "TurnCompleted":
+        return line(
+          `turn ${event.turn} ${event.status}${event.failure ? `: ${event.failure.message}` : ""}`,
+        );
+      case "QuestionResolved":
+        return line(`${event.id} ${event.resolution}`);
+      case "Resumed":
+        return line(`resumed ${event.model} · ${event.sandbox}`);
+      case "Interrupted":
+        return line(`interrupted by ${event.by}`);
+      case "Retrying":
+        return line(`retrying: ${event.message}`);
+      case "McpStartupFailed":
+        return line(`MCP ${event.server}: ${event.error ?? "startup failed"}`);
+      case "Steered":
+        return line(`steer: ${event.message}`);
+      case "TokenUsage":
+      case "Other":
+        return [];
+    }
+    return [];
+  });
+}
+const questionTones = {
+  pending: "signal",
+  deferred: "interrupted",
+  resolved: "muted",
+  cancelled: "muted",
+} as const;
+function detailView(state: State): DetailView | null {
+  const detail = state.detail;
+  if (!detail) return null;
+  const data = currentDetail(state);
+  const base = { name: detail.name, focus: detail.focus, header: [], warnings: [], panes: [] };
+  if (detail.feed?._tag === "Archived")
+    return {
+      ...base,
+      state: null,
+      tone: "muted",
+      status: "archived",
+      message: [
+        "Run no longer available",
+        "It may have been archived. Press Esc to return to the list.",
+        `foreman status ${detail.name}`,
+      ],
+    };
+  if (!data)
+    return {
+      ...base,
+      state: null,
+      tone: "muted",
+      status: detail.feed?._tag === "Reconnecting" ? "reconnecting" : "loading",
+      message: [
+        detail.feed?._tag === "Reconnecting" ? "Reconnecting to daemon" : "Opening run detail",
+        "Press Esc to return to the list.",
+        `foreman status ${detail.name}`,
+      ],
+    };
+  const { run, record, digest } = data;
+  const unavailable = (files: readonly string[] | null) =>
+    files === null ? "not computed" : String(files.length);
+  const tokens = digest.tokens;
+  const digestLines = [
+    `commands  ${digest.commands.total} total · ${digest.commands.failed} failed · ${digest.commands.blockedByHooks} hooks blocked`,
+    `last command  ${digest.commands.last?.command ?? "none"}${digest.commands.last?.exitCode === null || !digest.commands.last ? "" : ` · exit ${digest.commands.last.exitCode}`}`,
+    `files  ${unavailable(digest.filesWritten)} written · ${unavailable(digest.outsideMayChange)} outside May change · ${unavailable(digest.newInGitStatus)} new in git status`,
+    `tokens  ${tokens?.input ?? 0} input · ${tokens?.cachedInput ?? 0} cached (${!tokens?.input ? 0 : Math.round((100 * tokens.cachedInput) / tokens.input)}% hit)`,
+    `        ${tokens?.output ?? 0} output · ${tokens?.reasoningOutput ?? 0} reasoning`,
+    ...(digest.failure ? [`failure  ${digest.failure.message}`] : []),
+  ];
+  const commands = [
+    ...(run.group === state.group
+      ? [
+          ...data.questions
+            .filter((q) => q.status === "pending")
+            .map((q) => `foreman answer ${run.name} ${q.id} --file <path>`),
+          ...(activeStates.has(run.state) ? [`foreman interrupt ${run.name}`] : []),
+        ]
+      : ["other repo: its own session supervises it"]),
+    `foreman result ${run.name}`,
+    `foreman events ${run.name} --follow`,
+  ];
+  const entries: Record<PaneId, readonly DetailLine[]> = {
+    task: textLines(data.contract || "No contract recorded."),
+    digest: digestLines.map((text) => ({ text: oneLine(text), tone: "fg" })),
+    questions: data.questions.length
+      ? data.questions.flatMap((q) => [
+          {
+            text: `${q.id} · ${q.kind} · ${q.status} · ${age(q.askedAt, state.now)} ago${q.resolvedAt ? ` · resolved ${DateTime.formatIso(q.resolvedAt)}` : ""}`,
+            tone: questionTones[q.status],
+          },
+          ...textLines(q.text),
+        ])
+      : textLines("No questions.", "muted"),
+    subagents: run.subagents.length
+      ? run.subagents.flatMap((agent) => [
+          {
+            text: `${oneLine(agent.path)} · ${agent.state}${agent.model && agent.model !== run.model ? ` · ${oneLine(agent.model)}` : ""}${agent.effort && agent.effort !== run.effort ? ` · ${oneLine(agent.effort)}` : ""}`,
+            tone: "fg" as const,
+            kind: agent.state === "working" ? ("working" as const) : ("subagent-idle" as const),
+          },
+          {
+            text: `started ${DateTime.formatIso(agent.startedAt)} · ${agent.interactions} interactions · ${age(agent.lastInteractionAt, state.now)} ago`,
+            tone: "muted" as const,
+          },
+        ])
+      : textLines("No subagents recorded.", "muted"),
+    handoff: textLines(data.handoff?.text ?? "No hand-off available."),
+    commands: commands.map((text) => ({ text, tone: "fg" })),
+    feed: [
+      ...(detail.gap
+        ? textLines("gap: earlier events are no longer available", "interrupted")
+        : []),
+      ...(detail.dropped
+        ? textLines(`${detail.dropped} older events dropped from buffer`, "muted")
+        : []),
+      ...feedLines(detail.events, data),
+    ],
+  };
+  if (state.columns < 80)
+    entries.subagents = textLines(`${run.subagents.length} subagents`, "muted");
+  const titles: Record<PaneId, string> = {
+    task: "Task",
+    digest: "Digest",
+    questions: "Questions",
+    subagents: "Subagents",
+    handoff: "Hand-off",
+    commands: "Commands",
+    feed: "Feed",
+  };
+  const heights: Record<PaneId, number> = {
+    task: 8,
+    digest: 8,
+    questions: 6,
+    subagents: 6,
+    handoff: 7,
+    commands: 6,
+    feed: state.rows >= 40 ? Math.max(34, state.rows - 2) : Math.max(6, state.rows - 2),
+  };
+  const panes = DETAIL_PANES.map((id): PaneView => {
+    const noticeRows =
+      detail.feed?._tag === "Saved" || detail.feed?._tag === "Reconnecting" ? 3 : 0;
+    const height = Math.min(heights[id], Math.max(3, state.rows - 2 - noticeRows));
+    const maximum = Math.max(0, entries[id].length - (height - 2));
+    let value = "";
+    if (id === "feed") value = detail.follow ? "following" : "paused · f to follow";
+    else if (id === "task" && data.contractTruncated)
+      value = `truncated at ${data.contractByteLimit} bytes`;
+    else if (id === "handoff" && data.handoff) value = `turn ${data.handoff.turn}`;
+    return {
+      id,
+      title: titles[id],
+      lines: entries[id],
+      height,
+      focused: detail.focus === id,
+      offset: id === "feed" && detail.follow ? maximum : Math.min(maximum, detail.offsets[id]),
+      value,
+    };
+  });
+  let connection = "live";
+  let message: readonly string[] = [];
+  if (detail.feed?._tag === "Saved") {
+    connection = `saved · ${detail.feed.reason}`;
+    message = [
+      detail.feed.reason === "outdated"
+        ? "Saved state · daemon is outdated"
+        : "Saved state · daemon not running",
+      "The monitor checks again automatically; start work in another terminal.",
+      `foreman status ${detail.name}`,
+    ];
+  } else if (detail.feed?._tag === "Reconnecting") {
+    connection = "reconnecting";
+    message = [
+      "Reconnecting to daemon",
+      oneLine(detail.feed.reason),
+      `foreman status ${detail.name}`,
+    ];
+  }
+  return {
+    name: run.name,
+    state: run.state,
+    tone: stateTone(run.state),
+    status: detail.feed?._tag === "Reconnecting" ? "reconnecting" : "ready",
+    message,
+    focus: detail.focus,
+    header: [
+      ["worktree", record.worktree],
+      ["branch", record.branch ?? "not recorded"],
+      ["base", record.baseCommit],
+      ["--from", record.fromRef ?? "not recorded"],
+      ["created", DateTime.formatIso(record.createdAt)],
+      ["updated", DateTime.formatIso(record.updatedAt)],
+      ["run dir", record.runDir],
+      ["model", `${run.model} · ${run.effort} · ${run.tier}`],
+      ["turn", `${run.turn} ${run.turnKind ?? ""}`],
+      ["connection", connection],
+    ].map(([label, value]) => [label ?? "", cleanText(value ?? "")] as const),
+    warnings: run.warnings.map(oneLine),
+    panes,
   };
 }

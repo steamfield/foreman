@@ -11,7 +11,15 @@ import { jsonRequested, main } from "../src/main";
 import { AppLayer, runInvocation } from "../src/runtime";
 import { Host } from "../src/services/host";
 import { Terminal } from "../src/services/terminal";
-import { mixedRuns, now, overview } from "../tests/helpers/monitor";
+import {
+  detail,
+  detailEvents,
+  detailLive,
+  messageEvents,
+  mixedRuns,
+  now,
+  overview,
+} from "../tests/helpers/monitor";
 
 const args = process.argv.slice(2);
 const group = dirname(
@@ -55,7 +63,36 @@ const feed = {
 const program = Command.runWith(
   cli(
     "foreman",
-    makeMonitorCommand(() => Stream.make(feed)),
+    makeMonitorCommand(
+      () => Stream.make(feed),
+      (_home, name) => {
+        const entry = feed.overview.runs.find((run) => run.name === name);
+        if (!entry) return Stream.make({ _tag: "Archived", receivedAt });
+        const value = detailLive(detail(entry), [
+          ...messageEvents(30),
+          ...detailEvents().map((event) => ({ ...event, seq: event.seq + 30 })),
+        ]);
+        if (value._tag !== "Live") return Stream.make(value);
+        return Stream.make({
+          ...value,
+          receivedAt,
+          detail: {
+            ...value.detail,
+            record: {
+              ...value.detail.record,
+              createdAt: shift(value.detail.record.createdAt),
+              updatedAt: shift(value.detail.record.updatedAt),
+            },
+            questions: value.detail.questions.map((q) => ({
+              ...q,
+              askedAt: shift(q.askedAt),
+              resolvedAt: shiftOptional(q.resolvedAt),
+            })),
+          },
+          events: value.events.map((event) => ({ ...event, at: shift(event.at) })),
+        });
+      },
+    ),
   ),
   { version: "0.1.3", renderErrors: false },
 )(args);
