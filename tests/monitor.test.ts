@@ -19,6 +19,7 @@ import { renderOverview } from "../src/core/monitor/status-all";
 import * as Store from "../src/core/runs/store";
 import * as D from "../src/schemas/daemon";
 import { Overview } from "../src/schemas/monitor";
+import { detail } from "../src/supervisor/detail";
 import { overview, projectRun } from "../src/supervisor/overview";
 import { makeRegistry } from "../src/supervisor/registry";
 
@@ -197,6 +198,114 @@ describe("monitor attention", () => {
 });
 
 describe("overview projection", () => {
+  it.effect("Detail ignores other runs' changes but wakes for its own run and archive", () =>
+    Effect.gen(function* () {
+      const { registry, run } = yield* fixture(2);
+      const other = yield* registry.lookup(Schema.decodeUnknownSync(D.RunName)("run-1"));
+      const initial = yield* detail(registry, { _tag: "Detail", name: run.record.name });
+      const pending = yield* detail(registry, {
+        _tag: "Detail",
+        name: run.record.name,
+        after: initial.version,
+        timeoutMs: 10000,
+      }).pipe(Effect.forkChild);
+      yield* TestClock.adjust(1);
+      yield* registry.event(other, { _tag: "Other", method: "unrelated" });
+      yield* TestClock.adjust(1000);
+      expect(pending.pollUnsafe()).toBeUndefined();
+      yield* registry.handoff(run, "Done");
+      yield* TestClock.adjust(250);
+      const result = yield* Fiber.join(pending);
+      expect(result.version).toBeGreaterThan(initial.version);
+      expect(result.handoff).toEqual({ turn: 1, text: "Done" });
+      const replaced = yield* detail(registry, {
+        _tag: "Detail",
+        name: run.record.name,
+        after: result.version,
+        timeoutMs: 10000,
+      }).pipe(Effect.result, Effect.forkChild);
+      yield* TestClock.adjust(1);
+      const replacement = yield* registry.add(run.record);
+      yield* TestClock.adjust(250);
+      expect(replaced.pollUnsafe()).toBeDefined();
+      expect(yield* Fiber.join(replaced)).toMatchObject({
+        _tag: "Failure",
+        failure: { _tag: "RunNotFound" },
+      });
+      const archived = yield* detail(registry, {
+        _tag: "Detail",
+        name: replacement.record.name,
+        after: replacement.version,
+        timeoutMs: 10000,
+      }).pipe(Effect.result, Effect.forkChild);
+      yield* TestClock.adjust(1);
+      yield* registry.archive(run.record.name);
+      yield* TestClock.adjust(250);
+      expect(yield* Fiber.join(archived)).toMatchObject({
+        _tag: "Failure",
+        failure: { _tag: "RunNotFound" },
+      });
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect.each([false, true])(
+    "recovers state age for a pending inactive transition (published: %s)",
+    (published) =>
+      Effect.gen(function* () {
+        const { registry, run, home } = yield* fixture();
+        yield* TestClock.setTime(2000);
+        yield* registry.state(run, "running");
+        const id = crypto.randomUUID();
+        yield* TestClock.setTime(3000);
+        if (published)
+          yield* Store.appendEvent(
+            run.dir,
+            { _tag: "StateChanged", from: "running", to: "idle" },
+            id,
+          );
+        yield* Store.writeRun(run.dir, {
+          ...run.record,
+          state: "idle",
+          pendingStateEvent: { id, from: "running", to: "idle" },
+          updatedAt: DateTime.makeUnsafe(4000),
+        });
+        yield* TestClock.setTime(5000);
+        const restarted = yield* makeRegistry(home);
+        const loaded = yield* restarted.lookup(run.record.name);
+        expect(loaded.record.pendingStateEvent).toBeNull();
+        const events = (yield* Store.readEvents(run.dir)).events;
+        const transition = events.filter((entry) => entry.transitionId === id);
+        expect(transition).toHaveLength(1);
+        const expected = DateTime.makeUnsafe(published ? 3000 : 5000);
+        expect(transition[0]?.at).toEqual(expected);
+        expect(projectRun(loaded, "repo", 5000).stateSince).toEqual(expected);
+      }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("recovers state age from the last transition rather than token saves", () =>
+    Effect.gen(function* () {
+      const { registry, run, home } = yield* fixture();
+      yield* TestClock.setTime(2000);
+      yield* registry.state(run, "running");
+      yield* TestClock.setTime(3000);
+      yield* registry.state(run, "idle");
+      yield* TestClock.setTime(4000);
+      yield* registry.event(run, {
+        _tag: "TokenUsage",
+        totals: { input: 10, output: 5, cachedInput: 0, reasoningOutput: 0 },
+      });
+      yield* registry.save(run, {
+        tokens: { input: 10, output: 5, cachedInput: 0, reasoningOutput: 0 },
+      });
+      const reloaded = yield* makeRegistry(home);
+      const loaded = yield* reloaded.lookup(run.record.name);
+      expect(projectRun(loaded, "repo", 5000).stateSince).toEqual(DateTime.makeUnsafe(3000));
+      yield* (yield* FileSystem.FileSystem).writeFileString(`${run.dir}/events.jsonl`, "");
+      const noEvents = yield* makeRegistry(home);
+      expect((yield* noEvents.lookup(run.record.name)).stateSince).toBe(1000);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("redacts raw command and commentary activity in both overview outputs", () =>
     Effect.gen(function* () {
       const { registry, run } = yield* fixture();

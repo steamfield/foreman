@@ -1,6 +1,7 @@
 import { NodeServices } from "@effect/platform-node";
 import { assert, it } from "@effect/vitest";
 import { DateTime, Effect, FileSystem, Schema } from "effect";
+import { TestClock } from "effect/testing";
 import { diskOverview } from "../src/core/runs/disk-overview";
 import * as Store from "../src/core/runs/store";
 import { QuestionId, RunName, type RunRecord } from "../src/schemas/daemon";
@@ -151,6 +152,34 @@ it.effect(
       ]);
       assert.strictEqual(view.runs[3]?.unansweredCount, 1);
     }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("disk state ages use the last state event, falling back to creation", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const home = yield* fs.makeTempDirectoryScoped();
+    const dir = `${home}/runs/unit`;
+    yield* fs.makeDirectory(dir, { recursive: true });
+    const saved = {
+      ...record("unit", "running"),
+      createdAt: DateTime.makeUnsafe(1000),
+      updatedAt: DateTime.makeUnsafe(9000),
+    };
+    yield* Store.writeRun(dir, saved);
+    yield* TestClock.setTime(2000);
+    yield* Store.appendEvent(dir, { _tag: "StateChanged", from: "idle", to: "starting" });
+    yield* TestClock.setTime(3000);
+    yield* Store.appendEvent(dir, { _tag: "StateChanged", from: "starting", to: "running" });
+    yield* TestClock.setTime(9000);
+    assert.isNotNull(saved.tokens);
+    yield* Store.appendEvent(dir, { _tag: "TokenUsage", totals: saved.tokens });
+    assert.deepStrictEqual(
+      (yield* diskOverview(home)).runs[0]?.stateSince,
+      DateTime.makeUnsafe(3000),
+    );
+    yield* fs.writeFileString(`${dir}/events.jsonl`, "");
+    assert.deepStrictEqual((yield* diskOverview(home)).runs[0]?.stateSince, saved.createdAt);
+  }).pipe(Effect.provide(NodeServices.layer)),
 );
 
 it.effect("an absent home stays absent", () =>

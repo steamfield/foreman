@@ -23,6 +23,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import { TestClock } from "effect/testing";
 import { openConnection } from "../src/codex/client";
 import { AppConfig } from "../src/config";
+import { QUIET_AFTER_MS } from "../src/core/monitor/attention";
 import { commandResult } from "../src/core/process";
 import * as Store from "../src/core/runs/store";
 import { computeWorktreeFields } from "../src/core/runs/worktree";
@@ -40,6 +41,7 @@ import { Host } from "../src/services/host";
 import { makeSupervisor } from "../src/supervisor";
 import { makeAppServer } from "../src/supervisor/app-server";
 import { handleNotification } from "../src/supervisor/notifications";
+import { overview, projectRun } from "../src/supervisor/overview";
 import { deferral, preamble, timeUp } from "../src/supervisor/prompts";
 import { makeQuestions } from "../src/supervisor/questions";
 import { makeRegistry } from "../src/supervisor/registry";
@@ -1058,6 +1060,26 @@ describe("supervisor over the real daemon socket", () => {
       expect(run.openItem?.id).toBe("command");
       yield* run.lock.withPermits(1)(turns.steer(run, "command completion"));
       yield* until(() => run.openItem === null);
+      yield* TestClock.setTime(3000 + QUIET_AFTER_MS);
+      expect(projectRun(run, "repo", yield* Clock.currentTimeMillis).quiet).toBe(true);
+      const metadata = { version: "test", build: "test", startedAt: DateTime.makeUnsafe(0) };
+      const quietView = yield* overview(registry, metadata, { _tag: "Overview" });
+      const resumed = yield* overview(registry, metadata, {
+        _tag: "Overview",
+        after: quietView.version,
+        timeoutMs: 15000,
+      }).pipe(Effect.forkChild);
+      yield* TestClock.adjust(1);
+      const server = yield* servers.get;
+      const delta = { method: "item/agentMessage/delta", params: { delta: "Working" } };
+      yield* run.lock.withPermits(1)(handleNotification(registry, turns, run, server, delta));
+      yield* TestClock.adjust(250);
+      expect(resumed.pollUnsafe()).toBeDefined();
+      expect((yield* Fiber.join(resumed)).runs[0]?.quiet).toBe(false);
+      const resumedVersion = registry.version;
+      yield* run.lock.withPermits(1)(handleNotification(registry, turns, run, server, delta));
+      expect(registry.version).toBe(resumedVersion);
+      const resumedAt = yield* Clock.currentTimeMillis;
       yield* run.lock.withPermits(1)(turns.steer(run, "reasoning"));
       yield* until(() => run.openItem?.id === "reasoning");
       expect(run.openItem?.command).toBeNull();
@@ -1067,7 +1089,7 @@ describe("supervisor over the real daemon socket", () => {
           (item) => Schema.is(Codex.AgentMessageItem)(item) && item.phase === "final_answer",
         ),
       );
-      expect(run.lastCommentary).toEqual({ text: "Working on it", at: 3000 });
+      expect(run.lastCommentary).toEqual({ text: "Working on it", at: resumedAt });
       yield* run.lock.withPermits(1)(turns.steer(run, "finish"));
       yield* until(() => run.record.state === "idle");
       expect(run.openItem).toBeNull();
@@ -1080,6 +1102,17 @@ describe("supervisor over the real daemon socket", () => {
       const recovered = yield* registry.add(yield* Store.readRun(run.dir));
       expect(recovered.title).toBe("Add the thing");
       expect(recovered.subagents.size).toBe(0);
+      yield* f.fs.writeFileString(
+        `${run.dir}/contract.md`,
+        "# Add the thing\n- May change: `result.txt`",
+      );
+      const beforeRefresh = recovered.version;
+      yield* recovered.lock.withPermits(1)(registry.refreshWorktree(recovered));
+      expect(recovered.version).toBeGreaterThan(beforeRefresh);
+      expect(projectRun(recovered, "repo", resumedAt).outsideMayChange).toBe(0);
+      const afterRefresh = recovered.version;
+      yield* recovered.lock.withPermits(1)(registry.refreshWorktree(recovered));
+      expect(recovered.version).toBe(afterRefresh);
       yield* f.fs.writeFileString(`${run.dir}/contract.md`, "\n Plain task \nmore");
       expect((yield* registry.add(recovered.record)).title).toBe("Plain task");
       yield* f.fs.remove(`${run.dir}/contract.md`);

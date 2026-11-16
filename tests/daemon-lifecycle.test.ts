@@ -1056,6 +1056,85 @@ describe("daemon lifecycle and protocol", () => {
     }).pipe(Effect.provide(platform)),
   );
 
+  it.effect("passive reconnects spanning idle ticks do not extend the idle deadline", () =>
+    Effect.gen(function* () {
+      const accepted = yield* Queue.unbounded<void>();
+      const observation = yield* observeClosures();
+      const observedSockets = DaemonSockets.layer({
+        connect: (path) => NodeSocket.makeNet({ path }),
+        listen: (path) =>
+          NodeSocketServer.make({ path }).pipe(
+            Effect.map((server) => ({
+              ...server,
+              run: (handler) =>
+                server.run((socket) =>
+                  handler(
+                    Socket.make({
+                      reader: socket.reader.pipe(
+                        Effect.tap(() => Queue.offer(accepted, undefined)),
+                      ),
+                      writer: socket.writer,
+                    }),
+                  ),
+                ),
+            })),
+          ),
+      });
+      yield* Effect.gen(function* () {
+        const dataDir = yield* temp();
+        const running = yield* start(options(dataDir, { idleLimitMs: 1000 }));
+        yield* Queue.take(accepted);
+        yield* observation.closed;
+        for (let i = 0; i < 8; i++) {
+          yield* Effect.scoped(
+            Effect.gen(function* () {
+              const connection = yield* peer(dataDir);
+              yield* Queue.take(accepted);
+              yield* TestClock.adjust(100);
+              yield* connection.writer.write('{"id":1,"passive":true,"body":{"_tag":"Ping"}}\n');
+              yield* Queue.take(connection.responses);
+            }),
+          );
+          yield* observation.closed;
+        }
+        yield* TestClock.adjust(300);
+        yield* TestClock.withLive(Fiber.join(running).pipe(Effect.timeout("2 seconds")));
+      }).pipe(
+        Effect.provide(observedSockets),
+        Effect.provide(observation.layer),
+        Effect.provideService(References.MinimumLogLevel, "Debug"),
+      );
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.effect.each([false, true])(
+    "a passive Wait remains active across the idle deadline (prior passive Ping: %s)",
+    (priorPing) =>
+      Effect.gen(function* () {
+        const dataDir = yield* temp();
+        const entered = yield* Deferred.make<void>();
+        const running = yield* start(
+          options(dataDir, {
+            idleLimitMs: 1000,
+            handler: () => Deferred.succeed(entered, undefined).pipe(Effect.andThen(Effect.never)),
+          }),
+        );
+        const connection = yield* peer(dataDir);
+        if (priorPing) {
+          yield* connection.writer.write('{"id":0,"passive":true,"body":{"_tag":"Ping"}}\n');
+          yield* Queue.take(connection.responses);
+        }
+        yield* connection.writer.write(
+          '{"id":1,"passive":true,"body":{"_tag":"Wait","names":[],"all":true,"cwd":"/tmp","timeoutMs":5000}}\n',
+        );
+        yield* Deferred.await(entered);
+        yield* TestClock.adjust(2000);
+        assert.isUndefined(running.pollUnsafe());
+        assert.isTrue(yield* (yield* FileSystem.FileSystem).exists(`${dataDir}/foreman.sock`));
+        assert.strictEqual((yield* ping(dataDir))._tag, "Pong");
+      }).pipe(Effect.provide(platform)),
+  );
+
   it.effect("exits with a passive long-poll open and cancels its handler", () =>
     Effect.gen(function* () {
       const dataDir = yield* temp();

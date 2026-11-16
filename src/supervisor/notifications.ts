@@ -1,4 +1,5 @@
 import { Clock, Effect, Schema } from "effect";
+import { QUIET_AFTER_MS } from "../core/monitor/attention";
 import { hookTrustFix } from "../core/preflight/hooks";
 import {
   type DecodedNotification,
@@ -89,8 +90,10 @@ export const handleNotification = Effect.fn("supervisor.notification")(function*
   message: typeof Codex.RpcNotification.Type,
 ) {
   const now = yield* Clock.currentTimeMillis;
-  // No wake: deltas arrive many times a second and every wake makes each waiter re-read events.
+  const resumed = run.lastActivityAt !== null && now - run.lastActivityAt >= QUIET_AFTER_MS;
+  // Wake once after silence; ordinary deltas only refresh the activity clock.
   run.lastActivityAt = now;
+  if (resumed) yield* registry.wake(run);
   yield* Store.appendCodexMessage(run.dir, message);
   if (message.method === Codex.Method.itemStarted) {
     const envelope = yield* Schema.decodeUnknownEffect(Codex.ItemNotificationMinimal)(
@@ -198,7 +201,7 @@ export const handleNotification = Effect.fn("supervisor.notification")(function*
     case Codex.Method.turnCompleted: {
       run.openItem = null;
       for (const agent of run.subagents.values()) agent.state = "idle";
-      yield* registry.wake;
+      yield* registry.wake(run);
       yield* registry.cancelQuestions(run);
       const handoff = pickHandoff([...run.items, ...notification.params.turn.items]);
       if (handoff !== null) yield* registry.handoff(run, handoff);
@@ -230,18 +233,18 @@ export const handleNotification = Effect.fn("supervisor.notification")(function*
         command: Schema.is(Codex.CommandExecutionItem)(item) ? item.command : null,
         startedAt: now,
       };
-      yield* registry.wake;
+      yield* registry.wake(run);
       break;
     }
     case Codex.Method.itemCompleted: {
       const item = notification.params.item;
       if (run.openItem?.id === item.id) {
         run.openItem = null;
-        yield* registry.wake;
+        yield* registry.wake(run);
       }
       if (Schema.is(Codex.AgentMessageItem)(item) && item.phase !== "final_answer") {
         run.lastCommentary = { text: item.text, at: now };
-        yield* registry.wake;
+        yield* registry.wake(run);
       }
       // Fold on completion only: started/completed notifications describe the same item.
       if (
@@ -270,7 +273,7 @@ export const handleNotification = Effect.fn("supervisor.notification")(function*
           agent.interactions += 1;
           agent.lastInteractionAt = item.startedAtMs;
         } else agent.state = "idle";
-        yield* registry.wake;
+        yield* registry.wake(run);
       }
       run.items.push(item);
       break;
