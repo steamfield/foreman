@@ -6,10 +6,10 @@ import type { Terminal } from "../services/terminal";
 import { MonitorApp } from "./screen";
 import { theme } from "./theme";
 
-export const runMonitor = Effect.fn("tui.runMonitor")(function* (
+export const runMonitor = Effect.fn("tui.runMonitor")(function* <R>(
   terminal: Terminal["Service"],
   options: Parameters<typeof initialState>[0],
-  feed: Stream.Stream<MonitorFeed>,
+  feed: Stream.Stream<MonitorFeed, never, R>,
   noColor: boolean,
 ) {
   const { stdin, stdout, stderr } = terminal;
