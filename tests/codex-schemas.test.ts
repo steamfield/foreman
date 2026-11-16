@@ -28,12 +28,33 @@ const decodes = (schema: Schema.ConstraintDecoder<unknown>, value: unknown) =>
   Exit.isSuccess(Schema.decodeUnknownExit(schema)(value));
 
 describe("Codex schemas", () => {
-  it.each(["agentMessage", "commandExecution", "fileChange", "dynamicToolCall"])(
-    "rejects malformed known %s items instead of dropping their payload",
-    (type) => {
-      const item = { type, id: "item", text: 42 };
-      expect(decodes(Codex.ThreadItem, item)).toBe(false);
-      expect(decodes(Codex.ItemNotification, { threadId: "t", turnId: "u", item })).toBe(false);
+  it.each([
+    "agentMessage",
+    "commandExecution",
+    "fileChange",
+    "dynamicToolCall",
+    "subAgentActivity",
+  ])("rejects malformed known %s items instead of dropping their payload", (type) => {
+    const item = { type, id: "item", text: 42 };
+    expect(decodes(Codex.ThreadItem, item)).toBe(false);
+    expect(decodes(Codex.ItemNotification, { threadId: "t", turnId: "u", item })).toBe(false);
+  });
+
+  it.each(["started", "interacted", "completed", "future_kind"])(
+    "preserves subagent activity payloads with kind %s",
+    (kind) => {
+      const item = {
+        type: "subAgentActivity",
+        id: "activity",
+        kind,
+        agentThreadId: "child",
+        agentPath: "/root/tests",
+        model: kind === "started" ? "gpt-6.1-sol" : null,
+        reasoningEffort: kind === "started" ? "high" : null,
+        startedAtMs: 1794807690893,
+        completedAtMs: kind === "started" ? null : 1794807690893,
+      };
+      expect(Schema.decodeUnknownSync(Codex.ThreadItem)(item)).toEqual(item);
     },
   );
 

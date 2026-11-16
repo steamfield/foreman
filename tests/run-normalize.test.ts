@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { normalizeNotification, pickHandoff } from "../src/core/runs/normalize";
+import { contractTitle, normalizeNotification, pickHandoff } from "../src/core/runs/normalize";
 import * as Codex from "../src/schemas/codex";
 
 const envelope = Schema.Struct({
@@ -28,6 +28,15 @@ const item = Schema.decodeUnknownSync(Codex.ItemNotification)(
 const agent = completed.find((message) => Schema.is(Codex.AgentMessageItem)(message.item));
 
 describe("notification normalization", () => {
+  it.each([
+    ["# Add the thing", "Add the thing"],
+    ["\n  Plain contract line  \nsecond line", "Plain contract line"],
+    ["Introduction\n\n## Actual heading ##\nbody", "Actual heading"],
+    [`# ${"x".repeat(130)}`, "x".repeat(120)],
+    ["\n \r\n", null],
+  ])("reads a display title from %j", (contract, expected) => {
+    expect(contractTitle(contract ?? "")).toBe(expected);
+  });
   it("drops agent-message deltas without producing an event", () => {
     const notification = Schema.decodeUnknownSync(Codex.RpcNotification)({
       method: "item/agentMessage/delta",
