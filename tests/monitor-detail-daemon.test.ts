@@ -1,6 +1,17 @@
 import { NodeServices, NodeSocket, NodeSocketServer } from "@effect/platform-node";
 import { assert, it } from "@effect/vitest";
-import { Deferred, Effect, Exit, Fiber, FileSystem, Layer, Schema, Scope, Stream } from "effect";
+import {
+  Deferred,
+  Effect,
+  Exit,
+  Fiber,
+  FileSystem,
+  Layer,
+  Queue,
+  Schema,
+  Scope,
+  Stream,
+} from "effect";
 import { TestClock } from "effect/testing";
 import {
   OVERVIEW_REQUEST_TIMEOUT_MS,
@@ -9,10 +20,10 @@ import {
   passiveOverview,
   probe,
 } from "../src/daemon/client";
-import { lines } from "../src/daemon/protocol";
+import { lines, requestJson } from "../src/daemon/protocol";
 import { type DaemonOptions, daemon } from "../src/daemon/server";
 import { DaemonSockets } from "../src/daemon/sockets";
-import { RunName } from "../src/schemas/daemon";
+import { type DaemonRequest, type DaemonRequestBody, RunName } from "../src/schemas/daemon";
 import { Host } from "../src/services/host";
 
 const name = Schema.decodeUnknownSync(RunName)("unit");
@@ -35,6 +46,7 @@ const platform = Layer.mergeAll(
 const clients = [
   {
     tag: "Detail",
+    body: { _tag: "Detail", name, after: 7 } satisfies DaemonRequestBody,
     read: (home: string) =>
       passiveDetail(home, name, 7).pipe(
         Effect.map((result): string | null => result?._tag ?? null),
@@ -43,6 +55,7 @@ const clients = [
   },
   {
     tag: "Events",
+    body: { _tag: "Events", name, after: 7, waitMs: 1000 } satisfies DaemonRequestBody,
     read: (home: string) =>
       passiveEvents(home, name, 7, 1000).pipe(
         Effect.map((result): string | null => result?._tag ?? null),
@@ -51,6 +64,7 @@ const clients = [
   },
   {
     tag: "Overview",
+    body: { _tag: "Overview", after: 7 } satisfies DaemonRequestBody,
     read: (home: string) =>
       passiveOverview(home, 7).pipe(Effect.map((result): string | null => result?._tag ?? null)),
     timeout: OVERVIEW_REQUEST_TIMEOUT_MS,
@@ -113,11 +127,12 @@ const replies = [
 
 it.effect.each(clients.flatMap((client) => replies.map((reply) => ({ ...client, ...reply }))))(
   "passive $tag classifies a $kind",
-  ({ read, response, unsupported }) =>
+  ({ body, read, response, unsupported }) =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const home = yield* fs.makeTempDirectoryScoped({ directory: "/tmp", prefix: "fm-reply-" });
       const listener = yield* NodeSocketServer.make({ path: `${home}/foreman.sock` });
+      const requests = yield* Queue.unbounded<DaemonRequest>();
       const serving = yield* listener
         .run((socket) =>
           Effect.scoped(
@@ -125,8 +140,11 @@ it.effect.each(clients.flatMap((client) => replies.map((reply) => ({ ...client, 
               const reader = yield* socket.reader;
               const writer = yield* socket.writer;
               yield* lines(reader).pipe(
-                Stream.runForEach(() =>
-                  writer.write(`${JSON.stringify({ id: 1, ...response })}\n`),
+                Stream.runForEach((line) =>
+                  Schema.decodeUnknownEffect(requestJson)(line).pipe(
+                    Effect.flatMap((request) => Queue.offer(requests, request)),
+                    Effect.andThen(writer.write(`${JSON.stringify({ id: 1, ...response })}\n`)),
+                  ),
                 ),
               );
             }),
@@ -134,6 +152,7 @@ it.effect.each(clients.flatMap((client) => replies.map((reply) => ({ ...client, 
         )
         .pipe(Effect.forkScoped);
       const result = yield* read(home).pipe(Effect.result);
+      assert.deepStrictEqual(yield* Queue.take(requests), { id: 1, passive: true, body });
       if (unsupported) {
         assert.strictEqual(result._tag, "Success");
         if (result._tag === "Success") assert.isNull(result.success);
@@ -147,30 +166,38 @@ it.effect.each(clients.flatMap((client) => replies.map((reply) => ({ ...client, 
 
 it.effect("passive Events sends an explicit page limit", () =>
   Effect.gen(function* () {
-    const server = yield* start((body) => {
-      assert.deepStrictEqual(body, { _tag: "Events", name, after: 7, waitMs: 1000, limit: 3 });
-      return Effect.succeed({ _tag: "Events", events: [], next: 7, gap: false });
-    });
+    const requests = yield* Queue.unbounded<DaemonRequestBody>();
+    const server = yield* start((body) =>
+      Queue.offer(requests, body).pipe(
+        Effect.as({ _tag: "Events", events: [], next: 7, gap: false }),
+      ),
+    );
     assert.deepStrictEqual(yield* passiveEvents(server.home, name, 7, 1000, 3), {
       _tag: "Events",
       events: [],
       next: 7,
       gap: false,
     });
+    assert.deepStrictEqual(yield* Queue.take(requests), {
+      _tag: "Events",
+      name,
+      after: 7,
+      waitMs: 1000,
+      limit: 3,
+    });
   }).pipe(Effect.provide(platform)),
 );
 
 it.effect.each(clients)(
   "passive $tag maps a closed real daemon socket to DaemonUnavailable",
-  ({ tag, read }) =>
+  ({ body: expected, read }) =>
     Effect.gen(function* () {
-      const entered = yield* Deferred.make<void>();
-      const server = yield* start((body) => {
-        assert.strictEqual(body._tag, tag);
-        return Deferred.succeed(entered, undefined).pipe(Effect.andThen(Effect.never));
-      });
+      const requests = yield* Queue.unbounded<DaemonRequestBody>();
+      const server = yield* start((body) =>
+        Queue.offer(requests, body).pipe(Effect.andThen(Effect.never)),
+      );
       const pending = yield* read(server.home).pipe(Effect.result, Effect.forkChild);
-      yield* Deferred.await(entered);
+      assert.deepStrictEqual(yield* Queue.take(requests), expected);
       yield* server.stop;
       const result = yield* Fiber.join(pending);
       assert.strictEqual(result._tag, "Failure");
@@ -180,15 +207,14 @@ it.effect.each(clients)(
 
 it.effect.each(clients)(
   "passive $tag times out an unresponsive real daemon",
-  ({ tag, read, timeout }) =>
+  ({ body: expected, read, timeout }) =>
     Effect.gen(function* () {
-      const entered = yield* Deferred.make<void>();
-      const server = yield* start((body) => {
-        assert.strictEqual(body._tag, tag);
-        return Deferred.succeed(entered, undefined).pipe(Effect.andThen(Effect.never));
-      });
+      const requests = yield* Queue.unbounded<DaemonRequestBody>();
+      const server = yield* start((body) =>
+        Queue.offer(requests, body).pipe(Effect.andThen(Effect.never)),
+      );
       const pending = yield* read(server.home).pipe(Effect.result, Effect.forkChild);
-      yield* Deferred.await(entered);
+      assert.deepStrictEqual(yield* Queue.take(requests), expected);
       yield* TestClock.adjust(timeout - 1);
       assert.isUndefined(pending.pollUnsafe());
       yield* TestClock.adjust(1);
@@ -203,20 +229,21 @@ it.effect.each(clients)(
 
 it.effect.each(clients)(
   "passive $tag sends the envelope that allows idle exit while polling",
-  ({ tag, read }) =>
+  ({ body: expected, read }) =>
     Effect.gen(function* () {
-      const entered = yield* Deferred.make<void>();
+      const requests = yield* Queue.unbounded<DaemonRequestBody>();
       const cancelled = yield* Deferred.make<void>();
-      const server = yield* start((body) => {
-        assert.strictEqual(body._tag, tag);
-        return Deferred.succeed(entered, undefined).pipe(
-          Effect.andThen(Effect.never),
-          Effect.ensuring(Deferred.succeed(cancelled, undefined)),
-        );
-      }, 1000);
+      const server = yield* start(
+        (body) =>
+          Queue.offer(requests, body).pipe(
+            Effect.andThen(Effect.never),
+            Effect.ensuring(Deferred.succeed(cancelled, undefined)),
+          ),
+        1000,
+      );
       yield* TestClock.adjust(900);
       const pending = yield* read(server.home).pipe(Effect.result, Effect.forkChild);
-      yield* Deferred.await(entered);
+      assert.deepStrictEqual(yield* Queue.take(requests), expected);
       yield* TestClock.adjust(200);
       yield* Fiber.join(server.running);
       yield* Deferred.await(cancelled);
