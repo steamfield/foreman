@@ -1031,6 +1031,63 @@ describe("daemon lifecycle and protocol", () => {
     }).pipe(Effect.provide(platform)),
   );
 
+  it.effect("a passive probe near the idle deadline does not reset it on accept or close", () =>
+    Effect.gen(function* () {
+      const observation = yield* observeClosures();
+      yield* Effect.gen(function* () {
+        const dataDir = yield* temp();
+        const running = yield* start(options(dataDir, { idleLimitMs: 1000 }));
+        yield* observation.closed;
+        yield* TestClock.adjust(900);
+        yield* Effect.scoped(
+          Effect.gen(function* () {
+            const connection = yield* peer(dataDir);
+            yield* connection.writer.write('{"id":1,"passive":true,"body":{"_tag":"Ping"}}\n');
+            yield* Queue.take(connection.responses);
+          }),
+        );
+        yield* observation.closed;
+        yield* TestClock.adjust(200);
+        yield* Fiber.join(running);
+      }).pipe(
+        Effect.provide(observation.layer),
+        Effect.provideService(References.MinimumLogLevel, "Debug"),
+      );
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.effect("exits with a passive long-poll open and cancels its handler", () =>
+    Effect.gen(function* () {
+      const dataDir = yield* temp();
+      const entered = yield* Deferred.make<void>();
+      const cancelled = yield* Deferred.make<void>();
+      const running = yield* start(
+        options(dataDir, {
+          idleLimitMs: 1000,
+          handler: () =>
+            Deferred.succeed(entered, undefined).pipe(
+              Effect.andThen(Effect.never),
+              Effect.ensuring(Deferred.succeed(cancelled, undefined)),
+            ),
+        }),
+      );
+      const connection = yield* peer(dataDir);
+      yield* connection.writer.write('{"id":1,"passive":true,"body":{"_tag":"Overview"}}\n');
+      yield* Deferred.await(entered);
+      yield* TestClock.adjust(2000);
+      yield* Fiber.join(running);
+      yield* Deferred.await(cancelled);
+      const closed = yield* Fiber.join(connection.reading).pipe(Effect.result);
+      assert.strictEqual(closed._tag, "Failure");
+      if (closed._tag === "Failure") {
+        if (closed.failure._tag !== "SocketError") return assert.fail("expected socket closure");
+        assert.strictEqual(closed.failure.reason._tag, "SocketCloseError");
+      }
+      const fs = yield* FileSystem.FileSystem;
+      assert.isFalse(yield* fs.exists(`${dataDir}/foreman.sock`));
+    }).pipe(Effect.provide(platform)),
+  );
+
   it.effect("exits after the idle limit and cleans up its socket and lock", () =>
     Effect.gen(function* () {
       const observation = yield* observeClosures();

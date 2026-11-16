@@ -3,7 +3,7 @@
 // document and the Standard Schema adapter. Copy these patterns for new boundary schemas.
 import { Arbitrary, Effect, Exit, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { DaemonRequestBody, DaemonResult } from "../src/schemas/daemon";
+import { DaemonRequest, DaemonRequestBody, DaemonResult } from "../src/schemas/daemon";
 import { Overview, SubAgentView } from "../src/schemas/monitor";
 
 const OrderId = Schema.String.check(Schema.isMinLength(1)).pipe(Schema.brand("OrderId"));
@@ -20,6 +20,12 @@ const decode = Schema.decodeUnknownSync(Order);
 const encode = Schema.encodeSync(Order);
 
 describe("Schema conventions", () => {
+  it.each([{}, { passive: true }])("round-trips optional passive envelopes %j", (extra) => {
+    const wire = { id: 1, body: { _tag: "Ping" }, ...extra };
+    expect(Schema.encodeSync(DaemonRequest)(Schema.decodeUnknownSync(DaemonRequest)(wire))).toEqual(
+      wire,
+    );
+  });
   it("round-trips Overview and ISO child timestamps through the daemon protocol", () => {
     const wire = {
       _tag: "Overview",

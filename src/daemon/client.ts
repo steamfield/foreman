@@ -154,7 +154,7 @@ const closedRequest = (body: DaemonRequestBody) =>
   });
 
 // Diagnostics never launch or replace a daemon; only a missing/refused socket is absence.
-export const probe = Effect.fn("daemon.probe")(function* (dataDir: string) {
+export const probe = Effect.fn("daemon.probe")(function* (dataDir: string, passive?: true) {
   const path = yield* Path.Path;
   const socketPath = path.join(dataDir, "foreman.sock");
   yield* validateSocketPath(socketPath);
@@ -163,13 +163,22 @@ export const probe = Effect.fn("daemon.probe")(function* (dataDir: string) {
     if (absent(opened.failure)) return null;
     return yield* socketFailure(socketPath, opened.failure);
   }
-  return yield* exchange({ _tag: "Ping" }, opened.success.socket, opened.success.reader);
+  return yield* exchange({ _tag: "Ping" }, opened.success.socket, opened.success.reader, passive);
 }, Effect.scoped);
 
 const exchange = Effect.fn("daemon.exchange")(
-  function* (body: DaemonRequestBody, socket: Socket.Socket, reader: Socket.Reader) {
+  function* (
+    body: DaemonRequestBody,
+    socket: Socket.Socket,
+    reader: Socket.Reader,
+    passive?: true,
+  ) {
     const writer = yield* socket.writer;
-    const json = yield* Schema.encodeEffect(requestJson)({ id: 1, body });
+    const json = yield* Schema.encodeEffect(requestJson)({
+      id: 1,
+      body,
+      ...(passive ? { passive } : {}),
+    });
     const receive = lines(reader).pipe(
       Stream.mapEffect((line) => Schema.decodeUnknownEffect(responseJson)(line)),
       Stream.filter((response) => response.id === 1),
@@ -218,6 +227,46 @@ const exchange = Effect.fn("daemon.exchange")(
           }),
         )
       : effect,
+);
+
+// A monitor may read an older protocol, but must never invoke call's replacement path.
+// Null means Overview is unsupported; transport failures remain reconnectable failures.
+export const OVERVIEW_REQUEST_TIMEOUT_MS = 20_000; // Default 15 s long-poll plus transport headroom.
+export const passiveOverview = Effect.fn("daemon.passiveOverview")(
+  function* (dataDir: string, after?: number) {
+    const path = yield* Path.Path;
+    const socketPath = path.join(dataDir, "foreman.sock");
+    yield* validateSocketPath(socketPath);
+    const { socket, reader } = yield* open(socketPath).pipe(
+      Effect.mapError((error) => socketFailure(socketPath, error)),
+    );
+    const body = { _tag: "Overview" as const, ...(after === undefined ? {} : { after }) };
+    const writer = yield* socket.writer;
+    const json = yield* Schema.encodeEffect(requestJson)({ id: 1, body, passive: true });
+    yield* writer.write(`${json}\n`);
+    const response = yield* lines(reader).pipe(
+      Stream.mapEffect((line) => Schema.decodeUnknownEffect(responseJson)(line)),
+      Stream.filter((reply) => reply.id === 1),
+      Stream.runHead,
+      Effect.catchTag("SchemaError", () => Effect.succeed(null)),
+    );
+    if (response === null) return null;
+    if (Option.isNone(response)) return yield* closedRequest(body);
+    return "result" in response.value && response.value.result._tag === "Overview"
+      ? response.value.result
+      : null;
+  },
+  Effect.scoped,
+  Effect.timeoutOrElse({
+    duration: OVERVIEW_REQUEST_TIMEOUT_MS,
+    orElse: () =>
+      Effect.fail(
+        new DaemonUnavailable({
+          detail: `Daemon Overview reply timed out after ${OVERVIEW_REQUEST_TIMEOUT_MS} ms. Reconnect and inspect the daemon log.`,
+        }),
+      ),
+  }),
+  Effect.catchTag("SocketError", () => Effect.fail(closedRequest({ _tag: "Overview" }))),
 );
 
 const exchangeRunRequest = Effect.fn("daemon.exchangeRunRequest")(function* (
@@ -269,7 +318,7 @@ const exchangeRunRequest = Effect.fn("daemon.exchangeRunRequest")(function* (
   return result._tag === "Ok" ? { _tag: "Accepted" as const, cursor: before.cursor } : result;
 });
 
-const outdated = (
+export const outdated = (
   pong: Extract<DaemonResult, { _tag: "Pong" }>,
   build: string,
   options: CallOptions,
