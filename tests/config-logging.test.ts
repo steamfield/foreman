@@ -16,6 +16,18 @@ async function configFile(content: string) {
 }
 
 describe("real config and emitted logging", () => {
+  it.each([undefined, "", " \t ", "0", "1"])(
+    "uses only CODEX_DELEGATE=%j as the delegate marker",
+    async (marker) => {
+      const result = await runCli(["--json"], {
+        env: { CODEX_DELEGATE: marker, FOREMAN_CODEX_DELEGATE: "1" },
+        program: Effect.gen(function* () {
+          yield* (yield* Output).result((yield* AppConfig).inDelegate, "delegate");
+        }),
+      });
+      expect(result).toEqual({ status: 0, stdout: `${Boolean(marker?.trim())}\n`, stderr: "" });
+    },
+  );
   it.each([undefined, "", " \t ", "./npm/foreman.cjs"])(
     "resolves launcher identity only from FOREMAN_LAUNCHER=%j",
     async (launcher) => {

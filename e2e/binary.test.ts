@@ -29,6 +29,49 @@ const metadata = Schema.decodeUnknownSync(PackageInfo)(
 
 const binary = resolve("dist", "foreman");
 
+test("monitor prints the cross-repo snapshot without a TTY and help stays independent of Ink", async () => {
+  const root = await mkdtemp("/tmp/fm-mon-bin-");
+  const run = async (args: string[]) => {
+    const child = Bun.spawn([binary, ...args], {
+      cwd: root,
+      env: {
+        HOME: root,
+        FOREMAN_HOME: join(root, "d"),
+        LOG_LEVEL: "none",
+        DEV: "true",
+        NO_COLOR: "1",
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [status, stdout, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ]);
+    return { status, stdout, stderr };
+  };
+  try {
+    const help = await run(["--help"]);
+    expect(help).toMatchObject({ status: 0, stderr: "" });
+    expect(help.stdout).toContain("monitor");
+    expect(await run(["monitor"])).toEqual({
+      status: 0,
+      stdout: "0 runs\n",
+      stderr: "The live view needs an interactive terminal; showing a snapshot.\n",
+    });
+    const machine = await run(["monitor", "--json"]);
+    expect(machine).toMatchObject({ status: 0, stderr: "" });
+    expect(Schema.decodeUnknownSync(DaemonResult)(JSON.parse(machine.stdout))).toMatchObject({
+      _tag: "Overview",
+      runs: [],
+    });
+  } finally {
+    expect((await run(["daemon", "stop"])).status).toBe(0);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 async function waitForExit(pid: number) {
   const deadline = Date.now() + 5000;
   while (true) {
@@ -232,7 +275,7 @@ async function buildCopy(root: string) {
   const project = join(root, "build");
   await mkdir(join(project, "scripts"), { recursive: true });
   await cp(resolve("src"), join(project, "src"), { recursive: true });
-  for (const file of ["package.json", "bun.lock", "scripts/build.ts"]) {
+  for (const file of ["package.json", "bun.lock", "tsconfig.json", "scripts/build.ts"]) {
     await copyFile(resolve(file), join(project, file));
   }
   await symlink(resolve("node_modules"), join(project, "node_modules"));

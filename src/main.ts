@@ -1,4 +1,15 @@
-import { Cause, Clock, Console, Effect, Exit, Logger, Random, References, Schema } from "effect";
+import {
+  Cause,
+  Clock,
+  Console,
+  Effect,
+  Exit,
+  Logger,
+  Option,
+  Random,
+  References,
+  Schema,
+} from "effect";
 import { CliConfig, CliError, CliOutput, Command, GlobalFlag } from "effect/cli";
 import { cli } from "./cli";
 import { AppConfig } from "./config";
@@ -8,6 +19,7 @@ import { defectTrace, Logging } from "./logging";
 import { Host } from "./services/host";
 import { Invocation } from "./services/invocation";
 import { Output } from "./services/output";
+import { Terminal } from "./services/terminal";
 
 // The audience must exist before parsing can fail. Successful handlers use parsed flags.
 const isFalseLiteral = Schema.is(Schema.Literals(["false", "no", "off", "0", "n"]));
@@ -34,6 +46,10 @@ export const main = Effect.fn("main")(function* (
   const output = yield* Output;
   const logging = yield* Logging;
   const config = yield* AppConfig;
+  const terminal = Option.getOrElse(
+    yield* Effect.serviceOption(Terminal),
+    () => Terminal.nonInteractive,
+  );
   const settings = yield* config.logging;
   const formatter = yield* CliOutput.Formatter;
   let frameworkKind: "help" | "version" = "help";
@@ -89,6 +105,7 @@ export const main = Effect.fn("main")(function* (
             Command.runWith(cli(host.name), { version: host.version, renderErrors: false })(argv)
           ).pipe(
             Effect.provide(invocation.layer),
+            Effect.provideService(Terminal, terminal),
             Effect.provideService(Console.Console, console),
             Effect.provideService(CliOutput.Formatter, capturedFormatter),
             Effect.provide(CliConfig.layer({ builtIns: [GlobalFlag.Help, GlobalFlag.Version] })),
