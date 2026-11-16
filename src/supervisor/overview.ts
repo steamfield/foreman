@@ -74,22 +74,30 @@ export function projectRun(run: Run, repo: string, now: number): RunView {
   };
 }
 
-export const overview = Effect.fn("supervisor.overview")(function* (
+export const waitForVersion = Effect.fnUntraced(function* (
   registry: Registry,
-  daemon: Overview["daemon"],
-  body: Extract<DaemonRequestBody, { _tag: "Overview" }>,
-): Effect.fn.Return<Overview, never, Path.Path> {
+  after?: number,
+  timeoutMs = 15000,
+) {
   const change = yield* registry.change;
-  if (body.after !== undefined && body.after === registry.version) {
+  if (after !== undefined && after === registry.version) {
     const changed = yield* change.pipe(
       Effect.as(true),
       Effect.timeoutOrElse({
-        duration: body.timeoutMs ?? 15000,
+        duration: timeoutMs,
         orElse: () => Effect.succeed(false),
       }),
     );
     if (changed) yield* Effect.sleep(OVERVIEW_COALESCE_MS);
   }
+});
+
+export const overview = Effect.fn("supervisor.overview")(function* (
+  registry: Registry,
+  daemon: Overview["daemon"],
+  body: Extract<DaemonRequestBody, { _tag: "Overview" }>,
+): Effect.fn.Return<Overview, never, Path.Path> {
+  yield* waitForVersion(registry, body.after, body.timeoutMs);
   const path = yield* Path.Path;
   const now = yield* Clock.currentTimeMillis;
   return {
