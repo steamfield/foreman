@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { NodeServices, NodeSocket, NodeSocketServer } from "@effect/platform-node";
 import { assert, describe, expect, it } from "@effect/vitest";
 import {
+  Clock,
   Deferred,
   Effect,
   Exit,
@@ -2404,6 +2405,92 @@ describe("supervisor over the real daemon socket", () => {
         expect(chatter).not.toContain("Other");
         expect(chatter).toContain("--after 4");
       }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("long-polling events releases the run lock and returns new notifications promptly", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(
+        scenario(
+          turnRule([
+            { awaitRequest: Codex.Method.turnSteer },
+            { awaitRequest: Codex.Method.turnSteer },
+            notify(Codex.Method.itemCompleted, {
+              threadId: "{{thread}}",
+              turnId: "{{turn}}",
+              item: message("Arrived during the poll"),
+            }),
+            complete(),
+          ]),
+          {
+            method: Codex.Method.turnSteer,
+            repeat: true,
+            respond: { result: { turnId: "{{turn}}" } },
+          },
+        ),
+      );
+      yield* f.launch();
+      yield* f.start();
+      yield* f.untilState("running");
+      const before = yield* f.request({ _tag: "Events", name });
+      assert(before._tag === "Events");
+      const start = yield* Clock.currentTimeMillis;
+      const pending = yield* f
+        .request({ _tag: "Events", name, after: before.next, waitMs: 5000 })
+        .pipe(Effect.forkChild);
+      yield* f.status();
+      expect(pending.pollUnsafe()).toBeUndefined();
+      yield* f.request({ _tag: "Steer", name, message: "Continue" });
+      const page = yield* Fiber.join(pending);
+      assert(page._tag === "Events");
+      expect(page.events.map(({ event }) => event._tag)).toEqual(["Steered"]);
+      expect(page.state).toBeDefined();
+      const next = yield* f
+        .request({
+          _tag: "Events",
+          name,
+          after: page.next,
+          waitMs: 5000,
+        })
+        .pipe(Effect.forkChild);
+      yield* f.request({ _tag: "Steer", name, message: "Finish" });
+      let notifications = yield* Fiber.join(next);
+      while (
+        notifications._tag === "Events" &&
+        !notifications.events.some(({ event }) => event._tag === "AgentMessage")
+      )
+        notifications = yield* f.request({
+          _tag: "Events",
+          name,
+          after: notifications.next,
+          waitMs: 5000,
+        });
+      assert(notifications._tag === "Events");
+      expect(notifications.events.map(({ event }) => event._tag)).toContain("AgentMessage");
+      yield* f.untilState("idle");
+      expect((yield* Clock.currentTimeMillis) - start).toBeLessThan(3000);
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("long-polling events times out with an empty page and the current state", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario(turnRule()));
+      yield* f.launch();
+      yield* f.start();
+      yield* f.untilState("running");
+      const before = yield* f.request({ _tag: "Events", name });
+      assert(before._tag === "Events");
+      const start = yield* Clock.currentTimeMillis;
+      const page = yield* f.request({
+        _tag: "Events",
+        name,
+        after: before.next,
+        waitMs: 150,
+      });
+      const elapsed = (yield* Clock.currentTimeMillis) - start;
+      expect(page).toEqual({ ...before, events: [], state: "running" });
+      expect(elapsed).toBeGreaterThanOrEqual(130);
+      expect(elapsed).toBeLessThan(1500);
+    }).pipe(Effect.provide(platform)),
   );
 
   it.live("socket interrupt cancels a start during setup before looking up its run", () =>

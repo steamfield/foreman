@@ -10,6 +10,19 @@ const oneLine = (text: string) => text.replace(/\r/g, "\\r").replace(/\n/g, "\\n
 const shellQuote = (text: string) =>
   /^[a-zA-Z0-9_./:-]+$/.test(text) ? text : `'${text.replaceAll("'", "'\\''")}'`;
 
+export const renderEventLines = (
+  result: Extract<DaemonResult, { _tag: "Events" }>,
+  verbose = false,
+) => [
+  ...(result.gap ? ["gap: true"] : []),
+  ...result.events
+    .filter(({ event }) => verbose || (event._tag !== "Other" && event._tag !== "TokenUsage"))
+    .map(
+      ({ seq, at, event }) =>
+        `${seq} ${DateTime.formatIso(at)} ${event._tag} ${oneLine(eventSummary(event))}`,
+    ),
+];
+
 export const foremanExecutable = Effect.fn("output.foremanExecutable")(function* () {
   const host = yield* Host;
   const config = yield* AppConfig;
@@ -129,13 +142,7 @@ export function renderResult(
       ].join(compact ? "\n" : "\n\n");
     case "Events":
       return [
-        ...(result.gap ? ["gap: true"] : []),
-        ...result.events
-          .filter(({ event }) => verbose || (event._tag !== "Other" && event._tag !== "TokenUsage"))
-          .map(
-            ({ seq, at, event }) =>
-              `${seq} ${DateTime.formatIso(at)} ${event._tag} ${oneLine(eventSummary(event))}`,
-          ),
+        ...renderEventLines(result, verbose),
         `next: ${executable} events ${eventsName} --after ${result.next}${verbose ? " --verbose" : ""}`,
       ].join("\n");
     case "Ok":

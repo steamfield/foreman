@@ -298,6 +298,7 @@ export const DaemonRequestBody = Schema.TaggedUnion({
     name: RunName,
     after: Schema.optionalKey(Schema.Int),
     limit: Schema.optionalKey(Schema.Int),
+    waitMs: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 60000 }))),
   },
   Steer: { name: RunName, message: Schema.String },
   Followup: {
@@ -353,7 +354,12 @@ export const DaemonResult = Schema.TaggedUnion({
     orphans: Schema.optionalKey(Schema.Array(OrphanWorktree)),
     skipped: Schema.optionalKey(Schema.Array(SkippedRun)),
   },
-  Events: { events: Schema.Array(RunEvent), gap: Schema.Boolean, next: Schema.Int },
+  Events: {
+    events: Schema.Array(RunEvent),
+    gap: Schema.Boolean,
+    next: Schema.Int,
+    state: Schema.optionalKey(RunState),
+  },
   Ok: {},
   Accepted: {
     cursor: Cursor,
