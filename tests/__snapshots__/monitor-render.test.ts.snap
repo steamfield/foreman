@@ -1,0 +1,2237 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`monitor frames > all states at 70 columns 1`] = `
+"››› foreman 0.1.3
+── repo  1 failed · 1 idle · 1 interrupted · 1 lost · 1 running · 1 s…
+ × failed                    failed        12m                        
+    … bun run check · 20s                                             
+ ✓ idle                      idle          12m
+    … bun run check · 20s
+ ■ interrupted               interrupted   12m
+    … bun run check · 20s
+ ◌ lost                      lost          12m
+    … bun run check · 20s
+ ⣾ running                   running       12m
+    … bun run check · 20s
+ ◐ starting                  starting      12m
+    … bun run check · 20s
+ ◐ unknown                   unknown       12m
+    … bun run check · 20s
+ ■ waiting                   waiting       12m
+    … bun run check · 20s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+↑↓/jk select  a attention  ? help  q quit             updated 0.0s ago"
+`;
+
+exports[`monitor frames > all states at 100 columns 1`] = `
+"››› foreman 0.1.3
+── repo  1 failed · 1 idle · 1 interrupted · 1 lost · 1 running · 1 starting · 1 unknown · 1 waitin…
+ × failed                failed        12m  t2                                                      
+    … bun run check · 20s                                                                           
+ ✓ idle                  idle          12m  t2
+    … bun run check · 20s
+ ■ interrupted           interrupted   12m  t2
+    … bun run check · 20s
+ ◌ lost                  lost          12m  t2
+    … bun run check · 20s
+ ⣾ running               running       12m  t2    ━─────  12/60m
+    … bun run check · 20s
+ ◐ starting              starting      12m  t2    ━─────  12/60m
+    … bun run check · 20s
+ ◐ unknown               unknown       12m  t2    ━─────  12/60m
+    … bun run check · 20s
+ ■ waiting               waiting       12m  t2    ━─────  12/60m
+    … bun run check · 20s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+↑↓/jk select  Enter open  a attention  ? help  q quit                               updated 0.0s ago"
+`;
+
+exports[`monitor frames > all states at 140 columns 1`] = `
+"››› foreman 0.1.3                       ■ 1 starting  ■ 1 running  ■ 1 waiting  ■ 1 unknown  ■ 1 idle  ■ 1 failed  ■ 1 interrupted  ■ 1 lost
+── repo ───────────────────────────────────── 1 failed · 1 idle · 1 interrupted · 1 lost · 1 running · 1 starting · 1 unknown · 1 waiting ──
+ × failed                failed        12m  t2 followup                                                                                     
+    … bun run check · 20s                                                                                                                   
+ ✓ idle                  idle          12m  t2 followup
+    … bun run check · 20s
+ ■ interrupted           interrupted   12m  t2 followup
+    … bun run check · 20s
+ ◌ lost                  lost          12m  t2 followup
+    … bun run check · 20s
+ ⣾ running               running       12m  t2 followup   ━━────────  12/60m
+    … bun run check · 20s
+ ◐ starting              starting      12m  t2 followup   ━━────────  12/60m
+    … bun run check · 20s
+ ◐ unknown               unknown       12m  t2 followup   ━━────────  12/60m
+    … bun run check · 20s
+ ■ waiting               waiting       12m  t2 followup   ━━────────  12/60m
+    … bun run check · 20s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+↑↓/jk select  Enter open  a attention  ? help  q quit                                                                       updated 0.0s ago"
+`;
+
+exports[`monitor frames > all states colors 1`] = `
+"[48;2;27;30;26m[38;2;228;232;224m››[38;2;255;91;20m›[39m [1m[38;2;228;232;224mforeman[39m[22m [38;2;154;162;148m0.1.3[39m                       [38;2;154;162;148m■[38;2;228;232;224m 1 starting[39m  [38;2;111;168;255m■[38;2;228;232;224m 1 running[39m  [38;2;255;91;20m■[38;2;228;232;224m 1 waiting[39m  [38;2;226;192;79m■[38;2;228;232;224m 1 unknown[39m  [38;2;92;201;138m■[38;2;228;232;224m 1 idle[39m  [38;2;255;122;112m■[38;2;228;232;224m 1 failed[39m  [38;2;226;192;79m■[38;2;228;232;224m 1 interrupted[39m  [38;2;154;162;148m■[38;2;228;232;224m 1 lost[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m── [1m[38;2;228;232;224mrepo [22m[38;2;45;50;43m─────────────────────────────────────[38;2;154;162;148m 1 failed · 1 idle · 1 interrupted · 1 lost · 1 running · 1 starting · 1 unknown · 1 waiting [38;2;45;50;43m──[39m[49m
+[48;2;27;30;26m [38;2;255;122;112m×[39m [1m[38;2;228;232;224mfailed              [39m[22m  [38;2;255;122;112mfailed     [39m [38;2;154;162;148m  12m  t2 followup [39m                                                                                    [49m
+[48;2;27;30;26m    [38;2;111;168;255m…[38;2;228;232;224m bun run check[38;2;154;162;148m · 20s[39m                                                                                                                   [49m
+[48;2;18;20;18m [38;2;92;201;138m✓[39m [1m[38;2;228;232;224midle                [39m[22m  [38;2;92;201;138midle       [39m [38;2;154;162;148m  12m  t2 followup [39m                                                                                    [49m
+[48;2;18;20;18m    [38;2;111;168;255m…[38;2;228;232;224m bun run check[38;2;154;162;148m · 20s[39m                                                                                                                   [49m
+[48;2;18;20;18m [38;2;226;192;79m■[39m [1m[38;2;228;232;224minterrupted         [39m[22m  [38;2;226;192;79minterrupted[39m [38;2;154;162;148m  12m  t2 followup [39m                                                                                    [49m
+[48;2;18;20;18m    [38;2;111;168;255m…[38;2;228;232;224m bun run check[38;2;154;162;148m · 20s[39m                                                                                                                   [49m
+[48;2;18;20;18m [38;2;154;162;148m◌[39m [1m[38;2;228;232;224mlost                [39m[22m  [38;2;154;162;148mlost       [39m [38;2;154;162;148m  12m  t2 followup [39m                                                                                    [49m
+[48;2;18;20;18m    [38;2;111;168;255m…[38;2;228;232;224m bun run check[38;2;154;162;148m · 20s[39m                                                                                                                   [49m
+[48;2;18;20;18m [38;2;111;168;255m⣾[39m [1m[38;2;228;232;224mrunning             [39m[22m  [38;2;111;168;255mrunning    [39m [38;2;154;162;148m  12m  t2 followup [39m  [38;2;111;168;255m━━[38;2;45;50;43m────────[39m [38;2;154;162;148m 12/60m[39m                                                                [49m
+[48;2;18;20;18m    [38;2;111;168;255m…[38;2;228;232;224m bun run check[38;2;154;162;148m · 20s[39m                                                                                                                   [49m
+[48;2;18;20;18m [38;2;154;162;148m◐[39m [1m[38;2;228;232;224mstarting            [39m[22m  [38;2;154;162;148mstarting   [39m [38;2;154;162;148m  12m  t2 followup [39m  [38;2;111;168;255m━━[38;2;45;50;43m────────[39m [38;2;154;162;148m 12/60m[39m                                                                [49m
+[48;2;18;20;18m    [38;2;111;168;255m…[38;2;228;232;224m bun run check[38;2;154;162;148m · 20s[39m                                                                                                                   [49m
+[48;2;18;20;18m [38;2;226;192;79m◐[39m [1m[38;2;228;232;224munknown             [39m[22m  [38;2;226;192;79munknown    [39m [38;2;154;162;148m  12m  t2 followup [39m  [38;2;111;168;255m━━[38;2;45;50;43m────────[39m [38;2;154;162;148m 12/60m[39m                                                                [49m
+[48;2;18;20;18m    [38;2;111;168;255m…[38;2;228;232;224m bun run check[38;2;154;162;148m · 20s[39m                                                                                                                   [49m
+[48;2;18;20;18m [38;2;255;91;20m■[39m [1m[38;2;228;232;224mwaiting             [39m[22m  [38;2;255;91;20mwaiting    [39m [38;2;154;162;148m  12m  t2 followup [39m  [38;2;111;168;255m━━[38;2;45;50;43m────────[39m [38;2;154;162;148m 12/60m[39m                                                                [49m
+[48;2;18;20;18m    [38;2;111;168;255m…[38;2;228;232;224m bun run check[38;2;154;162;148m · 20s[39m                                                                                                                   [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;27;30;26m[1m[38;2;228;232;224m↑↓/jk[22m[38;2;154;162;148m select[39m  [1m[38;2;228;232;224mEnter[22m[38;2;154;162;148m open[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m attention[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                                                                       [38;2;154;162;148mupdated 0.0s ago[39m[49m"
+`;
+
+exports[`monitor frames > attention at 70 columns 1`] = `
+"››› foreman 0.1.3                   ■ 2 waiting  ■ 1 running  ■ 2 idle
+╭─ ■ waiting  fix-hooks q2 · 3m · defers in 12m ─────────────────────╮
+│ Keep the existing hook API?                                        │
+│ foreman answer fix-hooks q2 --file <path>                          │
+╰────────────────────────────────────────────────────────────────────╯
+╭─ ■ waiting  other q2 · 3m · defers in 12m ─────────────────────────╮
+│ Keep the existing hook API?                                        │
+│ other repo: its own session supervises it                          │
+╰────────────────────────────────────────────────────────────────────╯
+── repo ───────────────────────────────────── 1 waiting · 1 running ──
+ ■ fix-hooks                 waiting       12m                        
+    … bun run check · 20s · q2 pending 3m · 2 subagents               
+ ⣾ parser                    running       12m
+    “Checking the parser boundaries” · 3 hooks blocked
+── other ──────────────────────────────────────────────── 1 waiting ──
+ ■ other                     waiting       12m
+    … bun run check · 20s · q2 pending 3m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+↑↓/jk select  a all runs  ? help  q quit              updated 0.0s ago"
+`;
+
+exports[`monitor frames > attention at 100 columns 1`] = `
+"››› foreman 0.1.3     daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 2 waiting  ■ 1 running  ■ 2 idle
+╭─ ■ waiting  fix-hooks q2 · 3m · defers in 12m ───────────────────────────────────────────────────╮
+│ Keep the existing hook API?                                                                      │
+│ foreman answer fix-hooks q2 --file <path>                                                        │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ ■ waiting  other q2 · 3m · defers in 12m ───────────────────────────────────────────────────────╮
+│ Keep the existing hook API?                                                                      │
+│ other repo: its own session supervises it                                                        │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+── repo ─────────────────────────────────────────────────────────────────── 1 waiting · 1 running ──
+ ■ fix-hooks             waiting       12m  t2    ━─────  12/60m · q2 pending 3m                    
+    … bun run check · 20s                                                                           
+    ├─ ⠿ /root/acceptance_tests  working · 20s ago · gpt-6-sol · medium                             
+    └─ · /root/review  idle · 2m ago                                                                
+ ⣾ parser                running       12m  t2    ━─────  12/60m · 2 deferred · quiet 6m · retrying…
+    “Checking the parser boundaries”
+── other ────────────────────────────────────────────────────────────────────────────── 1 waiting ──
+ ■ other                 waiting       12m  t2    ━─────  12/60m · q2 pending 3m
+    … bun run check · 20s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+↑↓/jk select  Enter open  a all runs  ? help  q quit                                updated 0.0s ago"
+`;
+
+exports[`monitor frames > attention at 140 columns 1`] = `
+"››› foreman 0.1.3                                             daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 2 waiting  ■ 1 running  ■ 2 idle
+╭─ ■ waiting  fix-hooks q2 · 3m · defers in 12m ───────────────────────────────────────────────────────────────────────────────────────────╮
+│ Keep the existing hook API?                                                                                                              │
+│ foreman answer fix-hooks q2 --file <path>                                                                                                │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ ■ waiting  other q2 · 3m · defers in 12m ───────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Keep the existing hook API?                                                                                                              │
+│ other repo: its own session supervises it                                                                                                │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+── repo ─────────────────────────────────────────────────────────────────────────────────────────────────────────── 1 waiting · 1 running ──
+ ■ fix-hooks             waiting       12m  t2 followup   ━━────────  12/60m · q2 pending 3m                                                
+    … bun run check · 20s                                                                                                                   
+    ├─ ⠿ /root/acceptance_tests  working · 20s ago · gpt-6-sol · medium                                                                     
+    └─ · /root/review  idle · 2m ago                                                                                                        
+ ⣾ parser                running       12m  t2 followup   ━━────────  12/60m · 2 deferred · quiet 6m · retrying (usage limit) · 3 hooks blo…
+    “Checking the parser boundaries”
+── other ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 1 waiting ──
+ ■ other                 waiting       12m  t2 followup   ━━────────  12/60m · q2 pending 3m
+    … bun run check · 20s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+↑↓/jk select  Enter open  a all runs  ? help  q quit                                                                        updated 0.0s ago"
+`;
+
+exports[`monitor frames > attention colors 1`] = `
+"[48;2;27;30;26m[38;2;228;232;224m››[38;2;255;91;20m›[39m [1m[38;2;228;232;224mforeman[39m[22m [38;2;154;162;148m0.1.3[39m                                             [38;2;154;162;148mdaemon up 2h14m[39m  [38;2;154;162;148mgpt-6.1-sol · high · fast[39m  [38;2;255;91;20m■[38;2;228;232;224m 2 waiting[39m  [38;2;111;168;255m■[38;2;228;232;224m 1 running[39m  [38;2;92;201;138m■[38;2;228;232;224m 2 idle[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m╭─ [38;2;255;91;20m■ waiting  fix-hooks q2 · 3m · defers in 12m[38;2;45;50;43m ───────────────────────────────────────────────────────────────────────────────────────────╮[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148mKeep the existing hook API?                                                                                                             [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mforeman answer fix-hooks q2 --file <path>                                                                                               [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m╭─ [38;2;255;91;20m■ waiting  other q2 · 3m · defers in 12m[38;2;45;50;43m ───────────────────────────────────────────────────────────────────────────────────────────────╮[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148mKeep the existing hook API?                                                                                                             [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mother repo: its own session supervises it                                                                                               [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m── [1m[38;2;228;232;224mrepo [22m[38;2;45;50;43m───────────────────────────────────────────────────────────────────────────────────────────────────────────[38;2;154;162;148m 1 waiting · 1 running [38;2;45;50;43m──[39m[49m
+[48;2;27;30;26m [38;2;255;91;20m■[39m [1m[38;2;228;232;224mfix-hooks           [39m[22m  [38;2;255;91;20mwaiting    [39m [38;2;154;162;148m  12m  t2 followup [39m  [38;2;111;168;255m━━[38;2;45;50;43m────────[39m [38;2;154;162;148m 12/60m[38;2;255;91;20m · q2 pending 3m[39m                                                [49m
+[48;2;27;30;26m    [38;2;111;168;255m…[38;2;228;232;224m bun run check[38;2;154;162;148m · 20s[39m                                                                                                                   [49m
+[48;2;27;30;26m[38;2;45;50;43m    ├─ [38;2;111;168;255m⠿[38;2;228;232;224m /root/acceptance_tests[38;2;154;162;148m  working · 20s ago · gpt-6-sol · medium[39m                                                                     [49m
+[48;2;27;30;26m[38;2;45;50;43m    └─ [38;2;154;162;148m·[38;2;228;232;224m /root/review[38;2;154;162;148m  idle · 2m ago[39m                                                                                                        [49m
+[48;2;18;20;18m [38;2;111;168;255m⣾[39m [1m[38;2;228;232;224mparser              [39m[22m  [38;2;111;168;255mrunning    [39m [38;2;154;162;148m  12m  t2 followup [39m  [38;2;111;168;255m━━[38;2;45;50;43m────────[39m [38;2;154;162;148m 12/60m[38;2;226;192;79m · 2 deferred · quiet 6m · retrying (usage limit)[38;2;255;122;112m · 3 hooks blo…[39m[49m
+[48;2;18;20;18m[38;2;154;162;148m    “Checking the parser boundaries”[39m                                                                                                        [49m
+[48;2;18;20;18m[38;2;45;50;43m── [1m[38;2;228;232;224mother [22m[38;2;45;50;43m──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[38;2;154;162;148m 1 waiting [38;2;45;50;43m──[39m[49m
+[48;2;18;20;18m [38;2;255;91;20m■[39m [1m[38;2;228;232;224mother               [39m[22m  [38;2;255;91;20mwaiting    [39m [38;2;154;162;148m  12m  t2 followup [39m  [38;2;111;168;255m━━[38;2;45;50;43m────────[39m [38;2;154;162;148m 12/60m[38;2;255;91;20m · q2 pending 3m[39m                                                [49m
+[48;2;18;20;18m    [38;2;111;168;255m…[38;2;228;232;224m bun run check[38;2;154;162;148m · 20s[39m                                                                                                                   [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;27;30;26m[1m[38;2;228;232;224m↑↓/jk[22m[38;2;154;162;148m select[39m  [1m[38;2;228;232;224mEnter[22m[38;2;154;162;148m open[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m all runs[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                                                                        [38;2;154;162;148mupdated 0.0s ago[39m[49m"
+`;
+
+exports[`monitor frames > empty at 70 columns 1`] = `
+"››› foreman 0.1.3         daemon up 2h14m  gpt-6.1-sol · high · fast
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                             No runs yet
+                   Start a run in another terminal.
+                         foreman start --help
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+↑↓/jk select  a attention  ? help  q quit             updated 0.0s ago"
+`;
+
+exports[`monitor frames > empty at 100 columns 1`] = `
+"››› foreman 0.1.3                                       daemon up 2h14m  gpt-6.1-sol · high · fast
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                            No runs yet
+                                  Start a run in another terminal.
+                                        foreman start --help
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+↑↓/jk select  Enter open  a attention  ? help  q quit                               updated 0.0s ago"
+`;
+
+exports[`monitor frames > empty at 140 columns 1`] = `
+"››› foreman 0.1.3                                                                               daemon up 2h14m  gpt-6.1-sol · high · fast
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                No runs yet
+                                                      Start a run in another terminal.
+                                                            foreman start --help
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+↑↓/jk select  Enter open  a attention  ? help  q quit                                                                       updated 0.0s ago"
+`;
+
+exports[`monitor frames > empty colors 1`] = `
+"[48;2;27;30;26m[38;2;228;232;224m››[38;2;255;91;20m›[39m [1m[38;2;228;232;224mforeman[39m[22m [38;2;154;162;148m0.1.3[39m                                                                               [38;2;154;162;148mdaemon up 2h14m[39m  [38;2;154;162;148mgpt-6.1-sol · high · fast[39m  [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m[38;2;228;232;224m                                                                No runs yet[39m                                                                 [49m
+[48;2;18;20;18m[38;2;154;162;148m                                                      Start a run in another terminal.[39m                                                      [49m
+[48;2;18;20;18m[38;2;228;232;224m                                                            foreman start --help[39m                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;27;30;26m[1m[38;2;228;232;224m↑↓/jk[22m[38;2;154;162;148m select[39m  [1m[38;2;228;232;224mEnter[22m[38;2;154;162;148m open[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m attention[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                                                                       [38;2;154;162;148mupdated 0.0s ago[39m[49m"
+`;
+
+exports[`monitor frames > help at 70 columns 1`] = `
+"››› foreman 0.1.3                   ■ 2 waiting  ■ 1 running  ■ 2 idle
+
+
+
+
+
+
+
+
+
+
+
+╭────────────────────────────────────────────────────────────────────╮
+│ Monitor help                                                       │
+│                                                                    │
+│ ↑/k previous       ↓/j next                                        │
+│ Home first         End last                                        │
+│ PgUp scroll up     PgDn scroll down                                │
+│ a attention only   Enter open / expand                             │
+│ ? close help       Esc close help                                  │
+│ q quit             Ctrl-C interrupt                                │
+│                                                                    │
+│ ⣾ running  ◐ starting  ■/□ waiting  ✓ idle                         │
+│ × failed  ■ interrupted  ◐ unknown  ◌ lost                         │
+│ ⠿ working subagent  · idle subagent                                │
+│                                                                    │
+│ foreman status --all for scripts and agents                        │
+╰────────────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+
+
+
+
+
+↑↓/jk select  a attention  ? help  q quit             updated 0.0s ago"
+`;
+
+exports[`monitor frames > help at 100 columns 1`] = `
+"››› foreman 0.1.3     daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 2 waiting  ■ 1 running  ■ 2 idle
+
+
+
+
+
+
+
+
+
+
+
+            ╭──────────────────────────────────────────────────────────────────────────╮
+            │ Monitor help                                                             │
+            │                                                                          │
+            │ ↑/k previous       ↓/j next                                              │
+            │ Home first         End last                                              │
+            │ PgUp scroll up     PgDn scroll down                                      │
+            │ a attention only   Enter open / expand                                   │
+            │ ? close help       Esc close help                                        │
+            │ q quit             Ctrl-C interrupt                                      │
+            │                                                                          │
+            │ ⣾ running  ◐ starting  ■/□ waiting  ✓ idle                               │
+            │ × failed  ■ interrupted  ◐ unknown  ◌ lost                               │
+            │ ⠿ working subagent  · idle subagent                                      │
+            │                                                                          │
+            │ foreman status --all for scripts and agents                              │
+            ╰──────────────────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+
+
+
+
+
+↑↓/jk select  Enter open  a attention  ? help  q quit                               updated 0.0s ago"
+`;
+
+exports[`monitor frames > help at 140 columns 1`] = `
+"››› foreman 0.1.3                                             daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 2 waiting  ■ 1 running  ■ 2 idle
+
+
+
+
+
+
+
+
+
+
+
+                                ╭──────────────────────────────────────────────────────────────────────────╮
+                                │ Monitor help                                                             │
+                                │                                                                          │
+                                │ ↑/k previous       ↓/j next                                              │
+                                │ Home first         End last                                              │
+                                │ PgUp scroll up     PgDn scroll down                                      │
+                                │ a attention only   Enter open / expand                                   │
+                                │ ? close help       Esc close help                                        │
+                                │ q quit             Ctrl-C interrupt                                      │
+                                │                                                                          │
+                                │ ⣾ running  ◐ starting  ■/□ waiting  ✓ idle                               │
+                                │ × failed  ■ interrupted  ◐ unknown  ◌ lost                               │
+                                │ ⠿ working subagent  · idle subagent                                      │
+                                │                                                                          │
+                                │ foreman status --all for scripts and agents                              │
+                                ╰──────────────────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+
+
+
+
+
+↑↓/jk select  Enter open  a attention  ? help  q quit                                                                       updated 0.0s ago"
+`;
+
+exports[`monitor frames > help colors 1`] = `
+"[48;2;27;30;26m[38;2;228;232;224m››[38;2;255;91;20m›[39m [1m[38;2;228;232;224mforeman[39m[22m [38;2;154;162;148m0.1.3[39m                                             [38;2;154;162;148mdaemon up 2h14m[39m  [38;2;154;162;148mgpt-6.1-sol · high · fast[39m  [38;2;255;91;20m■[38;2;228;232;224m 2 waiting[39m  [38;2;111;168;255m■[38;2;228;232;224m 1 running[39m  [38;2;92;201;138m■[38;2;228;232;224m 2 idle[39m[49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                [38;2;45;50;43m╭──────────────────────────────────────────────────────────────────────────╮[39m                                [49m
+[48;2;18;20;18m                                [38;2;45;50;43m│ [1m[38;2;228;232;224mMonitor help                                                            [22m[38;2;45;50;43m │[39m                                [49m
+[48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224m                                                                        [38;2;45;50;43m │[39m                                [49m
+[48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224m↑/k previous       ↓/j next                                             [38;2;45;50;43m │[39m                                [49m
+[48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224mHome first         End last                                             [38;2;45;50;43m │[39m                                [49m
+[48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224mPgUp scroll up     PgDn scroll down                                     [38;2;45;50;43m │[39m                                [49m
+[48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224ma attention only   Enter open / expand                                  [38;2;45;50;43m │[39m                                [49m
+[48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224m? close help       Esc close help                                       [38;2;45;50;43m │[39m                                [49m
+[48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224mq quit             Ctrl-C interrupt                                     [38;2;45;50;43m │[39m                                [49m
+[48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224m                                                                        [38;2;45;50;43m │[39m                                [49m
+[48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224m⣾ running  ◐ starting  ■/□ waiting  ✓ idle                              [38;2;45;50;43m │[39m                                [49m
+[48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224m× failed  ■ interrupted  ◐ unknown  ◌ lost                              [38;2;45;50;43m │[39m                                [49m
+[48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224m⠿ working subagent  · idle subagent                                     [38;2;45;50;43m │[39m                                [49m
+[48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224m                                                                        [38;2;45;50;43m │[39m                                [49m
+[48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224mforeman status --all for scripts and agents                             [38;2;45;50;43m │[39m                                [49m
+[48;2;18;20;18m                                [38;2;45;50;43m╰──────────────────────────────────────────────────────────────────────────╯[39m                                [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;27;30;26m[1m[38;2;228;232;224m↑↓/jk[22m[38;2;154;162;148m select[39m  [1m[38;2;228;232;224mEnter[22m[38;2;154;162;148m open[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m attention[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                                                                       [38;2;154;162;148mupdated 0.0s ago[39m[49m"
+`;
+
+exports[`monitor frames > list at 70 columns 1`] = `
+"››› foreman 0.1.3                   ■ 2 waiting  ■ 1 running  ■ 2 idle
+╭─ ■ waiting  fix-hooks q2 · 3m · defers in 12m ─────────────────────╮
+│ Keep the existing hook API?                                        │
+│ foreman answer fix-hooks q2 --file <path>                          │
+╰────────────────────────────────────────────────────────────────────╯
+╭─ ■ waiting  other q2 · 3m · defers in 12m ─────────────────────────╮
+│ Keep the existing hook API?                                        │
+│ other repo: its own session supervises it                          │
+╰────────────────────────────────────────────────────────────────────╯
+── repo ──────────────────────────── 2 idle · 1 waiting · 1 running ──
+ ✓ finished                  idle          12m                        
+    done: All checks passed.                                          
+ ■ fix-hooks                 waiting       12m
+    … bun run check · 20s · q2 pending 3m · 2 subagents
+ ⣾ parser                    running       12m
+    “Checking the parser boundaries” · 3 hooks blocked
+· 1 idle run older than 24h
+── other ──────────────────────────────────────────────── 1 waiting ──
+ ■ other                     waiting       12m
+    … bun run check · 20s · q2 pending 3m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+↑↓/jk select  a attention  ? help  q quit             updated 0.0s ago"
+`;
+
+exports[`monitor frames > list at 100 columns 1`] = `
+"››› foreman 0.1.3     daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 2 waiting  ■ 1 running  ■ 2 idle
+╭─ ■ waiting  fix-hooks q2 · 3m · defers in 12m ───────────────────────────────────────────────────╮
+│ Keep the existing hook API?                                                                      │
+│ foreman answer fix-hooks q2 --file <path>                                                        │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ ■ waiting  other q2 · 3m · defers in 12m ───────────────────────────────────────────────────────╮
+│ Keep the existing hook API?                                                                      │
+│ other repo: its own session supervises it                                                        │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+── repo ────────────────────────────────────────────────────────── 2 idle · 1 waiting · 1 running ──
+ ✓ finished              idle          12m  t2                                                      
+    done: All checks passed.                                                                        
+ ■ fix-hooks             waiting       12m  t2    ━─────  12/60m · q2 pending 3m
+    … bun run check · 20s
+    ├─ ⠿ /root/acceptance_tests  working · 20s ago · gpt-6-sol · medium
+    └─ · /root/review  idle · 2m ago
+ ⣾ parser                running       12m  t2    ━─────  12/60m · 2 deferred · quiet 6m · retrying…
+    “Checking the parser boundaries”
+· 1 idle run older than 24h
+── other ────────────────────────────────────────────────────────────────────────────── 1 waiting ──
+ ■ other                 waiting       12m  t2    ━─────  12/60m · q2 pending 3m
+    … bun run check · 20s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+↑↓/jk select  Enter open  a attention  ? help  q quit                               updated 0.0s ago"
+`;
+
+exports[`monitor frames > list at 140 columns 1`] = `
+"››› foreman 0.1.3                                             daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 2 waiting  ■ 1 running  ■ 2 idle
+╭─ ■ waiting  fix-hooks q2 · 3m · defers in 12m ───────────────────────────────────────────────────────────────────────────────────────────╮
+│ Keep the existing hook API?                                                                                                              │
+│ foreman answer fix-hooks q2 --file <path>                                                                                                │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ ■ waiting  other q2 · 3m · defers in 12m ───────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Keep the existing hook API?                                                                                                              │
+│ other repo: its own session supervises it                                                                                                │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+── repo ────────────────────────────────────────────────────────────────────────────────────────────────── 2 idle · 1 waiting · 1 running ──
+ ✓ finished              idle          12m  t2 followup                                                                                     
+    done: All checks passed.                                                                                                                
+ ■ fix-hooks             waiting       12m  t2 followup   ━━────────  12/60m · q2 pending 3m
+    … bun run check · 20s
+    ├─ ⠿ /root/acceptance_tests  working · 20s ago · gpt-6-sol · medium
+    └─ · /root/review  idle · 2m ago
+ ⣾ parser                running       12m  t2 followup   ━━────────  12/60m · 2 deferred · quiet 6m · retrying (usage limit) · 3 hooks blo…
+    “Checking the parser boundaries”
+· 1 idle run older than 24h
+── other ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 1 waiting ──
+ ■ other                 waiting       12m  t2 followup   ━━────────  12/60m · q2 pending 3m
+    … bun run check · 20s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+↑↓/jk select  Enter open  a attention  ? help  q quit                                                                       updated 0.0s ago"
+`;
+
+exports[`monitor frames > list colors 1`] = `
+"[48;2;27;30;26m[38;2;228;232;224m››[38;2;255;91;20m›[39m [1m[38;2;228;232;224mforeman[39m[22m [38;2;154;162;148m0.1.3[39m                                             [38;2;154;162;148mdaemon up 2h14m[39m  [38;2;154;162;148mgpt-6.1-sol · high · fast[39m  [38;2;255;91;20m■[38;2;228;232;224m 2 waiting[39m  [38;2;111;168;255m■[38;2;228;232;224m 1 running[39m  [38;2;92;201;138m■[38;2;228;232;224m 2 idle[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m╭─ [38;2;255;91;20m■ waiting  fix-hooks q2 · 3m · defers in 12m[38;2;45;50;43m ───────────────────────────────────────────────────────────────────────────────────────────╮[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148mKeep the existing hook API?                                                                                                             [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mforeman answer fix-hooks q2 --file <path>                                                                                               [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m╭─ [38;2;255;91;20m■ waiting  other q2 · 3m · defers in 12m[38;2;45;50;43m ───────────────────────────────────────────────────────────────────────────────────────────────╮[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148mKeep the existing hook API?                                                                                                             [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mother repo: its own session supervises it                                                                                               [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m── [1m[38;2;228;232;224mrepo [22m[38;2;45;50;43m──────────────────────────────────────────────────────────────────────────────────────────────────[38;2;154;162;148m 2 idle · 1 waiting · 1 running [38;2;45;50;43m──[39m[49m
+[48;2;27;30;26m [38;2;92;201;138m✓[39m [1m[38;2;228;232;224mfinished            [39m[22m  [38;2;92;201;138midle       [39m [38;2;154;162;148m  12m  t2 followup [39m                                                                                    [49m
+[48;2;27;30;26m[38;2;154;162;148m    done: All checks passed.[39m                                                                                                                [49m
+[48;2;18;20;18m [38;2;255;91;20m■[39m [1m[38;2;228;232;224mfix-hooks           [39m[22m  [38;2;255;91;20mwaiting    [39m [38;2;154;162;148m  12m  t2 followup [39m  [38;2;111;168;255m━━[38;2;45;50;43m────────[39m [38;2;154;162;148m 12/60m[38;2;255;91;20m · q2 pending 3m[39m                                                [49m
+[48;2;18;20;18m    [38;2;111;168;255m…[38;2;228;232;224m bun run check[38;2;154;162;148m · 20s[39m                                                                                                                   [49m
+[48;2;18;20;18m[38;2;45;50;43m    ├─ [38;2;111;168;255m⠿[38;2;228;232;224m /root/acceptance_tests[38;2;154;162;148m  working · 20s ago · gpt-6-sol · medium[39m                                                                     [49m
+[48;2;18;20;18m[38;2;45;50;43m    └─ [38;2;154;162;148m·[38;2;228;232;224m /root/review[38;2;154;162;148m  idle · 2m ago[39m                                                                                                        [49m
+[48;2;18;20;18m [38;2;111;168;255m⣾[39m [1m[38;2;228;232;224mparser              [39m[22m  [38;2;111;168;255mrunning    [39m [38;2;154;162;148m  12m  t2 followup [39m  [38;2;111;168;255m━━[38;2;45;50;43m────────[39m [38;2;154;162;148m 12/60m[38;2;226;192;79m · 2 deferred · quiet 6m · retrying (usage limit)[38;2;255;122;112m · 3 hooks blo…[39m[49m
+[48;2;18;20;18m[38;2;154;162;148m    “Checking the parser boundaries”[39m                                                                                                        [49m
+[48;2;18;20;18m[38;2;154;162;148m· 1 idle run older than 24h[39m                                                                                                                 [49m
+[48;2;18;20;18m[38;2;45;50;43m── [1m[38;2;228;232;224mother [22m[38;2;45;50;43m──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[38;2;154;162;148m 1 waiting [38;2;45;50;43m──[39m[49m
+[48;2;18;20;18m [38;2;255;91;20m■[39m [1m[38;2;228;232;224mother               [39m[22m  [38;2;255;91;20mwaiting    [39m [38;2;154;162;148m  12m  t2 followup [39m  [38;2;111;168;255m━━[38;2;45;50;43m────────[39m [38;2;154;162;148m 12/60m[38;2;255;91;20m · q2 pending 3m[39m                                                [49m
+[48;2;18;20;18m    [38;2;111;168;255m…[38;2;228;232;224m bun run check[38;2;154;162;148m · 20s[39m                                                                                                                   [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;27;30;26m[1m[38;2;228;232;224m↑↓/jk[22m[38;2;154;162;148m select[39m  [1m[38;2;228;232;224mEnter[22m[38;2;154;162;148m open[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m attention[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                                                                       [38;2;154;162;148mupdated 0.0s ago[39m[49m"
+`;
+
+exports[`monitor frames > outdated active at 70 columns 1`] = `
+"››› foreman 0.1.3                   ■ 2 waiting  ■ 1 running  ■ 2 idle
+                   Saved state · daemon is outdated
+  The monitor will reconnect when a compatible daemon is available.
+                         foreman status --all
+╭─ ■ waiting  fix-hooks q2 · 3m · defers in 12m ─────────────────────╮
+│ Keep the existing hook API?                                        │
+│ foreman answer fix-hooks q2 --file <path>                          │
+╰────────────────────────────────────────────────────────────────────╯
+╭─ ■ waiting  other q2 · 3m · defers in 12m ─────────────────────────╮
+│ Keep the existing hook API?                                        │
+│ other repo: its own session supervises it                          │
+╰────────────────────────────────────────────────────────────────────╯
+── repo ──────────────────────────── 2 idle · 1 waiting · 1 running ──
+ ✓ finished                  idle          12m                        
+    done: All checks passed.                                          
+ ■ fix-hooks                 waiting       12m
+    … bun run check · 20s · q2 pending 3m · 2 subagents
+ ⣾ parser                    running       12m
+    “Checking the parser boundaries” · 3 hooks blocked
+· 1 idle run older than 24h
+── other ──────────────────────────────────────────────── 1 waiting ──
+ ■ other                     waiting       12m
+    … bun run check · 20s · q2 pending 3m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+↑↓/jk select  a attention  ? help  q quit             updated 0.0s ago"
+`;
+
+exports[`monitor frames > outdated active at 100 columns 1`] = `
+"››› foreman 0.1.3                      gpt-6.1-sol · high · fast  ■ 2 waiting  ■ 1 running  ■ 2 idle
+                                  Saved state · daemon is outdated
+                 The monitor will reconnect when a compatible daemon is available.
+                                        foreman status --all
+╭─ ■ waiting  fix-hooks q2 · 3m · defers in 12m ───────────────────────────────────────────────────╮
+│ Keep the existing hook API?                                                                      │
+│ foreman answer fix-hooks q2 --file <path>                                                        │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ ■ waiting  other q2 · 3m · defers in 12m ───────────────────────────────────────────────────────╮
+│ Keep the existing hook API?                                                                      │
+│ other repo: its own session supervises it                                                        │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+── repo ────────────────────────────────────────────────────────── 2 idle · 1 waiting · 1 running ──
+ ✓ finished              idle          12m  t2                                                      
+    done: All checks passed.                                                                        
+ ■ fix-hooks             waiting       12m  t2    ━─────  12/60m · q2 pending 3m
+    … bun run check · 20s
+    ├─ ⠿ /root/acceptance_tests  working · 20s ago · gpt-6-sol · medium
+    └─ · /root/review  idle · 2m ago
+ ⣾ parser                running       12m  t2    ━─────  12/60m · 2 deferred · quiet 6m · retrying…
+    “Checking the parser boundaries”
+· 1 idle run older than 24h
+── other ────────────────────────────────────────────────────────────────────────────── 1 waiting ──
+ ■ other                 waiting       12m  t2    ━─────  12/60m · q2 pending 3m
+    … bun run check · 20s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+↑↓/jk select  Enter open  a attention  ? help  q quit                               updated 0.0s ago"
+`;
+
+exports[`monitor frames > outdated active at 140 columns 1`] = `
+"››› foreman 0.1.3                               daemon outdated · saved state  gpt-6.1-sol · high · fast  ■ 2 waiting  ■ 1 running  ■ 2 idle
+                                                      Saved state · daemon is outdated
+                                     The monitor will reconnect when a compatible daemon is available.
+                                                            foreman status --all
+╭─ ■ waiting  fix-hooks q2 · 3m · defers in 12m ───────────────────────────────────────────────────────────────────────────────────────────╮
+│ Keep the existing hook API?                                                                                                              │
+│ foreman answer fix-hooks q2 --file <path>                                                                                                │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ ■ waiting  other q2 · 3m · defers in 12m ───────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Keep the existing hook API?                                                                                                              │
+│ other repo: its own session supervises it                                                                                                │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+── repo ────────────────────────────────────────────────────────────────────────────────────────────────── 2 idle · 1 waiting · 1 running ──
+ ✓ finished              idle          12m  t2 followup                                                                                     
+    done: All checks passed.                                                                                                                
+ ■ fix-hooks             waiting       12m  t2 followup   ━━────────  12/60m · q2 pending 3m
+    … bun run check · 20s
+    ├─ ⠿ /root/acceptance_tests  working · 20s ago · gpt-6-sol · medium
+    └─ · /root/review  idle · 2m ago
+ ⣾ parser                running       12m  t2 followup   ━━────────  12/60m · 2 deferred · quiet 6m · retrying (usage limit) · 3 hooks blo…
+    “Checking the parser boundaries”
+· 1 idle run older than 24h
+── other ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 1 waiting ──
+ ■ other                 waiting       12m  t2 followup   ━━────────  12/60m · q2 pending 3m
+    … bun run check · 20s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+↑↓/jk select  Enter open  a attention  ? help  q quit                                                                       updated 0.0s ago"
+`;
+
+exports[`monitor frames > outdated active colors 1`] = `
+"[48;2;27;30;26m[38;2;228;232;224m››[38;2;255;91;20m›[39m [1m[38;2;228;232;224mforeman[39m[22m [38;2;154;162;148m0.1.3[39m                               [38;2;226;192;79mdaemon outdated · saved state[39m  [38;2;154;162;148mgpt-6.1-sol · high · fast[39m  [38;2;255;91;20m■[38;2;228;232;224m 2 waiting[39m  [38;2;111;168;255m■[38;2;228;232;224m 1 running[39m  [38;2;92;201;138m■[38;2;228;232;224m 2 idle[39m[49m
+[48;2;18;20;18m[38;2;228;232;224m                                                      Saved state · daemon is outdated[39m                                                      [49m
+[48;2;18;20;18m[38;2;154;162;148m                                     The monitor will reconnect when a compatible daemon is available.[39m                                      [49m
+[48;2;18;20;18m[38;2;228;232;224m                                                            foreman status --all[39m                                                            [49m
+[48;2;18;20;18m[38;2;45;50;43m╭─ [38;2;255;91;20m■ waiting  fix-hooks q2 · 3m · defers in 12m[38;2;45;50;43m ───────────────────────────────────────────────────────────────────────────────────────────╮[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148mKeep the existing hook API?                                                                                                             [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mforeman answer fix-hooks q2 --file <path>                                                                                               [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m╭─ [38;2;255;91;20m■ waiting  other q2 · 3m · defers in 12m[38;2;45;50;43m ───────────────────────────────────────────────────────────────────────────────────────────────╮[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148mKeep the existing hook API?                                                                                                             [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mother repo: its own session supervises it                                                                                               [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m── [1m[38;2;228;232;224mrepo [22m[38;2;45;50;43m──────────────────────────────────────────────────────────────────────────────────────────────────[38;2;154;162;148m 2 idle · 1 waiting · 1 running [38;2;45;50;43m──[39m[49m
+[48;2;27;30;26m [38;2;92;201;138m✓[39m [1m[38;2;228;232;224mfinished            [39m[22m  [38;2;92;201;138midle       [39m [38;2;154;162;148m  12m  t2 followup [39m                                                                                    [49m
+[48;2;27;30;26m[38;2;154;162;148m    done: All checks passed.[39m                                                                                                                [49m
+[48;2;18;20;18m [38;2;255;91;20m■[39m [1m[38;2;228;232;224mfix-hooks           [39m[22m  [38;2;255;91;20mwaiting    [39m [38;2;154;162;148m  12m  t2 followup [39m  [38;2;111;168;255m━━[38;2;45;50;43m────────[39m [38;2;154;162;148m 12/60m[38;2;255;91;20m · q2 pending 3m[39m                                                [49m
+[48;2;18;20;18m    [38;2;111;168;255m…[38;2;228;232;224m bun run check[38;2;154;162;148m · 20s[39m                                                                                                                   [49m
+[48;2;18;20;18m[38;2;45;50;43m    ├─ [38;2;111;168;255m⠿[38;2;228;232;224m /root/acceptance_tests[38;2;154;162;148m  working · 20s ago · gpt-6-sol · medium[39m                                                                     [49m
+[48;2;18;20;18m[38;2;45;50;43m    └─ [38;2;154;162;148m·[38;2;228;232;224m /root/review[38;2;154;162;148m  idle · 2m ago[39m                                                                                                        [49m
+[48;2;18;20;18m [38;2;111;168;255m⣾[39m [1m[38;2;228;232;224mparser              [39m[22m  [38;2;111;168;255mrunning    [39m [38;2;154;162;148m  12m  t2 followup [39m  [38;2;111;168;255m━━[38;2;45;50;43m────────[39m [38;2;154;162;148m 12/60m[38;2;226;192;79m · 2 deferred · quiet 6m · retrying (usage limit)[38;2;255;122;112m · 3 hooks blo…[39m[49m
+[48;2;18;20;18m[38;2;154;162;148m    “Checking the parser boundaries”[39m                                                                                                        [49m
+[48;2;18;20;18m[38;2;154;162;148m· 1 idle run older than 24h[39m                                                                                                                 [49m
+[48;2;18;20;18m[38;2;45;50;43m── [1m[38;2;228;232;224mother [22m[38;2;45;50;43m──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[38;2;154;162;148m 1 waiting [38;2;45;50;43m──[39m[49m
+[48;2;18;20;18m [38;2;255;91;20m■[39m [1m[38;2;228;232;224mother               [39m[22m  [38;2;255;91;20mwaiting    [39m [38;2;154;162;148m  12m  t2 followup [39m  [38;2;111;168;255m━━[38;2;45;50;43m────────[39m [38;2;154;162;148m 12/60m[38;2;255;91;20m · q2 pending 3m[39m                                                [49m
+[48;2;18;20;18m    [38;2;111;168;255m…[38;2;228;232;224m bun run check[38;2;154;162;148m · 20s[39m                                                                                                                   [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;27;30;26m[1m[38;2;228;232;224m↑↓/jk[22m[38;2;154;162;148m select[39m  [1m[38;2;228;232;224mEnter[22m[38;2;154;162;148m open[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m attention[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                                                                       [38;2;154;162;148mupdated 0.0s ago[39m[49m"
+`;
+
+exports[`monitor frames > outdated at 70 columns 1`] = `
+"››› foreman 0.1.3                          gpt-6.1-sol · high · fast
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                   Saved state · daemon is outdated
+  The monitor will reconnect when a compatible daemon is available.
+                         foreman status --all
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+↑↓/jk select  a attention  ? help  q quit             updated 0.0s ago"
+`;
+
+exports[`monitor frames > outdated at 100 columns 1`] = `
+"››› foreman 0.1.3                         daemon outdated · saved state  gpt-6.1-sol · high · fast
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                  Saved state · daemon is outdated
+                 The monitor will reconnect when a compatible daemon is available.
+                                        foreman status --all
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+↑↓/jk select  Enter open  a attention  ? help  q quit                               updated 0.0s ago"
+`;
+
+exports[`monitor frames > outdated at 140 columns 1`] = `
+"››› foreman 0.1.3                                                                 daemon outdated · saved state  gpt-6.1-sol · high · fast
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                      Saved state · daemon is outdated
+                                     The monitor will reconnect when a compatible daemon is available.
+                                                            foreman status --all
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+↑↓/jk select  Enter open  a attention  ? help  q quit                                                                       updated 0.0s ago"
+`;
+
+exports[`monitor frames > outdated colors 1`] = `
+"[48;2;27;30;26m[38;2;228;232;224m››[38;2;255;91;20m›[39m [1m[38;2;228;232;224mforeman[39m[22m [38;2;154;162;148m0.1.3[39m                                                                 [38;2;226;192;79mdaemon outdated · saved state[39m  [38;2;154;162;148mgpt-6.1-sol · high · fast[39m  [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m[38;2;228;232;224m                                                      Saved state · daemon is outdated[39m                                                      [49m
+[48;2;18;20;18m[38;2;154;162;148m                                     The monitor will reconnect when a compatible daemon is available.[39m                                      [49m
+[48;2;18;20;18m[38;2;228;232;224m                                                            foreman status --all[39m                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;27;30;26m[1m[38;2;228;232;224m↑↓/jk[22m[38;2;154;162;148m select[39m  [1m[38;2;228;232;224mEnter[22m[38;2;154;162;148m open[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m attention[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                                                                       [38;2;154;162;148mupdated 0.0s ago[39m[49m"
+`;
+
+exports[`monitor frames > probing at 70 columns 1`] = `
+"››› foreman 0.1.3              connecting  gpt-6.1-sol · high · fast
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                        ◐ Connecting to daemon
+                         Reading current runs
+                         foreman status --all
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+↑↓/jk select  a attention  ? help  q quit             updated 0.0s ago"
+`;
+
+exports[`monitor frames > probing at 100 columns 1`] = `
+"››› foreman 0.1.3                                            connecting  gpt-6.1-sol · high · fast
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                       ◐ Connecting to daemon
+                                        Reading current runs
+                                        foreman status --all
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+↑↓/jk select  Enter open  a attention  ? help  q quit                               updated 0.0s ago"
+`;
+
+exports[`monitor frames > probing at 140 columns 1`] = `
+"››› foreman 0.1.3                                                                                    connecting  gpt-6.1-sol · high · fast
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                           ◐ Connecting to daemon
+                                                            Reading current runs
+                                                            foreman status --all
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+↑↓/jk select  Enter open  a attention  ? help  q quit                                                                       updated 0.0s ago"
+`;
+
+exports[`monitor frames > probing colors 1`] = `
+"[48;2;27;30;26m[38;2;228;232;224m››[38;2;255;91;20m›[39m [1m[38;2;228;232;224mforeman[39m[22m [38;2;154;162;148m0.1.3[39m                                                                                    [38;2;154;162;148mconnecting[39m  [38;2;154;162;148mgpt-6.1-sol · high · fast[39m  [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                           [38;2;154;162;148m◐[38;2;228;232;224m Connecting to daemon[39m                                                           [49m
+[48;2;18;20;18m[38;2;154;162;148m                                                            Reading current runs[39m                                                            [49m
+[48;2;18;20;18m[38;2;228;232;224m                                                            foreman status --all[39m                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;27;30;26m[1m[38;2;228;232;224m↑↓/jk[22m[38;2;154;162;148m select[39m  [1m[38;2;228;232;224mEnter[22m[38;2;154;162;148m open[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m attention[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                                                                       [38;2;154;162;148mupdated 0.0s ago[39m[49m"
+`;
+
+exports[`monitor frames > reconnecting at 70 columns 1`] = `
+"››› foreman 0.1.3                   ■ 2 waiting  ■ 1 running  ■ 2 idle
+                        Reconnecting to daemon
+                           Connection lost
+                         foreman status --all
+╭─ ■ waiting  fix-hooks q2 · 3m · defers in 12m ─────────────────────╮
+│ Keep the existing hook API?                                        │
+│ foreman answer fix-hooks q2 --file <path>                          │
+╰────────────────────────────────────────────────────────────────────╯
+╭─ ■ waiting  other q2 · 3m · defers in 12m ─────────────────────────╮
+│ Keep the existing hook API?                                        │
+│ other repo: its own session supervises it                          │
+╰────────────────────────────────────────────────────────────────────╯
+── repo ──────────────────────────── 2 idle · 1 waiting · 1 running ──
+ ✓ finished                  idle          12m                        
+    done: All checks passed.                                          
+ ■ fix-hooks                 waiting       12m
+    … bun run check · 20s · q2 pending 3m · 2 subagents
+ ⣾ parser                    running       12m
+    “Checking the parser boundaries” · 3 hooks blocked
+· 1 idle run older than 24h
+── other ──────────────────────────────────────────────── 1 waiting ──
+ ■ other                     waiting       12m
+    … bun run check · 20s · q2 pending 3m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+↑↓/jk select  a attention  ? help  q quit           reconnecting in 4s"
+`;
+
+exports[`monitor frames > reconnecting at 100 columns 1`] = `
+"››› foreman 0.1.3     daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 2 waiting  ■ 1 running  ■ 2 idle
+                                       Reconnecting to daemon
+                                          Connection lost
+                                        foreman status --all
+╭─ ■ waiting  fix-hooks q2 · 3m · defers in 12m ───────────────────────────────────────────────────╮
+│ Keep the existing hook API?                                                                      │
+│ foreman answer fix-hooks q2 --file <path>                                                        │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ ■ waiting  other q2 · 3m · defers in 12m ───────────────────────────────────────────────────────╮
+│ Keep the existing hook API?                                                                      │
+│ other repo: its own session supervises it                                                        │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+── repo ────────────────────────────────────────────────────────── 2 idle · 1 waiting · 1 running ──
+ ✓ finished              idle          12m  t2                                                      
+    done: All checks passed.                                                                        
+ ■ fix-hooks             waiting       12m  t2    ━─────  12/60m · q2 pending 3m
+    … bun run check · 20s
+    ├─ ⠿ /root/acceptance_tests  working · 20s ago · gpt-6-sol · medium
+    └─ · /root/review  idle · 2m ago
+ ⣾ parser                running       12m  t2    ━─────  12/60m · 2 deferred · quiet 6m · retrying…
+    “Checking the parser boundaries”
+· 1 idle run older than 24h
+── other ────────────────────────────────────────────────────────────────────────────── 1 waiting ──
+ ■ other                 waiting       12m  t2    ━─────  12/60m · q2 pending 3m
+    … bun run check · 20s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+↑↓/jk select  Enter open  a attention  ? help  q quit                             reconnecting in 4s"
+`;
+
+exports[`monitor frames > reconnecting at 140 columns 1`] = `
+"››› foreman 0.1.3                                             daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 2 waiting  ■ 1 running  ■ 2 idle
+                                                           Reconnecting to daemon
+                                                              Connection lost
+                                                            foreman status --all
+╭─ ■ waiting  fix-hooks q2 · 3m · defers in 12m ───────────────────────────────────────────────────────────────────────────────────────────╮
+│ Keep the existing hook API?                                                                                                              │
+│ foreman answer fix-hooks q2 --file <path>                                                                                                │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ ■ waiting  other q2 · 3m · defers in 12m ───────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Keep the existing hook API?                                                                                                              │
+│ other repo: its own session supervises it                                                                                                │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+── repo ────────────────────────────────────────────────────────────────────────────────────────────────── 2 idle · 1 waiting · 1 running ──
+ ✓ finished              idle          12m  t2 followup                                                                                     
+    done: All checks passed.                                                                                                                
+ ■ fix-hooks             waiting       12m  t2 followup   ━━────────  12/60m · q2 pending 3m
+    … bun run check · 20s
+    ├─ ⠿ /root/acceptance_tests  working · 20s ago · gpt-6-sol · medium
+    └─ · /root/review  idle · 2m ago
+ ⣾ parser                running       12m  t2 followup   ━━────────  12/60m · 2 deferred · quiet 6m · retrying (usage limit) · 3 hooks blo…
+    “Checking the parser boundaries”
+· 1 idle run older than 24h
+── other ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 1 waiting ──
+ ■ other                 waiting       12m  t2 followup   ━━────────  12/60m · q2 pending 3m
+    … bun run check · 20s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+↑↓/jk select  Enter open  a attention  ? help  q quit                                                                     reconnecting in 4s"
+`;
+
+exports[`monitor frames > reconnecting colors 1`] = `
+"[48;2;27;30;26m[38;2;228;232;224m››[38;2;255;91;20m›[39m [1m[38;2;228;232;224mforeman[39m[22m [38;2;154;162;148m0.1.3[39m                                             [38;2;226;192;79mdaemon up 2h14m[39m  [38;2;154;162;148mgpt-6.1-sol · high · fast[39m  [38;2;255;91;20m■[38;2;228;232;224m 2 waiting[39m  [38;2;111;168;255m■[38;2;228;232;224m 1 running[39m  [38;2;92;201;138m■[38;2;228;232;224m 2 idle[39m[49m
+[48;2;18;20;18m[38;2;228;232;224m                                                           Reconnecting to daemon[39m                                                           [49m
+[48;2;18;20;18m[38;2;154;162;148m                                                              Connection lost[39m                                                               [49m
+[48;2;18;20;18m[38;2;228;232;224m                                                            foreman status --all[39m                                                            [49m
+[48;2;18;20;18m[38;2;45;50;43m╭─ [38;2;154;162;148m■ waiting  fix-hooks q2 · 3m · defers in 12m[38;2;45;50;43m ───────────────────────────────────────────────────────────────────────────────────────────╮[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148mKeep the existing hook API?                                                                                                             [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148mforeman answer fix-hooks q2 --file <path>                                                                                               [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m╭─ [38;2;154;162;148m■ waiting  other q2 · 3m · defers in 12m[38;2;45;50;43m ───────────────────────────────────────────────────────────────────────────────────────────────╮[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148mKeep the existing hook API?                                                                                                             [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148mother repo: its own session supervises it                                                                                               [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m── [1m[38;2;154;162;148mrepo [22m[38;2;45;50;43m──────────────────────────────────────────────────────────────────────────────────────────────────[38;2;154;162;148m 2 idle · 1 waiting · 1 running [38;2;45;50;43m──[39m[49m
+[48;2;27;30;26m [38;2;154;162;148m✓[39m [1m[38;2;154;162;148mfinished            [39m[22m  [38;2;154;162;148midle       [39m [38;2;154;162;148m  12m  t2 followup [39m                                                                                    [49m
+[48;2;27;30;26m[38;2;154;162;148m    done: All checks passed.[39m                                                                                                                [49m
+[48;2;18;20;18m [38;2;154;162;148m■[39m [1m[38;2;154;162;148mfix-hooks           [39m[22m  [38;2;154;162;148mwaiting    [39m [38;2;154;162;148m  12m  t2 followup [39m  [38;2;154;162;148m━━[38;2;45;50;43m────────[39m [38;2;154;162;148m 12/60m · q2 pending 3m[39m                                                [49m
+[48;2;18;20;18m    [38;2;154;162;148m… bun run check · 20s[39m                                                                                                                   [49m
+[48;2;18;20;18m[38;2;45;50;43m    ├─ [38;2;154;162;148m⠿ /root/acceptance_tests  working · 20s ago · gpt-6-sol · medium[39m                                                                     [49m
+[48;2;18;20;18m[38;2;45;50;43m    └─ [38;2;154;162;148m· /root/review  idle · 2m ago[39m                                                                                                        [49m
+[48;2;18;20;18m [38;2;154;162;148m⣾[39m [1m[38;2;154;162;148mparser              [39m[22m  [38;2;154;162;148mrunning    [39m [38;2;154;162;148m  12m  t2 followup [39m  [38;2;154;162;148m━━[38;2;45;50;43m────────[39m [38;2;154;162;148m 12/60m · 2 deferred · quiet 6m · retrying (usage limit) · 3 hooks blo…[39m[49m
+[48;2;18;20;18m[38;2;154;162;148m    “Checking the parser boundaries”[39m                                                                                                        [49m
+[48;2;18;20;18m[38;2;154;162;148m· 1 idle run older than 24h[39m                                                                                                                 [49m
+[48;2;18;20;18m[38;2;45;50;43m── [1m[38;2;154;162;148mother [22m[38;2;45;50;43m──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[38;2;154;162;148m 1 waiting [38;2;45;50;43m──[39m[49m
+[48;2;18;20;18m [38;2;154;162;148m■[39m [1m[38;2;154;162;148mother               [39m[22m  [38;2;154;162;148mwaiting    [39m [38;2;154;162;148m  12m  t2 followup [39m  [38;2;154;162;148m━━[38;2;45;50;43m────────[39m [38;2;154;162;148m 12/60m · q2 pending 3m[39m                                                [49m
+[48;2;18;20;18m    [38;2;154;162;148m… bun run check · 20s[39m                                                                                                                   [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;27;30;26m[1m[38;2;228;232;224m↑↓/jk[22m[38;2;154;162;148m select[39m  [1m[38;2;228;232;224mEnter[22m[38;2;154;162;148m open[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m attention[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                                                                     [38;2;226;192;79mreconnecting in 4s[39m[49m"
+`;
+
+exports[`monitor frames > reconnecting without history at 70 columns 1`] = `
+"››› foreman 0.1.3              connecting  gpt-6.1-sol · high · fast
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                        Reconnecting to daemon
+                          Socket unavailable
+                         foreman status --all
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+↑↓/jk select  a attention  ? help  q quit           reconnecting in 4s"
+`;
+
+exports[`monitor frames > reconnecting without history at 100 columns 1`] = `
+"››› foreman 0.1.3                                            connecting  gpt-6.1-sol · high · fast
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                       Reconnecting to daemon
+                                         Socket unavailable
+                                        foreman status --all
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+↑↓/jk select  Enter open  a attention  ? help  q quit                             reconnecting in 4s"
+`;
+
+exports[`monitor frames > reconnecting without history at 140 columns 1`] = `
+"››› foreman 0.1.3                                                                                    connecting  gpt-6.1-sol · high · fast
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                           Reconnecting to daemon
+                                                             Socket unavailable
+                                                            foreman status --all
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+↑↓/jk select  Enter open  a attention  ? help  q quit                                                                     reconnecting in 4s"
+`;
+
+exports[`monitor frames > reconnecting without history colors 1`] = `
+"[48;2;27;30;26m[38;2;228;232;224m››[38;2;255;91;20m›[39m [1m[38;2;228;232;224mforeman[39m[22m [38;2;154;162;148m0.1.3[39m                                                                                    [38;2;226;192;79mconnecting[39m  [38;2;154;162;148mgpt-6.1-sol · high · fast[39m  [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m[38;2;228;232;224m                                                           Reconnecting to daemon[39m                                                           [49m
+[48;2;18;20;18m[38;2;154;162;148m                                                             Socket unavailable[39m                                                             [49m
+[48;2;18;20;18m[38;2;228;232;224m                                                            foreman status --all[39m                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;27;30;26m[1m[38;2;228;232;224m↑↓/jk[22m[38;2;154;162;148m select[39m  [1m[38;2;228;232;224mEnter[22m[38;2;154;162;148m open[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m attention[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                                                                     [38;2;226;192;79mreconnecting in 4s[39m[49m"
+`;
+
+exports[`monitor frames > saved at 70 columns 1`] = `
+"››› foreman 0.1.3                   ■ 2 waiting  ■ 1 running  ■ 2 idle
+                   Saved state · daemon not running
+The monitor checks again automatically; start work in another termina…
+                         foreman status --all
+╭─ ■ waiting  fix-hooks q2 · 3m · defers in 12m ─────────────────────╮
+│ Keep the existing hook API?                                        │
+│ foreman answer fix-hooks q2 --file <path>                          │
+╰────────────────────────────────────────────────────────────────────╯
+╭─ ■ waiting  other q2 · 3m · defers in 12m ─────────────────────────╮
+│ Keep the existing hook API?                                        │
+│ other repo: its own session supervises it                          │
+╰────────────────────────────────────────────────────────────────────╯
+── repo ──────────────────────────── 2 idle · 1 waiting · 1 running ──
+ ✓ finished                  idle          12m                        
+    done: All checks passed.                                          
+ ◌ fix-hooks                 waiting · not supervised   12m
+    … bun run check · 20s · q2 pending 3m · 2 subagents
+ ◌ parser                    running · not supervised   12m
+    “Checking the parser boundaries” · 3 hooks blocked
+· 1 idle run older than 24h
+── other ──────────────────────────────────────────────── 1 waiting ──
+ ◌ other                     waiting · not supervised   12m
+    … bun run check · 20s · q2 pending 3m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+↑↓/jk select  a attention  ? help  q quit             updated 0.0s ago"
+`;
+
+exports[`monitor frames > saved at 100 columns 1`] = `
+"››› foreman 0.1.3                      gpt-6.1-sol · high · fast  ■ 2 waiting  ■ 1 running  ■ 2 idle
+                                  Saved state · daemon not running
+              The monitor checks again automatically; start work in another terminal.
+                                        foreman status --all
+╭─ ■ waiting  fix-hooks q2 · 3m · defers in 12m ───────────────────────────────────────────────────╮
+│ Keep the existing hook API?                                                                      │
+│ foreman answer fix-hooks q2 --file <path>                                                        │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ ■ waiting  other q2 · 3m · defers in 12m ───────────────────────────────────────────────────────╮
+│ Keep the existing hook API?                                                                      │
+│ other repo: its own session supervises it                                                        │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+── repo ────────────────────────────────────────────────────────── 2 idle · 1 waiting · 1 running ──
+ ✓ finished              idle          12m  t2                                                      
+    done: All checks passed.                                                                        
+ ◌ fix-hooks             waiting · not supervised   12m  t2   · q2 pending 3m
+    … bun run check · 20s
+    ├─ · /root/acceptance_tests  working · 20s ago · gpt-6-sol · medium
+    └─ · /root/review  idle · 2m ago
+ ◌ parser                running · not supervised   12m  t2   · 2 deferred · retrying (usage limit)…
+    “Checking the parser boundaries”
+· 1 idle run older than 24h
+── other ────────────────────────────────────────────────────────────────────────────── 1 waiting ──
+ ◌ other                 waiting · not supervised   12m  t2   · q2 pending 3m
+    … bun run check · 20s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+↑↓/jk select  Enter open  a attention  ? help  q quit                               updated 0.0s ago"
+`;
+
+exports[`monitor frames > saved at 140 columns 1`] = `
+"››› foreman 0.1.3                            daemon not running · saved state  gpt-6.1-sol · high · fast  ■ 2 waiting  ■ 1 running  ■ 2 idle
+                                                      Saved state · daemon not running
+                                  The monitor checks again automatically; start work in another terminal.
+                                                            foreman status --all
+╭─ ■ waiting  fix-hooks q2 · 3m · defers in 12m ───────────────────────────────────────────────────────────────────────────────────────────╮
+│ Keep the existing hook API?                                                                                                              │
+│ foreman answer fix-hooks q2 --file <path>                                                                                                │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ ■ waiting  other q2 · 3m · defers in 12m ───────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Keep the existing hook API?                                                                                                              │
+│ other repo: its own session supervises it                                                                                                │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+── repo ────────────────────────────────────────────────────────────────────────────────────────────────── 2 idle · 1 waiting · 1 running ──
+ ✓ finished              idle          12m  t2 followup                                                                                     
+    done: All checks passed.                                                                                                                
+ ◌ fix-hooks             waiting · not supervised   12m  t2 followup  · q2 pending 3m
+    … bun run check · 20s
+    ├─ · /root/acceptance_tests  working · 20s ago · gpt-6-sol · medium
+    └─ · /root/review  idle · 2m ago
+ ◌ parser                running · not supervised   12m  t2 followup  · 2 deferred · retrying (usage limit) · 3 hooks blocked · 2 outside s…
+    “Checking the parser boundaries”
+· 1 idle run older than 24h
+── other ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 1 waiting ──
+ ◌ other                 waiting · not supervised   12m  t2 followup  · q2 pending 3m
+    … bun run check · 20s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+↑↓/jk select  Enter open  a attention  ? help  q quit                                                                       updated 0.0s ago"
+`;
+
+exports[`monitor frames > saved colors 1`] = `
+"[48;2;27;30;26m[38;2;228;232;224m››[38;2;255;91;20m›[39m [1m[38;2;228;232;224mforeman[39m[22m [38;2;154;162;148m0.1.3[39m                            [38;2;226;192;79mdaemon not running · saved state[39m  [38;2;154;162;148mgpt-6.1-sol · high · fast[39m  [38;2;154;162;148m■[38;2;228;232;224m 2 waiting[39m  [38;2;154;162;148m■[38;2;228;232;224m 1 running[39m  [38;2;92;201;138m■[38;2;228;232;224m 2 idle[39m[49m
+[48;2;18;20;18m[38;2;228;232;224m                                                      Saved state · daemon not running[39m                                                      [49m
+[48;2;18;20;18m[38;2;154;162;148m                                  The monitor checks again automatically; start work in another terminal.[39m                                   [49m
+[48;2;18;20;18m[38;2;228;232;224m                                                            foreman status --all[39m                                                            [49m
+[48;2;18;20;18m[38;2;45;50;43m╭─ [38;2;255;91;20m■ waiting  fix-hooks q2 · 3m · defers in 12m[38;2;45;50;43m ───────────────────────────────────────────────────────────────────────────────────────────╮[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148mKeep the existing hook API?                                                                                                             [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mforeman answer fix-hooks q2 --file <path>                                                                                               [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m╭─ [38;2;255;91;20m■ waiting  other q2 · 3m · defers in 12m[38;2;45;50;43m ───────────────────────────────────────────────────────────────────────────────────────────────╮[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148mKeep the existing hook API?                                                                                                             [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mother repo: its own session supervises it                                                                                               [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m── [1m[38;2;228;232;224mrepo [22m[38;2;45;50;43m──────────────────────────────────────────────────────────────────────────────────────────────────[38;2;154;162;148m 2 idle · 1 waiting · 1 running [38;2;45;50;43m──[39m[49m
+[48;2;27;30;26m [38;2;92;201;138m✓[39m [1m[38;2;228;232;224mfinished            [39m[22m  [38;2;92;201;138midle       [39m [38;2;154;162;148m  12m  t2 followup [39m                                                                                    [49m
+[48;2;27;30;26m[38;2;154;162;148m    done: All checks passed.[39m                                                                                                                [49m
+[48;2;18;20;18m [38;2;154;162;148m◌[39m [1m[38;2;228;232;224mfix-hooks           [39m[22m  [38;2;154;162;148mwaiting · not supervised[39m [38;2;154;162;148m  12m  t2 followup [38;2;255;91;20m · q2 pending 3m[39m                                                       [49m
+[48;2;18;20;18m    [38;2;111;168;255m…[38;2;228;232;224m bun run check[38;2;154;162;148m · 20s[39m                                                                                                                   [49m
+[48;2;18;20;18m[38;2;45;50;43m    ├─ [38;2;154;162;148m·[38;2;228;232;224m /root/acceptance_tests[38;2;154;162;148m  working · 20s ago · gpt-6-sol · medium[39m                                                                     [49m
+[48;2;18;20;18m[38;2;45;50;43m    └─ [38;2;154;162;148m·[38;2;228;232;224m /root/review[38;2;154;162;148m  idle · 2m ago[39m                                                                                                        [49m
+[48;2;18;20;18m [38;2;154;162;148m◌[39m [1m[38;2;228;232;224mparser              [39m[22m  [38;2;154;162;148mrunning · not supervised[39m [38;2;154;162;148m  12m  t2 followup [38;2;226;192;79m · 2 deferred · retrying (usage limit)[38;2;255;122;112m · 3 hooks blocked[38;2;226;192;79m · 2 outside s…[39m[49m
+[48;2;18;20;18m[38;2;154;162;148m    “Checking the parser boundaries”[39m                                                                                                        [49m
+[48;2;18;20;18m[38;2;154;162;148m· 1 idle run older than 24h[39m                                                                                                                 [49m
+[48;2;18;20;18m[38;2;45;50;43m── [1m[38;2;228;232;224mother [22m[38;2;45;50;43m──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[38;2;154;162;148m 1 waiting [38;2;45;50;43m──[39m[49m
+[48;2;18;20;18m [38;2;154;162;148m◌[39m [1m[38;2;228;232;224mother               [39m[22m  [38;2;154;162;148mwaiting · not supervised[39m [38;2;154;162;148m  12m  t2 followup [38;2;255;91;20m · q2 pending 3m[39m                                                       [49m
+[48;2;18;20;18m    [38;2;111;168;255m…[38;2;228;232;224m bun run check[38;2;154;162;148m · 20s[39m                                                                                                                   [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;27;30;26m[1m[38;2;228;232;224m↑↓/jk[22m[38;2;154;162;148m select[39m  [1m[38;2;228;232;224mEnter[22m[38;2;154;162;148m open[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m attention[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                                                                       [38;2;154;162;148mupdated 0.0s ago[39m[49m"
+`;
+
+exports[`monitor frames > saved empty at 70 columns 1`] = `
+"››› foreman 0.1.3                          gpt-6.1-sol · high · fast
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                   Saved state · daemon not running
+The monitor checks again automatically; start work in another termina…
+                         foreman status --all
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+↑↓/jk select  a attention  ? help  q quit             updated 0.0s ago"
+`;
+
+exports[`monitor frames > saved empty at 100 columns 1`] = `
+"››› foreman 0.1.3                      daemon not running · saved state  gpt-6.1-sol · high · fast
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                  Saved state · daemon not running
+              The monitor checks again automatically; start work in another terminal.
+                                        foreman status --all
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+↑↓/jk select  Enter open  a attention  ? help  q quit                               updated 0.0s ago"
+`;
+
+exports[`monitor frames > saved empty at 140 columns 1`] = `
+"››› foreman 0.1.3                                                              daemon not running · saved state  gpt-6.1-sol · high · fast
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                      Saved state · daemon not running
+                                  The monitor checks again automatically; start work in another terminal.
+                                                            foreman status --all
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+↑↓/jk select  Enter open  a attention  ? help  q quit                                                                       updated 0.0s ago"
+`;
+
+exports[`monitor frames > saved empty colors 1`] = `
+"[48;2;27;30;26m[38;2;228;232;224m››[38;2;255;91;20m›[39m [1m[38;2;228;232;224mforeman[39m[22m [38;2;154;162;148m0.1.3[39m                                                              [38;2;226;192;79mdaemon not running · saved state[39m  [38;2;154;162;148mgpt-6.1-sol · high · fast[39m  [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m[38;2;228;232;224m                                                      Saved state · daemon not running[39m                                                      [49m
+[48;2;18;20;18m[38;2;154;162;148m                                  The monitor checks again automatically; start work in another terminal.[39m                                   [49m
+[48;2;18;20;18m[38;2;228;232;224m                                                            foreman status --all[39m                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;27;30;26m[1m[38;2;228;232;224m↑↓/jk[22m[38;2;154;162;148m select[39m  [1m[38;2;228;232;224mEnter[22m[38;2;154;162;148m open[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m attention[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                                                                       [38;2;154;162;148mupdated 0.0s ago[39m[49m"
+`;
+
+exports[`monitor frames > saved starting at 70 columns 1`] = `
+"››› foreman 0.1.3              gpt-6.1-sol · high · fast  ■ 1 starting
+                   Saved state · daemon not running
+The monitor checks again automatically; start work in another termina…
+                         foreman status --all
+── repo ──────────────────────────────────────────────── 1 starting ──
+ ◌ starting                  starting · not supervised   12m          
+    … bun run check · 20s                                             
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+↑↓/jk select  a attention  ? help  q quit             updated 0.0s ago"
+`;
+
+exports[`monitor frames > saved starting at 100 columns 1`] = `
+"››› foreman 0.1.3          daemon not running · saved state  gpt-6.1-sol · high · fast  ■ 1 starting
+                                  Saved state · daemon not running
+              The monitor checks again automatically; start work in another terminal.
+                                        foreman status --all
+── repo ────────────────────────────────────────────────────────────────────────────── 1 starting ──
+ ◌ starting              starting · not supervised   12m  t2                                        
+    … bun run check · 20s                                                                           
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+↑↓/jk select  Enter open  a attention  ? help  q quit                               updated 0.0s ago"
+`;
+
+exports[`monitor frames > saved starting at 140 columns 1`] = `
+"››› foreman 0.1.3                                                  daemon not running · saved state  gpt-6.1-sol · high · fast  ■ 1 starting
+                                                      Saved state · daemon not running
+                                  The monitor checks again automatically; start work in another terminal.
+                                                            foreman status --all
+── repo ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 1 starting ──
+ ◌ starting              starting · not supervised   12m  t2 followup                                                                       
+    … bun run check · 20s                                                                                                                   
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+↑↓/jk select  Enter open  a attention  ? help  q quit                                                                       updated 0.0s ago"
+`;
+
+exports[`monitor frames > saved starting colors 1`] = `
+"[48;2;27;30;26m[38;2;228;232;224m››[38;2;255;91;20m›[39m [1m[38;2;228;232;224mforeman[39m[22m [38;2;154;162;148m0.1.3[39m                                                  [38;2;226;192;79mdaemon not running · saved state[39m  [38;2;154;162;148mgpt-6.1-sol · high · fast[39m  [38;2;154;162;148m■[38;2;228;232;224m 1 starting[39m[49m
+[48;2;18;20;18m[38;2;228;232;224m                                                      Saved state · daemon not running[39m                                                      [49m
+[48;2;18;20;18m[38;2;154;162;148m                                  The monitor checks again automatically; start work in another terminal.[39m                                   [49m
+[48;2;18;20;18m[38;2;228;232;224m                                                            foreman status --all[39m                                                            [49m
+[48;2;18;20;18m[38;2;45;50;43m── [1m[38;2;228;232;224mrepo [22m[38;2;45;50;43m──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[38;2;154;162;148m 1 starting [38;2;45;50;43m──[39m[49m
+[48;2;27;30;26m [38;2;154;162;148m◌[39m [1m[38;2;228;232;224mstarting            [39m[22m  [38;2;154;162;148mstarting · not supervised[39m [38;2;154;162;148m  12m  t2 followup [39m                                                                      [49m
+[48;2;27;30;26m    [38;2;111;168;255m…[38;2;228;232;224m bun run check[38;2;154;162;148m · 20s[39m                                                                                                                   [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;27;30;26m[1m[38;2;228;232;224m↑↓/jk[22m[38;2;154;162;148m select[39m  [1m[38;2;228;232;224mEnter[22m[38;2;154;162;148m open[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m attention[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                                                                       [38;2;154;162;148mupdated 0.0s ago[39m[49m"
+`;

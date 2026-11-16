@@ -18,7 +18,7 @@ import { type AppError, DaemonUnavailable } from "../errors";
 import type { DaemonRequestBody, DaemonResult } from "../schemas/daemon";
 import { Host } from "../services/host";
 import { recordOwner, releaseLock, takeLock } from "./lock";
-import { lines, respond, responseJson } from "./protocol";
+import { lines, requestJson, respond, responseJson } from "./protocol";
 import { DaemonSockets } from "./sockets";
 
 export interface DaemonOptions {
@@ -82,24 +82,18 @@ export const daemon = Effect.fn("daemon")(
         const serve = server.run((socket) =>
           Effect.scoped(
             Effect.gen(function* () {
-              yield* Effect.acquireRelease(
-                Clock.currentTimeMillis.pipe(
-                  Effect.flatMap((last) =>
-                    Ref.update(activity, (state) => ({
-                      connections: state.connections + 1,
-                      last,
-                    })),
-                  ),
-                ),
-                () =>
-                  Clock.currentTimeMillis.pipe(
-                    Effect.flatMap((last) =>
-                      Ref.update(activity, (state) => ({
-                        connections: state.connections - 1,
-                        last,
-                      })).pipe(Effect.andThen(Effect.logDebug("daemon.connection.closed"))),
+              let classification: "unclassified" | "passive" | "active" = "unclassified";
+              yield* Effect.acquireRelease(Effect.void, () =>
+                classification === "passive"
+                  ? Effect.logDebug("daemon.connection.closed")
+                  : Clock.currentTimeMillis.pipe(
+                      Effect.flatMap((last) =>
+                        Ref.update(activity, (state) => ({
+                          connections: state.connections - (classification === "active" ? 1 : 0),
+                          last,
+                        })).pipe(Effect.andThen(Effect.logDebug("daemon.connection.closed"))),
+                      ),
                     ),
-                  ),
               );
               const reader = yield* socket.reader;
               const writer = yield* socket.writer;
@@ -122,45 +116,77 @@ export const daemon = Effect.fn("daemon")(
               >();
               const reading = lines(reader).pipe(
                 Stream.runForEach((line) =>
-                  FiberSet.run(
-                    requests,
-                    Effect.suspend(() => {
-                      let stopping = false;
-                      return Effect.gen(function* () {
-                        const response = yield* respond(line, (request) => {
-                          if (request.body._tag === "Ping")
-                            return Effect.succeed({
-                              _tag: "Pong",
-                              version: options.version,
-                              pid: host.pid,
-                              build: host.build,
-                              ...(options.codexBin === undefined
-                                ? {}
-                                : { codexBin: options.codexBin }),
-                              ...(options.codexHome === undefined
-                                ? {}
-                                : { codexHome: options.codexHome }),
-                            });
-                          if (request.body._tag === "Shutdown") {
-                            return Effect.gen(function* () {
-                              const result = yield* options.handler(request.body);
-                              stopping = result._tag === "Ok";
-                              return result;
-                            }).pipe(Effect.uninterruptible);
-                          }
-                          return options.handler(request.body);
-                        });
-                        const json = yield* Schema.encodeEffect(responseJson)(response);
-                        yield* writer.write(`${json}\n`);
-                      }).pipe(
-                        Effect.ensuring(
-                          Effect.suspend(() =>
-                            stopping ? Deferred.succeed(shutdown, undefined) : Effect.void,
-                          ),
-                        ),
+                  Effect.gen(function* () {
+                    // Unclassified sockets do not affect idle ticks. A passive socket can
+                    // become active if a later request needs ordinary command ownership.
+                    if (classification !== "active") {
+                      const decoded = yield* Schema.decodeUnknownEffect(requestJson)(line).pipe(
+                        Effect.result,
                       );
-                    }),
-                  ),
+                      const tag = decoded._tag === "Success" ? decoded.success.body._tag : null;
+                      if (
+                        decoded._tag === "Success" &&
+                        decoded.success.passive === true &&
+                        (tag === "Ping" ||
+                          tag === "Overview" ||
+                          tag === "Detail" ||
+                          tag === "Events" ||
+                          tag === "Status")
+                      ) {
+                        classification = "passive";
+                      } else {
+                        yield* Effect.uninterruptible(
+                          Effect.gen(function* () {
+                            const last = yield* Clock.currentTimeMillis;
+                            classification = "active";
+                            yield* Ref.update(activity, (state) => ({
+                              connections: state.connections + 1,
+                              last,
+                            }));
+                          }),
+                        );
+                      }
+                    }
+                    yield* FiberSet.run(
+                      requests,
+                      Effect.suspend(() => {
+                        let stopping = false;
+                        return Effect.gen(function* () {
+                          const response = yield* respond(line, (request) => {
+                            if (request.body._tag === "Ping")
+                              return Effect.succeed({
+                                _tag: "Pong",
+                                version: options.version,
+                                pid: host.pid,
+                                build: host.build,
+                                ...(options.codexBin === undefined
+                                  ? {}
+                                  : { codexBin: options.codexBin }),
+                                ...(options.codexHome === undefined
+                                  ? {}
+                                  : { codexHome: options.codexHome }),
+                              });
+                            if (request.body._tag === "Shutdown") {
+                              return Effect.gen(function* () {
+                                const result = yield* options.handler(request.body);
+                                stopping = result._tag === "Ok";
+                                return result;
+                              }).pipe(Effect.uninterruptible);
+                            }
+                            return options.handler(request.body);
+                          });
+                          const json = yield* Schema.encodeEffect(responseJson)(response);
+                          yield* writer.write(`${json}\n`);
+                        }).pipe(
+                          Effect.ensuring(
+                            Effect.suspend(() =>
+                              stopping ? Deferred.succeed(shutdown, undefined) : Effect.void,
+                            ),
+                          ),
+                        );
+                      }),
+                    );
+                  }),
                 ),
               );
               yield* Effect.raceFirst(reading, FiberSet.join(requests)).pipe(

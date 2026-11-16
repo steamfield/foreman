@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import { NodeServices, NodeSocket, NodeSocketServer } from "@effect/platform-node";
 import { assert, describe, expect, it } from "@effect/vitest";
 import {
+  Clock,
+  DateTime,
   Deferred,
   Effect,
   Exit,
@@ -12,18 +14,20 @@ import {
   FileSystem,
   Layer,
   Logger,
+  Queue,
   References,
   Schema,
   Scope,
 } from "effect";
-import { ChildProcess } from "effect/process";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import { TestClock } from "effect/testing";
 import { openConnection } from "../src/codex/client";
 import { AppConfig } from "../src/config";
+import { QUIET_AFTER_MS } from "../src/core/monitor/attention";
 import { commandResult } from "../src/core/process";
 import * as Store from "../src/core/runs/store";
 import { computeWorktreeFields } from "../src/core/runs/worktree";
-import { call } from "../src/daemon/client";
+import { call, passiveDetail, passiveEvents } from "../src/daemon/client";
 import { daemon } from "../src/daemon/server";
 import { DaemonSockets } from "../src/daemon/sockets";
 import { ErrorEnvelope, RunConflict } from "../src/errors";
@@ -32,13 +36,16 @@ import { jsonRequested, main } from "../src/main";
 import { AppLayer } from "../src/runtime";
 import * as Codex from "../src/schemas/codex";
 import * as D from "../src/schemas/daemon";
+import { Overview } from "../src/schemas/monitor";
 import { Host } from "../src/services/host";
 import { makeSupervisor } from "../src/supervisor";
 import { makeAppServer } from "../src/supervisor/app-server";
+import { handleNotification } from "../src/supervisor/notifications";
+import { overview, projectRun } from "../src/supervisor/overview";
 import { deferral, preamble, timeUp } from "../src/supervisor/prompts";
 import { makeQuestions } from "../src/supervisor/questions";
 import { makeRegistry } from "../src/supervisor/registry";
-import { makeTurns } from "../src/supervisor/turns";
+import { makeTurns, type Turns } from "../src/supervisor/turns";
 import { type Rule, Scenario, type Step } from "./fixtures/fake-app-server/scenario";
 import { repoHooks, successfulTurn } from "./fixtures/fake-app-server/scenarios";
 import { runCli } from "./helpers/cli";
@@ -214,7 +221,9 @@ const fixture = Effect.fnUntraced(function* (script: Scenario, legacy = false, r
       yield* Effect.yieldNow;
     }
   });
-  const launch = Effect.fnUntraced(function* () {
+  const launch = Effect.fnUntraced(function* (
+    received: (body: D.DaemonRequestBody) => Effect.Effect<unknown> = () => Effect.void,
+  ) {
     const scope = yield* Scope.make();
     yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
     const supervisor = yield* makeSupervisor().pipe(
@@ -225,8 +234,8 @@ const fixture = Effect.fnUntraced(function* (script: Scenario, legacy = false, r
       // An old busy daemon remains in service and acknowledges mutations without a cursor.
       if (legacy && body._tag === "Shutdown")
         return Effect.fail(new RunConflict({ detail: "Active legacy runs" }));
-      return supervisor
-        .handler(body)
+      return received(body)
+        .pipe(Effect.andThen(supervisor.handler(body)))
         .pipe(
           Effect.map((result) =>
             legacy && result._tag === "Accepted" ? { _tag: "Ok" as const } : result,
@@ -424,6 +433,738 @@ const queuedAnswersFixture = Effect.fnUntraced(function* () {
 });
 
 describe("supervisor over the real daemon socket", () => {
+  it.live("status --all works from main and linked checkouts with a separate Git directory", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario(turnRule([question()])));
+      const repo = `${f.root}/separate`;
+      yield* f.fs.makeDirectory(repo);
+      yield* f.git(repo, ["init", "-q", `--separate-git-dir=${f.root}/metadata`]);
+      yield* f.git(repo, [
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.invalid",
+        "commit",
+        "--allow-empty",
+        "-qm",
+        "initial",
+      ]);
+      const worktree = `${repo}/work/unit`;
+      yield* f.git(repo, ["worktree", "add", "-qb", "unit", worktree]);
+      yield* f.launch();
+      yield* f.start();
+      yield* f.untilState("waiting");
+      for (const cwd of [repo, worktree]) {
+        yield* Effect.acquireUseRelease(
+          Effect.sync(() => {
+            const previous = process.cwd();
+            process.chdir(cwd);
+            return previous;
+          }),
+          () =>
+            Effect.gen(function* () {
+              const text = yield* f.cli(["status", "--all"]);
+              expect(text).toContain(`repo (${f.repo})`);
+              expect(text).toContain("other repo: its own session supervises it");
+              expect(text).not.toContain("next:");
+            }),
+          (previous) => Effect.sync(() => process.chdir(previous)),
+        );
+      }
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live(
+    "Overview and status --all show both repo groups and subagents without scanning worktrees",
+    () =>
+      Effect.gen(function* () {
+        const real = yield* ChildProcessSpawner.ChildProcessSpawner;
+        const observed: string[] = [];
+        let observing = false;
+        const spawner = ChildProcessSpawner.make((command) =>
+          Effect.gen(function* () {
+            if (observing && command._tag === "StandardCommand") observed.push(command.command);
+            return yield* real.spawn(command);
+          }),
+        );
+        yield* Effect.gen(function* () {
+          const child = {
+            type: "subAgentActivity",
+            id: "child-start",
+            kind: "started",
+            agentThreadId: "child",
+            agentPath: "/root/tests",
+            model: "gpt-6.1-sol",
+            reasoningEffort: "high",
+            startedAtMs: 1000,
+            completedAtMs: null,
+          };
+          const f = yield* fixture(
+            scenario({
+              ...turnRule([
+                notify(Codex.Method.itemCompleted, {
+                  threadId: "{{thread}}",
+                  turnId: "{{turn}}",
+                  item: child,
+                }),
+                question(),
+              ]),
+              repeat: true,
+            }),
+          );
+          const other = yield* fixture(scenario(), false, "a-other");
+          yield* f.launch();
+          yield* f.start();
+          const otherName = Schema.decodeUnknownSync(D.RunName)("foreign");
+          yield* f.start({ name: otherName, worktree: other.worktree });
+          let result: Overview;
+          while (true) {
+            const reply = yield* f.request({ _tag: "Overview" });
+            assert(reply._tag === "Overview");
+            result = reply;
+            if (
+              result.runs.length === 2 &&
+              result.runs.every((run) => run.questions.length === 1 && run.state === "waiting")
+            )
+              break;
+            yield* Effect.yieldNow;
+          }
+          expect(result.daemon).toMatchObject({ version: "test", build: "test" });
+          expect(result.runs.map((run) => run.group).sort()).toEqual([f.repo, other.repo].sort());
+          expect(result.runs.every((run) => run.subagents[0]?.path === "/root/tests")).toBe(true);
+          observing = true;
+          yield* f.request({ _tag: "Overview" });
+          // The daemon projects from memory: no git or find per request or per run.
+          expect(observed).toEqual([]);
+          yield* Effect.acquireUseRelease(
+            Effect.sync(() => {
+              const previous = process.cwd();
+              process.chdir(f.worktree);
+              return previous;
+            }),
+            () =>
+              Effect.gen(function* () {
+                const json = Schema.decodeUnknownSync(Schema.fromJsonString(Overview))(
+                  yield* f.cli(["status", "--all", "--json"]),
+                );
+                expect(json.runs.map((run) => run.name).sort()).toEqual(["foreign", "unit"]);
+                expect(json.runs.every((run) => run.subagents[0]?.path === "/root/tests")).toBe(
+                  true,
+                );
+                const text = yield* f.cli(["status", "--all"]);
+                expect(text).toContain("2 runs: 2 waiting");
+                expect(text.indexOf(`repo (${f.repo})`)).toBeLessThan(
+                  text.indexOf(`a-other (${other.repo})`),
+                );
+                expect(text).toContain("  /root/tests  working · ");
+                expect(text).toContain(`next: FOREMAN_HOME=${f.dataDir} foreman answer unit q1`);
+                expect(text).not.toContain("foreman answer foreign");
+                expect(text).toContain("other repo: its own session supervises it");
+                const dotGit = `${f.worktree}/.git`;
+                const pointer = yield* f.fs.readFileString(dotGit);
+                yield* Effect.acquireUseRelease(
+                  f.fs.writeFileString(dotGit, `gitdir: ${f.root}/unavailable-gitdir\n`),
+                  () =>
+                    f
+                      .cli(["status", "--all", "--json"])
+                      .pipe(
+                        Effect.tap((output) =>
+                          Effect.sync(() =>
+                            expect(
+                              Schema.decodeUnknownSync(Schema.fromJsonString(Overview))(output)
+                                .runs,
+                            ).toHaveLength(2),
+                          ),
+                        ),
+                      ),
+                  () => f.fs.writeFileString(dotGit, pointer),
+                );
+              }),
+            (previous) => Effect.sync(() => process.chdir(previous)),
+          );
+          // Text output runs one git worktree list to put the caller's group first; JSON runs none.
+          expect(observed).toEqual(["git"]);
+          observing = false;
+        }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
+      }).pipe(Effect.provide(platform)),
+  );
+
+  it.live(
+    "Overview long-poll coalesces a fake token burst and returns the changed state before timeout",
+    () =>
+      Effect.gen(function* () {
+        const tokens: Step[] = Array.from({ length: 10 }, (_, index) =>
+          notify(Codex.Method.tokenUsageUpdated, {
+            threadId: "{{thread}}",
+            turnId: "{{turn}}",
+            tokenUsage: {
+              total: {
+                inputTokens: index + 1,
+                cachedInputTokens: 0,
+                outputTokens: 2 * (index + 1),
+                reasoningOutputTokens: 0,
+                totalTokens: 3 * (index + 1),
+              },
+              last: {
+                inputTokens: 1,
+                cachedInputTokens: 0,
+                outputTokens: 2,
+                reasoningOutputTokens: 0,
+                totalTokens: 3,
+              },
+              modelContextWindow: null,
+            },
+          }),
+        );
+        const f = yield* fixture(
+          scenario(turnRule([{ awaitRequest: Codex.Method.turnSteer }, ...tokens, question()]), {
+            method: Codex.Method.turnSteer,
+            respond: { result: { turnId: "{{turn}}" } },
+          }),
+        );
+        const { supervisor } = yield* f.launch();
+        yield* f.start();
+        while (true) {
+          const reply = yield* f.request({ _tag: "Events", name });
+          assert(reply._tag === "Events");
+          if (reply.events.some(({ event }) => event._tag === "TurnStarted")) break;
+          yield* Effect.yieldNow;
+        }
+        const initial = yield* f.request({ _tag: "Overview" });
+        assert(initial._tag === "Overview");
+        const start = performance.now();
+        const pending = yield* supervisor
+          .handler({ _tag: "Overview", after: initial.version, timeoutMs: 4000 })
+          .pipe(Effect.forkChild({ startImmediately: true }));
+        yield* f.request({ _tag: "Steer", name, message: "Continue" });
+        const response = yield* Fiber.join(pending);
+        assert(response._tag === "Overview");
+        expect(performance.now() - start).toBeLessThan(3000);
+        expect(response.version).toBeGreaterThan(initial.version);
+        expect(response.runs).toMatchObject([
+          { state: "waiting", tokensTotal: 30, questions: [{ id: q1 }] },
+        ]);
+        const events = yield* f.request({ _tag: "Events", name, limit: 100 });
+        assert(events._tag === "Events");
+        expect(events.events.filter(({ event }) => event._tag === "TokenUsage")).toHaveLength(10);
+      }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("Detail reads the full saved history without refreshing or spawning", () =>
+    Effect.gen(function* () {
+      const real = yield* ChildProcessSpawner.ChildProcessSpawner;
+      const observed: string[] = [];
+      let observing = false;
+      const spawner = ChildProcessSpawner.make((command) =>
+        Effect.gen(function* () {
+          if (observing) observed.push(command._tag);
+          return yield* real.spawn(command);
+        }),
+      );
+      yield* Effect.gen(function* () {
+        const f = yield* fixture(
+          scenario(turnRule([complete("completed", [message("First hand-off.")])])),
+        );
+        const initialServer = yield* f.launch();
+        yield* f.start();
+        yield* f.untilState("idle");
+        yield* initialServer.stop;
+        const record = yield* Store.readRun(f.runDir);
+        const fs = yield* FileSystem.FileSystem;
+        // Recover question history and a hand-off older than the latest turn.
+        const ids = [1, 2, 3, 4, 5, 6].map((id) =>
+          Schema.decodeUnknownSync(D.QuestionId)(`q${id}`),
+        );
+        const at = DateTime.makeUnsafe("2026-11-16T12:00:00Z");
+        const later = DateTime.makeUnsafe("2026-11-16T12:01:00Z");
+        for (const id of ids)
+          yield* Store.appendQuestion(f.runDir, {
+            _tag: "Asked",
+            id,
+            kind: "blocked",
+            question: `Help ${id}?`,
+            turn: 1,
+            at,
+          });
+        for (const [index, id] of ids.entries()) {
+          if (index === 0) continue;
+          if (index === 1 || index === 2)
+            yield* Store.appendQuestion(f.runDir, {
+              _tag: "Deferred",
+              id,
+              by: "orchestrator",
+              at: later,
+            });
+          if (index === 1) continue;
+          let resolution: Extract<D.QuestionLine, { _tag: "Resolved" }>["resolution"] = "answered";
+          if (index === 3) resolution = "cancelled";
+          if (index === 4) resolution = "superseded";
+          yield* Store.appendQuestion(f.runDir, {
+            _tag: "Resolved",
+            id,
+            resolution,
+            text: null,
+            at: later,
+          });
+        }
+        yield* Store.writeRun(f.runDir, { ...record, turns: 3 });
+        yield* Store.writeHandoff(f.runDir, 2, "Latest hand-off.\nMore detail.");
+        yield* f.launch();
+        const cached = yield* f.status();
+        yield* fs.writeFileString(`${f.worktree}/result.txt`, "Not in the cached worktree scan.");
+        const overview = yield* f.request({ _tag: "Overview" });
+        assert(overview._tag === "Overview");
+        observing = true;
+        const detail = yield* passiveDetail(f.dataDir, name);
+        assert(detail !== null);
+        expect(detail.run).toEqual(overview.runs[0]);
+        expect(detail.digest).toEqual({
+          ...cached,
+          questions: cached.questions.map((question) => ({
+            ...question,
+            pendingMs: expect.any(Number),
+          })),
+        });
+        expect(detail.digest.questions[0]?.pendingMs).toBeGreaterThanOrEqual(
+          cached.questions[0]?.pendingMs ?? 0,
+        );
+        expect(detail.record).toEqual({
+          runDir: f.runDir,
+          worktree: record.worktree,
+          branch: null,
+          baseCommit: record.baseCommit,
+          fromRef: null,
+          createdAt: record.createdAt,
+          updatedAt: record.updatedAt,
+        });
+        expect(detail.contract).toBe("Do the work.\n- May change: `result.txt`");
+        expect(detail.contractTruncated).toBe(false);
+        expect(detail.questions).toEqual(
+          ids.map((id, index) => ({
+            id,
+            kind: "blocked",
+            text: `Help ${id}?`,
+            askedAt: at,
+            status: ["pending", "deferred", "resolved", "cancelled", "cancelled", "resolved"][
+              index
+            ],
+            resolvedAt: index < 2 ? null : later,
+          })),
+        );
+        expect(detail.handoff).toEqual({ turn: 2, text: "Latest hand-off.\nMore detail." });
+        const events = yield* passiveEvents(f.dataDir, name, 0, 1);
+        expect(events).toEqual(yield* f.request({ _tag: "Events", name, after: 0, waitMs: 1 }));
+        const limit = detail.contractByteLimit;
+        expect(limit).toBe(256 * 1024);
+        const exact = `${"a".repeat(limit - 2)}é`;
+        yield* fs.writeFileString(`${f.runDir}/contract.md`, exact);
+        expect(yield* passiveDetail(f.dataDir, name)).toMatchObject({
+          contract: exact,
+          contractTruncated: false,
+        });
+        yield* fs.writeFileString(`${f.runDir}/contract.md`, `${exact}x`);
+        expect(yield* passiveDetail(f.dataDir, name)).toMatchObject({
+          contract: exact,
+          contractTruncated: true,
+        });
+        yield* fs.writeFileString(`${f.runDir}/contract.md`, `${"a".repeat(limit - 1)}é`);
+        expect(yield* passiveDetail(f.dataDir, name)).toMatchObject({
+          contract: "a".repeat(limit - 1),
+          contractTruncated: true,
+        });
+        expect(observed).toEqual([]);
+        observing = false;
+        const missing = Schema.decodeUnknownSync(D.RunName)("missing");
+        expect(yield* passiveDetail(f.dataDir, missing).pipe(Effect.flip)).toMatchObject({
+          _tag: "RunNotFound",
+        });
+        expect(yield* passiveEvents(f.dataDir, missing, 0, 1).pipe(Effect.flip)).toMatchObject({
+          _tag: "RunNotFound",
+        });
+        yield* f.request({ _tag: "Archive", name, keepWorktree: true });
+        expect(yield* f.request({ _tag: "Detail", name }).pipe(Effect.flip)).toMatchObject({
+          _tag: "RunNotFound",
+        });
+      }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("Detail long-poll releases the run lock while fake notifications arrive", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(
+        scenario(
+          turnRule([
+            { awaitRequest: Codex.Method.turnSteer },
+            { awaitRequest: Codex.Method.turnSteer },
+            question(),
+          ]),
+          {
+            method: Codex.Method.turnSteer,
+            repeat: true,
+            respond: { result: { turnId: "{{turn}}" } },
+          },
+        ),
+      );
+      const entered = yield* Queue.unbounded<void>();
+      yield* f.launch((body) =>
+        body._tag === "Detail" && body.after !== undefined
+          ? Queue.offer(entered, undefined)
+          : Effect.void,
+      );
+      yield* f.start();
+      while (true) {
+        const page = yield* f.request({ _tag: "Events", name });
+        assert(page._tag === "Events");
+        if (page.events.some(({ event }) => event._tag === "TurnStarted")) break;
+        yield* Effect.yieldNow;
+      }
+      const initial = yield* f.request({ _tag: "Detail", name });
+      assert(initial._tag === "Detail");
+      expect(initial.handoff).toBeNull();
+      const startedAt = performance.now();
+      const pending = yield* f
+        .request({ _tag: "Detail", name, after: initial.version, timeoutMs: 4000 })
+        .pipe(Effect.forkChild);
+      yield* Queue.take(entered);
+      yield* f.request({ _tag: "Steer", name, message: "Continue" });
+      const reply = yield* Fiber.join(pending);
+      assert(reply._tag === "Detail");
+      expect(performance.now() - startedAt).toBeLessThan(3000);
+      expect(reply.version).toBeGreaterThan(initial.version);
+      // A wake can precede the next notification; the fake holds it until another steer.
+      expect(reply.run).toMatchObject({ state: "running", questions: [] });
+      expect(reply.questions).toEqual([]);
+      const nextStartedAt = performance.now();
+      const next = yield* f
+        .request({ _tag: "Detail", name, after: reply.version, timeoutMs: 4000 })
+        .pipe(Effect.forkChild);
+      yield* Queue.take(entered);
+      yield* f.request({ _tag: "Steer", name, message: "Ask now" });
+      while (true) {
+        const page = yield* f.request({ _tag: "Events", name });
+        assert(page._tag === "Events");
+        if (page.events.some(({ event }) => event._tag === "QuestionAsked")) break;
+        yield* Effect.yieldNow;
+      }
+      const changed = yield* Fiber.join(next);
+      assert(changed._tag === "Detail");
+      expect(changed.version).toBeGreaterThan(reply.version);
+      expect(performance.now() - nextStartedAt).toBeLessThan(3000);
+      const latest = yield* f.request({ _tag: "Detail", name });
+      assert(latest._tag === "Detail");
+      expect(latest.run).toMatchObject({ state: "waiting", questions: [{ id: q1 }] });
+      expect(latest.questions).toMatchObject([{ id: q1, status: "pending" }]);
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.effect.each([1000, undefined])(
+    "Detail long-poll returns unchanged at timeout %s (default 15s)",
+    (timeoutMs) =>
+      Effect.gen(function* () {
+        const f = yield* fixture(scenario(turnRule([complete()])));
+        const entered = yield* Deferred.make<void>();
+        yield* f.launch((body) =>
+          body._tag === "Detail" && body.after !== undefined
+            ? Deferred.succeed(entered, undefined)
+            : Effect.void,
+        );
+        yield* f.start();
+        yield* f.untilState("idle");
+        const initial = yield* f.request({ _tag: "Detail", name });
+        assert(initial._tag === "Detail");
+        const pending = yield* f
+          .request({
+            _tag: "Detail",
+            name,
+            after: initial.version,
+            ...(timeoutMs === undefined ? {} : { timeoutMs }),
+          })
+          .pipe(Effect.forkChild);
+        yield* Deferred.await(entered);
+        yield* TestClock.adjust((timeoutMs ?? 15000) - 1);
+        expect(pending.pollUnsafe()).toBeUndefined();
+        yield* TestClock.adjust(1);
+        expect(yield* Fiber.join(pending)).toEqual(initial);
+        expect(yield* f.request({ _tag: "Detail", name, after: initial.version - 1 })).toEqual(
+          initial,
+        );
+      }).pipe(Effect.provide(platform)),
+  );
+
+  it.effect("tracks live items, commentary and independent subagents without persisting them", () =>
+    Effect.gen(function* () {
+      const itemStep = (method: string, item: unknown, turnId = "{{turn}}") =>
+        notify(method, { threadId: "{{thread}}", turnId, item });
+      const activity = (kind: string, id: string, thread = "child-a", at = 100) => ({
+        type: "subAgentActivity",
+        id,
+        kind,
+        agentThreadId: thread,
+        agentPath: `/root/${thread}`,
+        model: kind === "started" ? "gpt-6.1-sol" : null,
+        reasoningEffort: kind === "started" ? "high" : null,
+        startedAtMs: at,
+        completedAtMs: at,
+      });
+      const activitySteps = (kind: string, id: string, thread = "child-a", at = 100) => [
+        itemStep(Codex.Method.itemStarted, activity(kind, id, thread, at)),
+        itemStep(Codex.Method.itemCompleted, activity(kind, id, thread, at)),
+      ];
+      const command = {
+        type: "commandExecution",
+        id: "command",
+        command: "bun run check",
+        status: "inProgress",
+        aggregatedOutput: null,
+        exitCode: null,
+      };
+      const batches: Step[][] = [
+        [
+          notify("item/commandExecution/outputDelta", {
+            threadId: "{{thread}}",
+            turnId: "old-turn",
+            delta: "chunk",
+          }),
+        ],
+        [itemStep(Codex.Method.itemCompleted, { type: "reasoning", id: "other" })],
+        [itemStep(Codex.Method.itemCompleted, { ...command, status: "completed", exitCode: 0 })],
+        [itemStep(Codex.Method.itemStarted, { type: "reasoning", id: "reasoning" })],
+        [
+          itemStep(Codex.Method.itemCompleted, message("Working on it", "commentary")),
+          itemStep(Codex.Method.itemCompleted, message("Done")),
+        ],
+        [complete()],
+      ];
+      const f = yield* fixture(
+        scenario(
+          turnRule([
+            ...activitySteps("started", "a-start"),
+            ...activitySteps("interacted", "a-interact", "child-a", 200),
+            ...activitySteps("completed", "a-done"),
+            ...activitySteps("interacted", "a-wake", "child-a", 300),
+            itemStep(Codex.Method.itemCompleted, {
+              ...activity("started", "a-repeat"),
+              model: "other-model",
+              reasoningEffort: "low",
+            }),
+            ...activitySteps("completed", "b-done", "child-b"),
+            ...activitySteps("interacted", "c-wake", "child-c"),
+            ...activitySteps("future_kind", "future", "ignored"),
+            itemStep(Codex.Method.itemStarted, command),
+          ]),
+          ...batches.map(
+            (steps): Rule => ({
+              method: Codex.Method.turnSteer,
+              respond: { result: { turnId: "{{turn}}" } },
+              steps,
+            }),
+          ),
+        ),
+      );
+      const config = yield* Effect.service(AppConfig).pipe(Effect.provide(AppConfig.layer(f.env)));
+      const registry = yield* makeRegistry(f.dataDir);
+      const servers = yield* makeAppServer(
+        config,
+        "test",
+        registry,
+        (server, notification) =>
+          Effect.gen(function* () {
+            const identity = yield* Schema.decodeUnknownEffect(
+              Schema.Struct({ threadId: Schema.String }),
+            )(notification.params);
+            const run = [...registry.runs.values()].find(
+              (run) => run.record.threadId === identity.threadId,
+            );
+            if (run)
+              yield* registry.enqueue(
+                run,
+                handleNotification(registry, turns, run, server, notification),
+              );
+          }),
+        () => Effect.void,
+      );
+      const turns: Turns = yield* makeTurns(registry, servers, config);
+      yield* TestClock.setTime(1000);
+      yield* turns.start(
+        {
+          _tag: "Start",
+          name,
+          worktree: f.worktree,
+          contract: "# Add the thing",
+          write: false,
+          skipDepsCheck: false,
+        },
+        Effect.void,
+      );
+      const run = yield* registry.lookup(name);
+      const until = (predicate: () => boolean) =>
+        Effect.gen(function* () {
+          while (true) {
+            const changed = yield* registry.change;
+            if (yield* run.lock.withPermits(1)(Effect.sync(predicate))) return;
+            yield* changed;
+          }
+        });
+      yield* until(() => run.openItem?.id === "command");
+      expect(run.title).toBe("Add the thing");
+      expect(run.openItem).toEqual({
+        type: "commandExecution",
+        command: "bun run check",
+        startedAt: 1000,
+        id: "command",
+      });
+      expect([...run.subagents.values()]).toEqual([
+        {
+          threadId: "child-a",
+          path: "/root/child-a",
+          model: "gpt-6.1-sol",
+          effort: "high",
+          state: "working",
+          startedAt: 100,
+          lastInteractionAt: 300,
+          interactions: 2,
+        },
+        {
+          threadId: "child-b",
+          path: "/root/child-b",
+          model: null,
+          effort: null,
+          state: "idle",
+          startedAt: 100,
+          lastInteractionAt: 100,
+          interactions: 0,
+        },
+        {
+          threadId: "child-c",
+          path: "/root/child-c",
+          model: null,
+          effort: null,
+          state: "working",
+          startedAt: 100,
+          lastInteractionAt: 100,
+          interactions: 1,
+        },
+      ]);
+      const eventsBefore = yield* Store.readEvents(run.dir);
+      yield* TestClock.setTime(2000);
+      yield* run.lock.withPermits(1)(turns.steer(run, "delta"));
+      yield* until(() => run.lastActivityAt === 2000);
+      expect((yield* Store.readEvents(run.dir)).events.map(({ event }) => event)).toEqual([
+        ...eventsBefore.events.map(({ event }) => event),
+        { _tag: "Steered", message: "delta" },
+      ]);
+      expect(run.openItem?.id).toBe("command");
+      yield* TestClock.setTime(3000);
+      yield* run.lock.withPermits(1)(turns.steer(run, "unrelated completion"));
+      yield* until(() => run.items.some((item) => item.id === "other"));
+      expect(run.openItem?.id).toBe("command");
+      yield* run.lock.withPermits(1)(turns.steer(run, "command completion"));
+      yield* until(() => run.openItem === null);
+      yield* TestClock.setTime(3000 + QUIET_AFTER_MS);
+      expect(projectRun(run, "repo", yield* Clock.currentTimeMillis).quiet).toBe(true);
+      const metadata = { version: "test", build: "test", startedAt: DateTime.makeUnsafe(0) };
+      const quietView = yield* overview(registry, metadata, { _tag: "Overview" });
+      const resumed = yield* overview(registry, metadata, {
+        _tag: "Overview",
+        after: quietView.version,
+        timeoutMs: 15000,
+      }).pipe(Effect.forkChild);
+      yield* TestClock.adjust(1);
+      const server = yield* servers.get;
+      const delta = { method: "item/agentMessage/delta", params: { delta: "Working" } };
+      yield* run.lock.withPermits(1)(handleNotification(registry, turns, run, server, delta));
+      yield* TestClock.adjust(250);
+      expect(resumed.pollUnsafe()).toBeDefined();
+      expect((yield* Fiber.join(resumed)).runs[0]?.quiet).toBe(false);
+      const resumedVersion = registry.version;
+      yield* run.lock.withPermits(1)(handleNotification(registry, turns, run, server, delta));
+      expect(registry.version).toBe(resumedVersion);
+      const resumedAt = yield* Clock.currentTimeMillis;
+      yield* run.lock.withPermits(1)(turns.steer(run, "reasoning"));
+      yield* until(() => run.openItem?.id === "reasoning");
+      expect(run.openItem?.command).toBeNull();
+      yield* run.lock.withPermits(1)(turns.steer(run, "commentary and final answer"));
+      yield* until(() =>
+        run.items.some(
+          (item) => Schema.is(Codex.AgentMessageItem)(item) && item.phase === "final_answer",
+        ),
+      );
+      expect(run.lastCommentary).toEqual({ text: "Working on it", at: resumedAt });
+      yield* run.lock.withPermits(1)(turns.steer(run, "finish"));
+      yield* until(() => run.record.state === "idle");
+      expect(run.openItem).toBeNull();
+      expect([...run.subagents.values()].map((agent) => agent.state)).toEqual([
+        "idle",
+        "idle",
+        "idle",
+      ]);
+      expect(yield* Store.readRun(run.dir)).not.toHaveProperty("subagents");
+      const recovered = yield* registry.add(yield* Store.readRun(run.dir));
+      expect(recovered.title).toBe("Add the thing");
+      expect(recovered.subagents.size).toBe(0);
+      yield* f.fs.writeFileString(
+        `${run.dir}/contract.md`,
+        "# Add the thing\n- May change: `result.txt`",
+      );
+      const beforeRefresh = recovered.version;
+      yield* recovered.lock.withPermits(1)(registry.refreshWorktree(recovered));
+      expect(recovered.version).toBeGreaterThan(beforeRefresh);
+      expect(projectRun(recovered, "repo", resumedAt).outsideMayChange).toBe(0);
+      const afterRefresh = recovered.version;
+      yield* recovered.lock.withPermits(1)(registry.refreshWorktree(recovered));
+      expect(recovered.version).toBe(afterRefresh);
+      yield* f.fs.writeFileString(`${run.dir}/contract.md`, "\n Plain task \nmore");
+      expect((yield* registry.add(recovered.record)).title).toBe("Plain task");
+      yield* f.fs.remove(`${run.dir}/contract.md`);
+      yield* f.fs.makeDirectory(`${run.dir}/contract.md`);
+      expect((yield* registry.add(recovered.record)).title).toBeNull();
+    }).pipe(Effect.provide(platform)),
+  );
+  it.live("keeps noisy notifications only in the raw Codex log", () =>
+    Effect.gen(function* () {
+      const methods = [
+        "item/commandExecution/outputDelta",
+        "turn/moderationMetadata",
+        "turn/diff/updated",
+        "thread/name/updated",
+      ];
+      const f = yield* fixture(
+        scenario(
+          turnRule([
+            ...methods.map((method) =>
+              notify(method, { threadId: "{{thread}}", turnId: "{{turn}}", delta: "output" }),
+            ),
+            complete(),
+          ]),
+        ),
+      );
+      yield* f.launch();
+      yield* f.start();
+      yield* f.untilState("idle");
+      expect(
+        (yield* Store.readEvents(f.runDir)).events.flatMap(({ event }) =>
+          event._tag === "Other" ? [event.method] : [],
+        ),
+      ).toEqual(["thread/name/updated"]);
+      const raw = yield* f.fs.readFileString(`${f.runDir}/codex.jsonl`);
+      const loggedMethods = raw
+        .trim()
+        .split("\n")
+        .map(
+          (line) =>
+            Schema.decodeUnknownSync(Schema.fromJsonString(Codex.RpcNotification))(line).method,
+        );
+      expect(loggedMethods).toEqual([
+        Codex.Method.turnStarted,
+        "[redacted]",
+        ...methods.slice(1),
+        Codex.Method.turnCompleted,
+      ]);
+      const verbose = yield* f.cli(["events", "unit", "--verbose"]);
+      expect(verbose).toContain("thread/name/updated");
+      expect(verbose).not.toContain("[redacted]");
+    }).pipe(Effect.provide(platform)),
+  );
   it.live("start names the Codex thread after the run and its repo", () =>
     Effect.gen(function* () {
       const f = yield* fixture(scenario(turnRule([complete()])), false, "my-app");
@@ -2126,8 +2867,8 @@ describe("supervisor over the real daemon socket", () => {
         const f = yield* fixture(
           scenario(
             turnRule([
-              notify("turn/moderationMetadata", { threadId: "{{thread}}" }),
-              notify("turn/diff/updated", { threadId: "{{thread}}" }),
+              notify("thread/name/updated", { threadId: "{{thread}}" }),
+              notify("thread/status/updated", { threadId: "{{thread}}" }),
               notify(Codex.Method.itemCompleted, {
                 threadId: "{{thread}}",
                 turnId: "{{turn}}",
@@ -2153,13 +2894,99 @@ describe("supervisor over the real daemon socket", () => {
         expect(full.events.filter(({ event }) => event._tag === "Other")).toHaveLength(2);
         expect(human).toContain(`--after ${full.next}`);
         const verbose = yield* f.cli(["events", "unit", "--verbose"]);
-        expect(verbose).toContain("Other turn/moderationMetadata");
-        expect(verbose).toContain("Other turn/diff/updated");
+        expect(verbose).toContain("Other thread/name/updated");
+        expect(verbose).toContain("Other thread/status/updated");
         expect(verbose.trimEnd().split("\n").at(-1)).toContain(`--after ${full.next} --verbose`);
         const chatter = yield* f.cli(["events", "unit", "--after", "2", "--limit", "2"]);
         expect(chatter).not.toContain("Other");
         expect(chatter).toContain("--after 4");
       }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("long-polling events releases the run lock and returns new notifications promptly", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(
+        scenario(
+          turnRule([
+            { awaitRequest: Codex.Method.turnSteer },
+            { awaitRequest: Codex.Method.turnSteer },
+            notify(Codex.Method.itemCompleted, {
+              threadId: "{{thread}}",
+              turnId: "{{turn}}",
+              item: message("Arrived during the poll"),
+            }),
+            complete(),
+          ]),
+          {
+            method: Codex.Method.turnSteer,
+            repeat: true,
+            respond: { result: { turnId: "{{turn}}" } },
+          },
+        ),
+      );
+      yield* f.launch();
+      yield* f.start();
+      yield* f.untilState("running");
+      const before = yield* f.request({ _tag: "Events", name });
+      assert(before._tag === "Events");
+      const start = yield* Clock.currentTimeMillis;
+      const pending = yield* f
+        .request({ _tag: "Events", name, after: before.next, waitMs: 5000 })
+        .pipe(Effect.forkChild);
+      yield* f.status();
+      expect(pending.pollUnsafe()).toBeUndefined();
+      yield* f.request({ _tag: "Steer", name, message: "Continue" });
+      const page = yield* Fiber.join(pending);
+      assert(page._tag === "Events");
+      expect(page.events.map(({ event }) => event._tag)).toEqual(["Steered"]);
+      expect(page.state).toBeDefined();
+      const next = yield* f
+        .request({
+          _tag: "Events",
+          name,
+          after: page.next,
+          waitMs: 5000,
+        })
+        .pipe(Effect.forkChild);
+      yield* f.request({ _tag: "Steer", name, message: "Finish" });
+      let notifications = yield* Fiber.join(next);
+      while (
+        notifications._tag === "Events" &&
+        !notifications.events.some(({ event }) => event._tag === "AgentMessage")
+      )
+        notifications = yield* f.request({
+          _tag: "Events",
+          name,
+          after: notifications.next,
+          waitMs: 5000,
+        });
+      assert(notifications._tag === "Events");
+      expect(notifications.events.map(({ event }) => event._tag)).toContain("AgentMessage");
+      yield* f.untilState("idle");
+      expect((yield* Clock.currentTimeMillis) - start).toBeLessThan(3000);
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("long-polling events times out with an empty page and the current state", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario(turnRule()));
+      yield* f.launch();
+      yield* f.start();
+      yield* f.untilState("running");
+      const before = yield* f.request({ _tag: "Events", name });
+      assert(before._tag === "Events");
+      const start = yield* Clock.currentTimeMillis;
+      const page = yield* f.request({
+        _tag: "Events",
+        name,
+        after: before.next,
+        waitMs: 150,
+      });
+      const elapsed = (yield* Clock.currentTimeMillis) - start;
+      expect(page).toEqual({ ...before, events: [], state: "running" });
+      expect(elapsed).toBeGreaterThanOrEqual(130);
+      expect(elapsed).toBeLessThan(1500);
+    }).pipe(Effect.provide(platform)),
   );
 
   it.live("socket interrupt cancels a start during setup before looking up its run", () =>

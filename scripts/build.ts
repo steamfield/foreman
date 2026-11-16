@@ -20,6 +20,7 @@ async function compile(outfile: string, target?: string) {
       process.execPath,
       "build",
       "src/bin.ts",
+      // Bun resolves tsconfig paths for the host and every cross-compiled target.
       "--compile",
       "--minify",
       "--no-compile-autoload-dotenv",

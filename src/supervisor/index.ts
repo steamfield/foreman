@@ -1,5 +1,7 @@
 import {
   Cause,
+  Clock,
+  DateTime,
   Deferred,
   Effect,
   Exit,
@@ -22,7 +24,9 @@ import * as Codex from "../schemas/codex";
 import { activeStates, type DaemonRequestBody, type DaemonResult } from "../schemas/daemon";
 import { Host } from "../services/host";
 import { type AppServer, makeAppServer } from "./app-server";
+import { detail } from "./detail";
 import { handleNotification } from "./notifications";
+import { overview } from "./overview";
 import { deferral } from "./prompts";
 import { makeQuestions } from "./questions";
 import { makeRegistry, type Run } from "./registry";
@@ -103,6 +107,11 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
     FileSystem.FileSystem | Path.Path | ChildProcessSpawner.ChildProcessSpawner
   >();
   const registry = yield* makeRegistry(config.home);
+  const overviewDaemon = {
+    version: host.version,
+    build: host.build,
+    startedAt: DateTime.makeUnsafe(yield* Clock.currentTimeMillis),
+  };
   // threadId is saved before turn/start; the run lock orders its reply and early notifications.
   const route = (threadId: string) =>
     Effect.sync(() => [...registry.runs.values()].find((run) => run.record.threadId === threadId));
@@ -294,6 +303,10 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
     FileSystem.FileSystem | Path.Path | ChildProcessSpawner.ChildProcessSpawner
   > {
     switch (body._tag) {
+      case "Overview":
+        return yield* overview(registry, overviewDaemon, body);
+      case "Detail":
+        return yield* detail(registry, body);
       case "Shutdown":
         return yield* registry.starts.withPermits(1)(
           Effect.gen(function* () {
@@ -360,6 +373,23 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
         if (body._tag === "Interrupt" && (yield* turns.cancelStart(body.name)))
           return { _tag: "Ok" };
         const run = yield* registry.lookup(body.name);
+        if (body._tag === "Events") {
+          const change = yield* registry.change;
+          const read = run.lock.withPermits(1)(
+            Effect.gen(function* () {
+              yield* registry.requireCurrent(run);
+              const page = yield* Store.readEvents(run.dir, body.after, body.limit);
+              return { ...page, state: run.record.state };
+            }),
+          );
+          const page = yield* read;
+          if (page.events.length > 0 || body.waitMs === undefined || !activeStates.has(page.state))
+            return page;
+          yield* change.pipe(
+            Effect.timeoutOrElse({ duration: body.waitMs, orElse: () => Effect.void }),
+          );
+          return yield* read;
+        }
         return yield* run.lock.withPermits(1)(
           Effect.gen(function* (): Effect.fn.Return<
             DaemonResult,
@@ -367,8 +397,6 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
             FileSystem.FileSystem | Path.Path | ChildProcessSpawner.ChildProcessSpawner
           > {
             yield* registry.requireCurrent(run);
-            if (body._tag === "Events")
-              return yield* Store.readEvents(run.dir, body.after, body.limit);
             if (body._tag === "Result") {
               const handoff = yield* Store.readHandoff(run.dir, run.record.turns);
               return {

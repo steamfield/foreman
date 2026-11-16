@@ -1,13 +1,25 @@
-import { Effect } from "effect";
+import { Effect, type PlatformError, type Schema } from "effect";
 import { AppConfig } from "../config";
-import { call } from "../daemon/client";
-import type { DaemonRequestBody, DaemonResult, QuestionId, RunName } from "../schemas/daemon";
+import { call, outdated, passiveEvents, probe } from "../daemon/client";
+import { type AppError, PermissionDenied, RunConflict, RunNotFound, Usage } from "../errors";
+import {
+  activeStates,
+  type DaemonRequestBody,
+  type DaemonResult,
+  type QuestionId,
+  type RunName,
+} from "../schemas/daemon";
+import { Host } from "../services/host";
 import { Output } from "../services/output";
 import { durationMs, type MessageInput, messageText, readText, realPath } from "./command-input";
-import { foremanExecutable } from "./command-output";
+import { foremanExecutable, renderEventLines } from "./command-output";
+import * as Store from "./runs/store";
 import { validateStartMode } from "./start-mode";
 
-const request = Effect.fn("commands.request")(function* (body: DaemonRequestBody) {
+const request = Effect.fn("commands.request")(function* (
+  body: DaemonRequestBody,
+  onOutdated?: Effect.Effect<void, AppError>,
+) {
   const config = yield* AppConfig;
   yield* config.load;
   const output = yield* Output;
@@ -16,16 +28,18 @@ const request = Effect.fn("commands.request")(function* (body: DaemonRequestBody
     codexBin: config.codexBin,
     codexHome: config.codexHome,
     logFile: (yield* config.logging).file,
-    onOutdated: output.note(
-      output.json
-        ? JSON.stringify({
-            notice: {
-              tag: "DaemonOutdated",
-              message: "Daemon is outdated; it will be replaced once its runs finish.",
-            },
-          })
-        : "Daemon is outdated; it will be replaced once its runs finish.",
-    ),
+    onOutdated:
+      onOutdated ??
+      output.note(
+        output.json
+          ? JSON.stringify({
+              notice: {
+                tag: "DaemonOutdated",
+                message: "Daemon is outdated; it will be replaced once its runs finish.",
+              },
+            })
+          : "Daemon is outdated; it will be replaced once its runs finish.",
+      ),
   });
 });
 
@@ -104,7 +118,13 @@ export const start = Effect.fn("commands.start")(function* (input: StartInput) {
     : result;
 });
 
-export const status = Effect.fn("commands.status")(function* (name: RunName | undefined) {
+export const status = Effect.fn("commands.status")(function* (
+  name: RunName | undefined,
+  all = false,
+) {
+  if (all && name !== undefined)
+    return yield* new Usage({ detail: "Provide a run name or --all, not both." });
+  if (all) return yield* request({ _tag: "Overview" });
   return yield* request({
     _tag: "Status",
     ...(name === undefined ? {} : { name }),
@@ -119,6 +139,80 @@ export const events = (input: { name: RunName; after?: number; limit?: number })
     ...(input.after === undefined ? {} : { after: input.after }),
     ...(input.limit === undefined ? {} : { limit: input.limit }),
   });
+
+export const followEvents = Effect.fn("commands.followEvents")(function* (input: {
+  name: RunName;
+  after?: number;
+  limit?: number;
+  verbose: boolean;
+}) {
+  const output = yield* Output;
+  if (output.json) return yield* new Usage({ detail: "--follow is text-only; omit --json." });
+  const config = yield* AppConfig;
+  yield* config.load;
+  const host = yield* Host;
+  let after = input.after ?? 0;
+  const saved = Effect.fnUntraced(function* (reason: string) {
+    const dir = yield* Store.runDirectory(config.home, input.name);
+    const readError = (error: PlatformError.PlatformError | Schema.SchemaError) => {
+      if (error._tag === "PlatformError" && error.reason._tag === "NotFound")
+        return new RunNotFound({
+          detail: `No saved run named ${input.name} in ${dir}; check the name or start it before retrying.`,
+        });
+      if (error._tag === "PlatformError" && error.reason._tag === "PermissionDenied")
+        return new PermissionDenied({
+          detail: `Cannot read saved events for ${input.name} in ${dir}; check file and directory permissions, then retry.`,
+        });
+      const diagnostic =
+        error._tag === "PlatformError" ? error.reason._tag : "invalid or unsupported run data";
+      return new RunConflict({
+        detail: `Cannot read saved events for ${input.name} in ${dir} (${diagnostic}); preserve and inspect the records before retrying.`,
+      });
+    };
+    yield* Store.readRun(dir).pipe(Effect.mapError(readError));
+    while (true) {
+      const page = yield* Store.readEvents(dir, after, input.limit).pipe(
+        Effect.mapError(readError),
+      );
+      for (const line of renderEventLines(page, input.verbose)) yield* output.line(line);
+      after = page.next;
+      if (page.events.length === 0) break;
+    }
+    yield* output.note(
+      `No live daemon is supervising this run, so follow stopped (${reason}). Run foreman status ${input.name} to start one.`,
+    );
+  });
+  const checked = yield* probe(config.home, true).pipe(Effect.result);
+  if (checked._tag === "Failure") {
+    if (checked.failure._tag === "DaemonUnavailable") return yield* saved("daemon connection lost");
+    return yield* checked.failure;
+  }
+  const pong = checked.success;
+  if (pong === null) return yield* saved("no daemon running");
+  if (pong._tag !== "Pong" || outdated(pong, host.build, { dataDir: config.home }))
+    return yield* saved("daemon is outdated");
+  while (true) {
+    const polled = yield* passiveEvents(config.home, input.name, after, 15000).pipe(
+      // Only encoding our validated request can fail with SchemaError here.
+      Effect.catchTag("SchemaError", Effect.die),
+      Effect.result,
+    );
+    if (polled._tag === "Failure") {
+      if (polled.failure._tag === "DaemonUnavailable")
+        return yield* saved("daemon connection lost");
+      return yield* polled.failure;
+    }
+    const received = polled.success;
+    if (received === null || received.state === undefined)
+      return yield* saved("daemon does not support live events");
+    // passiveEvents has a fixed page size; preserve the CLI's smaller output pages.
+    const events = received.events.slice(0, input.limit);
+    const page = { ...received, events, next: events.at(-1)?.seq ?? after };
+    for (const line of renderEventLines(page, input.verbose)) yield* output.line(line);
+    after = page.next;
+    if (!activeStates.has(received.state) && page.events.length === 0) return;
+  }
+});
 
 export const steer = Effect.fn("commands.steer")(function* (
   input: MessageInput & WaitOptions & { name: RunName },

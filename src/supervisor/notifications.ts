@@ -1,4 +1,5 @@
-import { Effect, Schema } from "effect";
+import { Clock, Effect, Schema } from "effect";
+import { QUIET_AFTER_MS } from "../core/monitor/attention";
 import { hookTrustFix } from "../core/preflight/hooks";
 import {
   type DecodedNotification,
@@ -88,6 +89,11 @@ export const handleNotification = Effect.fn("supervisor.notification")(function*
   server: AppServer,
   message: typeof Codex.RpcNotification.Type,
 ) {
+  const now = yield* Clock.currentTimeMillis;
+  const resumed = run.lastActivityAt !== null && now - run.lastActivityAt >= QUIET_AFTER_MS;
+  // Wake once after silence; ordinary deltas only refresh the activity clock.
+  run.lastActivityAt = now;
+  if (resumed) yield* registry.wake(run);
   yield* Store.appendCodexMessage(run.dir, message);
   if (message.method === Codex.Method.itemStarted) {
     const envelope = yield* Schema.decodeUnknownEffect(Codex.ItemNotificationMinimal)(
@@ -138,7 +144,12 @@ export const handleNotification = Effect.fn("supervisor.notification")(function*
       yield* registry.save(run, { warnings: [...run.record.warnings, warning] });
   }
   if (!notification) {
-    if (!message.method.endsWith("/delta")) {
+    if (
+      !message.method.endsWith("/delta") &&
+      message.method !== "item/commandExecution/outputDelta" &&
+      message.method !== "turn/moderationMetadata" &&
+      message.method !== "turn/diff/updated"
+    ) {
       yield* registry.event(run, { _tag: "Other", method: message.method });
       yield* Effect.logDebug("supervisor.notification.unknown").pipe(
         Effect.annotateLogs({ method: message.method }),
@@ -188,9 +199,12 @@ export const handleNotification = Effect.fn("supervisor.notification")(function*
       }
       break;
     case Codex.Method.turnCompleted: {
+      run.openItem = null;
+      for (const agent of run.subagents.values()) agent.state = "idle";
+      yield* registry.wake(run);
       yield* registry.cancelQuestions(run);
       const handoff = pickHandoff([...run.items, ...notification.params.turn.items]);
-      if (handoff !== null) yield* Store.writeHandoff(run.dir, run.record.turns, handoff);
+      if (handoff !== null) yield* registry.handoff(run, handoff);
       yield* registry.refreshWorktree(run);
       yield* registry.save(run, {
         activeTurnId: null,
@@ -211,11 +225,59 @@ export const handleNotification = Effect.fn("supervisor.notification")(function*
       yield* registry.state(run, state);
       break;
     }
-    case Codex.Method.itemStarted:
+    case Codex.Method.itemStarted: {
+      const item = notification.params.item;
+      run.openItem = {
+        id: item.id,
+        type: item.type,
+        command: Schema.is(Codex.CommandExecutionItem)(item) ? item.command : null,
+        startedAt: now,
+      };
+      yield* registry.wake(run);
       break;
-    case Codex.Method.itemCompleted:
-      run.items.push(notification.params.item);
+    }
+    case Codex.Method.itemCompleted: {
+      const item = notification.params.item;
+      if (run.openItem?.id === item.id) {
+        run.openItem = null;
+        yield* registry.wake(run);
+      }
+      if (Schema.is(Codex.AgentMessageItem)(item) && item.phase !== "final_answer") {
+        run.lastCommentary = { text: item.text, at: now };
+        yield* registry.wake(run);
+      }
+      // Fold on completion only: started/completed notifications describe the same item.
+      if (
+        Schema.is(Codex.SubAgentActivityItem)(item) &&
+        (item.kind === "started" || item.kind === "interacted" || item.kind === "completed")
+      ) {
+        let agent = run.subagents.get(item.agentThreadId);
+        if (!agent) {
+          agent = {
+            threadId: item.agentThreadId,
+            path: item.agentPath,
+            model: null,
+            effort: null,
+            state: "working",
+            startedAt: item.startedAtMs,
+            lastInteractionAt: item.startedAtMs,
+            interactions: 0,
+          };
+          run.subagents.set(item.agentThreadId, agent);
+        }
+        if (item.kind === "started") {
+          agent.model ??= item.model;
+          agent.effort ??= item.reasoningEffort;
+        } else if (item.kind === "interacted") {
+          agent.state = "working";
+          agent.interactions += 1;
+          agent.lastInteractionAt = item.startedAtMs;
+        } else agent.state = "idle";
+        yield* registry.wake(run);
+      }
+      run.items.push(item);
       break;
+    }
     case Codex.Method.hookStarted:
       if (notification.params.run.source === "project") run.projectHook = true;
       break;

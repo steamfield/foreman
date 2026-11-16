@@ -1,8 +1,9 @@
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { createServer } from "node:net";
 import { join } from "node:path";
-import { Effect, Schema } from "effect";
+import { Effect, Fiber, FileSystem, Schema } from "effect";
 import { CliError } from "effect/cli";
-import { describe, expect, it } from "vitest";
+import { assert, describe, expect, it } from "vitest";
 import { print } from "../src/commands/runs";
 import { normalizeDurationArgs } from "../src/core/command-input";
 import {
@@ -13,8 +14,335 @@ import {
   errorEnvelope,
   exitCodeFor,
 } from "../src/errors";
+import { Method } from "../src/schemas/codex";
+import { DaemonRequest } from "../src/schemas/daemon";
 import { DoctorResult } from "../src/schemas/doctor";
+import { successfulTurn } from "./fixtures/fake-app-server/scenarios";
 import { ndjson, runCli, tempDir } from "./helpers/cli";
+import { eventsFixture, eventsPlatform } from "./helpers/events";
+
+it("documents monitor as a human view and status --all as the machine interface", async () => {
+  const result = await runCli(["monitor", "--help"]);
+  expect(result).toMatchObject({ status: 0, stderr: "" });
+  expect(result.stdout).toContain("status --all");
+  expect(result.stdout).toContain("CODEX_DELEGATE");
+  expect(result.stdout).toContain("130");
+  expect(result.stdout.replace(/\s+/g, " ")).toContain(
+    "normal status path and may start the daemon",
+  );
+});
+
+it.each([false, true])("status rejects a name with --all (json=%s)", async (json) => {
+  const result = await runCli(["status", "unit", "--all", ...(json ? ["--json"] : [])]);
+  expect(result.status).toBe(2);
+  expect(result.stdout).toBe("");
+  expect(result.stderr).toContain("Provide a run name or --all, not both.");
+});
+
+async function savedRun(home: string) {
+  const dir = join(home, "runs", "unit");
+  await mkdir(dir, { recursive: true });
+  await writeFile(
+    join(dir, "run.json"),
+    JSON.stringify({
+      formatVersion: 1,
+      name: "unit",
+      threadId: null,
+      group: "/repo",
+      worktree: "/repo/work/unit",
+      baseCommit: "base",
+      model: "gpt-6.1-sol",
+      effort: "high",
+      tier: "priority",
+      sandbox: "read-only",
+      questionTimeoutMs: 900000,
+      state: "idle",
+      turns: 1,
+      turnKind: "start",
+      activeTurnId: null,
+      turnBudgetMs: null,
+      turnStartedAt: null,
+      restoreSandbox: false,
+      tokens: null,
+      failure: null,
+      warnings: [],
+      createdAt: "2026-11-05T20:00:00.000Z",
+      updatedAt: "2026-11-05T20:00:00.000Z",
+    }),
+  );
+  return dir;
+}
+
+describe("events --follow", () => {
+  it.each(["none", "events", "probe"])(
+    "uses passive requests and drains remaining saved events on disconnect=%s",
+    async (disconnect) => {
+      const home = await tempDir();
+      const events = [1, 2, 3].map((seq) => ({
+        seq,
+        at: "2026-11-05T20:00:00.000Z",
+        event: { _tag: "AgentMessage", text: `message ${seq}`, phase: null },
+      }));
+      await savedRun(home);
+      await writeFile(
+        join(home, "runs", "unit", "events.jsonl"),
+        `${events.map((event) => JSON.stringify({ ...event, formatVersion: 1 })).join("\n")}\n`,
+      );
+      const requests: (typeof DaemonRequest.Type)[] = [];
+      const server = createServer((socket) => {
+        let buffer = "";
+        socket.on("data", (chunk) => {
+          buffer += chunk.toString();
+          const end = buffer.indexOf("\n");
+          if (end < 0) return;
+          const request = Schema.decodeUnknownSync(Schema.fromJsonString(DaemonRequest))(
+            buffer.slice(0, end),
+          );
+          buffer = buffer.slice(end + 1);
+          requests.push(request);
+          const after = request.body._tag === "Events" ? (request.body.after ?? 0) : 0;
+          if (
+            (disconnect === "events" && request.body._tag === "Events" && after > 0) ||
+            (disconnect === "probe" && request.body._tag === "Ping")
+          ) {
+            socket.destroy();
+            return;
+          }
+          socket.write(
+            `${JSON.stringify({
+              id: request.id,
+              result:
+                request.body._tag === "Ping"
+                  ? { _tag: "Pong", version: "dev", pid: process.pid, build: "test" }
+                  : {
+                      _tag: "Events",
+                      state: disconnect === "none" ? "idle" : "running",
+                      gap: false,
+                      next: Math.max(3, after),
+                      events: events.filter(({ seq }) => seq > after),
+                    },
+            })}\n`,
+          );
+        });
+      });
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(join(home, "foreman.sock"), resolve);
+      });
+      try {
+        const result = await runCli(["events", "unit", "--follow", "--limit", "1"], {
+          home,
+          env: { FOREMAN_HOME: home, LOG_LEVEL: "none" },
+        });
+        expect(result).toEqual({
+          status: 0,
+          stderr:
+            disconnect !== "none"
+              ? "No live daemon is supervising this run, so follow stopped (daemon connection lost). Run foreman status unit to start one.\n"
+              : "",
+          stdout: [1, 2, 3]
+            .map((seq) => `${seq} 2026-11-05T20:00:00.000Z AgentMessage message ${seq}\n`)
+            .join(""),
+        });
+        const cursors = disconnect === "none" ? [0, 1, 2, 3] : [0, 1];
+        expect(requests).toEqual([
+          { id: 1, passive: true, body: { _tag: "Ping" } },
+          ...(disconnect === "probe" ? [] : cursors).map((after) => ({
+            id: 1,
+            passive: true,
+            body: { _tag: "Events", name: "unit", after, waitMs: 15000 },
+          })),
+        ]);
+      } finally {
+        await new Promise<void>((resolve, reject) =>
+          server.close((error) => (error ? reject(error) : resolve())),
+        );
+      }
+    },
+  );
+  it.each([
+    { damage: "missing", code: 7, message: "No such run or question." },
+    { damage: "corrupt", code: 8, message: "The request could not be completed." },
+    { damage: "unsupported", code: 8, message: "The request could not be completed." },
+    { damage: "record", code: 8, message: "The request could not be completed." },
+    { damage: "permission", code: 6, message: "Permission denied. Check file permissions." },
+  ])("reports actionable saved-data errors for $damage", async ({ damage, code, message }) => {
+    const home = await tempDir();
+    const dir = join(home, "runs", "unit");
+    const file = join(dir, "events.jsonl");
+    if (damage !== "missing") {
+      await savedRun(home);
+      await writeFile(file, damage === "unsupported" ? '{"formatVersion":999}\n' : "not json\n");
+      if (damage === "record") {
+        await writeFile(join(dir, "run.json"), "{}");
+        await writeFile(file, "");
+      }
+      if (damage === "permission") await chmod(file, 0o000);
+    }
+    try {
+      const result = await runCli(["events", "unit", "--follow"], {
+        home,
+        env: { FOREMAN_HOME: home, LOG_LEVEL: "none" },
+        executable: ["/does-not-exist/foreman"],
+      });
+      expect(result.status).toBe(code);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain(message);
+      expect(result.stderr).toContain(dir);
+      expect(result.stderr).toContain("retry");
+      expect(result.stderr).not.toContain("Internal error");
+      expect(result.stderr).not.toContain("follow stopped");
+    } finally {
+      if (damage === "permission") await chmod(file, 0o600);
+    }
+  });
+
+  it("streams ordered events before completion and exits after draining every page", async () => {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const script = successfulTurn();
+        const f = yield* eventsFixture({
+          ...script,
+          rules: script.rules
+            .map((rule) =>
+              rule.method === Method.turnStart
+                ? {
+                    ...rule,
+                    steps: rule.steps?.flatMap((step) =>
+                      "notify" in step && step.notify === Method.turnCompleted
+                        ? [{ awaitRequest: Method.turnSteer }, step]
+                        : [step],
+                    ),
+                  }
+                : rule,
+            )
+            .concat({ method: Method.turnSteer, respond: { result: { turnId: "{{turn}}" } } }),
+        });
+        let stdout = "";
+        const pending = yield* Effect.promise((signal) =>
+          runCli(["events", "unit", "--follow", "--limit", "1"], {
+            env: f.env,
+            home: f.root,
+            signal,
+            stdout: async (text) => {
+              stdout += text;
+            },
+          }),
+        ).pipe(Effect.forkChild);
+        while (!stdout.includes("AgentMessage Created result.txt.")) yield* Effect.yieldNow;
+        yield* f.untilState("running");
+        expect(pending.pollUnsafe()).toBeUndefined();
+        yield* f.request({ _tag: "Steer", name: f.name, message: "Finish" });
+        expect(yield* Fiber.join(pending)).toEqual({ status: 0, stdout: "", stderr: "" });
+        const page = yield* f.request({ _tag: "Events", name: f.name });
+        assert(page._tag === "Events");
+        const lines = stdout.trimEnd().split("\n");
+        expect(lines.map((line) => Number(line.split(" ")[0]))).toEqual(
+          page.events
+            .filter(({ event }) => event._tag !== "Other" && event._tag !== "TokenUsage")
+            .map(({ seq }) => seq),
+        );
+        expect(stdout).toContain("TurnCompleted");
+        expect(stdout).not.toContain("next:");
+        expect(stdout).not.toContain("\u001b");
+      }).pipe(Effect.timeout("10 seconds"), Effect.scoped, Effect.provide(eventsPlatform)),
+    );
+  });
+
+  it("drains an already idle run from --after in bounded verbose pages without waiting", async () => {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const f = yield* eventsFixture(successfulTurn());
+        yield* f.untilState("idle");
+        const result = yield* Effect.promise((signal) =>
+          runCli(["events", "unit", "--follow", "--after", "2", "--limit", "1", "--verbose"], {
+            env: f.env,
+            home: f.root,
+            signal,
+          }),
+        ).pipe(Effect.timeout("3 seconds"));
+        expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: "" });
+        const page = yield* f.request({ _tag: "Events", name: f.name, after: 2 });
+        assert(page._tag === "Events");
+        expect(
+          result.stdout
+            .trimEnd()
+            .split("\n")
+            .map((line) => Number(line.split(" ")[0])),
+        ).toEqual(page.events.map(({ seq }) => seq));
+        expect(result.stdout).toContain("TokenUsage");
+        expect(result.stdout).not.toContain("next:");
+      }).pipe(Effect.timeout("10 seconds"), Effect.scoped, Effect.provide(eventsPlatform)),
+    );
+  });
+
+  it("rejects --follow --json as text-only before contacting the daemon", async () => {
+    const result = await runCli(["events", "unit", "--follow", "--json"], {
+      env: { LOG_LEVEL: "none" },
+    });
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe("");
+    expect(ndjson(result.stderr)).toEqual([
+      {
+        error: {
+          tag: "Usage",
+          message: "Invalid command. Run --help for usage.",
+          detail: "--follow is text-only; omit --json.",
+          retryable: false,
+        },
+      },
+    ]);
+  });
+
+  it.each([
+    { mode: "absent", reason: "no daemon running" },
+    { mode: "outdated", reason: "daemon is outdated" },
+    { mode: "unsupported", reason: "daemon does not support live events" },
+  ])(
+    "drains saved events and stops without starting or replacing a $mode daemon",
+    async ({ mode, reason }) => {
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const f = yield* eventsFixture(
+            successfulTurn(),
+            mode === "unsupported",
+            mode === "outdated" ? "old" : "test",
+          );
+          yield* f.untilState("idle");
+          const page = yield* f.request({ _tag: "Events", name: f.name, after: 2 });
+          assert(page._tag === "Events");
+          if (mode === "absent") {
+            yield* f.request({ _tag: "Shutdown" });
+            const fs = yield* FileSystem.FileSystem;
+            while (yield* fs.exists(`${f.env.FOREMAN_HOME}/foreman.sock`)) yield* Effect.yieldNow;
+          }
+          const result = yield* Effect.promise((signal) =>
+            runCli(["events", "unit", "--follow", "--after", "2", "--limit", "1", "--verbose"], {
+              env: f.env,
+              home: f.root,
+              signal,
+              executable: ["/does-not-exist/foreman"],
+            }),
+          ).pipe(Effect.timeout("3 seconds"));
+          expect(result.status).toBe(0);
+          expect(
+            result.stdout
+              .trimEnd()
+              .split("\n")
+              .map((line) => Number(line.split(" ")[0])),
+          ).toEqual(page.events.map(({ seq }) => seq));
+          expect(result.stderr).toBe(
+            `No live daemon is supervising this run, so follow stopped (${reason}). Run foreman status unit to start one.\n`,
+          );
+          const fs = yield* FileSystem.FileSystem;
+          if (mode === "absent")
+            expect(yield* fs.exists(`${f.env.FOREMAN_HOME}/foreman.sock`)).toBe(false);
+          else expect((yield* f.request({ _tag: "Ping" }))._tag).toBe("Pong");
+        }).pipe(Effect.timeout("10 seconds"), Effect.scoped, Effect.provide(eventsPlatform)),
+      );
+    },
+  );
+});
 
 describe("stdout and error contracts", () => {
   it("review audit: daemon home creation permissions use exit 6", async () => {

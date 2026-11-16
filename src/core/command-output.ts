@@ -2,6 +2,7 @@ import { DateTime, Effect, FileSystem, Path } from "effect";
 import { AppConfig } from "../config";
 import type { DaemonResult, Handoff, OrphanWorktree, RunEventBody } from "../schemas/daemon";
 import { Host } from "../services/host";
+import { renderOverview } from "./monitor/status-all";
 import { renderDigest, renderStatus } from "./runs/digest";
 
 // Keep multiline event payloads on one line without losing their boundaries.
@@ -9,6 +10,19 @@ const oneLine = (text: string) => text.replace(/\r/g, "\\r").replace(/\n/g, "\\n
 
 const shellQuote = (text: string) =>
   /^[a-zA-Z0-9_./:-]+$/.test(text) ? text : `'${text.replaceAll("'", "'\\''")}'`;
+
+export const renderEventLines = (
+  result: Extract<DaemonResult, { _tag: "Events" }>,
+  verbose = false,
+) => [
+  ...(result.gap ? ["gap: true"] : []),
+  ...result.events
+    .filter(({ event }) => verbose || (event._tag !== "Other" && event._tag !== "TokenUsage"))
+    .map(
+      ({ seq, at, event }) =>
+        `${seq} ${DateTime.formatIso(at)} ${event._tag} ${oneLine(eventSummary(event))}`,
+    ),
+];
 
 export const foremanExecutable = Effect.fn("output.foremanExecutable")(function* () {
   const host = yield* Host;
@@ -106,8 +120,13 @@ export function renderResult(
   executable = "foreman",
   eventsName?: string,
   verbose = false,
+  overviewContext = { group: "", now: 0 },
 ): string {
   switch (result._tag) {
+    case "Detail":
+      return renderDigest(result.digest);
+    case "Overview":
+      return renderOverview(result, overviewContext.group, executable, overviewContext.now);
     case "Pong":
       return `running ${result.version} (pid ${result.pid})`;
     case "Started":
@@ -129,13 +148,7 @@ export function renderResult(
       ].join(compact ? "\n" : "\n\n");
     case "Events":
       return [
-        ...(result.gap ? ["gap: true"] : []),
-        ...result.events
-          .filter(({ event }) => verbose || (event._tag !== "Other" && event._tag !== "TokenUsage"))
-          .map(
-            ({ seq, at, event }) =>
-              `${seq} ${DateTime.formatIso(at)} ${event._tag} ${oneLine(eventSummary(event))}`,
-          ),
+        ...renderEventLines(result, verbose),
         `next: ${executable} events ${eventsName} --after ${result.next}${verbose ? " --verbose" : ""}`,
       ].join("\n");
     case "Ok":

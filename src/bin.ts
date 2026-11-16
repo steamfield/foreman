@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { BunServices, BunSocket, BunSocketServer } from "@effect/platform-bun";
-import { Effect, Layer, Schema } from "effect";
+import { Effect, Layer, Queue, Schema, Stream } from "effect";
 import rawMetadata from "../package.json";
 import { buildIdentity } from "./daemon/build";
 import { DaemonSockets } from "./daemon/sockets";
@@ -9,6 +9,7 @@ import { AppLayer, runInvocation } from "./runtime";
 import { PackageInfo } from "./schemas/package";
 import { Host } from "./services/host";
 import type { Writer } from "./services/output";
+import { Terminal } from "./services/terminal";
 
 const writer =
   (stream: NodeJS.WriteStream): Writer =>
@@ -29,6 +30,37 @@ const build = compiled
   : `dev-${await buildIdentity(fileURLToPath(new URL("..", import.meta.url)), Bun.version)}`;
 const platform = Layer.mergeAll(
   BunServices.layer,
+  Terminal.layer({
+    stdinIsTTY: process.stdin.isTTY === true,
+    stdoutIsTTY: process.stdout.isTTY === true,
+    stdin: process.stdin,
+    stdout: process.stdout,
+    stderr: process.stderr,
+    get columns() {
+      return process.stdout.columns || 80;
+    },
+    get rows() {
+      return process.stdout.rows || 24;
+    },
+    resize: Stream.callback((queue) =>
+      Effect.acquireRelease(
+        Effect.sync(() => {
+          const resize = () => {
+            Queue.offerUnsafe(queue, {
+              columns: process.stdout.columns || 80,
+              rows: process.stdout.rows || 24,
+            });
+          };
+          process.stdout.on("resize", resize);
+          return resize;
+        }),
+        (resize) =>
+          Effect.sync(() => {
+            process.stdout.off("resize", resize);
+          }),
+      ),
+    ),
+  }),
   DaemonSockets.layer({
     connect: (path) => BunSocket.makeNet({ path }),
     listen: (path) => BunSocketServer.make({ path }),

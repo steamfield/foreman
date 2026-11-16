@@ -33,6 +33,7 @@ export async function runCli(
     stdout?: Writer;
     stderr?: Writer;
     executable?: readonly string[];
+    signal?: AbortSignal;
   } = {},
 ) {
   const home = options.home ?? (await tempDir());
@@ -73,6 +74,7 @@ export async function runCli(
   );
   const status = await runInvocation(
     main(args, options.program).pipe(Effect.provide(app), Effect.provide(platform), Effect.scoped),
+    options.signal,
   );
   return { status, stdout, stderr };
 }

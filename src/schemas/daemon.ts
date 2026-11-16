@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { makeDetailSchema, Overview } from "./monitor";
 
 // Shapes shared by the foreman CLI, the daemon and the run store: run state on disk, the
 // normalized event log, the digest, and the socket protocol. docs/rfcs/0001-foreman.md is the
@@ -294,10 +295,24 @@ export const DaemonRequestBody = Schema.TaggedUnion({
   },
   // Without a name, every run in the group of `cwd`.
   Status: { name: Schema.optionalKey(RunName), cwd: Schema.String },
+  Overview: {
+    after: Schema.optionalKey(Schema.Int),
+    timeoutMs: Schema.optionalKey(
+      Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 60000 })),
+    ),
+  },
+  Detail: {
+    name: RunName,
+    after: Schema.optionalKey(Schema.Int),
+    timeoutMs: Schema.optionalKey(
+      Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 60000 })),
+    ),
+  },
   Events: {
     name: RunName,
     after: Schema.optionalKey(Schema.Int),
     limit: Schema.optionalKey(Schema.Int),
+    waitMs: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 60000 }))),
   },
   Steer: { name: RunName, message: Schema.String },
   Followup: {
@@ -321,7 +336,11 @@ export const DaemonRequestBody = Schema.TaggedUnion({
 });
 export type DaemonRequestBody = typeof DaemonRequestBody.Type;
 
-export const DaemonRequest = Schema.Struct({ id: Schema.Int, body: DaemonRequestBody });
+export const DaemonRequest = Schema.Struct({
+  id: Schema.Int,
+  body: DaemonRequestBody,
+  passive: Schema.optionalKey(Schema.Literal(true)),
+});
 export type DaemonRequest = typeof DaemonRequest.Type;
 
 export const WaitOutcome = Schema.Struct({
@@ -334,6 +353,12 @@ export const WaitOutcome = Schema.Struct({
 });
 
 export const DaemonResult = Schema.TaggedUnion({
+  Detail: makeDetailSchema(Digest, Handoff).fields,
+  Overview: {
+    version: Overview.fields.version,
+    daemon: Overview.fields.daemon,
+    runs: Overview.fields.runs,
+  },
   Pong: {
     version: Schema.String,
     pid: Schema.Int,
@@ -353,7 +378,12 @@ export const DaemonResult = Schema.TaggedUnion({
     orphans: Schema.optionalKey(Schema.Array(OrphanWorktree)),
     skipped: Schema.optionalKey(Schema.Array(SkippedRun)),
   },
-  Events: { events: Schema.Array(RunEvent), gap: Schema.Boolean, next: Schema.Int },
+  Events: {
+    events: Schema.Array(RunEvent),
+    gap: Schema.Boolean,
+    next: Schema.Int,
+    state: Schema.optionalKey(RunState),
+  },
   Ok: {},
   Accepted: {
     cursor: Cursor,

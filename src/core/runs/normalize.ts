@@ -111,3 +111,15 @@ export function pickHandoff(items: readonly Codex.ThreadItem[]): string | null {
     null
   );
 }
+
+export function contractTitle(contract: string): string | null {
+  const lines = contract.split(/\r?\n/).map((line) => line.trim());
+  const line = lines.find((line) => /^#+\s/.test(line)) ?? lines.find((line) => line.length > 0);
+  return (
+    line
+      ?.replace(/^#+\s*/, "")
+      .replace(/\s+#+$/, "")
+      .trim()
+      .slice(0, 120) || null
+  );
+}

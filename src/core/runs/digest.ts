@@ -110,7 +110,7 @@ function duration(ms: number): string {
   return `${Math.floor(seconds / 60)}m${String(seconds % 60).padStart(2, "0")}s`;
 }
 
-function tokenCount(count: number): string {
+export function tokenCount(count: number): string {
   if (count >= 1_000_000) return `${Number((count / 1_000_000).toFixed(1))}M`;
   if (count >= 1000) return `${Number((count / 1000).toFixed(1))}K`;
   return String(count);

@@ -4,6 +4,8 @@
     "lib": ["ES2023"],
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "paths": { "react-devtools-core": ["./src/tui/devtools-stub.ts"] },
     "types": ["bun", "node"],
     "strict": true,
     "noUncheckedIndexedAccess": true,
@@ -17,6 +19,7 @@
   },
   "include": [
     "src/**/*.ts",
+    "src/**/*.tsx",
     "tests/**/*.ts",
     "e2e/**/*.ts",
     "scripts/**/*.ts",

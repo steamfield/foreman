@@ -2,7 +2,7 @@ import { Effect, FileSystem, Option, Path, PlatformError, Predicate, Schema, Str
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import type { Socket } from "effect/socket";
 import { type AppError, DaemonUnavailable, PermissionDenied } from "../errors";
-import type { DaemonRequestBody, DaemonResult } from "../schemas/daemon";
+import type { DaemonRequestBody, DaemonResult, RunName } from "../schemas/daemon";
 import { Host } from "../services/host";
 import { takeLock } from "./lock";
 import { errorFromResponse, lines, requestJson, responseJson } from "./protocol";
@@ -154,7 +154,7 @@ const closedRequest = (body: DaemonRequestBody) =>
   });
 
 // Diagnostics never launch or replace a daemon; only a missing/refused socket is absence.
-export const probe = Effect.fn("daemon.probe")(function* (dataDir: string) {
+export const probe = Effect.fn("daemon.probe")(function* (dataDir: string, passive?: true) {
   const path = yield* Path.Path;
   const socketPath = path.join(dataDir, "foreman.sock");
   yield* validateSocketPath(socketPath);
@@ -163,13 +163,22 @@ export const probe = Effect.fn("daemon.probe")(function* (dataDir: string) {
     if (absent(opened.failure)) return null;
     return yield* socketFailure(socketPath, opened.failure);
   }
-  return yield* exchange({ _tag: "Ping" }, opened.success.socket, opened.success.reader);
+  return yield* exchange({ _tag: "Ping" }, opened.success.socket, opened.success.reader, passive);
 }, Effect.scoped);
 
 const exchange = Effect.fn("daemon.exchange")(
-  function* (body: DaemonRequestBody, socket: Socket.Socket, reader: Socket.Reader) {
+  function* (
+    body: DaemonRequestBody,
+    socket: Socket.Socket,
+    reader: Socket.Reader,
+    passive?: true,
+  ) {
     const writer = yield* socket.writer;
-    const json = yield* Schema.encodeEffect(requestJson)({ id: 1, body });
+    const json = yield* Schema.encodeEffect(requestJson)({
+      id: 1,
+      body,
+      ...(passive ? { passive } : {}),
+    });
     const receive = lines(reader).pipe(
       Stream.mapEffect((line) => Schema.decodeUnknownEffect(responseJson)(line)),
       Stream.filter((response) => response.id === 1),
@@ -220,6 +229,144 @@ const exchange = Effect.fn("daemon.exchange")(
       : effect,
 );
 
+// A monitor may read an older protocol, but must never invoke call's replacement path.
+// Only the old protocol's request-decoding refusal means unsupported.
+const requestNotUnderstood = (error: { readonly tag: string; readonly detail?: string }) =>
+  error.tag === "DaemonUnavailable" &&
+  error.detail?.startsWith("Request not understood; daemon build ") === true;
+
+export const OVERVIEW_REQUEST_TIMEOUT_MS = 20_000; // Default 15 s long-poll plus transport headroom.
+export const passiveOverview = Effect.fn("daemon.passiveOverview")(
+  function* (dataDir: string, after?: number) {
+    const path = yield* Path.Path;
+    const socketPath = path.join(dataDir, "foreman.sock");
+    yield* validateSocketPath(socketPath);
+    const { socket, reader } = yield* open(socketPath).pipe(
+      Effect.mapError((error) => socketFailure(socketPath, error)),
+    );
+    const body = { _tag: "Overview" as const, ...(after === undefined ? {} : { after }) };
+    const writer = yield* socket.writer;
+    const json = yield* Schema.encodeEffect(requestJson)({ id: 1, body, passive: true });
+    yield* writer.write(`${json}\n`);
+    const response = yield* lines(reader).pipe(
+      Stream.mapEffect((line) => Schema.decodeUnknownEffect(responseJson)(line)),
+      Stream.filter((reply) => reply.id === 1),
+      Stream.runHead,
+      Effect.catchTag("SchemaError", () =>
+        Effect.fail(
+          new DaemonUnavailable({
+            detail: "Invalid daemon Overview reply; reconnect and inspect the daemon log.",
+          }),
+        ),
+      ),
+    );
+    if (Option.isNone(response)) return yield* closedRequest(body);
+    if ("error" in response.value) {
+      const error = response.value.error;
+      if (requestNotUnderstood(error)) return null;
+      return yield* new DaemonUnavailable({
+        detail: `Daemon Overview failed (${error.tag}): ${error.detail ?? "inspect the daemon log and retry."}`,
+      });
+    }
+    if (response.value.result._tag === "Overview") return response.value.result;
+    return yield* new DaemonUnavailable({
+      detail: "Unexpected daemon Overview reply; reconnect and inspect the daemon log.",
+    });
+  },
+  Effect.scoped,
+  Effect.timeoutOrElse({
+    duration: OVERVIEW_REQUEST_TIMEOUT_MS,
+    orElse: () =>
+      Effect.fail(
+        new DaemonUnavailable({
+          detail: `Daemon Overview reply timed out after ${OVERVIEW_REQUEST_TIMEOUT_MS} ms. Reconnect and inspect the daemon log.`,
+        }),
+      ),
+  }),
+  Effect.catchTag("SocketError", () => Effect.fail(closedRequest({ _tag: "Overview" }))),
+);
+
+const passiveRead = Effect.fn("daemon.passiveRead")(
+  function* (dataDir: string, body: DaemonRequestBody, timeoutMs: number) {
+    const path = yield* Path.Path;
+    const socketPath = path.join(dataDir, "foreman.sock");
+    yield* validateSocketPath(socketPath);
+    const { socket, reader } = yield* open(socketPath).pipe(
+      Effect.mapError((error) => socketFailure(socketPath, error)),
+    );
+    const writer = yield* socket.writer;
+    const json = yield* Schema.encodeEffect(requestJson)({ id: 1, body, passive: true });
+    yield* writer.write(`${json}\n`);
+    const response = yield* lines(reader).pipe(
+      Stream.mapEffect((line) => Schema.decodeUnknownEffect(responseJson)(line)),
+      Stream.filter((reply) => reply.id === 1),
+      Stream.runHead,
+      Effect.catchTag("SchemaError", () =>
+        Effect.fail(
+          new DaemonUnavailable({
+            detail: `Invalid daemon ${body._tag} reply; reconnect and inspect the daemon log.`,
+          }),
+        ),
+      ),
+      Effect.timeoutOrElse({
+        duration: timeoutMs,
+        orElse: () =>
+          Effect.fail(
+            new DaemonUnavailable({
+              detail: `Daemon ${body._tag} reply timed out; reconnect and inspect the daemon log.`,
+            }),
+          ),
+      }),
+    );
+    if (Option.isNone(response)) return yield* closedRequest(body);
+    if ("result" in response.value) return response.value.result;
+    if (requestNotUnderstood(response.value.error)) return null;
+    const error = errorFromResponse(response.value.error);
+    if (error?._tag === "RunNotFound") return yield* error;
+    return yield* new DaemonUnavailable({
+      detail: `Daemon ${body._tag} failed (${response.value.error.tag}): ${response.value.error.detail ?? "inspect the daemon log and retry."}`,
+    });
+  },
+  Effect.scoped,
+  Effect.catchTag("SocketError", () =>
+    Effect.fail(new DaemonUnavailable({ detail: "Passive daemon connection closed; reconnect." })),
+  ),
+);
+
+export const passiveDetail = Effect.fn("daemon.passiveDetail")(function* (
+  home: string,
+  name: RunName,
+  after?: number,
+) {
+  const result = yield* passiveRead(
+    home,
+    { _tag: "Detail", name, ...(after === undefined ? {} : { after }) },
+    OVERVIEW_REQUEST_TIMEOUT_MS,
+  );
+  if (result === null || result._tag === "Detail") return result;
+  return yield* new DaemonUnavailable({
+    detail: "Unexpected daemon Detail reply; reconnect and inspect the daemon log.",
+  });
+});
+
+export const passiveEvents = Effect.fn("daemon.passiveEvents")(function* (
+  home: string,
+  name: RunName,
+  after: number,
+  waitMs: number,
+  limit?: number,
+) {
+  const result = yield* passiveRead(
+    home,
+    { _tag: "Events", name, after, waitMs, ...(limit === undefined ? {} : { limit }) },
+    waitMs + 5000,
+  );
+  if (result === null || result._tag === "Events") return result;
+  return yield* new DaemonUnavailable({
+    detail: "Unexpected daemon Events reply; reconnect and inspect the daemon log.",
+  });
+});
+
 const exchangeRunRequest = Effect.fn("daemon.exchangeRunRequest")(function* (
   body: DaemonRequestBody,
   socket: Socket.Socket,
@@ -269,7 +416,7 @@ const exchangeRunRequest = Effect.fn("daemon.exchangeRunRequest")(function* (
   return result._tag === "Ok" ? { _tag: "Accepted" as const, cursor: before.cursor } : result;
 });
 
-const outdated = (
+export const outdated = (
   pong: Extract<DaemonResult, { _tag: "Pong" }>,
   build: string,
   options: CallOptions,
