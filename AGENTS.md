@@ -172,3 +172,4 @@ Read these only when the task needs them.
 | CLI, services, testing and verification guidance | [`docs/guidance/typescript-cli/index.md`](docs/guidance/typescript-cli/index.md) |
 | Effect names and patterns | [`docs/guidance/effect/index.md`](docs/guidance/effect/index.md) |
 | Config and logging acceptance matrix | [`docs/acceptance/typescript-cli.md`](docs/acceptance/typescript-cli.md) |
+| `foreman monitor` TUI colors, glyphs, motion and layout | [`docs/design/monitor.md`](docs/design/monitor.md) |
