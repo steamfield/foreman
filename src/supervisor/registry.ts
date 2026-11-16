@@ -17,6 +17,7 @@ import {
 import { CodexRequestTimeout, CodexRpcError } from "../codex/client";
 import { archiveWorktree } from "../core/managed-worktree";
 import { buildDigest } from "../core/runs/digest";
+import { contractTitle } from "../core/runs/normalize";
 import * as Store from "../core/runs/store";
 import { computeWorktreeFields, type WorktreeFields } from "../core/runs/worktree";
 import { CodexUnavailable, PermissionDenied, RunConflict, RunNotFound } from "../errors";
@@ -32,6 +33,17 @@ import {
 } from "../schemas/daemon";
 import type { AppServer } from "./app-server";
 
+export interface SubAgentState {
+  readonly threadId: string;
+  readonly path: string;
+  model: string | null;
+  effort: string | null;
+  state: "working" | "idle";
+  readonly startedAt: number;
+  lastInteractionAt: number;
+  interactions: number;
+}
+
 export interface Run {
   record: RunRecord;
   readonly dir: string;
@@ -41,6 +53,11 @@ export interface Run {
   readonly answers: Queue.Queue<Effect.Effect<void, unknown>, Cause.Done>;
   queuedAnswers: number;
   items: ThreadItem[];
+  subagents: Map<string, SubAgentState>;
+  openItem: { type: string; command: string | null; startedAt: number; id: string } | null;
+  lastActivityAt: number | null;
+  title: string | null;
+  lastCommentary: { text: string; at: number } | null;
   projectHook: boolean;
   hooksRequired: boolean;
   worktree: WorktreeFields | null;
@@ -119,6 +136,13 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
   });
   const add = Effect.fnUntraced(function* (record: RunRecord) {
     const dir = yield* Store.runDirectory(dataDir, record.name);
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const title = yield* fs.readFileString(path.join(dir, "contract.md")).pipe(
+      Effect.map(contractTitle),
+      // The title is optional display metadata; an unreadable contract cannot block recovery.
+      Effect.catchTag("PlatformError", () => Effect.succeed(null)),
+    );
     const run: Run = {
       record: {
         ...record,
@@ -131,6 +155,11 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
       answers: yield* Queue.unbounded<Effect.Effect<void, unknown>, Cause.Done>(),
       queuedAnswers: 0,
       items: [],
+      subagents: new Map(),
+      openItem: null,
+      lastActivityAt: null,
+      title,
+      lastCommentary: null,
       projectHook: false,
       hooksRequired: false,
       worktree: null,
@@ -141,6 +170,7 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
       recoveryVersion: 0,
     };
     runs.set(record.name, run);
+    yield* wake;
     skippedDirectories.delete(run.dir);
     yield* FiberSet.run(
       workers,
@@ -543,6 +573,7 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
         ),
     ),
     change: Effect.suspend(() => Effect.succeed(Deferred.await(changed))),
+    wake,
   };
 });
 export type Registry = Effect.Success<ReturnType<typeof makeRegistry>>;

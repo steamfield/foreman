@@ -174,6 +174,17 @@ export const DynamicToolCallItem = Schema.Struct({
   tool: Schema.String,
   status: Schema.String,
 });
+export const SubAgentActivityItem = Schema.Struct({
+  type: Schema.Literal("subAgentActivity"),
+  id: Schema.String,
+  kind: Schema.String,
+  agentThreadId: Schema.String,
+  agentPath: Schema.String,
+  model: Schema.NullOr(Schema.String),
+  reasoningEffort: Schema.NullOr(Schema.String),
+  startedAtMs: Schema.Number,
+  completedAtMs: Schema.NullOr(Schema.Number),
+});
 // Any other item type: userMessage, reasoning, plan, mcpToolCall and whatever Codex adds.
 export const OtherItem = Schema.Struct({
   type: Schema.String.check(
@@ -184,6 +195,7 @@ export const OtherItem = Schema.Struct({
           AgentMessageItem.fields.type.literal,
           FileChangeItem.fields.type.literal,
           DynamicToolCallItem.fields.type.literal,
+          SubAgentActivityItem.fields.type.literal,
         ].some((known) => known === type),
     ),
   ),
@@ -194,6 +206,7 @@ export const ThreadItem = Schema.Union([
   AgentMessageItem,
   FileChangeItem,
   DynamicToolCallItem,
+  SubAgentActivityItem,
   OtherItem,
 ]);
 export type ThreadItem = typeof ThreadItem.Type;

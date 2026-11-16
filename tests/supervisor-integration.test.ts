@@ -35,10 +35,11 @@ import * as D from "../src/schemas/daemon";
 import { Host } from "../src/services/host";
 import { makeSupervisor } from "../src/supervisor";
 import { makeAppServer } from "../src/supervisor/app-server";
+import { handleNotification } from "../src/supervisor/notifications";
 import { deferral, preamble, timeUp } from "../src/supervisor/prompts";
 import { makeQuestions } from "../src/supervisor/questions";
 import { makeRegistry } from "../src/supervisor/registry";
-import { makeTurns } from "../src/supervisor/turns";
+import { makeTurns, type Turns } from "../src/supervisor/turns";
 import { type Rule, Scenario, type Step } from "./fixtures/fake-app-server/scenario";
 import { repoHooks, successfulTurn } from "./fixtures/fake-app-server/scenarios";
 import { runCli } from "./helpers/cli";
@@ -424,6 +425,249 @@ const queuedAnswersFixture = Effect.fnUntraced(function* () {
 });
 
 describe("supervisor over the real daemon socket", () => {
+  it.effect("tracks live items, commentary and independent subagents without persisting them", () =>
+    Effect.gen(function* () {
+      const itemStep = (method: string, item: unknown, turnId = "{{turn}}") =>
+        notify(method, { threadId: "{{thread}}", turnId, item });
+      const activity = (kind: string, id: string, thread = "child-a", at = 100) => ({
+        type: "subAgentActivity",
+        id,
+        kind,
+        agentThreadId: thread,
+        agentPath: `/root/${thread}`,
+        model: kind === "started" ? "gpt-6.1-sol" : null,
+        reasoningEffort: kind === "started" ? "high" : null,
+        startedAtMs: at,
+        completedAtMs: at,
+      });
+      const activitySteps = (kind: string, id: string, thread = "child-a", at = 100) => [
+        itemStep(Codex.Method.itemStarted, activity(kind, id, thread, at)),
+        itemStep(Codex.Method.itemCompleted, activity(kind, id, thread, at)),
+      ];
+      const command = {
+        type: "commandExecution",
+        id: "command",
+        command: "bun run check",
+        status: "inProgress",
+        aggregatedOutput: null,
+        exitCode: null,
+      };
+      const batches: Step[][] = [
+        [
+          notify("item/commandExecution/outputDelta", {
+            threadId: "{{thread}}",
+            turnId: "old-turn",
+            delta: "chunk",
+          }),
+        ],
+        [itemStep(Codex.Method.itemCompleted, { type: "reasoning", id: "other" })],
+        [itemStep(Codex.Method.itemCompleted, { ...command, status: "completed", exitCode: 0 })],
+        [itemStep(Codex.Method.itemStarted, { type: "reasoning", id: "reasoning" })],
+        [
+          itemStep(Codex.Method.itemCompleted, message("Working on it", "commentary")),
+          itemStep(Codex.Method.itemCompleted, message("Done")),
+        ],
+        [complete()],
+      ];
+      const f = yield* fixture(
+        scenario(
+          turnRule([
+            ...activitySteps("started", "a-start"),
+            ...activitySteps("interacted", "a-interact", "child-a", 200),
+            ...activitySteps("completed", "a-done"),
+            ...activitySteps("interacted", "a-wake", "child-a", 300),
+            itemStep(Codex.Method.itemCompleted, {
+              ...activity("started", "a-repeat"),
+              model: "other-model",
+              reasoningEffort: "low",
+            }),
+            ...activitySteps("completed", "b-done", "child-b"),
+            ...activitySteps("interacted", "c-wake", "child-c"),
+            ...activitySteps("future_kind", "future", "ignored"),
+            itemStep(Codex.Method.itemStarted, command),
+          ]),
+          ...batches.map(
+            (steps): Rule => ({
+              method: Codex.Method.turnSteer,
+              respond: { result: { turnId: "{{turn}}" } },
+              steps,
+            }),
+          ),
+        ),
+      );
+      const config = yield* Effect.service(AppConfig).pipe(Effect.provide(AppConfig.layer(f.env)));
+      const registry = yield* makeRegistry(f.dataDir);
+      const servers = yield* makeAppServer(
+        config,
+        "test",
+        registry,
+        (server, notification) =>
+          Effect.gen(function* () {
+            const identity = yield* Schema.decodeUnknownEffect(
+              Schema.Struct({ threadId: Schema.String }),
+            )(notification.params);
+            const run = [...registry.runs.values()].find(
+              (run) => run.record.threadId === identity.threadId,
+            );
+            if (run)
+              yield* registry.enqueue(
+                run,
+                handleNotification(registry, turns, run, server, notification),
+              );
+          }),
+        () => Effect.void,
+      );
+      const turns: Turns = yield* makeTurns(registry, servers, config);
+      yield* TestClock.setTime(1000);
+      yield* turns.start(
+        {
+          _tag: "Start",
+          name,
+          worktree: f.worktree,
+          contract: "# Add the thing",
+          write: false,
+          skipDepsCheck: false,
+        },
+        Effect.void,
+      );
+      const run = yield* registry.lookup(name);
+      const until = (predicate: () => boolean) =>
+        Effect.gen(function* () {
+          while (true) {
+            const changed = yield* registry.change;
+            if (yield* run.lock.withPermits(1)(Effect.sync(predicate))) return;
+            yield* changed;
+          }
+        });
+      yield* until(() => run.openItem?.id === "command");
+      expect(run.title).toBe("Add the thing");
+      expect(run.openItem).toEqual({
+        type: "commandExecution",
+        command: "bun run check",
+        startedAt: 1000,
+        id: "command",
+      });
+      expect([...run.subagents.values()]).toEqual([
+        {
+          threadId: "child-a",
+          path: "/root/child-a",
+          model: "gpt-6.1-sol",
+          effort: "high",
+          state: "working",
+          startedAt: 100,
+          lastInteractionAt: 300,
+          interactions: 2,
+        },
+        {
+          threadId: "child-b",
+          path: "/root/child-b",
+          model: null,
+          effort: null,
+          state: "idle",
+          startedAt: 100,
+          lastInteractionAt: 100,
+          interactions: 0,
+        },
+        {
+          threadId: "child-c",
+          path: "/root/child-c",
+          model: null,
+          effort: null,
+          state: "working",
+          startedAt: 100,
+          lastInteractionAt: 100,
+          interactions: 1,
+        },
+      ]);
+      const eventsBefore = yield* Store.readEvents(run.dir);
+      yield* TestClock.setTime(2000);
+      yield* run.lock.withPermits(1)(turns.steer(run, "delta"));
+      yield* until(() => run.lastActivityAt === 2000);
+      expect((yield* Store.readEvents(run.dir)).events.map(({ event }) => event)).toEqual([
+        ...eventsBefore.events.map(({ event }) => event),
+        { _tag: "Steered", message: "delta" },
+      ]);
+      expect(run.openItem?.id).toBe("command");
+      yield* TestClock.setTime(3000);
+      yield* run.lock.withPermits(1)(turns.steer(run, "unrelated completion"));
+      yield* until(() => run.items.some((item) => item.id === "other"));
+      expect(run.openItem?.id).toBe("command");
+      yield* run.lock.withPermits(1)(turns.steer(run, "command completion"));
+      yield* until(() => run.openItem === null);
+      yield* run.lock.withPermits(1)(turns.steer(run, "reasoning"));
+      yield* until(() => run.openItem?.id === "reasoning");
+      expect(run.openItem?.command).toBeNull();
+      yield* run.lock.withPermits(1)(turns.steer(run, "commentary and final answer"));
+      yield* until(() =>
+        run.items.some(
+          (item) => Schema.is(Codex.AgentMessageItem)(item) && item.phase === "final_answer",
+        ),
+      );
+      expect(run.lastCommentary).toEqual({ text: "Working on it", at: 3000 });
+      yield* run.lock.withPermits(1)(turns.steer(run, "finish"));
+      yield* until(() => run.record.state === "idle");
+      expect(run.openItem).toBeNull();
+      expect([...run.subagents.values()].map((agent) => agent.state)).toEqual([
+        "idle",
+        "idle",
+        "idle",
+      ]);
+      expect(yield* Store.readRun(run.dir)).not.toHaveProperty("subagents");
+      const recovered = yield* registry.add(yield* Store.readRun(run.dir));
+      expect(recovered.title).toBe("Add the thing");
+      expect(recovered.subagents.size).toBe(0);
+      yield* f.fs.writeFileString(`${run.dir}/contract.md`, "\n Plain task \nmore");
+      expect((yield* registry.add(recovered.record)).title).toBe("Plain task");
+      yield* f.fs.remove(`${run.dir}/contract.md`);
+      yield* f.fs.makeDirectory(`${run.dir}/contract.md`);
+      expect((yield* registry.add(recovered.record)).title).toBeNull();
+    }).pipe(Effect.provide(platform)),
+  );
+  it.live("keeps noisy notifications only in the raw Codex log", () =>
+    Effect.gen(function* () {
+      const methods = [
+        "item/commandExecution/outputDelta",
+        "turn/moderationMetadata",
+        "turn/diff/updated",
+        "thread/name/updated",
+      ];
+      const f = yield* fixture(
+        scenario(
+          turnRule([
+            ...methods.map((method) =>
+              notify(method, { threadId: "{{thread}}", turnId: "{{turn}}", delta: "output" }),
+            ),
+            complete(),
+          ]),
+        ),
+      );
+      yield* f.launch();
+      yield* f.start();
+      yield* f.untilState("idle");
+      expect(
+        (yield* Store.readEvents(f.runDir)).events.flatMap(({ event }) =>
+          event._tag === "Other" ? [event.method] : [],
+        ),
+      ).toEqual(["thread/name/updated"]);
+      const raw = yield* f.fs.readFileString(`${f.runDir}/codex.jsonl`);
+      const loggedMethods = raw
+        .trim()
+        .split("\n")
+        .map(
+          (line) =>
+            Schema.decodeUnknownSync(Schema.fromJsonString(Codex.RpcNotification))(line).method,
+        );
+      expect(loggedMethods).toEqual([
+        Codex.Method.turnStarted,
+        "[redacted]",
+        ...methods.slice(1),
+        Codex.Method.turnCompleted,
+      ]);
+      const verbose = yield* f.cli(["events", "unit", "--verbose"]);
+      expect(verbose).toContain("thread/name/updated");
+      expect(verbose).not.toContain("[redacted]");
+    }).pipe(Effect.provide(platform)),
+  );
   it.live("start names the Codex thread after the run and its repo", () =>
     Effect.gen(function* () {
       const f = yield* fixture(scenario(turnRule([complete()])), false, "my-app");
@@ -2126,8 +2370,8 @@ describe("supervisor over the real daemon socket", () => {
         const f = yield* fixture(
           scenario(
             turnRule([
-              notify("turn/moderationMetadata", { threadId: "{{thread}}" }),
-              notify("turn/diff/updated", { threadId: "{{thread}}" }),
+              notify("thread/name/updated", { threadId: "{{thread}}" }),
+              notify("thread/status/updated", { threadId: "{{thread}}" }),
               notify(Codex.Method.itemCompleted, {
                 threadId: "{{thread}}",
                 turnId: "{{turn}}",
@@ -2153,8 +2397,8 @@ describe("supervisor over the real daemon socket", () => {
         expect(full.events.filter(({ event }) => event._tag === "Other")).toHaveLength(2);
         expect(human).toContain(`--after ${full.next}`);
         const verbose = yield* f.cli(["events", "unit", "--verbose"]);
-        expect(verbose).toContain("Other turn/moderationMetadata");
-        expect(verbose).toContain("Other turn/diff/updated");
+        expect(verbose).toContain("Other thread/name/updated");
+        expect(verbose).toContain("Other thread/status/updated");
         expect(verbose.trimEnd().split("\n").at(-1)).toContain(`--after ${full.next} --verbose`);
         const chatter = yield* f.cli(["events", "unit", "--after", "2", "--limit", "2"]);
         expect(chatter).not.toContain("Other");
