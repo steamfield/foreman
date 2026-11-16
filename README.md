@@ -72,7 +72,7 @@ All commands accept `--json` and `--help`. Commands below follow `foreman`; angl
 | `skill install [--force] [--print]` | Install the bundled skill under `$HOME/.claude/skills/foreman/`, leave an identical copy unchanged, or print it for another agent |
 | `start <name> --new-worktree --contract <file>` | Create a worktree and start; accepts `--from`, `--setup`, `--write`, `--model`, `--effort`, `--tier`, `--budget`, `--question-timeout`, `--skip-deps-check` |
 | `start <name> --worktree <path> --contract <file>` | Use a prepared linked worktree inside the main checkout; foreman never removes it or its branch |
-| `status [<name>]` | Full digest for one run, or a line per run in the group; both JSON forms return `Digests` |
+| `status [<name>] [--all]` | Full digest for one run, or a line per run in the group (`Digests` in JSON). Use `--all` without a name for cached live activity across every repo (`Overview` in JSON); keep using `wait` for outcomes rather than polling |
 | `events <name> [--after <n>] [--limit <n>] [--verbose] [--follow]` | Read up to 100 stored events per page by default. Text hides protocol chatter and token usage unless `--verbose` is set. JSON includes every event in the selected page. `--follow` streams text until the run becomes inactive and all events are printed, or Ctrl-C (exit 130); it cannot be combined with `--json`. With older daemons, follow polls every second and requires Ctrl-C to stop. |
 | `answer <name> <question-id> [<text>] [--file <path>]` | Answer now, send a late answer or correct a previous answer |
 | `defer <name> <question-id> [<note>]` | Release a pending question early |

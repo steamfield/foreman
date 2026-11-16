@@ -2,6 +2,7 @@ import { DateTime, Effect, FileSystem, Path } from "effect";
 import { AppConfig } from "../config";
 import type { DaemonResult, Handoff, OrphanWorktree, RunEventBody } from "../schemas/daemon";
 import { Host } from "../services/host";
+import { renderOverview } from "./monitor/status-all";
 import { renderDigest, renderStatus } from "./runs/digest";
 
 // Keep multiline event payloads on one line without losing their boundaries.
@@ -119,8 +120,11 @@ export function renderResult(
   executable = "foreman",
   eventsName?: string,
   verbose = false,
+  overviewContext = { group: "", now: 0 },
 ): string {
   switch (result._tag) {
+    case "Overview":
+      return renderOverview(result, overviewContext.group, executable, overviewContext.now);
     case "Pong":
       return `running ${result.version} (pid ${result.pid})`;
     case "Started":

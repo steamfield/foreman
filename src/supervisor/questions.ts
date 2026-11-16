@@ -37,7 +37,7 @@ export const makeQuestions = Effect.fn("supervisor.questions")(function* (regist
     delivery?: AnswerDelivery,
     continuation?: { readonly id: string; readonly turn: number },
   ) {
-    yield* Store.appendQuestion(run.dir, {
+    yield* registry.question(run, {
       _tag: "Resolved",
       id,
       resolution,
@@ -86,8 +86,8 @@ export const makeQuestions = Effect.fn("supervisor.questions")(function* (regist
       });
       run.calls.delete(id);
       const at = DateTime.makeUnsafe(yield* Clock.currentTimeMillis);
-      yield* Store.appendQuestion(
-        run.dir,
+      yield* registry.question(
+        run,
         resolution === "deferred"
           ? { _tag: "Deferred", id, by, ...(note === undefined ? {} : { note }), at }
           : { _tag: "Resolved", id, resolution, delivery: "response", text, at },
@@ -128,7 +128,7 @@ export const makeQuestions = Effect.fn("supervisor.questions")(function* (regist
       .map((line) => Number(line.id.slice(1)));
     const id = yield* Schema.decodeUnknownEffect(QuestionId)(`q${Math.max(0, ...ids) + 1}`);
     const kind = args.success.kind ?? "question";
-    yield* Store.appendQuestion(run.dir, {
+    yield* registry.question(run, {
       _tag: "Asked",
       id,
       turn: run.record.turns,

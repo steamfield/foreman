@@ -201,7 +201,7 @@ export const handleNotification = Effect.fn("supervisor.notification")(function*
       yield* registry.wake;
       yield* registry.cancelQuestions(run);
       const handoff = pickHandoff([...run.items, ...notification.params.turn.items]);
-      if (handoff !== null) yield* Store.writeHandoff(run.dir, run.record.turns, handoff);
+      if (handoff !== null) yield* registry.handoff(run, handoff);
       yield* registry.refreshWorktree(run);
       yield* registry.save(run, {
         activeTurnId: null,
