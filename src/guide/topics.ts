@@ -63,6 +63,7 @@ Wait and supervise peers
 
 Run every --wait command and foreman wait --all as a background task so you remain available.
 Use foreman events <name> --follow in a terminal to watch a run live; agents keep using wait.
+Follow connects passively: it never starts, replaces or keeps a daemon alive. Without a compatible daemon it prints saved events and one stderr note, then exits 0; foreman status <name> starts supervision.
 Mutation waits target the named run only. Explicit wait --all supervises the current repo and its linked worktrees.
 foreman wait a b returns as soon as any named run needs attention or ends a turn; use it instead of status polling loops or sleeps.
 foreman status --all lists runs across every repo; keep using wait for outcomes rather than polling.

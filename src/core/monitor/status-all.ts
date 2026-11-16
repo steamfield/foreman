@@ -26,7 +26,7 @@ function runLines(run: RunView, own: boolean, executable: string, now: number) {
         ]),
     ...(run.retrying === null ? [] : [`retrying: ${oneLine(run.retrying.message)}`]),
     ...(run.hooksBlocked > 0 ? [`${run.hooksBlocked} blocked by hooks`] : []),
-    ...(run.outsideMayChange ? [`${run.outsideMayChange} outside May change`] : []),
+    ...(run.outsideMayChange ? [`${run.outsideMayChange} outside scope`] : []),
     ...(run.quiet
       ? [`quiet ${run.lastActivityAt === null ? "" : elapsed(run.lastActivityAt, now)}`]
       : []),
@@ -61,7 +61,7 @@ function runLines(run: RunView, own: boolean, executable: string, now: number) {
           ...run.questions.map(
             (question) => `  next: ${executable} answer ${run.name} ${question.id} "<answer>"`,
           ),
-          ...(run.quiet ? [`  next: ${executable} events ${run.name} --follow`] : []),
+          ...(run.quiet ? [`  next: ${executable} events ${run.name}`] : []),
           ...(["idle", "interrupted", "failed"].includes(run.state)
             ? [`  next: ${executable} result ${run.name}`]
             : []),
@@ -80,7 +80,7 @@ export function renderOverview(result: Overview, group: string, executable: stri
     groups.set(run.group, entries);
   }
   return [
-    `${result.runs.length} runs${
+    `${result.runs.length} run${result.runs.length === 1 ? "" : "s"}${
       counts.size === 0
         ? ""
         : `: ${[...counts]
