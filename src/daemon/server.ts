@@ -82,24 +82,18 @@ export const daemon = Effect.fn("daemon")(
         const serve = server.run((socket) =>
           Effect.scoped(
             Effect.gen(function* () {
-              let passive = false;
-              let first = true;
-              yield* Effect.acquireRelease(
-                Ref.update(activity, (state) => ({
-                  ...state,
-                  connections: state.connections + 1,
-                })),
-                () =>
-                  passive
-                    ? Effect.logDebug("daemon.connection.closed")
-                    : Clock.currentTimeMillis.pipe(
-                        Effect.flatMap((last) =>
-                          Ref.update(activity, (state) => ({
-                            connections: state.connections - 1,
-                            last,
-                          })).pipe(Effect.andThen(Effect.logDebug("daemon.connection.closed"))),
-                        ),
+              let classification: "unclassified" | "passive" | "active" = "unclassified";
+              yield* Effect.acquireRelease(Effect.void, () =>
+                classification === "passive"
+                  ? Effect.logDebug("daemon.connection.closed")
+                  : Clock.currentTimeMillis.pipe(
+                      Effect.flatMap((last) =>
+                        Ref.update(activity, (state) => ({
+                          connections: state.connections - (classification === "active" ? 1 : 0),
+                          last,
+                        })).pipe(Effect.andThen(Effect.logDebug("daemon.connection.closed"))),
                       ),
+                    ),
               );
               const reader = yield* socket.reader;
               const writer = yield* socket.writer;
@@ -123,18 +117,34 @@ export const daemon = Effect.fn("daemon")(
               const reading = lines(reader).pipe(
                 Stream.runForEach((line) =>
                   Effect.gen(function* () {
-                    // Classify before forking dispatch, so only the first wire request counts.
-                    if (first) {
-                      first = false;
+                    // Unclassified sockets do not affect idle ticks. A passive socket can
+                    // become active if a later request needs ordinary command ownership.
+                    if (classification !== "active") {
                       const decoded = yield* Schema.decodeUnknownEffect(requestJson)(line).pipe(
                         Effect.result,
                       );
-                      if (decoded._tag === "Success" && decoded.success.passive === true) {
-                        passive = true;
-                        yield* Ref.update(activity, (state) => ({
-                          ...state,
-                          connections: state.connections - 1,
-                        }));
+                      const tag = decoded._tag === "Success" ? decoded.success.body._tag : null;
+                      if (
+                        decoded._tag === "Success" &&
+                        decoded.success.passive === true &&
+                        (tag === "Ping" ||
+                          tag === "Overview" ||
+                          tag === "Detail" ||
+                          tag === "Events" ||
+                          tag === "Status")
+                      ) {
+                        classification = "passive";
+                      } else {
+                        yield* Effect.uninterruptible(
+                          Effect.gen(function* () {
+                            const last = yield* Clock.currentTimeMillis;
+                            classification = "active";
+                            yield* Ref.update(activity, (state) => ({
+                              connections: state.connections + 1,
+                              last,
+                            }));
+                          }),
+                        );
                       }
                     }
                     yield* FiberSet.run(

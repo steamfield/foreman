@@ -115,5 +115,9 @@ export const makeDetailSchema = (
     contractByteLimit: Schema.Int,
     questions: Schema.Array(DetailQuestion),
     handoff: Schema.NullOr(handoff),
-  }).annotate({ title: "Detail", description: "Read-only run detail without worktree refreshes" });
+  }).annotate({
+    title: "Detail",
+    description:
+      "Read-only run detail without worktree refreshes; version tracks this run's visible changes, not other runs",
+  });
 export type Detail = ReturnType<typeof makeDetailSchema>["Type"];

@@ -1,4 +1,4 @@
-import { Clock, DateTime, Effect, Path } from "effect";
+import { Clock, DateTime, Deferred, Effect, Path } from "effect";
 import { activity, questionTime, quiet } from "../core/monitor/attention";
 import { buildDigest } from "../core/runs/digest";
 import { redactDiagnosticText } from "../logging";
@@ -78,9 +78,10 @@ export const waitForVersion = Effect.fnUntraced(function* (
   registry: Registry,
   after?: number,
   timeoutMs = 15000,
+  run?: Run,
 ) {
-  const change = yield* registry.change;
-  if (after !== undefined && after === registry.version) {
+  const change = run === undefined ? yield* registry.change : Deferred.await(run.changed);
+  if (after !== undefined && after === (run?.version ?? registry.version)) {
     const changed = yield* change.pipe(
       Effect.as(true),
       Effect.timeoutOrElse({

@@ -24,6 +24,7 @@ import {
 } from "../core/monitor/attention";
 import { buildDigest } from "../core/runs/digest";
 import { contractTitle } from "../core/runs/normalize";
+import { stateSince } from "../core/runs/state-since";
 import * as Store from "../core/runs/store";
 import { computeWorktreeFields, type WorktreeFields } from "../core/runs/worktree";
 import { CodexUnavailable, PermissionDenied, RunConflict, RunNotFound } from "../errors";
@@ -52,6 +53,8 @@ export interface SubAgentState {
 }
 
 export interface Run {
+  version: number;
+  changed: Deferred.Deferred<void>;
   record: RunRecord;
   readonly dir: string;
   readonly lock: Semaphore.Semaphore;
@@ -147,12 +150,16 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
     );
   let changed = yield* Deferred.make<void>();
   let version = 0;
-  const wake = Effect.gen(function* () {
+  const wake = Effect.fnUntraced(function* (run: Run) {
     version += 1;
+    run.version = version;
+    const runChanged = run.changed;
+    run.changed = yield* Deferred.make<void>();
     const previous = changed;
     changed = yield* Deferred.make<void>();
+    yield* Deferred.succeed(runChanged, undefined);
     yield* Deferred.succeed(previous, undefined);
-  });
+  }, Effect.uninterruptible);
   const add = Effect.fnUntraced(function* (record: RunRecord) {
     const dir = yield* Store.runDirectory(dataDir, record.name);
     const fs = yield* FileSystem.FileSystem;
@@ -177,7 +184,25 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
         ),
       ),
     );
+    const events = yield* Store.readEvents(dir, 0, Number.MAX_SAFE_INTEGER).pipe(
+      Effect.map((page) => page.events),
+      // State age is display metadata. Corruption must still be reported by
+      // history reads, but must not prevent pending-transition recovery.
+      Effect.catchTag("SchemaError", (error) =>
+        Effect.logWarning("supervisor.state-age.unavailable").pipe(
+          Effect.annotateLogs({
+            name: record.name,
+            ...causeFields(Cause.fail(error)),
+            action:
+              "State age uses creation time; preserve and inspect events.jsonl before retrying history reads.",
+          }),
+          Effect.as([]),
+        ),
+      ),
+    );
     const run: Run = {
+      version,
+      changed: yield* Deferred.make<void>(),
       record: {
         ...record,
         failure: Store.redactFailure(record.failure, [record.worktree, record.group, dir]),
@@ -194,7 +219,7 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
       lastActivityAt: null,
       title,
       lastCommentary: null,
-      stateSince: DateTime.toEpochMillis(record.updatedAt),
+      stateSince: DateTime.toEpochMillis(stateSince(record, events)),
       questions,
       lastHandoff:
         handoff === null
@@ -211,8 +236,10 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
       retireServer: Effect.void,
       recoveryVersion: 0,
     };
+    const previous = runs.get(record.name);
     runs.set(record.name, run);
-    yield* wake;
+    if (previous) yield* wake(previous);
+    yield* wake(run);
     skippedDirectories.delete(run.dir);
     yield* FiberSet.run(
       workers,
@@ -250,7 +277,7 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
     yield* Store.writeRun(run.dir, next);
     if (next.state !== run.record.state) run.stateSince = DateTime.toEpochMillis(next.updatedAt);
     run.record = next;
-    yield* wake;
+    yield* wake(run);
   });
   const event = (run: Run, body: RunEventBody) =>
     Store.appendEvent(run.dir, body).pipe(
@@ -263,7 +290,7 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
               : body,
             DateTime.toEpochMillis(entry.at),
           );
-          yield* wake;
+          yield* wake(run);
         }),
       ),
     );
@@ -273,12 +300,12 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
       run.questions,
       line._tag === "Asked" ? { ...line, question: redactDiagnosticText(line.question) } : line,
     );
-    yield* wake;
+    yield* wake(run);
   });
   const handoff = Effect.fnUntraced(function* (run: Run, text: string) {
     yield* Store.writeHandoff(run.dir, run.record.turns, text);
     run.lastHandoff = handoffLine(redactDiagnosticText(text), yield* Clock.currentTimeMillis);
-    yield* wake;
+    yield* wake(run);
   });
   // Finish the journal before interruption can release the run lock or expose the state.
   const state = Effect.fnUntraced(function* (run: Run, to: RunState) {
@@ -291,14 +318,16 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
   const publishState = Effect.fnUntraced(function* (run: Run) {
     const pending = run.record.pendingStateEvent;
     if (!pending) return;
-    if (!(yield* Store.hasTransition(run.dir, pending.id)))
-      yield* Store.appendEvent(
+    if (!(yield* Store.hasTransition(run.dir, pending.id))) {
+      const entry = yield* Store.appendEvent(
         run.dir,
         { _tag: "StateChanged", from: pending.from, to: pending.to },
         pending.id,
       );
+      run.stateSince = DateTime.toEpochMillis(entry.at);
+    }
     yield* save(run, { pendingStateEvent: null });
-    yield* wake;
+    yield* wake(run);
   });
   const cancelQuestions = Effect.fnUntraced(function* (run: Run) {
     for (const question of Store.pendingQuestions(yield* Store.readQuestions(run.dir))) {
@@ -430,7 +459,7 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
     if (Exit.isFailure(recovery)) {
       if (run.record.state !== next) run.stateSince = yield* Clock.currentTimeMillis;
       run.record = { ...run.record, ...patch, state: next };
-      yield* wake;
+      yield* wake(run);
       return causeFields(recovery.cause);
     }
     return null;
@@ -509,6 +538,7 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
   });
   const refreshWorktree = Effect.fnUntraced(function* (run: Run) {
     const fs = yield* FileSystem.FileSystem;
+    const previous = run.worktree;
     run.worktree = yield* computeWorktreeFields(run.record.worktree, run.dir).pipe(
       Effect.catch((error) =>
         Effect.gen(function* () {
@@ -519,6 +549,7 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
         }),
       ),
     );
+    if (JSON.stringify(previous) !== JSON.stringify(run.worktree)) yield* wake(run);
   });
   const existing = yield* Store.readAllRuns(dataDir);
   const path = yield* Path.Path;
@@ -613,7 +644,7 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
           runs.delete(name);
           yield* Queue.end(run.messages);
           yield* Queue.end(run.answers);
-          yield* wake;
+          yield* wake(run);
           return { _tag: "Archived" as const, name, archivePath };
         }).pipe(Effect.uninterruptible),
       ),

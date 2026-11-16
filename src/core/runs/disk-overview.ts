@@ -12,6 +12,7 @@ import {
 import type { SavedOverview } from "../monitor/feed";
 import { buildDigest } from "./digest";
 import { contractTitle } from "./normalize";
+import { stateSince } from "./state-since";
 import * as Store from "./store";
 
 export const diskRunView = Effect.fn("runs.diskRunView")(function* (
@@ -50,7 +51,10 @@ export const diskRunView = Effect.fn("runs.diskRunView")(function* (
     tier: record.tier,
     sandbox: digest.sandbox,
     state: record.state,
-    stateSince: record.updatedAt,
+    stateSince: stateSince(
+      record,
+      (yield* Store.readEvents(dir, 0, Number.MAX_SAFE_INTEGER)).events,
+    ),
     turn: record.turns,
     turnKind: record.turnKind,
     turnStartedAt: record.turnStartedAt,
