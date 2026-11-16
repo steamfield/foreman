@@ -146,6 +146,18 @@ Archive refuses active or queued-answer runs. For managed cleanup it requires th
 
 Removed worktrees leave records readable with a warning and the last cached file fields, or uncomputed fields after daemon restart. Status and doctor report existing worktrees under `<main>/.claude/worktrees/` on `foreman/*` branches when no current run record refers to them. This includes retained managed worktrees; worktrees elsewhere are not reported as orphans. Neither command automatically removes them.
 
+## Monitoring
+
+`foreman monitor` and `status --all` read the same projection. The registry keeps per-run live state in memory only: subagents folded from `subAgentActivity` items, the open command item, the latest commentary, cached unresolved questions, retry and hook-block attention, and `lastActivityAt`, which updates on every routed notification, deltas included. Deltas do not wake waiters; only state that changes what a reader would see does. A daemon restart loses this state, and the affected runs become lost anyway.
+
+`Overview` projects every run in every group without journal reads or child processes. `Detail` adds one run's no-refresh digest, contract, folded questions and latest hand-off; the daemon and the disk fallback build it with the same `readDetail` projection. Both long-poll on a registry version counter: when `after` equals the current version they wait for a change or the timeout outside every run lock, then coalesce for 250 ms before projecting. `Events` with `waitMs` reads under the run lock, releases it, waits for a change, and reads again, so a follower never blocks the run's notification queue. The version is global, so a detail poll also wakes on other runs' changes; coalescing bounds that cost.
+
+The monitor connects passively. A passive first request decrements the server's connection count, and its release leaves the idle clock alone, so an open monitor never keeps a daemon alive and never spawns or replaces one. When no daemon of this build answers, the feeds read the same shapes read-only from disk and probe again every 10 s. Once a daemon is found to be another build, the feed watches the socket and the lock owner's PID instead of probing, because older daemons refresh their idle clock on every ping. The view shows saved state until an ordinary command replaces that daemon.
+
+"Quiet" flags a running turn with no open command item and no activity for 5 minutes. It is a prompt to look, not a failure signal, and long silent commands do not trigger it.
+
+The TUI lives in `src/tui/` and is reached only through a dynamic import, but Bun still bundles it into the binary, which adds about 12 ms to every command's startup. It renders a pure view model from `src/core/monitor/model.ts` and receives terminal streams only from the `Terminal` service. Without two TTYs, with `--json`, or under `CODEX_DELEGATE`, `monitor` prints the `status --all` (or `status <name>`) snapshot instead, because Codex runs commands in a PTY and would otherwise receive an alternate screen it never exits.
+
 ## Verification boundaries
 
 Vitest runs on Node with real filesystem and process services, temporary Git repos and a scripted fake app server for the third-party boundary. Recorded Codex messages test wire shapes; compiled-binary e2e tests run under Bun. The [agent harness](harness.md) adds editing guards. Real-Codex smoke tests are opt-in development checks, outside automated gates. They provide evidence about supported protocol behavior without making network inference a test dependency.
