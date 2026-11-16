@@ -37,6 +37,7 @@ export type PaneView = {
 };
 export type DetailView = {
   readonly name: string;
+  readonly stale: boolean;
   readonly state: RunView["state"] | null;
   readonly tone: Tone;
   readonly status: "loading" | "ready" | "archived" | "reconnecting";
@@ -59,6 +60,7 @@ export type Defaults = Pick<RunView, "model" | "effort" | "tier">;
 export type FlagView = { readonly text: string; readonly tone: Tone };
 export type RowView = {
   readonly name: string;
+  readonly stale: boolean;
   readonly state: RunView["state"];
   readonly turn: number;
   readonly turnKind: RunView["turnKind"];
@@ -204,13 +206,20 @@ export function stateTone(state: RunView["state"]): Tone {
       return "muted";
   }
 }
+const unsupervised = (feed: MonitorFeed | DetailFeed | null | undefined) =>
+  feed?._tag === "Saved" && feed.reason === "no-daemon";
 function flags(run: RunView, state: State): FlagView[] {
   const result: FlagView[] = [];
   for (const q of run.questions)
     result.push({ text: `${q.id} pending ${age(q.askedAt, state.now)}`, tone: "signal" });
   if (run.unansweredCount > 0)
     result.push({ text: `${run.unansweredCount} deferred`, tone: "interrupted" });
-  if (run.quiet && run.state === "running" && run.activity?.kind !== "command")
+  if (
+    !unsupervised(state.feed) &&
+    run.quiet &&
+    run.state === "running" &&
+    run.activity?.kind !== "command"
+  )
     result.push({
       text: `quiet ${run.lastActivityAt === null ? "" : age(run.lastActivityAt, state.now)}`.trim(),
       tone: "interrupted",
@@ -417,8 +426,14 @@ export function reduce(state: State, msg: Message): State {
   return { ...next, selected: keys[Math.min(previousIndex, keys.length - 1)] ?? null };
 }
 function row(run: RunView, state: State, cells: number): RowView {
+  const stale = unsupervised(state.feed) && activeStates.has(run.state);
   let budget: RowView["budget"] = null;
-  if (activeStates.has(run.state) && run.turnStartedAt !== null && run.turnBudgetMs !== null) {
+  if (
+    !stale &&
+    activeStates.has(run.state) &&
+    run.turnStartedAt !== null &&
+    run.turnBudgetMs !== null
+  ) {
     const elapsed = Math.max(0, state.now - epoch(run.turnStartedAt));
     const fraction = run.turnBudgetMs === 0 ? 1 : elapsed / run.turnBudgetMs;
     let tone: Tone = "running";
@@ -446,11 +461,12 @@ function row(run: RunView, state: State, cells: number): RowView {
     allFlags[0];
   return {
     name: run.name,
+    stale,
     state: run.state,
     turn: run.turn,
     turnKind: run.turnKind,
     activityAge: activity?.kind === "command" ? age(activity.since, state.now) : null,
-    tone: stateTone(run.state),
+    tone: stale ? "muted" : stateTone(run.state),
     age: age(run.stateSince, state.now).padStart(5),
     activity: text,
     activityTone,
@@ -458,7 +474,7 @@ function row(run: RunView, state: State, cells: number): RowView {
     flags: cells === 0 ? allFlags.filter((flag) => flag === urgent) : allFlags,
     subagents: run.subagents.map((agent) => ({
       path: oneLine(agent.path),
-      working: agent.state === "working",
+      working: !unsupervised(state.feed) && agent.state === "working",
       text: `${agent.state} · ${age(agent.lastInteractionAt, state.now)} ago${agent.model !== null && agent.model !== run.model ? ` · ${oneLine(agent.model)}` : ""}${agent.effort !== null && agent.effort !== run.effort ? ` · ${oneLine(agent.effort)}` : ""}`,
     })),
   };
@@ -558,7 +574,9 @@ export function view(state: State, previous?: ViewModel): ViewModel {
   const available = Math.max(1, state.rows - 2);
   let position = message.length + visibleNotes.length * 4 + (moreNotes > 0 ? 1 : 0);
   const spans: { start: number; end: number; id: string }[] = [];
-  const animatedLines: number[] = visibleNotes.map((_, index) => message.length + index * 4);
+  const animatedLines: number[] = unsupervised(feed)
+    ? []
+    : visibleNotes.map((_, index) => message.length + index * 4);
   const boundaries = [0];
   for (const group of groups) {
     boundaries.push(++position);
@@ -566,7 +584,8 @@ export function view(state: State, previous?: ViewModel): ViewModel {
       const start = position;
       position += 2 + (layout === "narrow" ? 0 : entry.subagents.length);
       spans.push({ start, end: position, id: entry.name });
-      if (["running", "starting", "waiting"].includes(entry.state)) animatedLines.push(start);
+      if (!entry.stale && ["running", "starting", "waiting"].includes(entry.state))
+        animatedLines.push(start);
       if (layout !== "narrow")
         for (const [index, agent] of entry.subagents.entries())
           if (agent.working) animatedLines.push(start + 2 + index);
@@ -616,7 +635,11 @@ export function view(state: State, previous?: ViewModel): ViewModel {
       version: state.version,
       daemon,
       defaults: `${state.defaults.model} · ${state.defaults.effort} · ${state.defaults.tier === "priority" ? "fast" : state.defaults.tier}`,
-      counts: [...counts].map(([s, count]) => ({ state: s, count, tone: stateTone(s) })),
+      counts: [...counts].map(([s, count]) => ({
+        state: s,
+        count,
+        tone: unsupervised(feed) && activeStates.has(s) ? "muted" : stateTone(s),
+      })),
       caution: feed?._tag === "Saved" || reconnecting,
     },
     notes: visibleNotes,
@@ -668,6 +691,7 @@ export function detailLayout(detail: DetailView, columns: number, rows: number) 
 }
 function detailAnimating(state: State, detail: DetailView | null): boolean {
   if (!detail || detail.status === "archived") return false;
+  if (unsupervised(state.detail?.feed)) return false;
   if (detail.status === "loading" || detail.status === "reconnecting") return true;
   const { offset, headerHeight, height } = detailLayout(detail, state.columns, state.rows);
   const visible = (position: number) => position >= offset && position < offset + height;
@@ -764,7 +788,14 @@ function detailView(state: State): DetailView | null {
   const detail = state.detail;
   if (!detail) return null;
   const data = currentDetail(state);
-  const base = { name: detail.name, focus: detail.focus, header: [], warnings: [], panes: [] };
+  const base = {
+    name: detail.name,
+    stale: false,
+    focus: detail.focus,
+    header: [],
+    warnings: [],
+    panes: [],
+  };
   if (detail.feed?._tag === "Archived")
     return {
       ...base,
@@ -790,6 +821,7 @@ function detailView(state: State): DetailView | null {
       ],
     };
   const { run, record, digest } = data;
+  const stale = unsupervised(detail.feed) && activeStates.has(run.state);
   // The worktree fields stay null until a turn ends or status refreshes them.
   const files = [
     digest.filesWritten && `${digest.filesWritten.length} written`,
@@ -834,7 +866,10 @@ function detailView(state: State): DetailView | null {
           {
             text: `${oneLine(agent.path)} · ${agent.state}${agent.model && agent.model !== run.model ? ` · ${oneLine(agent.model)}` : ""}${agent.effort && agent.effort !== run.effort ? ` · ${oneLine(agent.effort)}` : ""}`,
             tone: "fg" as const,
-            kind: agent.state === "working" ? ("working" as const) : ("subagent-idle" as const),
+            kind:
+              !unsupervised(detail.feed) && agent.state === "working"
+                ? ("working" as const)
+                : ("subagent-idle" as const),
           },
           {
             text: `started ${clockTime(agent.startedAt)} · ${plural(agent.interactions, "interaction")} · ${age(agent.lastInteractionAt, state.now)} ago`,
@@ -915,8 +950,9 @@ function detailView(state: State): DetailView | null {
   }
   return {
     name: run.name,
+    stale,
     state: run.state,
-    tone: stateTone(run.state),
+    tone: stale ? "muted" : stateTone(run.state),
     status: detail.feed?._tag === "Reconnecting" ? "reconnecting" : "ready",
     message,
     focus: detail.focus,

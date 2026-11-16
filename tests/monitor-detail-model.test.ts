@@ -7,6 +7,7 @@ import {
   type PaneId,
   reduce,
   type State,
+  stateTone,
   view,
 } from "../src/core/monitor/model";
 import { at, defaults, detail, detailLive, live, messageEvents, now, run } from "./helpers/monitor";
@@ -32,6 +33,38 @@ const pane = (state: State, id: PaneId) =>
 const focusFeed = (state: State) =>
   Array.from({ length: 6 }).reduce<State>((s) => key(s, "tab"), state);
 describe("monitor detail model", () => {
+  it.each(["running", "starting", "waiting"] as const)(
+    "keeps saved %s work static only when no daemon supervises it",
+    (runState) => {
+      const data = detail(run("fix-hooks", { state: runState, subagents: detail().run.subagents }));
+      for (const reason of ["no-daemon", "outdated"] as const) {
+        const current = reduce(start(), {
+          type: "detail-feed",
+          name: data.run.name,
+          value: {
+            _tag: "Saved",
+            detail: data,
+            events: [],
+            gap: false,
+            receivedAt: now,
+            reason,
+            nextProbeAt: now + 10000,
+          },
+        });
+        const model = view(current);
+        expect(model.animating).toBe(reason === "outdated");
+        expect(model.detail).toMatchObject({
+          stale: reason === "no-daemon",
+          tone: reason === "no-daemon" ? "muted" : stateTone(runState),
+        });
+        const agents = pane(current, "subagents")?.lines ?? [];
+        expect(agents.some((line) => line.kind === "working")).toBe(reason === "outdated");
+        expect(view(key(key(key(current, "tab"), "tab"), "tab")).animating).toBe(
+          reason === "outdated",
+        );
+      }
+    },
+  );
   it.each([false, true])(
     "starts a fresh event buffer when a run name is reused (archived=%s)",
     (archived) => {

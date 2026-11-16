@@ -121,10 +121,11 @@ function Header({
     const second = narrow ? undefined : detail.header[i + 1];
     if (first) lines.push(pad(pair(first), column) + (second ? pair(second) : ""));
   }
-  const title = truncate(`${detail.state ?? ""}  ${detail.name}`, width - 8);
-  const badge = colors.paint(` ${detail.state ?? ""}  `, detail.tone);
+  const stateLabel = detail.stale ? `${detail.state} · not supervised` : (detail.state ?? "");
+  const title = truncate(`${stateLabel}  ${detail.name}`, width - 8);
+  const badge = colors.paint(` ${stateLabel}  `, detail.tone);
   const name = colors.paint(
-    truncate(detail.name, Math.max(0, width - 10 - (detail.state?.length ?? 0))),
+    truncate(detail.name, Math.max(0, width - 10 - stateLabel.length)),
     "fg",
     true,
   );
@@ -132,7 +133,11 @@ function Header({
     <Box flexDirection="column" flexShrink={0}>
       <Text wrap="truncate-end">
         {colors.fill(colors.paint("╭─ ", "line"))}
-        <Glyph kind={detail.state ?? "probing"} tone={detail.tone} colors={colors} />
+        <Glyph
+          kind={detail.stale ? "lost" : (detail.state ?? "probing")}
+          tone={detail.tone}
+          colors={colors}
+        />
         {colors.fill(
           badge +
             name +

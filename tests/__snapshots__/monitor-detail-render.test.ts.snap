@@ -650,7 +650,7 @@ exports[`monitor detail frames > state block 0 at 70 columns 1`] = `
 Saved state · daemon not running
 The monitor checks again automatically; start work in another termina…
 foreman status fix-hooks
-╭─ ■ waiting  fix-hooks ─────────────────────────────────────────────╮
+╭─ ◌ waiting · not supervised  fix-hooks ────────────────────────────╮
 │   worktree /repo/work                                              │
 │     branch work                                                    │
 │       base abc123                                                  │
@@ -693,7 +693,7 @@ exports[`monitor detail frames > state block 0 at 100 columns 1`] = `
 Saved state · daemon not running
 The monitor checks again automatically; start work in another terminal.
 foreman status fix-hooks
-╭─ ■ waiting  fix-hooks ───────────────────────────────────────────────────────────────────────────╮
+╭─ ◌ waiting · not supervised  fix-hooks ──────────────────────────────────────────────────────────╮
 │   worktree /repo/work                               branch work                                  │
 │       base abc123                                   --from main                                  │
 │    created 11:00:00 · 1h00m ago                    updated 12:00:00 · 0s ago                     │
@@ -723,7 +723,7 @@ foreman status fix-hooks
 │ Question 2: keep the API?                                                                        │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Subagents ──────────────────────────────────────────────────────────────────────────────────────╮
-│ ⠿ /root/acceptance_tests · working · gpt-6-sol · medium                                          │
+│ · /root/acceptance_tests · working · gpt-6-sol · medium                                          │
 │ started 11:59:00 · 2 interactions · 20s ago                                                      │
 │ · /root/review · idle                                                                            │
 │ started 11:57:00 · 1 interaction · 2m ago                                                        │
@@ -736,7 +736,7 @@ exports[`monitor detail frames > state block 0 at 140 columns 1`] = `
 Saved state · daemon not running
 The monitor checks again automatically; start work in another terminal.
 foreman status fix-hooks
-╭─ ■ waiting  fix-hooks ──────────────────────────────────────────╮╭─ Feed ──────────────────────────────────────────────────── following ─╮
+╭─ ◌ waiting · not supervised  fix-hooks ─────────────────────────╮╭─ Feed ──────────────────────────────────────────────────── following ─╮
 │   worktree /repo/work              branch work                  ││ 12:00:00 event 1                                                      │
 │       base abc123                  --from main                  ││ 12:00:00 … bun run check                                              │
 │    created 11:00:00 · 1h00m ago   updated 12:00:00 · 0s ago     ││ 12:00:00 ✓ bun run lint                                               │
@@ -766,7 +766,7 @@ foreman status fix-hooks
 │ Question 2: keep the API?                                       ││                                                                       │
 ╰─────────────────────────────────────────────────────────────────╯│                                                                       │
 ╭─ Subagents ─────────────────────────────────────────────────────╮│                                                                       │
-│ ⠿ /root/acceptance_tests · working · gpt-6-sol · medium         ││                                                                       │
+│ · /root/acceptance_tests · working · gpt-6-sol · medium         ││                                                                       │
 │ started 11:59:00 · 2 interactions · 20s ago                     ││                                                                       │
 │ · /root/review · idle                                           ││                                                                       │
 │ started 11:57:00 · 1 interaction · 2m ago                       ││                                                                       │
@@ -779,7 +779,7 @@ exports[`monitor detail frames > state block 0 colors 1`] = `
 [48;2;18;20;18m[38;2;228;232;224mSaved state · daemon not running[39m                                                                                                            [49m
 [48;2;18;20;18m[38;2;154;162;148mThe monitor checks again automatically; start work in another terminal.[39m                                                                     [49m
 [48;2;18;20;18m[38;2;228;232;224mforeman status fix-hooks[39m                                                                                                                    [49m
-[48;2;18;20;18m[38;2;45;50;43m╭─ [38;2;255;91;20m■ waiting  [1m[38;2;228;232;224mfix-hooks[22m[38;2;45;50;43m ──────────────────────────────────────────╮╭─ [1mFeed[22m ────────────────────────────────────────────────────[39m [38;2;154;162;148mfollowing[39m [38;2;45;50;43m─╮[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m╭─ [38;2;154;162;148m◌ waiting · not supervised  [1m[38;2;228;232;224mfix-hooks[22m[38;2;45;50;43m ─────────────────────────╮╭─ [1mFeed[22m ────────────────────────────────────────────────────[39m [38;2;154;162;148mfollowing[39m [38;2;45;50;43m─╮[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148m  worktree [38;2;228;232;224m/repo/work[39m          [38;2;154;162;148m    branch [38;2;228;232;224mwork[39m                 [38;2;45;50;43m ││ [38;2;154;162;148m12:00:00 [38;2;228;232;224mevent 1[39m                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148m      base [38;2;228;232;224mabc123[39m              [38;2;154;162;148m    --from [38;2;228;232;224mmain[39m                 [38;2;45;50;43m ││ [38;2;154;162;148m12:00:00 [38;2;111;168;255m… [38;2;228;232;224mbun run check[39m                                             [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148m   created [38;2;228;232;224m11:00:00 · 1h00m ago[38;2;154;162;148m   updated [38;2;228;232;224m12:00:00 · 0s ago[39m    [38;2;45;50;43m ││ [38;2;154;162;148m12:00:00 [38;2;92;201;138m✓ [38;2;228;232;224mbun run lint[39m                                              [38;2;45;50;43m │[39m[49m
@@ -809,7 +809,7 @@ exports[`monitor detail frames > state block 0 colors 1`] = `
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mQuestion 2: keep the API?[39m                                      [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m╰─────────────────────────────────────────────────────────────────╯│ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m╭─ [1mSubagents[22m ─────────────────────────────────────────────────────╮│ [39m                                                                     [38;2;45;50;43m │[39m[49m
-[48;2;18;20;18m[38;2;45;50;43m│ [38;2;111;168;255m⠿[38;2;228;232;224m /root/acceptance_tests · working · gpt-6-sol · medium        [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148m·[38;2;228;232;224m /root/acceptance_tests · working · gpt-6-sol · medium        [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148mstarted 11:59:00 · 2 interactions · 20s ago[39m                    [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148m·[38;2;228;232;224m /root/review · idle                                          [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148mstarted 11:57:00 · 1 interaction · 2m ago[39m                      [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
@@ -1503,6 +1503,350 @@ exports[`monitor detail frames > state block 4 colors 1`] = `
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;27;30;26m[1m[38;2;228;232;224mTab[22m[38;2;154;162;148m pane[39m  [1m[38;2;228;232;224mjk[22m[38;2;154;162;148m scroll[39m  [1m[38;2;228;232;224mf[22m[38;2;154;162;148m follow[39m  [1m[38;2;228;232;224mEsc[22m[38;2;154;162;148m list[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                                                                     [38;2;154;162;148mupdated 0.0s ago[39m[49m"
+`;
+
+exports[`monitor detail frames > state block 5 at 70 columns 1`] = `
+"››› foreman 0.1.3               gpt-6.1-sol · high · fast  ■ 1 waiting
+Saved state · daemon not running
+The monitor checks again automatically; start work in another termina…
+foreman status fix-hooks
+╭─ ◌ running · not supervised  fix-hooks ────────────────────────────╮
+│   worktree /repo/work                                              │
+│     branch work                                                    │
+│       base abc123                                                  │
+│     --from main                                                    │
+│    created 11:00:00 · 1h00m ago                                    │
+│    updated 12:00:00 · 0s ago                                       │
+│    run dir /data/runs/fix-hooks                                    │
+│      model gpt-6.1-sol · high · priority                           │
+│       turn 2 followup                                              │
+│ connection saved · no-daemon                                       │
+╰────────────────────────────────────────────────────────────────────╯
+╭─ Task ─────────────────────────────────────────────────────────────╮
+│ # Fix hook handling                                                │
+│ Keep the existing hook API.                                        │
+│ Use real dependencies.                                             │
+│                                                                    │
+│ May change: src/hooks.ts                                           │
+│ Must not change: src/daemon/                                       │
+╰────────────────────────────────────────────────────────────────────╯
+╭─ Digest ───────────────────────────────────────────────────────────╮
+│ commands  12 total · 1 failed · 2 hooks blocked                    │
+│ last command  bun run check · exit 0                               │
+│ files  1 written · 0 outside May change                            │
+│ tokens  1K input · 750 cached (75% hit)                            │
+│         200 output · 100 reasoning                                 │
+│                                                                    │
+╰────────────────────────────────────────────────────────────────────╯
+╭─ Questions ────────────────────────────────────────────────────────╮
+│ q1 · question · pending · 3m ago                                   │
+│ Question 1: keep the API?                                          │
+│ q2 · question · deferred · 3m ago                                  │
+│ Question 2: keep the API?                                          │
+╰────────────────────────────────────────────────────────────────────╯
+╭─ Subagents ────────────────────────────────────────────────────────╮
+Tab pane  jk scroll  f follow  Esc list  ? help  q quit saved · daemo…"
+`;
+
+exports[`monitor detail frames > state block 5 at 100 columns 1`] = `
+"››› foreman 0.1.3                            daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 1 waiting
+Saved state · daemon not running
+The monitor checks again automatically; start work in another terminal.
+foreman status fix-hooks
+╭─ ◌ running · not supervised  fix-hooks ──────────────────────────────────────────────────────────╮
+│   worktree /repo/work                               branch work                                  │
+│       base abc123                                   --from main                                  │
+│    created 11:00:00 · 1h00m ago                    updated 12:00:00 · 0s ago                     │
+│    run dir /data/runs/fix-hooks                      model gpt-6.1-sol · high · priority         │
+│       turn 2 followup                           connection saved · no-daemon                     │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ Task ───────────────────────────────────────────────────────────────────────────────────────────╮
+│ # Fix hook handling                                                                              │
+│ Keep the existing hook API.                                                                      │
+│ Use real dependencies.                                                                           │
+│                                                                                                  │
+│ May change: src/hooks.ts                                                                         │
+│ Must not change: src/daemon/                                                                     │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ Digest ─────────────────────────────────────────────────────────────────────────────────────────╮
+│ commands  12 total · 1 failed · 2 hooks blocked                                                  │
+│ last command  bun run check · exit 0                                                             │
+│ files  1 written · 0 outside May change                                                          │
+│ tokens  1K input · 750 cached (75% hit)                                                          │
+│         200 output · 100 reasoning                                                               │
+│                                                                                                  │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ Questions ──────────────────────────────────────────────────────────────────────────────────────╮
+│ q1 · question · pending · 3m ago                                                                 │
+│ Question 1: keep the API?                                                                        │
+│ q2 · question · deferred · 3m ago                                                                │
+│ Question 2: keep the API?                                                                        │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ Subagents ──────────────────────────────────────────────────────────────────────────────────────╮
+│ No subagents recorded.                                                                           │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+Tab pane  jk scroll  f follow  Esc list  ? help  q quit                   saved · daemon not running"
+`;
+
+exports[`monitor detail frames > state block 5 at 140 columns 1`] = `
+"››› foreman 0.1.3                                                                    daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 1 waiting
+Saved state · daemon not running
+The monitor checks again automatically; start work in another terminal.
+foreman status fix-hooks
+╭─ ◌ running · not supervised  fix-hooks ─────────────────────────╮╭─ Feed ──────────────────────────────────────────────────── following ─╮
+│   worktree /repo/work              branch work                  ││ 12:00:00 event 1                                                      │
+│       base abc123                  --from main                  ││ 12:00:00 … bun run check                                              │
+│    created 11:00:00 · 1h00m ago   updated 12:00:00 · 0s ago     ││ 12:00:00 ✓ bun run lint                                               │
+│    run dir /data/runs/fix-hooks     model gpt-6.1-sol · high …  ││ 12:00:00 ×2 bun run test                                              │
+│       turn 2 followup          connection saved · no-daemon     ││ 12:00:00 write src/hooks.ts                                           │
+╰─────────────────────────────────────────────────────────────────╯│ ╭─ 12:00:00 ■ question q1 ──────────────────────────────────────────╮ │
+╭─ Task ──────────────────────────────────────────────────────────╮│ │ Keep the API?                                                     │ │
+│ # Fix hook handling                                             ││ ╰───────────────────────────────────────────────────────────────────╯ │
+│ Keep the existing hook API.                                     ││ ╭─ 12:00:00 ■ hooks blocked ────────────────────────────────────────╮ │
+│ Use real dependencies.                                          ││ │ pre-commit: Fix lint first.                                       │ │
+│                                                                 ││ ╰───────────────────────────────────────────────────────────────────╯ │
+│ May change: src/hooks.ts                                        ││ 12:00:00 running → waiting                                            │
+│ Must not change: src/daemon/                                    ││ 12:00:00 turn 2 followup                                              │
+╰─────────────────────────────────────────────────────────────────╯│ 12:00:00 q2 deferred                                                  │
+╭─ Digest ────────────────────────────────────────────────────────╮│                                                                       │
+│ commands  12 total · 1 failed · 2 hooks blocked                 ││                                                                       │
+│ last command  bun run check · exit 0                            ││                                                                       │
+│ files  1 written · 0 outside May change                         ││                                                                       │
+│ tokens  1K input · 750 cached (75% hit)                         ││                                                                       │
+│         200 output · 100 reasoning                              ││                                                                       │
+│                                                                 ││                                                                       │
+╰─────────────────────────────────────────────────────────────────╯│                                                                       │
+╭─ Questions ─────────────────────────────────────────────────────╮│                                                                       │
+│ q1 · question · pending · 3m ago                                ││                                                                       │
+│ Question 1: keep the API?                                       ││                                                                       │
+│ q2 · question · deferred · 3m ago                               ││                                                                       │
+│ Question 2: keep the API?                                       ││                                                                       │
+╰─────────────────────────────────────────────────────────────────╯│                                                                       │
+╭─ Subagents ─────────────────────────────────────────────────────╮│                                                                       │
+│ No subagents recorded.                                          ││                                                                       │
+│                                                                 ││                                                                       │
+│                                                                 ││                                                                       │
+│                                                                 ││                                                                       │
+╰─────────────────────────────────────────────────────────────────╯╰───────────────────────────────────────────────────────────────────────╯
+Tab pane  jk scroll  f follow  Esc list  ? help  q quit                                                           saved · daemon not running"
+`;
+
+exports[`monitor detail frames > state block 5 colors 1`] = `
+"[48;2;27;30;26m[38;2;228;232;224m››[38;2;255;91;20m›[39m [1m[38;2;228;232;224mforeman[39m[22m [38;2;154;162;148m0.1.3[39m                                                                    [38;2;154;162;148mdaemon up 2h14m[39m  [38;2;154;162;148mgpt-6.1-sol · high · fast[39m  [38;2;255;91;20m■[38;2;228;232;224m 1 waiting[39m[49m
+[48;2;18;20;18m[38;2;228;232;224mSaved state · daemon not running[39m                                                                                                            [49m
+[48;2;18;20;18m[38;2;154;162;148mThe monitor checks again automatically; start work in another terminal.[39m                                                                     [49m
+[48;2;18;20;18m[38;2;228;232;224mforeman status fix-hooks[39m                                                                                                                    [49m
+[48;2;18;20;18m[38;2;45;50;43m╭─ [38;2;154;162;148m◌ running · not supervised  [1m[38;2;228;232;224mfix-hooks[22m[38;2;45;50;43m ─────────────────────────╮╭─ [1mFeed[22m ────────────────────────────────────────────────────[39m [38;2;154;162;148mfollowing[39m [38;2;45;50;43m─╮[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148m  worktree [38;2;228;232;224m/repo/work[39m          [38;2;154;162;148m    branch [38;2;228;232;224mwork[39m                 [38;2;45;50;43m ││ [38;2;154;162;148m12:00:00 [38;2;228;232;224mevent 1[39m                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148m      base [38;2;228;232;224mabc123[39m              [38;2;154;162;148m    --from [38;2;228;232;224mmain[39m                 [38;2;45;50;43m ││ [38;2;154;162;148m12:00:00 [38;2;111;168;255m… [38;2;228;232;224mbun run check[39m                                             [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148m   created [38;2;228;232;224m11:00:00 · 1h00m ago[38;2;154;162;148m   updated [38;2;228;232;224m12:00:00 · 0s ago[39m    [38;2;45;50;43m ││ [38;2;154;162;148m12:00:00 [38;2;92;201;138m✓ [38;2;228;232;224mbun run lint[39m                                              [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148m   run dir [38;2;228;232;224m/data/runs/fix-hooks[38;2;154;162;148m     model [38;2;228;232;224mgpt-6.1-sol · high …[39m [38;2;45;50;43m ││ [38;2;154;162;148m12:00:00 [38;2;255;122;112m×2 [38;2;228;232;224mbun run test[39m                                             [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148m      turn [38;2;228;232;224m2 followup[39m          [38;2;154;162;148mconnection [38;2;228;232;224msaved · no-daemon[39m    [38;2;45;50;43m ││ [38;2;154;162;148m12:00:00 [38;2;228;232;224mwrite src/hooks.ts[39m                                          [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m╰─────────────────────────────────────────────────────────────────╯│ ╭─ [38;2;154;162;148m12:00:00 [1m[38;2;255;91;20m■ question q1[22m[38;2;45;50;43m ──────────────────────────────────────────╮ │[39m[49m
+[48;2;18;20;18m[38;2;228;232;224m╭─ [1mTask[22m ──────────────────────────────────────────────────────────╮[38;2;45;50;43m│ │ [38;2;228;232;224mKeep the API?                                                    [38;2;45;50;43m │ │[39m[49m
+[48;2;18;20;18m[38;2;228;232;224m│ # Fix hook handling[39m                                            [38;2;228;232;224m │[38;2;45;50;43m│ ╰───────────────────────────────────────────────────────────────────╯ │[39m[49m
+[48;2;18;20;18m[38;2;228;232;224m│ Keep the existing hook API.[39m                                    [38;2;228;232;224m │[38;2;45;50;43m│ ╭─ [38;2;154;162;148m12:00:00 [1m[38;2;255;122;112m■ hooks blocked[22m[38;2;45;50;43m ────────────────────────────────────────╮ │[39m[49m
+[48;2;18;20;18m[38;2;228;232;224m│ Use real dependencies.[39m                                         [38;2;228;232;224m │[38;2;45;50;43m│ │ [38;2;228;232;224mpre-commit: Fix lint first.                                      [38;2;45;50;43m │ │[39m[49m
+[48;2;18;20;18m[38;2;228;232;224m│ [39m                                                               [38;2;228;232;224m │[38;2;45;50;43m│ ╰───────────────────────────────────────────────────────────────────╯ │[39m[49m
+[48;2;18;20;18m[38;2;228;232;224m│ May change: src/hooks.ts[39m                                       [38;2;228;232;224m │[38;2;45;50;43m│ [38;2;154;162;148m12:00:00 running → waiting[39m                                           [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;228;232;224m│ Must not change: src/daemon/[39m                                   [38;2;228;232;224m │[38;2;45;50;43m│ [38;2;154;162;148m12:00:00 turn 2 followup[39m                                             [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;228;232;224m╰─────────────────────────────────────────────────────────────────╯[38;2;45;50;43m│ [38;2;154;162;148m12:00:00 q2 deferred[39m                                                 [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m╭─ [1mDigest[22m ────────────────────────────────────────────────────────╮│ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mcommands  12 total · 1 failed · 2 hooks blocked[39m                [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mlast command  bun run check · exit 0[39m                           [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mfiles  1 written · 0 outside May change[39m                        [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mtokens  1K input · 750 cached (75% hit)[39m                        [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224m        200 output · 100 reasoning[39m                             [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [39m                                                               [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m╰─────────────────────────────────────────────────────────────────╯│ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m╭─ [1mQuestions[22m ─────────────────────────────────────────────────────╮│ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;255;91;20mq1 · question · pending · 3m ago[39m                               [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mQuestion 1: keep the API?[39m                                      [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;226;192;79mq2 · question · deferred · 3m ago[39m                              [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mQuestion 2: keep the API?[39m                                      [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m╰─────────────────────────────────────────────────────────────────╯│ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m╭─ [1mSubagents[22m ─────────────────────────────────────────────────────╮│ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148mNo subagents recorded.[39m                                         [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [39m                                                               [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [39m                                                               [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [39m                                                               [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m╰─────────────────────────────────────────────────────────────────╯╰───────────────────────────────────────────────────────────────────────╯[39m[49m
+[48;2;27;30;26m[1m[38;2;228;232;224mTab[22m[38;2;154;162;148m pane[39m  [1m[38;2;228;232;224mjk[22m[38;2;154;162;148m scroll[39m  [1m[38;2;228;232;224mf[22m[38;2;154;162;148m follow[39m  [1m[38;2;228;232;224mEsc[22m[38;2;154;162;148m list[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                                                           [38;2;226;192;79msaved · daemon not running[39m[49m"
+`;
+
+exports[`monitor detail frames > state block 6 at 70 columns 1`] = `
+"››› foreman 0.1.3               gpt-6.1-sol · high · fast  ■ 1 waiting
+Saved state · daemon not running
+The monitor checks again automatically; start work in another termina…
+foreman status fix-hooks
+╭─ ◌ starting · not supervised  fix-hooks ───────────────────────────╮
+│   worktree /repo/work                                              │
+│     branch work                                                    │
+│       base abc123                                                  │
+│     --from main                                                    │
+│    created 11:00:00 · 1h00m ago                                    │
+│    updated 12:00:00 · 0s ago                                       │
+│    run dir /data/runs/fix-hooks                                    │
+│      model gpt-6.1-sol · high · priority                           │
+│       turn 2 followup                                              │
+│ connection saved · no-daemon                                       │
+╰────────────────────────────────────────────────────────────────────╯
+╭─ Task ─────────────────────────────────────────────────────────────╮
+│ # Fix hook handling                                                │
+│ Keep the existing hook API.                                        │
+│ Use real dependencies.                                             │
+│                                                                    │
+│ May change: src/hooks.ts                                           │
+│ Must not change: src/daemon/                                       │
+╰────────────────────────────────────────────────────────────────────╯
+╭─ Digest ───────────────────────────────────────────────────────────╮
+│ commands  12 total · 1 failed · 2 hooks blocked                    │
+│ last command  bun run check · exit 0                               │
+│ files  1 written · 0 outside May change                            │
+│ tokens  1K input · 750 cached (75% hit)                            │
+│         200 output · 100 reasoning                                 │
+│                                                                    │
+╰────────────────────────────────────────────────────────────────────╯
+╭─ Questions ────────────────────────────────────────────────────────╮
+│ q1 · question · pending · 3m ago                                   │
+│ Question 1: keep the API?                                          │
+│ q2 · question · deferred · 3m ago                                  │
+│ Question 2: keep the API?                                          │
+╰────────────────────────────────────────────────────────────────────╯
+╭─ Subagents ────────────────────────────────────────────────────────╮
+Tab pane  jk scroll  f follow  Esc list  ? help  q quit saved · daemo…"
+`;
+
+exports[`monitor detail frames > state block 6 at 100 columns 1`] = `
+"››› foreman 0.1.3                            daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 1 waiting
+Saved state · daemon not running
+The monitor checks again automatically; start work in another terminal.
+foreman status fix-hooks
+╭─ ◌ starting · not supervised  fix-hooks ─────────────────────────────────────────────────────────╮
+│   worktree /repo/work                               branch work                                  │
+│       base abc123                                   --from main                                  │
+│    created 11:00:00 · 1h00m ago                    updated 12:00:00 · 0s ago                     │
+│    run dir /data/runs/fix-hooks                      model gpt-6.1-sol · high · priority         │
+│       turn 2 followup                           connection saved · no-daemon                     │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ Task ───────────────────────────────────────────────────────────────────────────────────────────╮
+│ # Fix hook handling                                                                              │
+│ Keep the existing hook API.                                                                      │
+│ Use real dependencies.                                                                           │
+│                                                                                                  │
+│ May change: src/hooks.ts                                                                         │
+│ Must not change: src/daemon/                                                                     │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ Digest ─────────────────────────────────────────────────────────────────────────────────────────╮
+│ commands  12 total · 1 failed · 2 hooks blocked                                                  │
+│ last command  bun run check · exit 0                                                             │
+│ files  1 written · 0 outside May change                                                          │
+│ tokens  1K input · 750 cached (75% hit)                                                          │
+│         200 output · 100 reasoning                                                               │
+│                                                                                                  │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ Questions ──────────────────────────────────────────────────────────────────────────────────────╮
+│ q1 · question · pending · 3m ago                                                                 │
+│ Question 1: keep the API?                                                                        │
+│ q2 · question · deferred · 3m ago                                                                │
+│ Question 2: keep the API?                                                                        │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ Subagents ──────────────────────────────────────────────────────────────────────────────────────╮
+│ No subagents recorded.                                                                           │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+Tab pane  jk scroll  f follow  Esc list  ? help  q quit                   saved · daemon not running"
+`;
+
+exports[`monitor detail frames > state block 6 at 140 columns 1`] = `
+"››› foreman 0.1.3                                                                    daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 1 waiting
+Saved state · daemon not running
+The monitor checks again automatically; start work in another terminal.
+foreman status fix-hooks
+╭─ ◌ starting · not supervised  fix-hooks ────────────────────────╮╭─ Feed ──────────────────────────────────────────────────── following ─╮
+│   worktree /repo/work              branch work                  ││ 12:00:00 event 1                                                      │
+│       base abc123                  --from main                  ││ 12:00:00 … bun run check                                              │
+│    created 11:00:00 · 1h00m ago   updated 12:00:00 · 0s ago     ││ 12:00:00 ✓ bun run lint                                               │
+│    run dir /data/runs/fix-hooks     model gpt-6.1-sol · high …  ││ 12:00:00 ×2 bun run test                                              │
+│       turn 2 followup          connection saved · no-daemon     ││ 12:00:00 write src/hooks.ts                                           │
+╰─────────────────────────────────────────────────────────────────╯│ ╭─ 12:00:00 ■ question q1 ──────────────────────────────────────────╮ │
+╭─ Task ──────────────────────────────────────────────────────────╮│ │ Keep the API?                                                     │ │
+│ # Fix hook handling                                             ││ ╰───────────────────────────────────────────────────────────────────╯ │
+│ Keep the existing hook API.                                     ││ ╭─ 12:00:00 ■ hooks blocked ────────────────────────────────────────╮ │
+│ Use real dependencies.                                          ││ │ pre-commit: Fix lint first.                                       │ │
+│                                                                 ││ ╰───────────────────────────────────────────────────────────────────╯ │
+│ May change: src/hooks.ts                                        ││ 12:00:00 running → waiting                                            │
+│ Must not change: src/daemon/                                    ││ 12:00:00 turn 2 followup                                              │
+╰─────────────────────────────────────────────────────────────────╯│ 12:00:00 q2 deferred                                                  │
+╭─ Digest ────────────────────────────────────────────────────────╮│                                                                       │
+│ commands  12 total · 1 failed · 2 hooks blocked                 ││                                                                       │
+│ last command  bun run check · exit 0                            ││                                                                       │
+│ files  1 written · 0 outside May change                         ││                                                                       │
+│ tokens  1K input · 750 cached (75% hit)                         ││                                                                       │
+│         200 output · 100 reasoning                              ││                                                                       │
+│                                                                 ││                                                                       │
+╰─────────────────────────────────────────────────────────────────╯│                                                                       │
+╭─ Questions ─────────────────────────────────────────────────────╮│                                                                       │
+│ q1 · question · pending · 3m ago                                ││                                                                       │
+│ Question 1: keep the API?                                       ││                                                                       │
+│ q2 · question · deferred · 3m ago                               ││                                                                       │
+│ Question 2: keep the API?                                       ││                                                                       │
+╰─────────────────────────────────────────────────────────────────╯│                                                                       │
+╭─ Subagents ─────────────────────────────────────────────────────╮│                                                                       │
+│ No subagents recorded.                                          ││                                                                       │
+│                                                                 ││                                                                       │
+│                                                                 ││                                                                       │
+│                                                                 ││                                                                       │
+╰─────────────────────────────────────────────────────────────────╯╰───────────────────────────────────────────────────────────────────────╯
+Tab pane  jk scroll  f follow  Esc list  ? help  q quit                                                           saved · daemon not running"
+`;
+
+exports[`monitor detail frames > state block 6 colors 1`] = `
+"[48;2;27;30;26m[38;2;228;232;224m››[38;2;255;91;20m›[39m [1m[38;2;228;232;224mforeman[39m[22m [38;2;154;162;148m0.1.3[39m                                                                    [38;2;154;162;148mdaemon up 2h14m[39m  [38;2;154;162;148mgpt-6.1-sol · high · fast[39m  [38;2;255;91;20m■[38;2;228;232;224m 1 waiting[39m[49m
+[48;2;18;20;18m[38;2;228;232;224mSaved state · daemon not running[39m                                                                                                            [49m
+[48;2;18;20;18m[38;2;154;162;148mThe monitor checks again automatically; start work in another terminal.[39m                                                                     [49m
+[48;2;18;20;18m[38;2;228;232;224mforeman status fix-hooks[39m                                                                                                                    [49m
+[48;2;18;20;18m[38;2;45;50;43m╭─ [38;2;154;162;148m◌ starting · not supervised  [1m[38;2;228;232;224mfix-hooks[22m[38;2;45;50;43m ────────────────────────╮╭─ [1mFeed[22m ────────────────────────────────────────────────────[39m [38;2;154;162;148mfollowing[39m [38;2;45;50;43m─╮[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148m  worktree [38;2;228;232;224m/repo/work[39m          [38;2;154;162;148m    branch [38;2;228;232;224mwork[39m                 [38;2;45;50;43m ││ [38;2;154;162;148m12:00:00 [38;2;228;232;224mevent 1[39m                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148m      base [38;2;228;232;224mabc123[39m              [38;2;154;162;148m    --from [38;2;228;232;224mmain[39m                 [38;2;45;50;43m ││ [38;2;154;162;148m12:00:00 [38;2;111;168;255m… [38;2;228;232;224mbun run check[39m                                             [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148m   created [38;2;228;232;224m11:00:00 · 1h00m ago[38;2;154;162;148m   updated [38;2;228;232;224m12:00:00 · 0s ago[39m    [38;2;45;50;43m ││ [38;2;154;162;148m12:00:00 [38;2;92;201;138m✓ [38;2;228;232;224mbun run lint[39m                                              [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148m   run dir [38;2;228;232;224m/data/runs/fix-hooks[38;2;154;162;148m     model [38;2;228;232;224mgpt-6.1-sol · high …[39m [38;2;45;50;43m ││ [38;2;154;162;148m12:00:00 [38;2;255;122;112m×2 [38;2;228;232;224mbun run test[39m                                             [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148m      turn [38;2;228;232;224m2 followup[39m          [38;2;154;162;148mconnection [38;2;228;232;224msaved · no-daemon[39m    [38;2;45;50;43m ││ [38;2;154;162;148m12:00:00 [38;2;228;232;224mwrite src/hooks.ts[39m                                          [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m╰─────────────────────────────────────────────────────────────────╯│ ╭─ [38;2;154;162;148m12:00:00 [1m[38;2;255;91;20m■ question q1[22m[38;2;45;50;43m ──────────────────────────────────────────╮ │[39m[49m
+[48;2;18;20;18m[38;2;228;232;224m╭─ [1mTask[22m ──────────────────────────────────────────────────────────╮[38;2;45;50;43m│ │ [38;2;228;232;224mKeep the API?                                                    [38;2;45;50;43m │ │[39m[49m
+[48;2;18;20;18m[38;2;228;232;224m│ # Fix hook handling[39m                                            [38;2;228;232;224m │[38;2;45;50;43m│ ╰───────────────────────────────────────────────────────────────────╯ │[39m[49m
+[48;2;18;20;18m[38;2;228;232;224m│ Keep the existing hook API.[39m                                    [38;2;228;232;224m │[38;2;45;50;43m│ ╭─ [38;2;154;162;148m12:00:00 [1m[38;2;255;122;112m■ hooks blocked[22m[38;2;45;50;43m ────────────────────────────────────────╮ │[39m[49m
+[48;2;18;20;18m[38;2;228;232;224m│ Use real dependencies.[39m                                         [38;2;228;232;224m │[38;2;45;50;43m│ │ [38;2;228;232;224mpre-commit: Fix lint first.                                      [38;2;45;50;43m │ │[39m[49m
+[48;2;18;20;18m[38;2;228;232;224m│ [39m                                                               [38;2;228;232;224m │[38;2;45;50;43m│ ╰───────────────────────────────────────────────────────────────────╯ │[39m[49m
+[48;2;18;20;18m[38;2;228;232;224m│ May change: src/hooks.ts[39m                                       [38;2;228;232;224m │[38;2;45;50;43m│ [38;2;154;162;148m12:00:00 running → waiting[39m                                           [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;228;232;224m│ Must not change: src/daemon/[39m                                   [38;2;228;232;224m │[38;2;45;50;43m│ [38;2;154;162;148m12:00:00 turn 2 followup[39m                                             [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;228;232;224m╰─────────────────────────────────────────────────────────────────╯[38;2;45;50;43m│ [38;2;154;162;148m12:00:00 q2 deferred[39m                                                 [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m╭─ [1mDigest[22m ────────────────────────────────────────────────────────╮│ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mcommands  12 total · 1 failed · 2 hooks blocked[39m                [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mlast command  bun run check · exit 0[39m                           [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mfiles  1 written · 0 outside May change[39m                        [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mtokens  1K input · 750 cached (75% hit)[39m                        [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224m        200 output · 100 reasoning[39m                             [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [39m                                                               [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m╰─────────────────────────────────────────────────────────────────╯│ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m╭─ [1mQuestions[22m ─────────────────────────────────────────────────────╮│ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;255;91;20mq1 · question · pending · 3m ago[39m                               [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mQuestion 1: keep the API?[39m                                      [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;226;192;79mq2 · question · deferred · 3m ago[39m                              [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mQuestion 2: keep the API?[39m                                      [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m╰─────────────────────────────────────────────────────────────────╯│ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m╭─ [1mSubagents[22m ─────────────────────────────────────────────────────╮│ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148mNo subagents recorded.[39m                                         [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [39m                                                               [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [39m                                                               [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [39m                                                               [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m╰─────────────────────────────────────────────────────────────────╯╰───────────────────────────────────────────────────────────────────────╯[39m[49m
+[48;2;27;30;26m[1m[38;2;228;232;224mTab[22m[38;2;154;162;148m pane[39m  [1m[38;2;228;232;224mjk[22m[38;2;154;162;148m scroll[39m  [1m[38;2;228;232;224mf[22m[38;2;154;162;148m follow[39m  [1m[38;2;228;232;224mEsc[22m[38;2;154;162;148m list[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                                                           [38;2;226;192;79msaved · daemon not running[39m[49m"
 `;
 
 exports[`monitor detail frames > unknown colors 1`] = `
