@@ -37,7 +37,7 @@ export function activity(input: {
     if (input.openItem?.type === "commandExecution")
       return {
         kind: "command" as const,
-        text: input.openItem.command ?? "",
+        text: shellCommand(input.openItem.command ?? ""),
         at: input.openItem.startedAt,
       };
     return input.commentary === null ? null : { kind: "message" as const, ...input.commentary };
@@ -64,21 +64,31 @@ export function updateQuestion(cache: Map<QuestionId, QuestionCacheEntry>, line:
 const HEADING = /^(?:#{1,6}\s+|\d+\.\s+)(.*)$/;
 const LABEL = /^[A-Za-z][A-Za-z -]{0,30}:\s+(.+)$/;
 
-/** The hand-off's first line of prose, skipping blank lines and headings such as `1. Summary`. */
-export function handoffLine(text: string, at: number): TextAt {
+/** The first line of prose, skipping blank lines and headings such as `1. Summary` or `**Summary**`. */
+export function firstProseLine(text: string): string {
   const lines = text
     .split(/\r?\n/)
-    .map((line) => line.trim())
+    .map((line) => line.trim().replace(/^(\*\*|__)(.*)\1$/, "$2"))
     .filter((line) => line !== "");
   for (const line of lines) {
     const heading = HEADING.exec(line);
     const body = heading?.[1] ?? line;
     const labelled = LABEL.exec(body);
-    if (labelled?.[1] && (heading || body.startsWith("Summary:"))) return { text: labelled[1], at };
+    if (labelled?.[1] && (heading || body.startsWith("Summary:"))) return labelled[1];
     if (heading && body.split(/\s+/).length <= 3 && !/[.!?]$/.test(body)) continue;
-    return { text: line, at };
+    return line;
   }
-  return { text: lines[0] ?? "", at };
+  return lines[0] ?? "";
+}
+
+export function handoffLine(text: string, at: number): TextAt {
+  return { text: firstProseLine(text), at };
+}
+
+const SHELL_WRAPPER = /^\/bin\/(?:ba|z)?sh -l?c (["'])([\s\S]*)\1$/;
+/** Codex runs commands as `/bin/zsh -lc '<command>'`; show the command itself. */
+export function shellCommand(command: string): string {
+  return SHELL_WRAPPER.exec(command.trim())?.[2] ?? command;
 }
 
 export interface TurnAttention {

@@ -21,7 +21,7 @@ exports[`monitor detail frames > NO_COLOR keeps state and event glyphs readable 
 │ commands  12 total · 1 failed · 2 hooks blocked                 ││                                                                       │
 │ last command  bun run check · exit 0                            ││                                                                       │
 │ files  1 written · 0 outside May change                         ││                                                                       │
-│ tokens  1000 input · 750 cached (75% hit)                       ││                                                                       │
+│ tokens  1K input · 750 cached (75% hit)                         ││                                                                       │
 │         200 output · 100 reasoning                              ││                                                                       │
 │                                                                 ││                                                                       │
 ╰─────────────────────────────────────────────────────────────────╯│                                                                       │
@@ -69,7 +69,7 @@ exports[`monitor detail frames > detail layout at 70 columns 1`] = `
 │ commands  12 total · 1 failed · 2 hooks blocked                    │
 │ last command  bun run check · exit 0                               │
 │ files  1 written · 0 outside May change                            │
-│ tokens  1000 input · 750 cached (75% hit)                          │
+│ tokens  1K input · 750 cached (75% hit)                            │
 │         200 output · 100 reasoning                                 │
 │                                                                    │
 ╰────────────────────────────────────────────────────────────────────╯
@@ -150,7 +150,7 @@ exports[`monitor detail frames > detail layout at 100 columns 1`] = `
 │ commands  12 total · 1 failed · 2 hooks blocked                                                  │
 │ last command  bun run check · exit 0                                                             │
 │ files  1 written · 0 outside May change                                                          │
-│ tokens  1000 input · 750 cached (75% hit)                                                        │
+│ tokens  1K input · 750 cached (75% hit)                                                          │
 │         200 output · 100 reasoning                                                               │
 │                                                                                                  │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
@@ -236,7 +236,7 @@ exports[`monitor detail frames > detail layout at 140 columns 1`] = `
 │ commands  12 total · 1 failed · 2 hooks blocked                 ││                                                                       │
 │ last command  bun run check · exit 0                            ││                                                                       │
 │ files  1 written · 0 outside May change                         ││                                                                       │
-│ tokens  1000 input · 750 cached (75% hit)                       ││                                                                       │
+│ tokens  1K input · 750 cached (75% hit)                         ││                                                                       │
 │         200 output · 100 reasoning                              ││                                                                       │
 │                                                                 ││                                                                       │
 ╰─────────────────────────────────────────────────────────────────╯│                                                                       │
@@ -279,7 +279,7 @@ exports[`monitor detail frames > detail layout at 140 columns 2`] = `
 │ commands  12 total · 1 failed · 2 hooks blocked                 ││                                                                       │
 │ last command  bun run check · exit 0                            ││                                                                       │
 │ files  1 written · 0 outside May change                         ││                                                                       │
-│ tokens  1000 input · 750 cached (75% hit)                       ││                                                                       │
+│ tokens  1K input · 750 cached (75% hit)                         ││                                                                       │
 │         200 output · 100 reasoning                              ││                                                                       │
 │                                                                 ││                                                                       │
 ╰─────────────────────────────────────────────────────────────────╯│                                                                       │
@@ -322,7 +322,7 @@ exports[`monitor detail frames > failed colors 1`] = `
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mcommands  12 total · 1 failed · 2 hooks blocked[39m                [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mlast command  bun run check · exit 0[39m                           [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mfiles  1 written · 0 outside May change[39m                        [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
-[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mtokens  1000 input · 750 cached (75% hit)[39m                      [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mtokens  1K input · 750 cached (75% hit)[39m                        [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224m        200 output · 100 reasoning[39m                             [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [39m                                                               [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m╰─────────────────────────────────────────────────────────────────╯│ [39m                                                                     [38;2;45;50;43m │[39m[49m
@@ -365,7 +365,7 @@ exports[`monitor detail frames > idle colors 1`] = `
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mcommands  12 total · 1 failed · 2 hooks blocked[39m                [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mlast command  bun run check · exit 0[39m                           [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mfiles  1 written · 0 outside May change[39m                        [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
-[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mtokens  1000 input · 750 cached (75% hit)[39m                      [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mtokens  1K input · 750 cached (75% hit)[39m                        [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224m        200 output · 100 reasoning[39m                             [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [39m                                                               [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m╰─────────────────────────────────────────────────────────────────╯│ [39m                                                                     [38;2;45;50;43m │[39m[49m
@@ -408,7 +408,7 @@ exports[`monitor detail frames > interrupted colors 1`] = `
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mcommands  12 total · 1 failed · 2 hooks blocked[39m                [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mlast command  bun run check · exit 0[39m                           [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mfiles  1 written · 0 outside May change[39m                        [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
-[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mtokens  1000 input · 750 cached (75% hit)[39m                      [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mtokens  1K input · 750 cached (75% hit)[39m                        [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224m        200 output · 100 reasoning[39m                             [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [39m                                                               [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m╰─────────────────────────────────────────────────────────────────╯│ [39m                                                                     [38;2;45;50;43m │[39m[49m
@@ -451,7 +451,7 @@ exports[`monitor detail frames > lost colors 1`] = `
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mcommands  12 total · 1 failed · 2 hooks blocked[39m                [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mlast command  bun run check · exit 0[39m                           [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mfiles  1 written · 0 outside May change[39m                        [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
-[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mtokens  1000 input · 750 cached (75% hit)[39m                      [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mtokens  1K input · 750 cached (75% hit)[39m                        [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224m        200 output · 100 reasoning[39m                             [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [39m                                                               [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m╰─────────────────────────────────────────────────────────────────╯│ [39m                                                                     [38;2;45;50;43m │[39m[49m
@@ -494,7 +494,7 @@ exports[`monitor detail frames > running colors 1`] = `
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mcommands  12 total · 1 failed · 2 hooks blocked[39m                [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mlast command  bun run check · exit 0[39m                           [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mfiles  1 written · 0 outside May change[39m                        [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
-[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mtokens  1000 input · 750 cached (75% hit)[39m                      [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mtokens  1K input · 750 cached (75% hit)[39m                        [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224m        200 output · 100 reasoning[39m                             [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [39m                                                               [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m╰─────────────────────────────────────────────────────────────────╯│ [39m                                                                     [38;2;45;50;43m │[39m[49m
@@ -623,7 +623,7 @@ exports[`monitor detail frames > starting colors 1`] = `
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mcommands  12 total · 1 failed · 2 hooks blocked[39m                [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mlast command  bun run check · exit 0[39m                           [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mfiles  1 written · 0 outside May change[39m                        [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
-[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mtokens  1000 input · 750 cached (75% hit)[39m                      [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mtokens  1K input · 750 cached (75% hit)[39m                        [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224m        200 output · 100 reasoning[39m                             [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [39m                                                               [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m╰─────────────────────────────────────────────────────────────────╯│ [39m                                                                     [38;2;45;50;43m │[39m[49m
@@ -674,7 +674,7 @@ foreman status fix-hooks
 │ commands  12 total · 1 failed · 2 hooks blocked                    │
 │ last command  bun run check · exit 0                               │
 │ files  1 written · 0 outside May change                            │
-│ tokens  1000 input · 750 cached (75% hit)                          │
+│ tokens  1K input · 750 cached (75% hit)                            │
 │         200 output · 100 reasoning                                 │
 │                                                                    │
 ╰────────────────────────────────────────────────────────────────────╯
@@ -712,7 +712,7 @@ foreman status fix-hooks
 │ commands  12 total · 1 failed · 2 hooks blocked                                                  │
 │ last command  bun run check · exit 0                                                             │
 │ files  1 written · 0 outside May change                                                          │
-│ tokens  1000 input · 750 cached (75% hit)                                                        │
+│ tokens  1K input · 750 cached (75% hit)                                                          │
 │         200 output · 100 reasoning                                                               │
 │                                                                                                  │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
@@ -755,7 +755,7 @@ foreman status fix-hooks
 │ commands  12 total · 1 failed · 2 hooks blocked                 ││                                                                       │
 │ last command  bun run check · exit 0                            ││                                                                       │
 │ files  1 written · 0 outside May change                         ││                                                                       │
-│ tokens  1000 input · 750 cached (75% hit)                       ││                                                                       │
+│ tokens  1K input · 750 cached (75% hit)                         ││                                                                       │
 │         200 output · 100 reasoning                              ││                                                                       │
 │                                                                 ││                                                                       │
 ╰─────────────────────────────────────────────────────────────────╯│                                                                       │
@@ -798,7 +798,7 @@ exports[`monitor detail frames > state block 0 colors 1`] = `
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mcommands  12 total · 1 failed · 2 hooks blocked[39m                [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mlast command  bun run check · exit 0[39m                           [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mfiles  1 written · 0 outside May change[39m                        [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
-[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mtokens  1000 input · 750 cached (75% hit)[39m                      [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mtokens  1K input · 750 cached (75% hit)[39m                        [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224m        200 output · 100 reasoning[39m                             [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [39m                                                               [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m╰─────────────────────────────────────────────────────────────────╯│ [39m                                                                     [38;2;45;50;43m │[39m[49m
@@ -846,7 +846,7 @@ foreman status fix-hooks
 │ commands  12 total · 1 failed · 2 hooks blocked                    │
 │ last command  bun run check · exit 0                               │
 │ files  1 written · 0 outside May change                            │
-│ tokens  1000 input · 750 cached (75% hit)                          │
+│ tokens  1K input · 750 cached (75% hit)                            │
 │         200 output · 100 reasoning                                 │
 │                                                                    │
 ╰────────────────────────────────────────────────────────────────────╯
@@ -884,7 +884,7 @@ foreman status fix-hooks
 │ commands  12 total · 1 failed · 2 hooks blocked                                                  │
 │ last command  bun run check · exit 0                                                             │
 │ files  1 written · 0 outside May change                                                          │
-│ tokens  1000 input · 750 cached (75% hit)                                                        │
+│ tokens  1K input · 750 cached (75% hit)                                                          │
 │         200 output · 100 reasoning                                                               │
 │                                                                                                  │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
@@ -927,7 +927,7 @@ foreman status fix-hooks
 │ commands  12 total · 1 failed · 2 hooks blocked                 ││                                                                       │
 │ last command  bun run check · exit 0                            ││                                                                       │
 │ files  1 written · 0 outside May change                         ││                                                                       │
-│ tokens  1000 input · 750 cached (75% hit)                       ││                                                                       │
+│ tokens  1K input · 750 cached (75% hit)                         ││                                                                       │
 │         200 output · 100 reasoning                              ││                                                                       │
 │                                                                 ││                                                                       │
 ╰─────────────────────────────────────────────────────────────────╯│                                                                       │
@@ -970,7 +970,7 @@ exports[`monitor detail frames > state block 1 colors 1`] = `
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mcommands  12 total · 1 failed · 2 hooks blocked[39m                [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mlast command  bun run check · exit 0[39m                           [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mfiles  1 written · 0 outside May change[39m                        [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
-[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mtokens  1000 input · 750 cached (75% hit)[39m                      [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mtokens  1K input · 750 cached (75% hit)[39m                        [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224m        200 output · 100 reasoning[39m                             [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [39m                                                               [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m╰─────────────────────────────────────────────────────────────────╯│ [39m                                                                     [38;2;45;50;43m │[39m[49m
@@ -1018,7 +1018,7 @@ foreman status fix-hooks
 │ commands  12 total · 1 failed · 2 hooks blocked                    │
 │ last command  bun run check · exit 0                               │
 │ files  1 written · 0 outside May change                            │
-│ tokens  1000 input · 750 cached (75% hit)                          │
+│ tokens  1K input · 750 cached (75% hit)                            │
 │         200 output · 100 reasoning                                 │
 │                                                                    │
 ╰────────────────────────────────────────────────────────────────────╯
@@ -1056,7 +1056,7 @@ foreman status fix-hooks
 │ commands  12 total · 1 failed · 2 hooks blocked                                                  │
 │ last command  bun run check · exit 0                                                             │
 │ files  1 written · 0 outside May change                                                          │
-│ tokens  1000 input · 750 cached (75% hit)                                                        │
+│ tokens  1K input · 750 cached (75% hit)                                                          │
 │         200 output · 100 reasoning                                                               │
 │                                                                                                  │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
@@ -1099,7 +1099,7 @@ foreman status fix-hooks
 │ commands  12 total · 1 failed · 2 hooks blocked                 ││                                                                       │
 │ last command  bun run check · exit 0                            ││                                                                       │
 │ files  1 written · 0 outside May change                         ││                                                                       │
-│ tokens  1000 input · 750 cached (75% hit)                       ││                                                                       │
+│ tokens  1K input · 750 cached (75% hit)                         ││                                                                       │
 │         200 output · 100 reasoning                              ││                                                                       │
 │                                                                 ││                                                                       │
 ╰─────────────────────────────────────────────────────────────────╯│                                                                       │
@@ -1142,7 +1142,7 @@ exports[`monitor detail frames > state block 2 colors 1`] = `
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148mcommands  12 total · 1 failed · 2 hooks blocked[39m                [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148mlast command  bun run check · exit 0[39m                           [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148mfiles  1 written · 0 outside May change[39m                        [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
-[48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148mtokens  1000 input · 750 cached (75% hit)[39m                      [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148mtokens  1K input · 750 cached (75% hit)[39m                        [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148m        200 output · 100 reasoning[39m                             [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [39m                                                               [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m╰─────────────────────────────────────────────────────────────────╯│ [39m                                                                     [38;2;45;50;43m │[39m[49m
@@ -1526,7 +1526,7 @@ exports[`monitor detail frames > unknown colors 1`] = `
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mcommands  12 total · 1 failed · 2 hooks blocked[39m                [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mlast command  bun run check · exit 0[39m                           [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mfiles  1 written · 0 outside May change[39m                        [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
-[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mtokens  1000 input · 750 cached (75% hit)[39m                      [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mtokens  1K input · 750 cached (75% hit)[39m                        [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224m        200 output · 100 reasoning[39m                             [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [39m                                                               [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m╰─────────────────────────────────────────────────────────────────╯│ [39m                                                                     [38;2;45;50;43m │[39m[49m
@@ -1569,7 +1569,7 @@ exports[`monitor detail frames > waiting colors 1`] = `
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mcommands  12 total · 1 failed · 2 hooks blocked[39m                [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mlast command  bun run check · exit 0[39m                           [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mfiles  1 written · 0 outside May change[39m                        [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
-[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mtokens  1000 input · 750 cached (75% hit)[39m                      [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
+[48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mtokens  1K input · 750 cached (75% hit)[39m                        [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224m        200 output · 100 reasoning[39m                             [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [39m                                                               [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m╰─────────────────────────────────────────────────────────────────╯│ [39m                                                                     [38;2;45;50;43m │[39m[49m

@@ -1,6 +1,8 @@
 import { DateTime } from "effect";
 import { activeStates, type RunEvent, type RunName } from "../../schemas/daemon";
 import type { Detail, RunView } from "../../schemas/monitor";
+import { tokenCount } from "../runs/digest";
+import { firstProseLine, shellCommand } from "./attention";
 import type { DetailFeed } from "./detail-feed";
 import type { MonitorFeed } from "./feed";
 
@@ -699,14 +701,15 @@ function feedLines(events: readonly RunEvent[], data: Detail): DetailLine[] {
         const failed =
           ["failed", "declined"].includes(event.status) ||
           (event.exitCode !== null && event.exitCode !== 0);
-        if (open) return line(event.command, "running", "…");
-        if (failed) return line(event.command, "failed", `×${event.exitCode ?? ""}`);
-        return line(event.command, "done", "✓");
+        const command = shellCommand(event.command);
+        if (open) return line(command, "running", "…");
+        if (failed) return line(command, "failed", `×${event.exitCode ?? ""}`);
+        return line(command, "done", "✓");
       }
       case "FileChange":
         return event.paths.flatMap((path) => line(`write ${path}`, "fg"));
       case "AgentMessage":
-        return line(event.text, "fg");
+        return line(firstProseLine(event.text), "fg");
       case "QuestionAsked":
       case "HookBlocked": {
         const pending =
@@ -796,10 +799,10 @@ function detailView(state: State): DetailView | null {
   const tokens = digest.tokens;
   const digestLines = [
     `commands  ${digest.commands.total} total · ${digest.commands.failed} failed · ${digest.commands.blockedByHooks} hooks blocked`,
-    `last command  ${digest.commands.last?.command ?? "none"}${digest.commands.last?.exitCode === null || !digest.commands.last ? "" : ` · exit ${digest.commands.last.exitCode}`}`,
+    `last command  ${digest.commands.last ? shellCommand(digest.commands.last.command) : "none"}${digest.commands.last?.exitCode === null || !digest.commands.last ? "" : ` · exit ${digest.commands.last.exitCode}`}`,
     `files  ${files.length > 0 ? files.join(" · ") : "counted when the turn ends"}`,
-    `tokens  ${tokens?.input ?? 0} input · ${tokens?.cachedInput ?? 0} cached (${!tokens?.input ? 0 : Math.round((100 * tokens.cachedInput) / tokens.input)}% hit)`,
-    `        ${tokens?.output ?? 0} output · ${tokens?.reasoningOutput ?? 0} reasoning`,
+    `tokens  ${tokenCount(tokens?.input ?? 0)} input · ${tokenCount(tokens?.cachedInput ?? 0)} cached (${!tokens?.input ? 0 : Math.round((100 * tokens.cachedInput) / tokens.input)}% hit)`,
+    `        ${tokenCount(tokens?.output ?? 0)} output · ${tokenCount(tokens?.reasoningOutput ?? 0)} reasoning`,
     ...(digest.failure ? [`failure  ${digest.failure.message}`] : []),
   ];
   const commands = [

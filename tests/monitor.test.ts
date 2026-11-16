@@ -5,10 +5,12 @@ import { TestClock } from "effect/testing";
 import {
   activity,
   defersAt,
+  firstProseLine,
   handoffLine,
   QUIET_AFTER_MS,
   type QuestionCacheEntry,
   quiet,
+  shellCommand,
   type TurnAttention,
   updateQuestion,
   updateTurnAttention,
@@ -148,6 +150,12 @@ describe("monitor attention", () => {
       "Fixed the parser.",
     );
     expect(handoffLine("\n  \nDone", 10).text).toBe("Done");
+    expect(firstProseLine("**1. Summary**\n\nAll four findings are fixed.")).toBe(
+      "All four findings are fixed.",
+    );
+    expect(shellCommand("/bin/zsh -lc 'bun run typecheck'")).toBe("bun run typecheck");
+    expect(shellCommand(`/bin/bash -lc "rg -n 'x' src"`)).toBe("rg -n 'x' src");
+    expect(shellCommand("bun run lint")).toBe("bun run lint");
     const cache: TurnAttention = { retrying: null, hooksBlocked: 0 };
     updateTurnAttention(cache, { _tag: "Retrying", message: "try again" }, 10);
     updateTurnAttention(cache, { _tag: "Retrying", message: "usage limit" }, 20);
