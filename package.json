@@ -55,13 +55,22 @@
     "@effect/vitest": "^4.1.2",
     "@types/bun": "^1.4.4",
     "@types/node": "^26.6.6",
+    "@types/react": "19.3",
     "@vitest/coverage-v8": "^5.1.0",
     "effect": "^4.1.2",
+    "ink-testing-library": "4.0.0",
     "typescript": "^7.0.2",
     "vitest": "^5.1.0"
   },
   "engines": {
     "node": ">=26"
   },
-  "packageManager": "bun@1.4.2"
+  "packageManager": "bun@1.4.2",
+  "dependencies": {
+    "chalk": "6.0.1",
+    "cli-truncate": "6.0.0",
+    "ink": "8.0.0",
+    "react": "19.3.1",
+    "string-width": "8.3.0"
+  }
 }

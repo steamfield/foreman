@@ -66,6 +66,7 @@ Use foreman events <name> --follow in a terminal to watch a run live; agents kee
 Mutation waits target the named run only. Explicit wait --all supervises the current repo and its linked worktrees.
 foreman wait a b returns as soon as any named run needs attention or ends a turn; use it instead of status polling loops or sleeps.
 foreman status --all lists runs across every repo; keep using wait for outcomes rather than polling.
+Humans can open foreman monitor for the live terminal list; agents use status --all.
 Do not pipe wait output through head, grep or ||: the outcome line and next: are at its end, and a pipe hides the exit status.
 Names are global within FOREMAN_HOME, including across repos. Parallel tasks need separate worktrees and independent scopes.
 Every wait outcome exits 0: events needs attention, timeout means continue the printed command, none means the group has no active runs or unseen attention.

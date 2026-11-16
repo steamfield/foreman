@@ -59,6 +59,7 @@ export class AppConfig extends Context.Service<
     codexBin: string;
     codexHome: string;
     launcher: string | null;
+    inDelegate: boolean;
     inheritedEnvironment: Readonly<Record<string, string | undefined>>;
   }
 >()("app/AppConfig") {
@@ -174,6 +175,7 @@ export class AppConfig extends Context.Service<
           codexBin,
           codexHome,
           launcher,
+          inDelegate: (yield* text("CODEX_DELEGATE")) !== "",
           inheritedEnvironment: { ...env },
         };
       }),

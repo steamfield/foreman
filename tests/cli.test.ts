@@ -19,6 +19,14 @@ import { successfulTurn } from "./fixtures/fake-app-server/scenarios";
 import { ndjson, runCli, tempDir } from "./helpers/cli";
 import { eventsFixture, eventsPlatform } from "./helpers/events";
 
+it("documents monitor as a human view and status --all as the machine interface", async () => {
+  const result = await runCli(["monitor", "--help"]);
+  expect(result).toMatchObject({ status: 0, stderr: "" });
+  expect(result.stdout).toContain("status --all");
+  expect(result.stdout).toContain("CODEX_DELEGATE");
+  expect(result.stdout).toContain("130");
+});
+
 it.each([false, true])("status rejects a name with --all (json=%s)", async (json) => {
   const result = await runCli(["status", "unit", "--all", ...(json ? ["--json"] : [])]);
   expect(result.status).toBe(2);
