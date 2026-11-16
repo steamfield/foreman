@@ -1,8 +1,8 @@
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { Effect, Schema } from "effect";
+import { Clock, Effect, Fiber, Schema } from "effect";
 import { CliError } from "effect/cli";
-import { describe, expect, it } from "vitest";
+import { assert, describe, expect, it } from "vitest";
 import { print } from "../src/commands/runs";
 import { normalizeDurationArgs } from "../src/core/command-input";
 import {
@@ -13,8 +13,196 @@ import {
   errorEnvelope,
   exitCodeFor,
 } from "../src/errors";
+import { Method } from "../src/schemas/codex";
 import { DoctorResult } from "../src/schemas/doctor";
+import { successfulTurn } from "./fixtures/fake-app-server/scenarios";
 import { ndjson, runCli, tempDir } from "./helpers/cli";
+import { eventsFixture, eventsPlatform } from "./helpers/events";
+
+describe("events --follow", () => {
+  it("streams ordered events before completion and exits after draining every page", async () => {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const script = successfulTurn();
+        const f = yield* eventsFixture({
+          ...script,
+          rules: script.rules
+            .map((rule) =>
+              rule.method === Method.turnStart
+                ? {
+                    ...rule,
+                    steps: rule.steps?.flatMap((step) =>
+                      "notify" in step && step.notify === Method.turnCompleted
+                        ? [{ awaitRequest: Method.turnSteer }, step]
+                        : [step],
+                    ),
+                  }
+                : rule,
+            )
+            .concat({ method: Method.turnSteer, respond: { result: { turnId: "{{turn}}" } } }),
+        });
+        let stdout = "";
+        const pending = yield* Effect.promise((signal) =>
+          runCli(["events", "unit", "--follow", "--limit", "1"], {
+            env: f.env,
+            home: f.root,
+            signal,
+            stdout: async (text) => {
+              stdout += text;
+            },
+          }),
+        ).pipe(Effect.forkChild);
+        while (!stdout.includes("AgentMessage Created result.txt.")) yield* Effect.yieldNow;
+        yield* f.untilState("running");
+        expect(pending.pollUnsafe()).toBeUndefined();
+        yield* f.request({ _tag: "Steer", name: f.name, message: "Finish" });
+        expect(yield* Fiber.join(pending)).toEqual({ status: 0, stdout: "", stderr: "" });
+        const page = yield* f.request({ _tag: "Events", name: f.name });
+        assert(page._tag === "Events");
+        const lines = stdout.trimEnd().split("\n");
+        expect(lines.map((line) => Number(line.split(" ")[0]))).toEqual(
+          page.events
+            .filter(({ event }) => event._tag !== "Other" && event._tag !== "TokenUsage")
+            .map(({ seq }) => seq),
+        );
+        expect(stdout).toContain("TurnCompleted");
+        expect(stdout).not.toContain("next:");
+        expect(stdout).not.toContain("\u001b");
+      }).pipe(Effect.timeout("10 seconds"), Effect.scoped, Effect.provide(eventsPlatform)),
+    );
+  });
+
+  it("drains an already idle run from --after in bounded verbose pages without waiting", async () => {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const f = yield* eventsFixture(successfulTurn());
+        yield* f.untilState("idle");
+        const result = yield* Effect.promise((signal) =>
+          runCli(["events", "unit", "--follow", "--after", "2", "--limit", "1", "--verbose"], {
+            env: f.env,
+            home: f.root,
+            signal,
+          }),
+        ).pipe(Effect.timeout("3 seconds"));
+        expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: "" });
+        const page = yield* f.request({ _tag: "Events", name: f.name, after: 2 });
+        assert(page._tag === "Events");
+        expect(
+          result.stdout
+            .trimEnd()
+            .split("\n")
+            .map((line) => Number(line.split(" ")[0])),
+        ).toEqual(page.events.map(({ seq }) => seq));
+        expect(result.stdout).toContain("TokenUsage");
+        expect(result.stdout).not.toContain("next:");
+      }).pipe(Effect.timeout("10 seconds"), Effect.scoped, Effect.provide(eventsPlatform)),
+    );
+  });
+
+  it("rejects --follow --json as text-only before contacting the daemon", async () => {
+    const result = await runCli(["events", "unit", "--follow", "--json"], {
+      env: { LOG_LEVEL: "none" },
+    });
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe("");
+    expect(ndjson(result.stderr)).toEqual([
+      {
+        error: {
+          tag: "Usage",
+          message: "Invalid command. Run --help for usage.",
+          detail: "--follow is text-only; omit --json.",
+          retryable: false,
+        },
+      },
+    ]);
+  });
+
+  it("polls older daemons once a second, warns once and waits for cancellation even after completion", async () => {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const f = yield* eventsFixture(successfulTurn(), true);
+        yield* f.untilState("idle");
+        const controller = new AbortController();
+        yield* Effect.addFinalizer(() => Effect.sync(() => controller.abort()));
+        let stdout = "";
+        let stderr = "";
+        const started = yield* Clock.currentTimeMillis;
+        const pending = yield* Effect.promise(() =>
+          runCli(["events", "unit", "--follow", "--limit", "1"], {
+            env: f.env,
+            home: f.root,
+            signal: controller.signal,
+            stdout: async (text) => {
+              stdout += text;
+            },
+            stderr: async (text) => {
+              stderr += text;
+            },
+          }),
+        ).pipe(Effect.forkChild);
+        while (stdout.trimEnd().split("\n").length < 2) yield* Effect.yieldNow;
+        expect((yield* Clock.currentTimeMillis) - started).toBeGreaterThanOrEqual(950);
+        expect(stderr).toBe(
+          "Daemon is an older build; follow cannot exit on its own. Press Ctrl-C to stop.\n",
+        );
+        expect(pending.pollUnsafe()).toBeUndefined();
+        controller.abort();
+        expect(yield* Fiber.join(pending)).toEqual({ status: 130, stdout: "", stderr: "" });
+      }).pipe(Effect.timeout("10 seconds"), Effect.scoped, Effect.provide(eventsPlatform)),
+    );
+  });
+
+  it("emits only one compatibility note across polls of a busy daemon with an older build", async () => {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const script = successfulTurn();
+        const f = yield* eventsFixture(
+          {
+            ...script,
+            rules: script.rules.map((rule) =>
+              rule.method === Method.turnStart
+                ? {
+                    ...rule,
+                    steps: rule.steps?.flatMap((step) =>
+                      "notify" in step && step.notify === Method.turnCompleted
+                        ? [{ awaitRequest: Method.turnSteer }, step]
+                        : [step],
+                    ),
+                  }
+                : rule,
+            ),
+          },
+          true,
+          "old",
+        );
+        yield* f.untilState("running");
+        const controller = new AbortController();
+        yield* Effect.addFinalizer(() => Effect.sync(() => controller.abort()));
+        let stdout = "";
+        let stderr = "";
+        const pending = yield* Effect.promise(() =>
+          runCli(["events", "unit", "--follow", "--limit", "1"], {
+            env: f.env,
+            home: f.root,
+            signal: controller.signal,
+            stdout: async (text) => {
+              stdout += text;
+            },
+            stderr: async (text) => {
+              stderr += text;
+            },
+          }),
+        ).pipe(Effect.forkChild);
+        while (stdout.trimEnd().split("\n").length < 2) yield* Effect.yieldNow;
+        expect(stderr).toBe(
+          "Daemon is an older build; follow cannot exit on its own. Press Ctrl-C to stop.\n",
+        );
+        controller.abort();
+        expect(yield* Fiber.join(pending)).toEqual({ status: 130, stdout: "", stderr: "" });
+      }).pipe(Effect.timeout("10 seconds"), Effect.scoped, Effect.provide(eventsPlatform)),
+    );
+  });
+});
 
 describe("stdout and error contracts", () => {
   it("review audit: daemon home creation permissions use exit 6", async () => {

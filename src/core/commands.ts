@@ -1,13 +1,23 @@
 import { Effect } from "effect";
 import { AppConfig } from "../config";
 import { call } from "../daemon/client";
-import type { DaemonRequestBody, DaemonResult, QuestionId, RunName } from "../schemas/daemon";
+import { type AppError, DaemonUnavailable, Usage } from "../errors";
+import {
+  activeStates,
+  type DaemonRequestBody,
+  type DaemonResult,
+  type QuestionId,
+  type RunName,
+} from "../schemas/daemon";
 import { Output } from "../services/output";
 import { durationMs, type MessageInput, messageText, readText, realPath } from "./command-input";
-import { foremanExecutable } from "./command-output";
+import { foremanExecutable, renderEventLines } from "./command-output";
 import { validateStartMode } from "./start-mode";
 
-const request = Effect.fn("commands.request")(function* (body: DaemonRequestBody) {
+const request = Effect.fn("commands.request")(function* (
+  body: DaemonRequestBody,
+  onOutdated?: Effect.Effect<void, AppError>,
+) {
   const config = yield* AppConfig;
   yield* config.load;
   const output = yield* Output;
@@ -16,16 +26,18 @@ const request = Effect.fn("commands.request")(function* (body: DaemonRequestBody
     codexBin: config.codexBin,
     codexHome: config.codexHome,
     logFile: (yield* config.logging).file,
-    onOutdated: output.note(
-      output.json
-        ? JSON.stringify({
-            notice: {
-              tag: "DaemonOutdated",
-              message: "Daemon is outdated; it will be replaced once its runs finish.",
-            },
-          })
-        : "Daemon is outdated; it will be replaced once its runs finish.",
-    ),
+    onOutdated:
+      onOutdated ??
+      output.note(
+        output.json
+          ? JSON.stringify({
+              notice: {
+                tag: "DaemonOutdated",
+                message: "Daemon is outdated; it will be replaced once its runs finish.",
+              },
+            })
+          : "Daemon is outdated; it will be replaced once its runs finish.",
+      ),
   });
 });
 
@@ -119,6 +131,45 @@ export const events = (input: { name: RunName; after?: number; limit?: number })
     ...(input.after === undefined ? {} : { after: input.after }),
     ...(input.limit === undefined ? {} : { limit: input.limit }),
   });
+
+export const followEvents = Effect.fn("commands.followEvents")(function* (input: {
+  name: RunName;
+  after?: number;
+  limit?: number;
+  verbose: boolean;
+}) {
+  const output = yield* Output;
+  if (output.json) return yield* new Usage({ detail: "--follow is text-only; omit --json." });
+  let after = input.after;
+  let warned = false;
+  while (true) {
+    const page = yield* request(
+      {
+        _tag: "Events",
+        name: input.name,
+        ...(after === undefined ? {} : { after }),
+        ...(input.limit === undefined ? {} : { limit: input.limit }),
+        waitMs: 15000,
+      },
+      Effect.void,
+    );
+    if (page._tag !== "Events")
+      return yield* new DaemonUnavailable({
+        detail: `Daemon returned ${page._tag} to Events for run ${input.name}. Run foreman doctor and inspect the daemon log.`,
+      });
+    for (const line of renderEventLines(page, input.verbose)) yield* output.line(line);
+    after = page.next;
+    if (page.state === undefined) {
+      if (!warned) {
+        yield* output.note(
+          "Daemon is an older build; follow cannot exit on its own. Press Ctrl-C to stop.",
+        );
+        warned = true;
+      }
+      yield* Effect.sleep(1000);
+    } else if (!activeStates.has(page.state) && page.events.length === 0) return;
+  }
+});
 
 export const steer = Effect.fn("commands.steer")(function* (
   input: MessageInput & WaitOptions & { name: RunName },

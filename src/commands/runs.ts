@@ -195,7 +195,7 @@ export const eventsCommand = Command.make(
       Flag.map(Option.getOrUndefined),
     ),
     limit: Flag.Int("limit").pipe(
-      Flag.withDescription("Maximum number of stored events to read (default: 100)."),
+      Flag.withDescription("Maximum number of stored events per page (default: 100)."),
       Flag.withSchema(EventLimit),
       Flag.optional,
       Flag.map(Option.getOrUndefined),
@@ -206,8 +206,18 @@ export const eventsCommand = Command.make(
         "Include protocol chatter and token usage in text output; JSON always includes everything.",
       ),
     ),
+    follow: Flag.Boolean("follow").pipe(
+      Flag.withDefault(false),
+      Flag.withDescription("Stream events live until the run becomes inactive (text only)."),
+    ),
   },
-  (input) => print("events", programs.events(input), false, input.name, input.verbose),
+  (input) =>
+    input.follow
+      ? Effect.gen(function* () {
+          yield* (yield* Invocation).named("events");
+          yield* programs.followEvents(input);
+        })
+      : print("events", programs.events(input), false, input.name, input.verbose),
 ).pipe(
   Command.withDescription(
     "Read stored events in any current run state without resuming it. --after uses a numeric event sequence, not a wait cursor. The page limit counts stored events before text filtering: protocol chatter and token usage are hidden unless --verbose; JSON includes the whole selected page. Exits 0 on success (also an empty page), 2 for usage, 3 for config, 4 for daemon failure, 6 for permissions, 7 for a missing run, 8 for unreadable or unsupported records, 130 when interrupted, 1 on an internal error.",
@@ -215,6 +225,10 @@ export const eventsCommand = Command.make(
   Command.withShortDescription("Read run events; text omits protocol chatter unless --verbose."),
   Command.withExamples([
     { command: "foreman events doctor-help", description: "Read the first page of progress" },
+    {
+      command: "foreman events doctor-help --follow",
+      description: "Watch a run live in a terminal",
+    },
     {
       command: "foreman events doctor-help --after 100 --limit 50 --verbose",
       description: "Inspect another page including protocol events",

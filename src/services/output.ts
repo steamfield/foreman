@@ -28,6 +28,7 @@ export class Output extends Context.Service<
     setJson: (value: boolean) => Effect.Effect<void>;
     result: (value: unknown, text: string) => Effect.Effect<void>;
     flush: Effect.Effect<void, BrokenPipe | PermissionDenied>;
+    line: (text: string) => Effect.Effect<void, BrokenPipe | PermissionDenied>;
     note: (text: string) => Effect.Effect<void, BrokenPipe | PermissionDenied>;
     error: (error: AppError) => Effect.Effect<void, BrokenPipe | PermissionDenied>;
   }
@@ -52,6 +53,7 @@ export class Output extends Context.Service<
           for (const text of pending.splice(0)) yield* write(stdout, "stdout", text);
         }),
         note: (text) => write(stderr, "stderr", text),
+        line: (text) => write(stdout, "stdout", text),
         error: (error) =>
           write(
             stderr,
