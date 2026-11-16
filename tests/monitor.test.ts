@@ -139,6 +139,15 @@ describe("monitor attention", () => {
 
   it("keeps the handoff's first line and resets retry and hook attention on a new turn", () => {
     expect(handoffLine("Finished.\r\nDetails", 10)).toEqual({ text: "Finished.", at: 10 });
+    // The contract's hand-off template opens with numbered headings.
+    expect(handoffLine("1. Summary\n\nBuilt the stage.\n\n2. Files", 10).text).toBe(
+      "Built the stage.",
+    );
+    expect(handoffLine("## Summary\nAdded the flag.", 10).text).toBe("Added the flag.");
+    expect(handoffLine("1. Summary: Fixed the parser.\n2. Files", 10).text).toBe(
+      "Fixed the parser.",
+    );
+    expect(handoffLine("\n  \nDone", 10).text).toBe("Done");
     const cache: TurnAttention = { retrying: null, hooksBlocked: 0 };
     updateTurnAttention(cache, { _tag: "Retrying", message: "try again" }, 10);
     updateTurnAttention(cache, { _tag: "Retrying", message: "usage limit" }, 20);

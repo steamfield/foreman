@@ -61,8 +61,24 @@ export function updateQuestion(cache: Map<QuestionId, QuestionCacheEntry>, line:
   }
 }
 
+const HEADING = /^(?:#{1,6}\s+|\d+\.\s+)(.*)$/;
+const LABEL = /^[A-Za-z][A-Za-z -]{0,30}:\s+(.+)$/;
+
+/** The hand-off's first line of prose, skipping blank lines and headings such as `1. Summary`. */
 export function handoffLine(text: string, at: number): TextAt {
-  return { text: text.split(/\r?\n/, 1)[0] ?? "", at };
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line !== "");
+  for (const line of lines) {
+    const heading = HEADING.exec(line);
+    const body = heading?.[1] ?? line;
+    const labelled = LABEL.exec(body);
+    if (labelled?.[1] && (heading || body.startsWith("Summary:"))) return { text: labelled[1], at };
+    if (heading && body.split(/\s+/).length <= 3 && !/[.!?]$/.test(body)) continue;
+    return { text: line, at };
+  }
+  return { text: lines[0] ?? "", at };
 }
 
 export interface TurnAttention {
