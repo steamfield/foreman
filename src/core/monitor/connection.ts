@@ -21,7 +21,7 @@ export function connection(home: string, build: string) {
               Effect.flatMap(Schema.decodeUnknownEffect(Schema.fromJsonString(DaemonLockOwner))),
               Effect.result,
             );
-          if (owner._tag !== "Success" || owner.success.pid === outdatedPid)
+          if (owner._tag === "Success" && owner.success.pid === outdatedPid)
             return "outdated" as const;
         }
       }

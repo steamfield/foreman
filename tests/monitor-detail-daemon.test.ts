@@ -1,13 +1,15 @@
 import { NodeServices, NodeSocket, NodeSocketServer } from "@effect/platform-node";
 import { assert, it } from "@effect/vitest";
-import { Deferred, Effect, Exit, Fiber, FileSystem, Layer, Schema, Scope } from "effect";
+import { Deferred, Effect, Exit, Fiber, FileSystem, Layer, Schema, Scope, Stream } from "effect";
 import { TestClock } from "effect/testing";
 import {
   OVERVIEW_REQUEST_TIMEOUT_MS,
   passiveDetail,
   passiveEvents,
+  passiveOverview,
   probe,
 } from "../src/daemon/client";
+import { lines } from "../src/daemon/protocol";
 import { type DaemonOptions, daemon } from "../src/daemon/server";
 import { DaemonSockets } from "../src/daemon/sockets";
 import { RunName } from "../src/schemas/daemon";
@@ -33,13 +35,25 @@ const platform = Layer.mergeAll(
 const clients = [
   {
     tag: "Detail",
-    read: (home: string) => passiveDetail(home, name, 7).pipe(Effect.asVoid),
+    read: (home: string) =>
+      passiveDetail(home, name, 7).pipe(
+        Effect.map((result): string | null => result?._tag ?? null),
+      ),
     timeout: OVERVIEW_REQUEST_TIMEOUT_MS,
   },
   {
     tag: "Events",
-    read: (home: string) => passiveEvents(home, name, 7, 1000).pipe(Effect.asVoid),
+    read: (home: string) =>
+      passiveEvents(home, name, 7, 1000).pipe(
+        Effect.map((result): string | null => result?._tag ?? null),
+      ),
     timeout: 6000,
+  },
+  {
+    tag: "Overview",
+    read: (home: string) =>
+      passiveOverview(home, 7).pipe(Effect.map((result): string | null => result?._tag ?? null)),
+    timeout: OVERVIEW_REQUEST_TIMEOUT_MS,
   },
 ];
 
@@ -65,6 +79,86 @@ const start = Effect.fnUntraced(function* (
   }
   return { home, running, stop: Scope.close(scope, Exit.void) };
 });
+
+const refused = "Request not understood; daemon build old. The command was not accepted.";
+const replies = [
+  {
+    kind: "legacy refusal",
+    response: { error: { tag: "DaemonUnavailable", detail: refused } },
+    unsupported: true,
+  },
+  {
+    kind: "permission error",
+    response: { error: { tag: "PermissionDenied", detail: refused } },
+    unsupported: false,
+  },
+  {
+    kind: "projection error",
+    response: { error: { tag: "SchemaError", detail: "Detail failed" } },
+    unsupported: false,
+  },
+  { kind: "internal defect", response: { error: { tag: "Defect" } }, unsupported: false },
+  {
+    kind: "unavailable error",
+    response: { error: { tag: "DaemonUnavailable", detail: "Read failed" } },
+    unsupported: false,
+  },
+  {
+    kind: "malformed result",
+    response: { result: { _tag: "Detail", version: "invalid" } },
+    unsupported: false,
+  },
+  { kind: "unexpected result", response: { result: { _tag: "Ok" } }, unsupported: false },
+];
+
+it.effect.each(clients.flatMap((client) => replies.map((reply) => ({ ...client, ...reply }))))(
+  "passive $tag classifies a $kind",
+  ({ read, response, unsupported }) =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const home = yield* fs.makeTempDirectoryScoped({ directory: "/tmp", prefix: "fm-reply-" });
+      const listener = yield* NodeSocketServer.make({ path: `${home}/foreman.sock` });
+      const serving = yield* listener
+        .run((socket) =>
+          Effect.scoped(
+            Effect.gen(function* () {
+              const reader = yield* socket.reader;
+              const writer = yield* socket.writer;
+              yield* lines(reader).pipe(
+                Stream.runForEach(() =>
+                  writer.write(`${JSON.stringify({ id: 1, ...response })}\n`),
+                ),
+              );
+            }),
+          ),
+        )
+        .pipe(Effect.forkScoped);
+      const result = yield* read(home).pipe(Effect.result);
+      if (unsupported) {
+        assert.strictEqual(result._tag, "Success");
+        if (result._tag === "Success") assert.isNull(result.success);
+      } else {
+        assert.strictEqual(result._tag, "Failure");
+        if (result._tag === "Failure") assert.strictEqual(result.failure._tag, "DaemonUnavailable");
+      }
+      yield* Fiber.interrupt(serving);
+    }).pipe(Effect.provide(platform)),
+);
+
+it.effect("passive Events sends an explicit page limit", () =>
+  Effect.gen(function* () {
+    const server = yield* start((body) => {
+      assert.deepStrictEqual(body, { _tag: "Events", name, after: 7, waitMs: 1000, limit: 3 });
+      return Effect.succeed({ _tag: "Events", events: [], next: 7, gap: false });
+    });
+    assert.deepStrictEqual(yield* passiveEvents(server.home, name, 7, 1000, 3), {
+      _tag: "Events",
+      events: [],
+      next: 7,
+      gap: false,
+    });
+  }).pipe(Effect.provide(platform)),
+);
 
 it.effect.each(clients)(
   "passive $tag maps a closed real daemon socket to DaemonUnavailable",

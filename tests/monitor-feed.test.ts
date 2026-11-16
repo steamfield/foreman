@@ -20,6 +20,7 @@ import { ChildProcess } from "effect/process";
 import { Socket } from "effect/socket";
 import { TestClock } from "effect/testing";
 import { AppConfig } from "../src/config";
+import { connection } from "../src/core/monitor/connection";
 import {
   type MonitorFeed,
   monitorFeed,
@@ -272,8 +273,18 @@ it.effect(
     }).pipe(Effect.provide(platform)),
 );
 
-it.effect.each(["undecodable", "closed", "other-overview-build", "stalled", "legacy"] as const)(
-  "handles an %s protocol peer without failing the stream",
+const protocolPeers = [
+  "undecodable",
+  "permission-denied",
+  "schema-error",
+  "defect",
+  "closed",
+  "other-overview-build",
+  "stalled",
+  "legacy",
+] as const;
+it.effect.each(protocolPeers)(
+  "handles a %s protocol peer without failing the stream or misclassifying the connection",
   (kind) =>
     Effect.gen(function* () {
       const f = yield* fixture();
@@ -303,6 +314,20 @@ it.effect.each(["undecodable", "closed", "other-overview-build", "stalled", "leg
                   if (request.body._tag === "Overview" && kind === "stalled") {
                     yield* Deferred.succeed(overviewEntered, undefined);
                     return yield* Effect.never;
+                  }
+                  if (
+                    request.body._tag === "Overview" &&
+                    (kind === "permission-denied" || kind === "schema-error" || kind === "defect")
+                  ) {
+                    const tags = {
+                      "permission-denied": "PermissionDenied",
+                      "schema-error": "SchemaError",
+                      defect: "Defect",
+                    };
+                    yield* writer.write(
+                      `${JSON.stringify({ id: request.id, error: { tag: tags[kind], detail: "Overview failed" } })}\n`,
+                    );
+                    return;
                   }
                   let result: unknown;
                   if (request.body._tag === "Ping") {
@@ -334,7 +359,7 @@ it.effect.each(["undecodable", "closed", "other-overview-build", "stalled", "leg
         )
         .pipe(Effect.forkScoped);
       const feed = yield* f.feed;
-      if (kind === "undecodable" || kind === "other-overview-build" || kind === "legacy") {
+      if (kind === "other-overview-build" || kind === "legacy") {
         const value = yield* feed.next;
         assert.strictEqual(value._tag, "Saved");
         if (value._tag !== "Saved") return;
@@ -419,13 +444,19 @@ it.effect("logs a handled projection defect at error level with its diagnostic c
 );
 
 it.effect.each(["other-build", "refused"] as const)(
-  "shows Saved/outdated for %s without stopping or replacing the daemon",
+  "handles %s without stopping or replacing the daemon",
   (kind) =>
     Effect.gen(function* () {
       const f = yield* fixture();
       const server = yield* f.launch(kind === "other-build" ? "old" : "test", kind === "refused");
       const feed = yield* f.feed;
       const saved = yield* feed.next;
+      if (kind === "refused") {
+        assert.strictEqual(saved._tag, "Reconnecting");
+        yield* Fiber.interrupt(feed.fiber);
+        yield* server.stop;
+        return;
+      }
       assert.strictEqual(saved._tag, "Saved");
       if (saved._tag !== "Saved") return;
       assert.strictEqual(saved.reason, "outdated");
@@ -454,5 +485,23 @@ it.effect.each(["other-build", "refused"] as const)(
       assert.strictEqual(absent._tag, "Saved");
       if (absent._tag === "Saved") assert.strictEqual(absent.reason, "no-daemon");
       yield* Fiber.interrupt(feed.fiber);
+    }).pipe(Effect.provide(platform)),
+);
+
+it.effect.each(["missing", "corrupt", "unreadable"] as const)(
+  "probes a stale outdated socket when daemon.lock is %s",
+  (kind) =>
+    Effect.gen(function* () {
+      const f = yield* fixture();
+      const server = yield* f.launch("old");
+      const watch = connection(f.home, host.build);
+      assert.strictEqual(yield* watch.check, "outdated");
+      // Move the socket before shutdown so closing the listener leaves its inode behind.
+      yield* f.fs.rename(`${f.home}/foreman.sock`, `${f.home}/abandoned.sock`);
+      yield* server.stop;
+      yield* f.fs.rename(`${f.home}/abandoned.sock`, `${f.home}/foreman.sock`);
+      if (kind === "corrupt") yield* f.fs.writeFileString(`${f.home}/daemon.lock`, "invalid");
+      if (kind === "unreadable") yield* f.fs.makeDirectory(`${f.home}/daemon.lock`);
+      assert.strictEqual(yield* watch.check, "no-daemon");
     }).pipe(Effect.provide(platform)),
 );

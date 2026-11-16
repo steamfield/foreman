@@ -22,6 +22,7 @@ import { connection } from "./connection";
 import { RECONNECT_INITIAL_MS, RECONNECT_MAX_MS, SAVED_PROBE_MS } from "./feed";
 
 type AwaitedPage = Effect.Success<ReturnType<typeof passiveEvents>>;
+const EVENT_PAGE_LIMIT = 100;
 
 // The contract between the detail view's data link and its view, like MonitorFeed for the list.
 
@@ -81,7 +82,7 @@ export const detailFeed = (
       const next = Effect.gen(function* (): Effect.fn.Return<
         DetailFeed | null,
         AppError | PlatformError.PlatformError | Schema.SchemaError,
-        FileSystem.FileSystem | Path.Path | import("../../daemon/sockets").DaemonSockets
+        FileSystem.FileSystem | Path.Path | DaemonSockets
       > {
         yield* Effect.sleep(delay);
         const polling = live;
@@ -101,7 +102,7 @@ export const detailFeed = (
               passiveDetail(home, name, last.version).pipe(
                 Effect.map((detail) => ({ _tag: "Detail" as const, detail })),
               ),
-              passiveEvents(home, name, cursor, 15_000).pipe(
+              passiveEvents(home, name, cursor, 15_000, EVENT_PAGE_LIMIT).pipe(
                 // Inactive runs return empty pages immediately. Keep the Detail
                 // poll open instead of spinning through fresh reads.
                 Effect.flatMap((page) =>
@@ -114,17 +115,23 @@ export const detailFeed = (
             if (update._tag === "Detail") {
               detail = update.detail;
               if (detail !== null) resetCursor(detail);
-              page = detail === null ? null : yield* passiveEvents(home, name, cursor, 1);
+              page =
+                detail === null
+                  ? null
+                  : yield* passiveEvents(home, name, cursor, 1, EVENT_PAGE_LIMIT);
             } else {
               page = update.page;
               detail = page === null ? null : yield* passiveDetail(home, name);
               if (detail !== null && resetCursor(detail))
-                page = yield* passiveEvents(home, name, cursor, 1);
+                page = yield* passiveEvents(home, name, cursor, 1, EVENT_PAGE_LIMIT);
             }
           } else {
             detail = yield* passiveDetail(home, name);
             if (detail !== null) resetCursor(detail);
-            page = detail === null ? null : yield* passiveEvents(home, name, cursor, 1);
+            page =
+              detail === null
+                ? null
+                : yield* passiveEvents(home, name, cursor, 1, EVENT_PAGE_LIMIT);
           }
           if (detail !== null) {
             if (page === null)
@@ -132,7 +139,7 @@ export const detailFeed = (
                 detail: "Daemon events unavailable; reconnect.",
               });
             cursor = page.next;
-            draining = page.events.length === 100;
+            draining = page.events.length === EVENT_PAGE_LIMIT;
             last = detail;
             delay = 0;
             backoff = RECONNECT_INITIAL_MS;
@@ -158,10 +165,10 @@ export const detailFeed = (
           return { _tag: "Archived", receivedAt };
         }
         resetCursor(detail);
-        const page = yield* Store.readEvents(detail.record.runDir, cursor);
+        const page = yield* Store.readEvents(detail.record.runDir, cursor, EVENT_PAGE_LIMIT);
         cursor = page.next;
         last = detail;
-        if (page.events.length === 100) delay = 0;
+        if (page.events.length === EVENT_PAGE_LIMIT) delay = 0;
         const content = JSON.stringify({ reason, detail });
         if (content === savedContent && page.events.length === 0 && !page.gap) return null;
         savedContent = content;
