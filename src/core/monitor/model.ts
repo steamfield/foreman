@@ -556,9 +556,9 @@ export function view(state: State, previous?: ViewModel): ViewModel {
   } else if (runs.length === 0 || groups.length === 0) {
     screen = "empty";
     message = [
-      state.attentionOnly ? "No runs need attention" : "No runs yet",
-      state.attentionOnly ? "Press a to show every run." : "Start a run in another terminal.",
-      "foreman start --help",
+      state.attentionOnly ? "No runs need attention" : "No runs.",
+      state.attentionOnly ? "Press a to show every run." : "Start one with",
+      state.attentionOnly ? "foreman start --help" : "foreman start",
     ];
   }
   const counts = new Map<RunView["state"], number>();

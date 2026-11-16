@@ -1,0 +1,44 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`monitor list model > collapses older idle runs, expands on Enter, and filters attention 1`] = `
+"››› foreman 0.1.3                                             daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 2 waiting  ■ 1 running  ■ 2 idle
+╭─ ■ waiting  fix-hooks q2 · 3m · defers in 12m ───────────────────────────────────────────────────────────────────────────────────────────╮
+│ Keep the existing hook API?                                                                                                              │
+│ foreman answer fix-hooks q2 --file <path>                                                                                                │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ ■ waiting  other q2 · 3m · defers in 12m ───────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Keep the existing hook API?                                                                                                              │
+│ other repo: its own session supervises it                                                                                                │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+── repo ─────────────────────────────────────────────────────────────────────────────────────────────────────────── 1 waiting · 1 running ──
+ ■ fix-hooks             waiting       12m  t2 followup   ━━────────  12/60m · q2 pending 3m
+    … bun run check · 20s
+    ├─ ⠿ /root/acceptance_tests  working · 20s ago · gpt-6-sol · medium
+    └─ · /root/review  idle · 2m ago
+ ⣾ parser                running       12m  t2 followup   ━━────────  12/60m · 2 deferred · quiet 6m · retrying (usage limit) · 3 hooks blo…
+    “Checking the parser boundaries”                                                                                                        
+── other ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 1 waiting ──
+ ■ other                 waiting       12m  t2 followup   ━━────────  12/60m · q2 pending 3m
+    … bun run check · 20s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+↑↓/jk select  Enter open  a all runs  ? help  q quit                                                                        updated 0.0s ago"
+`;
