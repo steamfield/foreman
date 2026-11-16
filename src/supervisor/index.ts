@@ -24,6 +24,7 @@ import * as Codex from "../schemas/codex";
 import { activeStates, type DaemonRequestBody, type DaemonResult } from "../schemas/daemon";
 import { Host } from "../services/host";
 import { type AppServer, makeAppServer } from "./app-server";
+import { detail } from "./detail";
 import { handleNotification } from "./notifications";
 import { overview } from "./overview";
 import { deferral } from "./prompts";
@@ -304,6 +305,8 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
     switch (body._tag) {
       case "Overview":
         return yield* overview(registry, overviewDaemon, body);
+      case "Detail":
+        return yield* detail(registry, body);
       case "Shutdown":
         return yield* registry.starts.withPermits(1)(
           Effect.gen(function* () {
