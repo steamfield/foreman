@@ -1,12 +1,21 @@
-import { Cause, Clock, Effect, FileSystem, Path, type PlatformError, Schema, Stream } from "effect";
-import { outdated, passiveOverview, probe } from "../../daemon/client";
+import {
+  Cause,
+  Clock,
+  Effect,
+  type FileSystem,
+  type Path,
+  type PlatformError,
+  type Schema,
+  Stream,
+} from "effect";
+import { passiveOverview } from "../../daemon/client";
 import type { DaemonSockets } from "../../daemon/sockets";
 import type { AppError } from "../../errors";
 import { causeFields } from "../../logging";
-import { DaemonLockOwner } from "../../schemas/daemon";
 import type { Overview } from "../../schemas/monitor";
 import { Host } from "../../services/host";
 import { diskOverview } from "../runs/disk-overview";
+import { connection } from "./connection";
 
 // The contract between the monitor's data link and its view. The link owns how updates arrive
 // (daemon long-poll, disk fallback, reconnects); the view only renders the latest feed value.
@@ -59,8 +68,7 @@ export const monitorFeed = (
       let delay = 0;
       let backoff = RECONNECT_INITIAL_MS;
       let savedContent: string | null = null;
-      let lastProbedPid: number | null = null;
-      let outdatedPid: number | null = null;
+      const watch = connection(home, host.build);
       const next = Effect.gen(function* (): Effect.fn.Return<
         MonitorFeed | null,
         AppError | PlatformError.PlatformError | Schema.SchemaError,
@@ -70,35 +78,9 @@ export const monitorFeed = (
         const polling = live;
         let reason: "no-daemon" | "outdated" = "no-daemon";
         if (!live) {
-          let shouldProbe = true;
-          // Pre-passive daemons refresh idle time even on Ping. Once outdated, only
-          // watch disk until the socket disappears or the lock names a replacement PID.
-          if (outdatedPid !== null) {
-            reason = "outdated";
-            const fs = yield* FileSystem.FileSystem;
-            const path = yield* Path.Path;
-            if (yield* fs.exists(path.join(home, "foreman.sock"))) {
-              const owner = yield* fs
-                .readFileString(path.join(home, "daemon.lock"))
-                .pipe(
-                  Effect.flatMap(
-                    Schema.decodeUnknownEffect(Schema.fromJsonString(DaemonLockOwner)),
-                  ),
-                  Effect.result,
-                );
-              shouldProbe = owner._tag === "Success" && owner.success.pid !== outdatedPid;
-            }
-          }
-          if (shouldProbe) {
-            const pong = yield* probe(home, true);
-            outdatedPid = null;
-            if (pong !== null) {
-              reason = "outdated";
-              live = pong._tag === "Pong" && !outdated(pong, host.build, { dataDir: home });
-              lastProbedPid = pong._tag === "Pong" ? pong.pid : null;
-              if (!live) outdatedPid = lastProbedPid;
-            } else reason = "no-daemon";
-          }
+          const status = yield* watch.check;
+          live = status === "live";
+          if (status !== "live") reason = status;
         }
         if (live) {
           const overview = yield* passiveOverview(home, polling ? last?.version : undefined);
@@ -110,7 +92,7 @@ export const monitorFeed = (
             return { _tag: "Live", overview, receivedAt: yield* Clock.currentTimeMillis };
           }
           live = false;
-          outdatedPid = lastProbedPid;
+          watch.incompatible();
           reason = "outdated";
         }
         const overview = yield* diskOverview(home);
