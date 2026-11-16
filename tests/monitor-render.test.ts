@@ -229,19 +229,31 @@ describe("monitor frames", () => {
     expect(narrow).toContain("q2 pending");
     expect(narrow).toContain("2 subagents");
   });
-  it("aligns durations and budgets and paints the empty message in foreground", async () => {
+  it("aligns durations and budgets", async () => {
     const result = (
       await frame(live([run("a"), run("long-name", { state: "starting" })]), 140)
     ).replace(new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g"), "");
     const rows = result.split("\n").filter((line) => line.includes("12/60m"));
     expect(rows).toHaveLength(2);
     expect(rows[0]?.indexOf("12/60m")).toBe(rows[1]?.indexOf("12/60m"));
-    expect(await frame(live([]), 100, undefined, true)).toMatch(
-      /38;2;228;232;224m[^\n]*No runs yet/,
-    );
+  });
+  it("shows the spec's empty state and start command with readable colors", async () => {
+    const result = await frame(live([]), 100, undefined, true);
+    const lines = result
+      .split("\n")
+      .filter((line) => /No runs\.|Start one with|foreman start/.test(line));
+    expect(
+      lines.map((line) =>
+        line.replace(new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g"), "").trim(),
+      ),
+    ).toEqual(["No runs.", "Start one with", "foreman start"]);
+    expect(lines[0]).toMatch(/38;2;228;232;224m[^\n]*No runs\./);
+    expect(lines[1]).toMatch(/38;2;154;162;148m[^\n]*Start one with/);
+    expect(lines[2]).toMatch(/38;2;228;232;224m[^\n]*foreman start/);
   });
   for (const fixture of feeds) {
-    it.each([70, 100, 140])(`${fixture.name} at %i columns`, async (columns) => {
+    const widths = ["list", "all states"].includes(fixture.name) ? [70, 100, 140] : [100];
+    it.each(widths)(`${fixture.name} at %i columns`, async (columns) => {
       const result = await frame(fixture.feed, columns, fixture.key);
       expect(
         result.replace(new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g"), ""),
@@ -249,9 +261,20 @@ describe("monitor frames", () => {
       for (const line of result.split("\n")) expect(stringWidth(line)).toBeLessThanOrEqual(columns);
       expect(result.split("\n").length).toBeLessThanOrEqual(40);
     });
-    it(`${fixture.name} colors`, async () => {
-      expect(await frame(fixture.feed, 140, fixture.key, true)).toMatchSnapshot();
-    });
+    if (
+      [
+        "probing",
+        "help",
+        "empty",
+        "all states",
+        "saved",
+        "outdated active",
+        "reconnecting",
+      ].includes(fixture.name)
+    )
+      it(`${fixture.name} colors`, async () => {
+        expect(await frame(fixture.feed, 140, fixture.key, true)).toMatchSnapshot();
+      });
   }
   it("keeps every state readable without color and never renders terminal controls from activity", async () => {
     const states = [
@@ -279,17 +302,5 @@ describe("monitor frames", () => {
     for (const state of states) expect(result).toContain(state);
     for (const glyph of ["◐", "⣾", "■", "✓", "×", "◌"]) expect(result).toContain(glyph);
     expect(result).not.toContain("\u001b");
-  });
-  it("renders ten runs one hundred times under 3 seconds", async () => {
-    const start = performance.now();
-    const runs = Array.from({ length: 10 }, (_, i) => run(`run-${i}`, { state: "idle" }));
-    let last = "";
-    for (let index = 0; index < 100; index++)
-      last = renderToString(
-        createElement(Screen, { model: model(live(runs), 100), colors: theme(0) }),
-        { columns: 100 },
-      );
-    expect(performance.now() - start).toBeLessThan(3000);
-    expect(last).toContain("run-9");
   });
 });

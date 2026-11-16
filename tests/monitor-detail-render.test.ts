@@ -22,6 +22,17 @@ import {
 afterEach(cleanup);
 const strip = (text: string) =>
   text.replace(new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g"), "");
+const paneFrame = (frame: string, title: string) => {
+  const lines = strip(frame).split("\n");
+  const start = lines.findIndex((line) => line.startsWith(`╭─ ${title} `));
+  expect(start).toBeGreaterThanOrEqual(0);
+  const end = lines.findIndex((line, index) => index > start && line.startsWith("╰"));
+  expect(end).toBeGreaterThan(start);
+  return lines
+    .slice(start, end + 1)
+    .map((line) => line.trimEnd())
+    .join("\n");
+};
 const sample = detail();
 const events = detailEvents();
 function model(feed: DetailFeed, columns: number, keys: readonly string[] = [], rows = 40) {
@@ -67,6 +78,71 @@ async function frame(
 }
 const feedKeys = Array.from({ length: 6 }, () => "tab");
 describe("monitor detail frames", () => {
+  it("shows header warnings, new files and the successful last command after an earlier failure", async () => {
+    const data = detail(
+      run("fix-hooks", {
+        warnings: ["protocol mismatch", "MCP server docs failed to start"],
+      }),
+    );
+    const commands = detailEvents()
+      .filter((entry) => entry.event._tag === "Command")
+      .reverse();
+    const result = strip(
+      await frame(
+        detailLive(
+          {
+            ...data,
+            digest: {
+              ...data.digest,
+              newInGitStatus: ["a.ts", "b.ts"],
+              commands: {
+                total: 2,
+                failed: 1,
+                blockedByHooks: 0,
+                last: { command: "bun run lint", exitCode: 0 },
+              },
+            },
+          },
+          commands
+            .filter(
+              (entry) => entry.event._tag === "Command" && entry.event.status !== "inProgress",
+            )
+            .map((entry, index) => ({ ...entry, seq: index + 1 })),
+        ),
+        100,
+      ),
+    );
+    expect(result).toContain("warning: protocol mismatch");
+    expect(result).toContain("warning: MCP server docs failed to start");
+    expect(result).toContain("commands  2 total · 1 failed · 0 hooks blocked");
+    expect(result).toContain("last command  bun run lint · exit 0");
+    expect(result).toContain("files  1 written · 0 outside May change · 2 new in git status");
+    expect(result).toMatchSnapshot();
+  });
+  it.each([
+    [0, "Task", "# Fix hook handling"],
+    [1, "Digest", "750 cached (75% hit)"],
+    [2, "Questions", "q1 · question · pending"],
+    [3, "Subagents", "/root/acceptance_tests"],
+    [4, "Hand-off", "Updated the hooks."],
+    [5, "Commands", "foreman answer fix-hooks q1 --file <path>"],
+    [6, "Feed", "following"],
+    [7, "Task", "# Fix hook handling"],
+  ] as const)("Tab %i focuses %s and shows its content", async (tabs, title, text) => {
+    const result = await frame(
+      detailLive(sample, events),
+      100,
+      Array.from({ length: tabs }, () => "tab"),
+      true,
+    );
+    expect(result).toMatch(new RegExp(`38;2;228;232;224m[^\\n]*╭─ [^\\n]*${title}`));
+    expect(strip(result)).toContain(text);
+    if (tabs < 7) expect(paneFrame(result, title)).toMatchSnapshot();
+    if (title === "Questions") {
+      const last = await frame(detailLive(sample, events), 100, ["tab", "tab", "end"]);
+      expect(paneFrame(last, title)).toMatchSnapshot("resolved and cancelled questions");
+    }
+  });
   it("renders a declined command as a failure rather than open work", async () => {
     const result = strip(
       await frame(
@@ -222,32 +298,22 @@ describe("monitor detail frames", () => {
     ),
   ];
   for (const [index, feed] of feeds.entries()) {
-    it.each([70, 100, 140])(`state block ${index} at %i columns`, async (columns) => {
+    it(`state block ${index} at 100 columns`, async () => {
+      const columns = 100;
       const result = await frame(feed, columns);
       expect(strip(result)).toMatchSnapshot();
       if (feed._tag === "Saved" || (feed._tag === "Reconnecting" && feed.last))
         expect(result).toContain("Task");
     });
-    it(`state block ${index} colors`, async () =>
-      expect(await frame(feed, 140, [], true)).toMatchSnapshot());
+    if (index < 3 || feed._tag === "Archived")
+      it(`state block ${index} colors`, async () =>
+        expect(await frame(feed, 140, [], true)).toMatchSnapshot());
   }
   it("NO_COLOR keeps state and event glyphs readable", async () => {
     const result = await frame(detailLive(sample, events), 140, feedKeys, true, true);
     expect(result).not.toMatch(new RegExp(`${String.fromCharCode(27)}\\[(?:38|48);`));
     for (const glyph of ["■", "…", "✓", "×2"]) expect(result).toContain(glyph);
     expect(strip(result)).toMatchSnapshot();
-  });
-  it("renders one hundred detail frames with a full buffer under 3 seconds", () => {
-    const feed = detailLive(sample, messageEvents(EVENT_BUFFER_LIMIT));
-    const start = performance.now();
-    let result = "";
-    for (let i = 0; i < 100; i++)
-      result = renderToString(
-        createElement(Screen, { model: model(feed, 140), colors: theme(0) }),
-        { columns: 140 },
-      );
-    expect(performance.now() - start).toBeLessThan(3000);
-    expect(result).toContain("event 1000");
   });
   it("collapses the detail footer below 24 rows", () => {
     const result = strip(

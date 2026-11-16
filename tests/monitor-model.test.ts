@@ -1,5 +1,9 @@
+import { renderToString } from "ink";
+import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 import { initialState, OLDER_IDLE_MS, reduce, view } from "../src/core/monitor/model";
+import { Screen } from "../src/tui/screen";
+import { theme } from "../src/tui/theme";
 import { at, defaults, live, mixedRuns, now, overview, run, subagents } from "./helpers/monitor";
 
 const state = (runs = mixedRuns(), columns = 140, rows = 40) =>
@@ -7,6 +11,18 @@ const state = (runs = mixedRuns(), columns = 140, rows = 40) =>
     type: "feed",
     value: live(runs),
   });
+const frame = (current: ReturnType<typeof state>) =>
+  renderToString(createElement(Screen, { model: view(current), colors: theme(0) }), {
+    columns: current.columns,
+  });
+const plain = (text: string) =>
+  text.replace(new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g"), "");
+const selectedLine = (current: ReturnType<typeof state>) =>
+  frame(current)
+    .split("\n")
+    .find((line) => line.includes("\u001b[7m"))
+    ?.replace(new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g"), "")
+    .trim();
 describe("monitor list model", () => {
   it.each(["no-daemon", "outdated"] as const)(
     "distinguishes unsupervised work from an outdated daemon (%s)",
@@ -61,19 +77,20 @@ describe("monitor list model", () => {
       100,
       24,
     );
-    expect(view(reduce(current, { type: "key", key: "home" })).offset).toBe(0);
+    const bottom = reduce(current, { type: "key", key: "end" });
+    const top = reduce(bottom, { type: "key", key: "home" });
+    expect(frame(top)).toContain("■ waiting  first q2");
+    expect(selectedLine(top)).toMatch(/first\s+waiting/);
   });
   it("moves selection to the older-idle entry when a tick collapses the selected run", () => {
     const current = state([
       run("aging", { state: "idle", lastActivityAt: at(), stateSince: at(-OLDER_IDLE_MS + 500) }),
       run("active"),
     ]);
-    expect(view(current).selected).toBe("aging");
+    expect(selectedLine(current)).toMatch(/aging\s+idle/);
     const next = reduce(current, { type: "tick", now: now + 1000 });
-    expect(view(next).selected).toBe("older:/repo");
-    expect(
-      view(reduce(next, { type: "key", key: "enter" })).groups[0]?.rows.map((row) => row.name),
-    ).toContain("aging");
+    expect(selectedLine(next)).toBe("· 1 idle run older than 24h");
+    expect(plain(frame(reduce(next, { type: "key", key: "enter" })))).toMatch(/aging\s+idle/);
   });
   it("keeps the selected run visible when new activity moves it below a screenful", () => {
     const current = state([run("selected")], 100, 12);
@@ -84,16 +101,15 @@ describe("monitor list model", () => {
         run("selected"),
       ]),
     });
-    expect(view(next).selected).toBe("selected");
-    expect(view(next).offset).toBeGreaterThan(0);
+    expect(selectedLine(next)).toMatch(/selected\s+running/);
   });
   it("keeps selection by run name through updates, then chooses its nearest neighbour", () => {
     let current = reduce(state([run("a"), run("b"), run("c")]), { type: "key", key: "j" });
-    expect(view(current).selected).toBe("b");
+    expect(selectedLine(current)).toMatch(/b\s+running/);
     current = reduce(current, { type: "feed", value: live([run("c"), run("b"), run("a")]) });
-    expect(view(current).selected).toBe("b");
+    expect(selectedLine(current)).toMatch(/b\s+running/);
     current = reduce(current, { type: "feed", value: live([run("a"), run("c")]) });
-    expect(view(current).selected).toBe("c");
+    expect(selectedLine(current)).toMatch(/c\s+running/);
   });
   it("orders cwd first and groups and runs by recent activity", () => {
     const model = view(
@@ -107,17 +123,13 @@ describe("monitor list model", () => {
   });
   it("collapses older idle runs, expands on Enter, and filters attention", () => {
     let current = state();
-    expect(view(current).groups[0]?.older?.text).toBe("· 1 idle run older than 24h");
+    expect(frame(current)).toContain("· 1 idle run older than 24h");
     current = reduce(current, { type: "key", key: "end" });
     current = reduce(current, { type: "key", key: "k" });
     current = reduce(current, { type: "key", key: "enter" });
-    expect(view(current).groups[0]?.rows.some((row) => row.name === "older")).toBe(true);
+    expect(plain(frame(current))).toMatch(/older\s+idle/);
     current = reduce(current, { type: "key", key: "a" });
-    expect(view(current).groups.flatMap((group) => group.rows.map((row) => row.name))).toEqual([
-      "fix-hooks",
-      "parser",
-      "other",
-    ]);
+    expect(plain(frame(current))).toMatchSnapshot();
   });
   it("reports pending, deferred, quiet, retries, hooks, scope and settings flags", () => {
     const model = view(state());

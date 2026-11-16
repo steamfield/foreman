@@ -1,7 +1,8 @@
+import { renderToString } from "ink";
+import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 import type { DetailFeed } from "../src/core/monitor/detail-feed";
 import {
-  DETAIL_PANES,
   EVENT_BUFFER_LIMIT,
   initialState,
   type PaneId,
@@ -10,6 +11,8 @@ import {
   stateTone,
   view,
 } from "../src/core/monitor/model";
+import { Screen } from "../src/tui/screen";
+import { theme } from "../src/tui/theme";
 import { at, defaults, detail, detailLive, live, messageEvents, now, run } from "./helpers/monitor";
 
 const key = (state: State, key: string) => reduce(state, { type: "key", key });
@@ -32,6 +35,10 @@ const pane = (state: State, id: PaneId) =>
   view(state).detail?.panes.find((entry) => entry.id === id);
 const focusFeed = (state: State) =>
   Array.from({ length: 6 }).reduce<State>((s) => key(s, "tab"), state);
+const frame = (state: State) =>
+  renderToString(createElement(Screen, { model: view(state), colors: theme(0) }), {
+    columns: state.columns,
+  });
 describe("monitor detail model", () => {
   it.each(["running", "starting", "waiting"] as const)(
     "keeps saved %s work static only when no daemon supervises it",
@@ -102,19 +109,12 @@ describe("monitor detail model", () => {
       { type: "feed", value: live([run("a"), run("b")]) },
     );
     state = key(state, "j");
-    expect(view(state).selected).toBe("b");
+    const selected = frame(state);
+    expect(selected.split("\n").find((line) => line.includes("\u001b[7m"))).toContain("b ");
     state = key(state, "enter");
-    expect(view(state).detail?.name).toBe("b");
-    expect(view(key(state, "escape")).selected).toBe("b");
-    expect(view(key(state, "escape")).detail).toBeNull();
-  });
-  it("opens a startup name and cycles Tab in the prescribed order", () => {
-    let state = start();
-    expect(view(state).detail?.name).toBe("fix-hooks");
-    for (const id of [...DETAIL_PANES, "task"]) {
-      expect(view(state).detail?.focus).toBe(id);
-      state = key(state, "tab");
-    }
+    expect(frame(state)).toContain("Opening run detail");
+    expect(frame(state)).toContain("foreman status b");
+    expect(frame(key(state, "escape"))).toBe(selected);
   });
   it("scrolls only the focused pane and pauses follow without moving the viewport", () => {
     let state = focusFeed(start());
@@ -122,17 +122,17 @@ describe("monitor detail model", () => {
     expect(tail).toBeGreaterThan(0);
     state = key(state, "f");
     expect(pane(state, "feed")?.offset).toBe(tail);
-    expect(pane(state, "feed")?.value).toBe("paused · f to follow");
+    expect(frame(state)).toContain("paused · f to follow");
     state = key(state, "f");
     state = key(state, "k");
     expect(pane(state, "feed")?.offset).toBe((tail ?? 0) - 1);
-    expect(pane(state, "feed")?.value).toBe("paused · f to follow");
+    expect(frame(state)).toContain("paused · f to follow");
     expect(pane(state, "task")?.offset).toBe(0);
     expect(pane(key(state, "home"), "feed")?.offset).toBe(0);
     expect(pane(key(state, "end"), "feed")?.offset).toBe(tail);
     expect(pane(key(state, "page-up"), "feed")?.offset).toBe(0);
     expect(pane(key(key(state, "home"), "page-down"), "feed")?.offset).toBe(tail);
-    expect(pane(key(state, "f"), "feed")?.value).toBe("following");
+    expect(frame(key(state, "f"))).toContain("following");
   });
   it("keeps a bounded feed, deduplicates replayed events and retains gap information", () => {
     let state = start();
