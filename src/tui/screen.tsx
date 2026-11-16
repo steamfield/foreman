@@ -1,59 +1,11 @@
-import cliTruncate from "cli-truncate";
 import { Box, Text, useInput } from "ink";
-import { createContext, memo, use, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import stringWidth from "string-width";
-import type { RowView, Tone, ViewModel } from "../core/monitor/model";
+import type { RowView, ViewModel } from "../core/monitor/model";
+import { Glyph, Line, pad, Tick, truncate } from "./components";
+import { DetailScreen } from "./detail";
 import { type Theme, theme } from "./theme";
 
-const Tick = createContext(0);
-const spinner = "⣾⣽⣻⢿⡿⣟⣯⣷";
-export function truncate(text: string, width: number): string {
-  if (width <= 0) return "";
-  return cliTruncate(text, width, { position: "end", truncationCharacter: "…" });
-}
-const pad = (text: string, width: number) =>
-  text + " ".repeat(Math.max(0, width - stringWidth(text)));
-function glyph(kind: string, now: number) {
-  if (kind === "running") return spinner[Math.floor(now / 100) % 8] ?? "⣾";
-  if (kind === "starting" || kind === "probing") return "◐◓◑◒"[Math.floor(now / 150) % 4] ?? "◐";
-  if (kind === "waiting") return Math.floor(now / 800) % 2 === 0 ? "■" : "□";
-  if (kind === "working") return Math.floor(now / 400) % 2 === 0 ? "⠿" : "⠶";
-  if (kind === "idle") return "✓";
-  if (kind === "failed") return "×";
-  if (kind === "unknown") return "◐";
-  if (kind === "lost") return "◌";
-  return kind === "subagent-idle" ? "·" : "■";
-}
-function Glyph({
-  kind,
-  tone,
-  colors,
-  selected = false,
-}: {
-  kind: string;
-  tone: Tone;
-  colors: Theme;
-  selected?: boolean;
-}) {
-  const text = colors.paint(glyph(kind, use(Tick)), tone);
-  return <Text>{selected ? colors.select(text) : colors.fill(text)}</Text>;
-}
-function Line({
-  children,
-  width,
-  colors,
-  selected = false,
-  bar = false,
-}: {
-  children: string;
-  width: number;
-  colors: Theme;
-  selected?: boolean;
-  bar?: boolean;
-}) {
-  const text = pad(truncate(children, width), width);
-  return <Text wrap="truncate-end">{selected ? colors.select(text) : colors.fill(text, bar)}</Text>;
-}
 const NoteHeading = memo(function NoteHeading({
   title,
   width,
@@ -165,7 +117,10 @@ function Help({ model, colors }: { model: ViewModel; colors: Theme }) {
     "↑/k previous       ↓/j next",
     "Home first         End last",
     "PgUp scroll up     PgDn scroll down",
-    "a attention only   Enter expand older idle runs",
+    model.detail ? "Tab next pane      j/k scroll pane" : "a attention only   Enter open / expand",
+    ...(model.detail
+      ? ["PgUp/PgDn page      Home/End jump", "f follow feed      Esc return to list"]
+      : []),
     "? close help       Esc close help",
     "q quit             Ctrl-C interrupt",
     "  ",
@@ -339,15 +294,26 @@ export const Screen = memo(function Screen({ model, colors }: { model: ViewModel
       ]
     : [
         ["↑↓/jk", "select"],
-        ["Enter", "expand"],
+        ["Enter", "open"],
         ["a", model.footer.attentionOnly ? "all runs" : "attention"],
         ["?", "help"],
         ["q", "quit"],
       ];
+  const detailHints =
+    model.detail && !model.footer.compact
+      ? [
+          ["Tab", "pane"],
+          ["jk", "scroll"],
+          ["f", "follow"],
+          ["Esc", "list"],
+          ["?", "help"],
+          ["q", "quit"],
+        ]
+      : hints;
   const footerHints =
     model.layout === "narrow" && !model.footer.compact
-      ? hints.filter(([key]) => key !== "Enter")
-      : hints;
+      ? detailHints.filter(([key]) => key !== "Enter")
+      : detailHints;
   const footerLeft = footerHints
     .map(
       ([key, label]) =>
@@ -361,6 +327,23 @@ export const Screen = memo(function Screen({ model, colors }: { model: ViewModel
     footerLeft +
     " ".repeat(Math.max(1, width - stringWidth(footerLeft + footerRight))) +
     footerRight;
+  let body = (
+    <Box
+      flexDirection="column"
+      height={available}
+      overflow="hidden"
+      justifyContent={model.groups.length ? "flex-start" : "center"}
+    >
+      {visible.map((block) => (
+        <Box key={block.key} flexDirection="column" flexShrink={0} marginTop={-block.crop}>
+          {block.content}
+        </Box>
+      ))}
+    </Box>
+  );
+  if (model.overlay) body = <Help model={model} colors={colors} />;
+  else if (model.detail)
+    body = <DetailScreen detail={model.detail} model={model} colors={colors} />;
   return (
     <Box
       width={width}
@@ -371,22 +354,7 @@ export const Screen = memo(function Screen({ model, colors }: { model: ViewModel
       <Line width={width} colors={colors} bar>
         {header}
       </Line>
-      {model.overlay ? (
-        <Help model={model} colors={colors} />
-      ) : (
-        <Box
-          flexDirection="column"
-          height={available}
-          overflow="hidden"
-          justifyContent={model.groups.length ? "flex-start" : "center"}
-        >
-          {visible.map((block) => (
-            <Box key={block.key} flexDirection="column" flexShrink={0} marginTop={-block.crop}>
-              {block.content}
-            </Box>
-          ))}
-        </Box>
-      )}
+      {body}
       <Line width={width} colors={colors} bar>
         {footer}
       </Line>
@@ -415,6 +383,7 @@ export function MonitorApp({
     else if (key.escape) onKey("escape");
     else if (key.home) onKey("home");
     else if (key.end) onKey("end");
+    else if (key.tab) onKey("tab");
     else onKey(input);
   });
   useEffect(() => {

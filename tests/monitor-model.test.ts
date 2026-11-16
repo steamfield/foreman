@@ -120,10 +120,10 @@ describe("monitor list model", () => {
     expect(model.notes).toHaveLength(1);
     expect(model.footer.compact).toBe(true);
   });
-  it("stops animation on an idle screen and Enter on a run is inert", () => {
+  it("stops animation on an idle screen and Enter opens the selected run", () => {
     const idle = state([run("idle", { state: "idle", subagents: [] })]);
     expect(view(idle).animating).toBe(false);
-    expect(reduce(idle, { type: "key", key: "enter" })).toBe(idle);
+    expect(view(reduce(idle, { type: "key", key: "enter" })).detail?.name).toBe("idle");
     expect(view(state()).animating).toBe(true);
     const current = state();
     expect(reduce(current, { type: "tick", now: now + 100 })).toBe(current);

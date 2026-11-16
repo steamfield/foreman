@@ -1,5 +1,8 @@
 import { DateTime, Schema } from "effect";
+import type { DetailFeed } from "../../src/core/monitor/detail-feed";
 import type { MonitorFeed } from "../../src/core/monitor/feed";
+import { QuestionId, type RunEvent } from "../../src/schemas/daemon";
+import type { Detail } from "../../src/schemas/monitor";
 import { type Overview, RunView } from "../../src/schemas/monitor";
 
 export const now = Date.parse("2026-11-16T12:00:00Z");
@@ -129,3 +132,152 @@ export const subagents = (count: number) =>
     lastInteractionAt: at(-20000),
     interactions: 1,
   }));
+
+export function detail(runView = mixedRuns()[0] ?? run()): Detail {
+  return {
+    _tag: "Detail",
+    version: 1,
+    run: runView,
+    record: {
+      runDir: `/data/runs/${runView.name}`,
+      worktree: runView.worktree,
+      branch: runView.branch,
+      baseCommit: "abc123",
+      fromRef: "main",
+      createdAt: at(-3600000),
+      updatedAt: at(),
+    },
+    contract:
+      "# Fix hook handling\nKeep the existing hook API.\nUse real dependencies.\n\nMay change: src/hooks.ts\nMust not change: src/daemon/",
+    contractTruncated: false,
+    contractByteLimit: 65536,
+    questions: ["pending", "deferred", "resolved", "cancelled"].map((status, index) => ({
+      id: Schema.decodeUnknownSync(RunView.fields.questions.value.fields.id)(`q${index + 1}`),
+      kind: "question",
+      text: `Question ${index + 1}: keep the API?`,
+      askedAt: at(-180000),
+      status: Schema.decodeUnknownSync(
+        Schema.Literals(["pending", "deferred", "resolved", "cancelled"]),
+      )(status),
+      resolvedAt: index < 2 ? null : at(-60000),
+    })),
+    handoff: { turn: 1, text: "Updated the hooks.\nChecks passed." },
+    digest: {
+      name: runView.name,
+      state: runView.state,
+      elapsedMs: 720000,
+      model: runView.model,
+      effort: runView.effort,
+      tier: runView.tier,
+      sandbox: runView.sandbox,
+      runDir: `/data/runs/${runView.name}`,
+      worktree: runView.worktree,
+      turn: runView.turn,
+      turnKind: runView.turnKind,
+      questions: [],
+      commands: {
+        total: 12,
+        failed: 1,
+        blockedByHooks: 2,
+        last: { command: "bun run check", exitCode: 0 },
+      },
+      filesWritten: ["src/hooks.ts"],
+      outsideMayChange: [],
+      newInGitStatus: null,
+      tokens: { input: 1000, cachedInput: 750, output: 200, reasoningOutput: 100 },
+      failure: null,
+      warnings: [],
+    },
+  };
+}
+export const messageEvents = (count: number, start = 1): RunEvent[] =>
+  Array.from({ length: count }, (_, index) => ({
+    seq: start + index,
+    at: at(),
+    event: { _tag: "AgentMessage", text: `event ${start + index}`, phase: "commentary" },
+  }));
+export const detailLive = (data = detail(), events = messageEvents(40)): DetailFeed => ({
+  _tag: "Live",
+  detail: data,
+  events,
+  gap: false,
+  receivedAt: now,
+});
+export function detailEvents(): RunEvent[] {
+  const sample = detail();
+  return [
+    ...messageEvents(1),
+    {
+      seq: 2,
+      at: sample.record.updatedAt,
+      event: {
+        _tag: "Command" as const,
+        command: "bun run check",
+        status: "inProgress",
+        exitCode: null,
+        outputTail: "",
+      },
+    },
+    {
+      seq: 3,
+      at: sample.record.updatedAt,
+      event: {
+        _tag: "Command" as const,
+        command: "bun run lint",
+        status: "completed",
+        exitCode: 0,
+        outputTail: "",
+      },
+    },
+    {
+      seq: 4,
+      at: sample.record.updatedAt,
+      event: {
+        _tag: "Command" as const,
+        command: "bun run test",
+        status: "failed",
+        exitCode: 2,
+        outputTail: "",
+      },
+    },
+    {
+      seq: 5,
+      at: sample.record.updatedAt,
+      event: { _tag: "FileChange" as const, paths: ["src/hooks.ts"] },
+    },
+    {
+      seq: 6,
+      at: sample.record.updatedAt,
+      event: {
+        _tag: "QuestionAsked",
+        id: Schema.decodeUnknownSync(QuestionId)("q1"),
+        kind: "question",
+        question: "Keep the API?",
+      },
+    },
+    {
+      seq: 7,
+      at: sample.record.updatedAt,
+      event: { _tag: "HookBlocked" as const, event: "pre-commit", feedback: "Fix lint first." },
+    },
+    {
+      seq: 8,
+      at: sample.record.updatedAt,
+      event: { _tag: "StateChanged" as const, from: "running" as const, to: "waiting" as const },
+    },
+    {
+      seq: 9,
+      at: sample.record.updatedAt,
+      event: { _tag: "TurnStarted" as const, turn: 2, kind: "followup" as const },
+    },
+    {
+      seq: 10,
+      at: sample.record.updatedAt,
+      event: {
+        _tag: "QuestionResolved",
+        id: Schema.decodeUnknownSync(QuestionId)("q2"),
+        resolution: "deferred",
+      },
+    },
+  ];
+}

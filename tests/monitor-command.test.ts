@@ -10,21 +10,98 @@ import { call } from "../src/daemon/client";
 import { daemon } from "../src/daemon/server";
 import { Overview } from "../src/schemas/monitor";
 import { makeSupervisor } from "../src/supervisor";
+import { successfulTurn } from "./fixtures/fake-app-server/scenarios";
 import { runCli } from "./helpers/cli";
-import { eventsPlatform } from "./helpers/events";
-import { live, mixedRuns, overview, run, subagents } from "./helpers/monitor";
+import { eventsFixture, eventsPlatform } from "./helpers/events";
+import { detailLive, live, mixedRuns, overview, run, subagents } from "./helpers/monitor";
 import { monitorTerminal } from "./helpers/monitor-terminal";
 
 const parsed = (
   args: readonly string[],
   terminal = monitorTerminal(),
   source = () => Stream.make(live(mixedRuns())),
+  detailSource = () => Stream.make(detailLive()),
 ) =>
-  Command.runWith(cli("test-cli", makeMonitorCommand(source)), {
+  Command.runWith(cli("test-cli", makeMonitorCommand(source, detailSource)), {
     version: "dev",
     renderErrors: false,
   })(args).pipe(Effect.provide(terminal.layer));
 describe("monitor command", () => {
+  it("opens a named detail, cancels on Esc, reopens on Enter and restores the terminal", async () => {
+    const terminal = monitorTerminal();
+    const subscriptions: string[] = [];
+    const detailSource = () =>
+      Stream.fromEffect(
+        Effect.acquireRelease(
+          Effect.sync(() => {
+            subscriptions.push("opened");
+            return detailLive();
+          }),
+          () =>
+            Effect.sync(() => {
+              subscriptions.push("closed");
+            }),
+        ),
+      ).pipe(Stream.concat(Stream.never), Stream.scoped);
+    const args = ["monitor", "fix-hooks"];
+    const pending = runCli(args, { program: parsed(args, terminal, undefined, detailSource) });
+    try {
+      await expect.poll(() => terminal.output(), { timeout: 5000 }).toContain("Task");
+      expect(subscriptions).toEqual(["opened"]);
+      terminal.stdin.push("\u001b");
+      await expect.poll(() => subscriptions).toEqual(["opened", "closed"]);
+      terminal.stdin.push("\r");
+      await expect.poll(() => subscriptions).toEqual(["opened", "closed", "opened"]);
+      terminal.stdin.push("\u001b");
+      await expect.poll(() => subscriptions).toEqual(["opened", "closed", "opened", "closed"]);
+      terminal.stdin.push("q");
+      expect(await pending).toEqual({ status: 0, stdout: "", stderr: "" });
+      expect(terminal.output()).toContain("\u001b[?1049l");
+      expect(terminal.stdin.isRaw).toBe(false);
+    } finally {
+      terminal.stdin.push("q");
+      await pending;
+    }
+  });
+  it.each(["text", "json", "delegate"])(
+    "named monitor matches named status in %s mode",
+    async (mode) => {
+      await Effect.runPromise(
+        Effect.scoped(
+          Effect.gen(function* () {
+            const fixture = yield* eventsFixture(successfulTurn());
+            yield* fixture.untilState("idle");
+            const args = ["monitor", fixture.name, ...(mode === "json" ? ["--json"] : [])];
+            const env = { ...fixture.env, ...(mode === "delegate" ? { CODEX_DELEGATE: "1" } : {}) };
+            const terminal = monitorTerminal();
+            const status = yield* Effect.promise(() =>
+              runCli(["status", fixture.name, ...(mode === "json" ? ["--json"] : [])], {
+                home: fixture.root,
+                env,
+              }),
+            );
+            const result = yield* Effect.promise(() =>
+              runCli(args, {
+                home: fixture.root,
+                env,
+                ...(mode === "delegate" ? { program: parsed(args, terminal) } : {}),
+              }),
+            );
+            expect(result).toEqual({
+              status: status.status,
+              stdout: status.stdout,
+              stderr:
+                mode === "json"
+                  ? ""
+                  : "The live view needs an interactive terminal; showing a snapshot.\n",
+            });
+            expect(result.status).toBe(0);
+            expect(terminal.output()).toBe("");
+          }),
+        ).pipe(Effect.provide(eventsPlatform)),
+      );
+    },
+  );
   it("forwards Page Down and Page Up to reach a long subagent list", async () => {
     const terminal = monitorTerminal(100, 24);
     const pending = runCli(["monitor"], {
