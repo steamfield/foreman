@@ -1,8 +1,9 @@
-import { Effect, Option, Schema } from "effect";
+import { Clock, Effect, Option, Schema } from "effect";
 import { Argument, CliError, Command, Flag } from "effect/cli";
-import { durationMs } from "../core/command-input";
+import { durationMs, realPath } from "../core/command-input";
 import { foremanExecutable, renderResult } from "../core/command-output";
 import * as programs from "../core/commands";
+import { mainCheckout } from "../core/main-checkout";
 import { redactDiagnosticText } from "../logging";
 import { EventLimit, EventSequence } from "../schemas/commands";
 import { Cursor, DaemonResult, QuestionId, RunName } from "../schemas/daemon";
@@ -73,13 +74,26 @@ export const print = Effect.fnUntraced(function* <E, R>(
   yield* (yield* Invocation).named(command);
   const result = yield* program;
   const encoded = yield* Schema.encodeEffect(DaemonResult)(result).pipe(Effect.orDie);
+  const output = yield* Output;
   const executable =
-    result._tag === "Started" || result._tag === "Events"
+    result._tag === "Started" || result._tag === "Events" || result._tag === "Overview"
       ? (yield* foremanExecutable()).command
       : "foreman";
-  yield* (yield* Output).result(
+  yield* output.result(
     encoded,
-    renderResult(result, compact, executable, eventsName, verbose),
+    renderResult(
+      result,
+      compact,
+      executable,
+      eventsName,
+      verbose,
+      result._tag === "Overview" && !output.json
+        ? {
+            group: (yield* mainCheckout(yield* realPath("."))) ?? "",
+            now: yield* Clock.currentTimeMillis,
+          }
+        : undefined,
+    ),
   );
 });
 
@@ -161,6 +175,10 @@ export const startCommand = Command.make(
 export const statusCommand = Command.make(
   "status",
   {
+    all: Flag.Boolean("all").pipe(
+      Flag.withDefault(false),
+      Flag.withDescription("List runs across every repository group."),
+    ),
     name: name.pipe(
       Argument.withDescription(
         "Run to inspect in any state. Omit for all runs in the current repo and linked worktrees.",
@@ -169,10 +187,10 @@ export const statusCommand = Command.make(
       Argument.map(Option.getOrUndefined),
     ),
   },
-  ({ name }) => print("status", programs.status(name), name === undefined),
+  ({ name, all }) => print("status", programs.status(name, all), name === undefined),
 ).pipe(
   Command.withDescription(
-    "Inspect any current run state, including starting, running, waiting, unknown, idle, failed, interrupted and lost. A named run gets a full digest; no name lists the current repo group and orphan worktrees. Does not resume turns; run commands may start or replace an idle daemon. Both JSON forms return Digests. Exits 0 on success (also an empty group), 2 for usage, 3 for config, 4 for daemon failure, 6 for permissions, 7 for a missing named run, 8 for unreadable or unsupported records, 130 when interrupted, 1 on an internal error.",
+    "Inspect any current run state, including starting, running, waiting, unknown, idle, failed, interrupted and lost. A named run gets a full digest; no name lists the current repo group and orphan worktrees. --all lists cached live activity across every repo and cannot be combined with a name. Does not resume turns; run commands may start or replace an idle daemon. JSON returns Digests, or Overview with --all. Keep using wait for outcomes instead of polling. Exits 0 on success (also an empty group), 2 for usage, 3 for config, 4 for daemon failure, 6 for permissions, 7 for a missing named run, 8 for unreadable or unsupported records, 130 when interrupted, 1 on an internal error.",
   ),
   Command.withShortDescription("Show a run digest or one line per run in the current group."),
   Command.withExamples([

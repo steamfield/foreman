@@ -19,6 +19,13 @@ import { successfulTurn } from "./fixtures/fake-app-server/scenarios";
 import { ndjson, runCli, tempDir } from "./helpers/cli";
 import { eventsFixture, eventsPlatform } from "./helpers/events";
 
+it.each([false, true])("status rejects a name with --all (json=%s)", async (json) => {
+  const result = await runCli(["status", "unit", "--all", ...(json ? ["--json"] : [])]);
+  expect(result.status).toBe(2);
+  expect(result.stdout).toBe("");
+  expect(result.stderr).toContain("Provide a run name or --all, not both.");
+});
+
 describe("events --follow", () => {
   it("streams ordered events before completion and exits after draining every page", async () => {
     await Effect.runPromise(

@@ -17,7 +17,7 @@ import {
   Schema,
   Scope,
 } from "effect";
-import { ChildProcess } from "effect/process";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import { TestClock } from "effect/testing";
 import { openConnection } from "../src/codex/client";
 import { AppConfig } from "../src/config";
@@ -33,6 +33,7 @@ import { jsonRequested, main } from "../src/main";
 import { AppLayer } from "../src/runtime";
 import * as Codex from "../src/schemas/codex";
 import * as D from "../src/schemas/daemon";
+import { Overview } from "../src/schemas/monitor";
 import { Host } from "../src/services/host";
 import { makeSupervisor } from "../src/supervisor";
 import { makeAppServer } from "../src/supervisor/app-server";
@@ -426,6 +427,223 @@ const queuedAnswersFixture = Effect.fnUntraced(function* () {
 });
 
 describe("supervisor over the real daemon socket", () => {
+  it.live("status --all works from main and linked checkouts with a separate Git directory", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(scenario(turnRule([question()])));
+      const repo = `${f.root}/separate`;
+      yield* f.fs.makeDirectory(repo);
+      yield* f.git(repo, ["init", "-q", `--separate-git-dir=${f.root}/metadata`]);
+      yield* f.git(repo, [
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.invalid",
+        "commit",
+        "--allow-empty",
+        "-qm",
+        "initial",
+      ]);
+      const worktree = `${repo}/work/unit`;
+      yield* f.git(repo, ["worktree", "add", "-qb", "unit", worktree]);
+      yield* f.launch();
+      yield* f.start();
+      yield* f.untilState("waiting");
+      for (const cwd of [repo, worktree]) {
+        yield* Effect.acquireUseRelease(
+          Effect.sync(() => {
+            const previous = process.cwd();
+            process.chdir(cwd);
+            return previous;
+          }),
+          () =>
+            Effect.gen(function* () {
+              const text = yield* f.cli(["status", "--all"]);
+              expect(text).toContain(`repo (${f.repo})`);
+              expect(text).toContain("other repo: its own session supervises it");
+              expect(text).not.toContain("next:");
+            }),
+          (previous) => Effect.sync(() => process.chdir(previous)),
+        );
+      }
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live(
+    "Overview and status --all show both repo groups and subagents without scanning worktrees",
+    () =>
+      Effect.gen(function* () {
+        const real = yield* ChildProcessSpawner.ChildProcessSpawner;
+        const observed: string[] = [];
+        let observing = false;
+        const spawner = ChildProcessSpawner.make((command) =>
+          Effect.gen(function* () {
+            if (observing && command._tag === "StandardCommand") observed.push(command.command);
+            return yield* real.spawn(command);
+          }),
+        );
+        yield* Effect.gen(function* () {
+          const child = {
+            type: "subAgentActivity",
+            id: "child-start",
+            kind: "started",
+            agentThreadId: "child",
+            agentPath: "/root/tests",
+            model: "gpt-6.1-sol",
+            reasoningEffort: "high",
+            startedAtMs: 1000,
+            completedAtMs: null,
+          };
+          const f = yield* fixture(
+            scenario({
+              ...turnRule([
+                notify(Codex.Method.itemCompleted, {
+                  threadId: "{{thread}}",
+                  turnId: "{{turn}}",
+                  item: child,
+                }),
+                question(),
+              ]),
+              repeat: true,
+            }),
+          );
+          const other = yield* fixture(scenario(), false, "a-other");
+          yield* f.launch();
+          yield* f.start();
+          const otherName = Schema.decodeUnknownSync(D.RunName)("foreign");
+          yield* f.start({ name: otherName, worktree: other.worktree });
+          let result: Overview;
+          while (true) {
+            const reply = yield* f.request({ _tag: "Overview" });
+            assert(reply._tag === "Overview");
+            result = reply;
+            if (
+              result.runs.length === 2 &&
+              result.runs.every((run) => run.questions.length === 1 && run.state === "waiting")
+            )
+              break;
+            yield* Effect.yieldNow;
+          }
+          expect(result.daemon).toMatchObject({ version: "test", build: "test" });
+          expect(result.runs.map((run) => run.group).sort()).toEqual([f.repo, other.repo].sort());
+          expect(result.runs.every((run) => run.subagents[0]?.path === "/root/tests")).toBe(true);
+          observing = true;
+          yield* f.request({ _tag: "Overview" });
+          // The daemon projects from memory: no git or find per request or per run.
+          expect(observed).toEqual([]);
+          yield* Effect.acquireUseRelease(
+            Effect.sync(() => {
+              const previous = process.cwd();
+              process.chdir(f.worktree);
+              return previous;
+            }),
+            () =>
+              Effect.gen(function* () {
+                const json = Schema.decodeUnknownSync(Schema.fromJsonString(Overview))(
+                  yield* f.cli(["status", "--all", "--json"]),
+                );
+                expect(json.runs.map((run) => run.name).sort()).toEqual(["foreign", "unit"]);
+                expect(json.runs.every((run) => run.subagents[0]?.path === "/root/tests")).toBe(
+                  true,
+                );
+                const text = yield* f.cli(["status", "--all"]);
+                expect(text).toContain("2 runs: 2 waiting");
+                expect(text.indexOf(`repo (${f.repo})`)).toBeLessThan(
+                  text.indexOf(`a-other (${other.repo})`),
+                );
+                expect(text).toContain("  /root/tests  working · ");
+                expect(text).toContain(`next: FOREMAN_HOME=${f.dataDir} foreman answer unit q1`);
+                expect(text).not.toContain("foreman answer foreign");
+                expect(text).toContain("other repo: its own session supervises it");
+                const dotGit = `${f.worktree}/.git`;
+                const pointer = yield* f.fs.readFileString(dotGit);
+                yield* Effect.acquireUseRelease(
+                  f.fs.writeFileString(dotGit, `gitdir: ${f.root}/unavailable-gitdir\n`),
+                  () =>
+                    f
+                      .cli(["status", "--all", "--json"])
+                      .pipe(
+                        Effect.tap((output) =>
+                          Effect.sync(() =>
+                            expect(
+                              Schema.decodeUnknownSync(Schema.fromJsonString(Overview))(output)
+                                .runs,
+                            ).toHaveLength(2),
+                          ),
+                        ),
+                      ),
+                  () => f.fs.writeFileString(dotGit, pointer),
+                );
+              }),
+            (previous) => Effect.sync(() => process.chdir(previous)),
+          );
+          // Text output runs one git worktree list to put the caller's group first; JSON runs none.
+          expect(observed).toEqual(["git"]);
+          observing = false;
+        }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
+      }).pipe(Effect.provide(platform)),
+  );
+
+  it.live(
+    "Overview long-poll coalesces a fake token burst and returns the changed state before timeout",
+    () =>
+      Effect.gen(function* () {
+        const tokens: Step[] = Array.from({ length: 10 }, (_, index) =>
+          notify(Codex.Method.tokenUsageUpdated, {
+            threadId: "{{thread}}",
+            turnId: "{{turn}}",
+            tokenUsage: {
+              total: {
+                inputTokens: index + 1,
+                cachedInputTokens: 0,
+                outputTokens: 2 * (index + 1),
+                reasoningOutputTokens: 0,
+                totalTokens: 3 * (index + 1),
+              },
+              last: {
+                inputTokens: 1,
+                cachedInputTokens: 0,
+                outputTokens: 2,
+                reasoningOutputTokens: 0,
+                totalTokens: 3,
+              },
+              modelContextWindow: null,
+            },
+          }),
+        );
+        const f = yield* fixture(
+          scenario(turnRule([{ awaitRequest: Codex.Method.turnSteer }, ...tokens, question()]), {
+            method: Codex.Method.turnSteer,
+            respond: { result: { turnId: "{{turn}}" } },
+          }),
+        );
+        const { supervisor } = yield* f.launch();
+        yield* f.start();
+        while (true) {
+          const reply = yield* f.request({ _tag: "Events", name });
+          assert(reply._tag === "Events");
+          if (reply.events.some(({ event }) => event._tag === "TurnStarted")) break;
+          yield* Effect.yieldNow;
+        }
+        const initial = yield* f.request({ _tag: "Overview" });
+        assert(initial._tag === "Overview");
+        const start = performance.now();
+        const pending = yield* supervisor
+          .handler({ _tag: "Overview", after: initial.version, timeoutMs: 4000 })
+          .pipe(Effect.forkChild({ startImmediately: true }));
+        yield* f.request({ _tag: "Steer", name, message: "Continue" });
+        const response = yield* Fiber.join(pending);
+        assert(response._tag === "Overview");
+        expect(performance.now() - start).toBeLessThan(3000);
+        expect(response.version).toBeGreaterThan(initial.version);
+        expect(response.runs).toMatchObject([
+          { state: "waiting", tokensTotal: 30, questions: [{ id: q1 }] },
+        ]);
+        const events = yield* f.request({ _tag: "Events", name, limit: 100 });
+        assert(events._tag === "Events");
+        expect(events.events.filter(({ event }) => event._tag === "TokenUsage")).toHaveLength(10);
+      }).pipe(Effect.provide(platform)),
+  );
+
   it.effect("tracks live items, commentary and independent subagents without persisting them", () =>
     Effect.gen(function* () {
       const itemStep = (method: string, item: unknown, turnId = "{{turn}}") =>

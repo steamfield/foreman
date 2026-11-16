@@ -1,5 +1,7 @@
 import {
   Cause,
+  Clock,
+  DateTime,
   Deferred,
   Effect,
   Exit,
@@ -23,6 +25,7 @@ import { activeStates, type DaemonRequestBody, type DaemonResult } from "../sche
 import { Host } from "../services/host";
 import { type AppServer, makeAppServer } from "./app-server";
 import { handleNotification } from "./notifications";
+import { overview } from "./overview";
 import { deferral } from "./prompts";
 import { makeQuestions } from "./questions";
 import { makeRegistry, type Run } from "./registry";
@@ -103,6 +106,11 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
     FileSystem.FileSystem | Path.Path | ChildProcessSpawner.ChildProcessSpawner
   >();
   const registry = yield* makeRegistry(config.home);
+  const overviewDaemon = {
+    version: host.version,
+    build: host.build,
+    startedAt: DateTime.makeUnsafe(yield* Clock.currentTimeMillis),
+  };
   // threadId is saved before turn/start; the run lock orders its reply and early notifications.
   const route = (threadId: string) =>
     Effect.sync(() => [...registry.runs.values()].find((run) => run.record.threadId === threadId));
@@ -294,6 +302,8 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
     FileSystem.FileSystem | Path.Path | ChildProcessSpawner.ChildProcessSpawner
   > {
     switch (body._tag) {
+      case "Overview":
+        return yield* overview(registry, overviewDaemon, body);
       case "Shutdown":
         return yield* registry.starts.withPermits(1)(
           Effect.gen(function* () {

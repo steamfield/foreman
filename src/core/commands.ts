@@ -116,7 +116,13 @@ export const start = Effect.fn("commands.start")(function* (input: StartInput) {
     : result;
 });
 
-export const status = Effect.fn("commands.status")(function* (name: RunName | undefined) {
+export const status = Effect.fn("commands.status")(function* (
+  name: RunName | undefined,
+  all = false,
+) {
+  if (all && name !== undefined)
+    return yield* new Usage({ detail: "Provide a run name or --all, not both." });
+  if (all) return yield* request({ _tag: "Overview" });
   return yield* request({
     _tag: "Status",
     ...(name === undefined ? {} : { name }),

@@ -3,6 +3,8 @@
 // document and the Standard Schema adapter. Copy these patterns for new boundary schemas.
 import { Arbitrary, Effect, Exit, Schema } from "effect";
 import { describe, expect, it } from "vitest";
+import { DaemonRequestBody, DaemonResult } from "../src/schemas/daemon";
+import { Overview, SubAgentView } from "../src/schemas/monitor";
 
 const OrderId = Schema.String.check(Schema.isMinLength(1)).pipe(Schema.brand("OrderId"));
 
@@ -18,6 +20,49 @@ const decode = Schema.decodeUnknownSync(Order);
 const encode = Schema.encodeSync(Order);
 
 describe("Schema conventions", () => {
+  it("round-trips Overview and ISO child timestamps through the daemon protocol", () => {
+    const wire = {
+      _tag: "Overview",
+      version: 3,
+      daemon: { version: "test", build: "test", startedAt: "2026-01-02T03:04:05.000Z" },
+      runs: [],
+    };
+    expect(Schema.encodeSync(DaemonResult)(Schema.decodeUnknownSync(DaemonResult)(wire))).toEqual(
+      wire,
+    );
+    const child = {
+      threadId: "child",
+      path: "/root/tests",
+      model: null,
+      effort: null,
+      state: "working",
+      startedAt: wire.daemon.startedAt,
+      lastInteractionAt: wire.daemon.startedAt,
+      interactions: 1,
+    };
+    expect(Schema.encodeSync(SubAgentView)(Schema.decodeUnknownSync(SubAgentView)(child))).toEqual(
+      child,
+    );
+    expect(
+      Schema.toJsonSchemaDocument(Overview, { onExcessProperty: "error" }).schema,
+    ).toMatchObject({ additionalProperties: false });
+  });
+
+  it.each([0, 60001, 1.5])("rejects invalid Overview timeout %s", (timeoutMs) => {
+    expect(
+      Exit.isFailure(Schema.decodeUnknownExit(DaemonRequestBody)({ _tag: "Overview", timeoutMs })),
+    ).toBe(true);
+  });
+
+  it.each([1, 60000])("accepts bounded Overview timeout %s and integer versions", (timeoutMs) => {
+    const request = { _tag: "Overview", timeoutMs, after: 2 };
+    expect(
+      Schema.encodeSync(DaemonRequestBody)(Schema.decodeUnknownSync(DaemonRequestBody)(request)),
+    ).toEqual(request);
+    expect(
+      Exit.isFailure(Schema.decodeUnknownExit(DaemonRequestBody)({ ...request, after: 0.5 })),
+    ).toBe(true);
+  });
   it("round-trips wire input: encode(decode(x)) equals x", () => {
     const wire = { id: "order-1", quantity: 2, placedAt: "2026-01-02T03:04:05.000Z" };
     const order: Order = decode(wire);
