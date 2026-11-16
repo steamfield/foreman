@@ -230,7 +230,11 @@ const exchange = Effect.fn("daemon.exchange")(
 );
 
 // A monitor may read an older protocol, but must never invoke call's replacement path.
-// Null means Overview is unsupported; transport failures remain reconnectable failures.
+// Only the old protocol's request-decoding refusal means unsupported.
+const requestNotUnderstood = (error: { readonly tag: string; readonly detail?: string }) =>
+  error.tag === "DaemonUnavailable" &&
+  error.detail?.startsWith("Request not understood; daemon build ") === true;
+
 export const OVERVIEW_REQUEST_TIMEOUT_MS = 20_000; // Default 15 s long-poll plus transport headroom.
 export const passiveOverview = Effect.fn("daemon.passiveOverview")(
   function* (dataDir: string, after?: number) {
@@ -248,13 +252,26 @@ export const passiveOverview = Effect.fn("daemon.passiveOverview")(
       Stream.mapEffect((line) => Schema.decodeUnknownEffect(responseJson)(line)),
       Stream.filter((reply) => reply.id === 1),
       Stream.runHead,
-      Effect.catchTag("SchemaError", () => Effect.succeed(null)),
+      Effect.catchTag("SchemaError", () =>
+        Effect.fail(
+          new DaemonUnavailable({
+            detail: "Invalid daemon Overview reply; reconnect and inspect the daemon log.",
+          }),
+        ),
+      ),
     );
-    if (response === null) return null;
     if (Option.isNone(response)) return yield* closedRequest(body);
-    return "result" in response.value && response.value.result._tag === "Overview"
-      ? response.value.result
-      : null;
+    if ("error" in response.value) {
+      const error = response.value.error;
+      if (requestNotUnderstood(error)) return null;
+      return yield* new DaemonUnavailable({
+        detail: `Daemon Overview failed (${error.tag}): ${error.detail ?? "inspect the daemon log and retry."}`,
+      });
+    }
+    if (response.value.result._tag === "Overview") return response.value.result;
+    return yield* new DaemonUnavailable({
+      detail: "Unexpected daemon Overview reply; reconnect and inspect the daemon log.",
+    });
   },
   Effect.scoped,
   Effect.timeoutOrElse({
@@ -284,7 +301,13 @@ const passiveRead = Effect.fn("daemon.passiveRead")(
       Stream.mapEffect((line) => Schema.decodeUnknownEffect(responseJson)(line)),
       Stream.filter((reply) => reply.id === 1),
       Stream.runHead,
-      Effect.catchTag("SchemaError", () => Effect.succeed(null)),
+      Effect.catchTag("SchemaError", () =>
+        Effect.fail(
+          new DaemonUnavailable({
+            detail: `Invalid daemon ${body._tag} reply; reconnect and inspect the daemon log.`,
+          }),
+        ),
+      ),
       Effect.timeoutOrElse({
         duration: timeoutMs,
         orElse: () =>
@@ -295,12 +318,14 @@ const passiveRead = Effect.fn("daemon.passiveRead")(
           ),
       }),
     );
-    if (response === null) return null;
     if (Option.isNone(response)) return yield* closedRequest(body);
     if ("result" in response.value) return response.value.result;
+    if (requestNotUnderstood(response.value.error)) return null;
     const error = errorFromResponse(response.value.error);
     if (error?._tag === "RunNotFound") return yield* error;
-    return null;
+    return yield* new DaemonUnavailable({
+      detail: `Daemon ${body._tag} failed (${response.value.error.tag}): ${response.value.error.detail ?? "inspect the daemon log and retry."}`,
+    });
   },
   Effect.scoped,
   Effect.catchTag("SocketError", () =>
@@ -318,7 +343,10 @@ export const passiveDetail = Effect.fn("daemon.passiveDetail")(function* (
     { _tag: "Detail", name, ...(after === undefined ? {} : { after }) },
     OVERVIEW_REQUEST_TIMEOUT_MS,
   );
-  return result?._tag === "Detail" ? result : null;
+  if (result === null || result._tag === "Detail") return result;
+  return yield* new DaemonUnavailable({
+    detail: "Unexpected daemon Detail reply; reconnect and inspect the daemon log.",
+  });
 });
 
 export const passiveEvents = Effect.fn("daemon.passiveEvents")(function* (
@@ -326,9 +354,17 @@ export const passiveEvents = Effect.fn("daemon.passiveEvents")(function* (
   name: RunName,
   after: number,
   waitMs: number,
+  limit?: number,
 ) {
-  const result = yield* passiveRead(home, { _tag: "Events", name, after, waitMs }, waitMs + 5000);
-  return result?._tag === "Events" ? result : null;
+  const result = yield* passiveRead(
+    home,
+    { _tag: "Events", name, after, waitMs, ...(limit === undefined ? {} : { limit }) },
+    waitMs + 5000,
+  );
+  if (result === null || result._tag === "Events") return result;
+  return yield* new DaemonUnavailable({
+    detail: "Unexpected daemon Events reply; reconnect and inspect the daemon log.",
+  });
 });
 
 const exchangeRunRequest = Effect.fn("daemon.exchangeRunRequest")(function* (

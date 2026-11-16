@@ -87,7 +87,15 @@ const fixture = Effect.fnUntraced(function* () {
   let pid = process.pid;
   let build = "test";
   let detailTimeoutMs = 15_000;
-  let mode: "normal" | "closed" | "missing" | "unsupported" = "normal";
+  let mode:
+    | "normal"
+    | "closed"
+    | "missing"
+    | "unsupported"
+    | "undecodable"
+    | "permission-denied"
+    | "schema-error"
+    | "defect" = "normal";
   let eventChanged = yield* Deferred.make<void>();
   let detailChanged = yield* Deferred.make<void>();
   let activeDetails = 0;
@@ -132,6 +140,27 @@ const fixture = Effect.fnUntraced(function* () {
                       );
                       return;
                     }
+                    if (mode === "undecodable") {
+                      yield* writer.write(
+                        `${JSON.stringify({ id: request.id, result: { _tag: "Detail", version: "invalid" } })}\n`,
+                      );
+                      return;
+                    }
+                    if (
+                      mode === "permission-denied" ||
+                      mode === "schema-error" ||
+                      mode === "defect"
+                    ) {
+                      const tags = {
+                        "permission-denied": "PermissionDenied",
+                        "schema-error": "SchemaError",
+                        defect: "Defect",
+                      };
+                      yield* writer.write(
+                        `${JSON.stringify({ id: request.id, error: { tag: tags[mode], detail: "Detail failed" } })}\n`,
+                      );
+                      return;
+                    }
                     if (body._tag === "Detail") {
                       if (body.after === version) {
                         activeDetails += 1;
@@ -153,7 +182,8 @@ const fixture = Effect.fnUntraced(function* () {
                         `${Schema.encodeSync(responseJson)({ id: request.id, result: { ...detail, version } })}\n`,
                       );
                     } else if (body._tag === "Events") {
-                      let page = yield* Store.readEvents(dir, body.after);
+                      // A peer's default page size need not match the feed's page size.
+                      let page = yield* Store.readEvents(dir, body.after, body.limit ?? 25);
                       if (
                         page.events.length === 0 &&
                         (body.waitMs ?? 0) > 1 &&
@@ -163,7 +193,7 @@ const fixture = Effect.fnUntraced(function* () {
                           Deferred.await(eventChanged),
                           Effect.sleep(body.waitMs ?? 0),
                         );
-                        page = yield* Store.readEvents(dir, body.after);
+                        page = yield* Store.readEvents(dir, body.after, body.limit ?? 25);
                       }
                       if (page.events.length === 100)
                         maxDetailsWhileDraining = Math.max(maxDetailsWhileDraining, activeDetails);
@@ -299,43 +329,50 @@ it.effect(
     }).pipe(Effect.provide(platform)),
 );
 
-it.effect("drains more than two pages without duplicate events and carries a gap", () =>
-  Effect.gen(function* () {
-    const f = yield* fixture();
-    const events = Array.from({ length: 205 }, (_, i) => ({
-      seq: i + 5,
-      at,
-      event: { _tag: "Other" as const, method: "test" },
-    }));
-    yield* f.fs.writeFileString(
-      `${f.dir}/events.jsonl`,
-      events.map((event) => Schema.encodeSync(Schema.fromJsonString(RunEvent))(event)).join("\n") +
-        "\n",
-    );
-    const server = yield* f.launch;
-    const feed = yield* f.feed;
-    const pages = [yield* feed.next, yield* feed.next, yield* feed.next];
-    assert.deepStrictEqual(
-      pages.map((p) => p._tag),
-      ["Live", "Live", "Live"],
-    );
-    const live = pages.filter((p) => p._tag === "Live");
-    assert.deepStrictEqual(
-      live.map((p) => p.events.length),
-      [100, 100, 5],
-    );
-    assert.deepStrictEqual(
-      live.flatMap((p) => p.events),
-      events,
-    );
-    assert.deepStrictEqual(
-      live.map((p) => p.gap),
-      [true, false, false],
-    );
-    assert.strictEqual(f.drainingDetails(), 0);
-    yield* Fiber.interrupt(feed.fiber);
-    yield* server.stop;
-  }).pipe(Effect.provide(platform)),
+it.effect.each(["Live", "Saved"] as const)(
+  "drains more than two %s pages without duplicate events and carries a gap",
+  (kind) =>
+    Effect.gen(function* () {
+      const f = yield* fixture();
+      const events = Array.from({ length: 205 }, (_, i) => ({
+        seq: i + 5,
+        at,
+        event: { _tag: "Other" as const, method: "test" },
+      }));
+      yield* f.fs.writeFileString(
+        `${f.dir}/events.jsonl`,
+        `${events
+          .map((event) => Schema.encodeSync(Schema.fromJsonString(RunEvent))(event))
+          .join("\n")}\n`,
+      );
+      const server = kind === "Live" ? yield* f.launch : null;
+      const feed = yield* f.feed;
+      const pages = [yield* feed.next, yield* feed.next, yield* feed.next];
+      assert.deepStrictEqual(
+        pages.map((p) => p._tag),
+        [kind, kind, kind],
+      );
+      const live = pages.filter((p) => p._tag === "Live" || p._tag === "Saved");
+      assert.deepStrictEqual(
+        live.map((p) => p.events.length),
+        [100, 100, 5],
+      );
+      assert.deepStrictEqual(
+        live.flatMap((p) => p.events),
+        events,
+      );
+      assert.deepStrictEqual(
+        live.map((p) => p.gap),
+        [true, false, false],
+      );
+      assert.strictEqual(f.drainingDetails(), 0);
+      assert.deepStrictEqual(
+        live.map((p) => p.receivedAt),
+        [0, 0, 0],
+      );
+      yield* Fiber.interrupt(feed.fiber);
+      if (server !== null) yield* server.stop;
+    }).pipe(Effect.provide(platform)),
 );
 
 it.effect(
@@ -376,12 +413,12 @@ it.effect(
     }).pipe(Effect.provide(platform)),
 );
 
-it.effect.each(["old-build", "unsupported"] as const)(
-  "stays Saved/outdated without probing the same PID (%s), then detects its replacement",
-  (kind) =>
+it.effect(
+  "stays Saved/outdated without probing an old-build PID, then detects its replacement",
+  () =>
     Effect.gen(function* () {
       const f = yield* fixture();
-      f.configure(kind === "old-build" ? { build: "old" } : { mode: "unsupported" });
+      f.configure({ build: "old" });
       yield* f.fs.writeFileString(`${f.home}/daemon.lock`, JSON.stringify({ pid: process.pid }));
       const server = yield* f.launch;
       const feed = yield* f.feed;
@@ -406,6 +443,31 @@ it.effect.each(["old-build", "unsupported"] as const)(
       yield* Fiber.interrupt(feed.fiber);
       yield* server.stop;
     }).pipe(Effect.provide(platform)),
+);
+
+it.effect.each([
+  "unsupported",
+  "undecodable",
+  "permission-denied",
+  "schema-error",
+  "defect",
+] as const)("reconnects after a same-build %s reply and recovers without a PID change", (mode) =>
+  Effect.gen(function* () {
+    const f = yield* fixture();
+    f.configure({ mode });
+    yield* f.fs.writeFileString(`${f.home}/daemon.lock`, JSON.stringify({ pid: process.pid }));
+    const server = yield* f.launch;
+    const feed = yield* f.feed;
+    const failed = yield* feed.next;
+    assert.strictEqual(failed._tag, "Reconnecting");
+    if (failed._tag === "Reconnecting") assert.isNull(failed.last);
+    f.configure({ mode: "normal" });
+    yield* feed.waiting(RECONNECT_INITIAL_MS);
+    yield* TestClock.adjust(RECONNECT_INITIAL_MS);
+    assert.strictEqual((yield* feed.next)._tag, "Live");
+    yield* Fiber.interrupt(feed.fiber);
+    yield* server.stop;
+  }).pipe(Effect.provide(platform)),
 );
 
 it.effect(
