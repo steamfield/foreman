@@ -1,13 +1,14 @@
 /**
  * Pure state and view for acting from the monitor: the watching/acting mode, the confirm
- * step that switches to acting, the answer box, and the outcome line after an action.
+ * step that switches to acting, text and action confirms, and the outcome line after an action.
  * Side effects never happen here. A request to act becomes `ActState.inFlight`, which
  * `src/tui/run.tsx` executes through `src/core/monitor/acting.ts` and reports back as an
  * `ActMessage`.
  */
-import { DateTime } from "effect";
 import type { QuestionId, RunName } from "../../schemas/daemon";
-import { grouped, type State } from "./model";
+import { reduceActMessage } from "./act-reducer";
+import { targetKey as draftKey, isPending as pending } from "./act-target";
+import type { State } from "./model";
 
 /** Watching is the passive 0.2.0 connection; acting holds an active one. */
 export type ActMode = "watching" | "acting";
@@ -37,6 +38,7 @@ export type ComposeTarget = {
   readonly name: RunName;
   readonly turn: number;
   readonly state: string;
+  readonly stateSince: number;
 };
 
 /** The question an answer box is open on, copied from the feed when the box opened. */
@@ -65,7 +67,7 @@ export type ActNotice = { readonly ok: boolean; readonly text: string; readonly 
 export type ActState = {
   readonly mode: ActMode;
   readonly overlay: ActOverlay;
-  /** Unsent answer text, kept per `<run>/<question>` across cancel and reopen. */
+  /** Unsent text, kept per `<run>/<question or action>` across cancel and reopen. */
   readonly drafts: Readonly<Record<string, string>>;
   readonly inFlight: { readonly id: number; readonly intent: ActIntent } | null;
   readonly nextId: number;
@@ -156,136 +158,11 @@ export function reduceAct(
   state: State,
   msg: ActMessage | { readonly type: "key"; readonly key: string },
 ): State | null {
-  if (msg.type === "act-outcome") return finish(state, msg.outcome);
-  if (msg.type === "acting-lost")
-    return notice(
-      { ...state, act: { ...state.act, mode: "watching", overlay: null, inFlight: null } },
-      false,
-      msg.text,
-    );
-  if (msg.type === "draft") {
-    const overlay = state.act.overlay;
-    return overlay?.kind === "answer"
-      ? {
-          ...state,
-          act: {
-            ...state.act,
-            drafts: { ...state.act.drafts, [targetKey(overlay.target)]: msg.text },
-          },
-        }
-      : state;
-  }
-  if (msg.type === "editor-result") throw new Error("not implemented");
-  if (state.act.notice) state = { ...state, act: { ...state.act, notice: null } };
-  return actKey(state, msg.key);
+  return reduceActMessage(state, msg);
 }
 
-function actKey(state: State, key: string): State | null {
-  if (state.act.inFlight && ["a", "d", "w", "y", "enter", "ctrl-s", "ctrl-d"].includes(key))
-    return state;
-  const overlay = state.act.overlay;
-  if (overlay) {
-    if (key === "escape" || (overlay.kind === "confirm-acting" && key === "n"))
-      return { ...state, act: { ...state.act, overlay: null } };
-    if (overlay.kind === "confirm-acting")
-      return ["y", "enter"].includes(key) ? request(state, { kind: "enter-acting" }) : state;
-    if (overlay.kind !== "answer") throw new Error("not implemented");
-    if (key === "ctrl-d") return send(state, overlay.target, "defer");
-    if (["enter", "ctrl-s"].includes(key)) {
-      const text = state.act.drafts[targetKey(overlay.target)] ?? "";
-      return text.trim() && isPending(state, overlay.target)
-        ? send(state, overlay.target, "answer", text)
-        : state;
-    }
-    return state;
-  }
-  if (state.help) return null;
-  if (key === "a" || key === "d") return open(state, key === "a" ? "answer" : "defer");
-  if (key === "w" && state.act.mode === "acting")
-    return request({ ...state, act: { ...state.act, mode: "watching" } }, { kind: "leave-acting" });
-  return null;
-}
+/** The draft key for a question or composed message. */
+export const targetKey = draftKey;
 
-/** The drafts key for a question: `<run>/<question>`. */
-export const targetKey = (target: Pick<AnswerTarget, "name" | "question">) =>
-  `${target.name}/${target.question}`;
-
-/** Whether the latest overview still lists the target question as pending. */
-export function isPending(state: State, target: AnswerTarget): boolean {
-  const feed = state.feed;
-  const overview = feed?._tag === "Reconnecting" ? feed.last : feed?.overview;
-  return (
-    overview?.runs.some(
-      (run) => run.name === target.name && run.questions.some((q) => q.id === target.question),
-    ) ?? false
-  );
-}
-function target(state: State): AnswerTarget | null {
-  const runs = grouped(state).flatMap((group) => group.runs);
-  const selected = runs.find((run) => run.name === (state.detail?.name ?? state.selected));
-  let run = selected;
-  if (!state.detail && (selected?.state !== "waiting" || !selected.questions.length))
-    run = runs.find((run) => run.questions.length);
-  const q = run?.questions[0];
-  return run && q
-    ? {
-        name: run.name,
-        question: q.id,
-        kind: q.kind,
-        text: q.text,
-        askedAt: DateTime.toEpochMillis(q.askedAt),
-        defersAt: q.defersAt === null ? null : DateTime.toEpochMillis(q.defersAt),
-      }
-    : null;
-}
-function notice(state: State, ok: boolean, text: string): State {
-  return { ...state, act: { ...state.act, notice: { ok, text, at: state.now } } };
-}
-function request(state: State, intent: ActIntent): State {
-  return {
-    ...state,
-    act: { ...state.act, inFlight: { id: state.act.nextId, intent }, nextId: state.act.nextId + 1 },
-  };
-}
-function send(state: State, target: AnswerTarget, kind: "answer" | "defer", text = ""): State {
-  const question = { name: target.name, question: target.question };
-  return request(state, kind === "answer" ? { kind, ...question, text } : { kind, ...question });
-}
-function open(state: State, resume: "answer" | "defer"): State {
-  if (state.feed?._tag !== "Live")
-    return notice(
-      state,
-      false,
-      "Acting needs a running foreman daemon of this build; foreman status <run> starts supervision.",
-    );
-  const found = target(state);
-  if (!found) return notice(state, false, "Nothing is waiting for an answer.");
-  if (state.act.mode === "watching")
-    return { ...state, act: { ...state.act, overlay: { kind: "confirm-acting", resume } } };
-  return resume === "defer"
-    ? send(state, found, "defer")
-    : { ...state, act: { ...state.act, overlay: { kind: "answer", target: found } } };
-}
-function finish(state: State, outcome: ActOutcome): State {
-  const flight = state.act.inFlight;
-  if (!flight || flight.id !== outcome.id) return state;
-  const { intent } = flight;
-  const overlay = state.act.overlay;
-  let next = notice({ ...state, act: { ...state.act, inFlight: null } }, outcome.ok, outcome.text);
-  if (intent.kind === "enter-acting") {
-    next = {
-      ...next,
-      act: { ...next.act, mode: outcome.ok ? "acting" : "watching", overlay: null },
-    };
-    if (!outcome.ok || overlay?.kind !== "confirm-acting") return next;
-    if (overlay.resume !== "answer" && overlay.resume !== "defer")
-      throw new Error("not implemented");
-    return open(next, overlay.resume);
-  }
-  if (outcome.ok && (intent.kind === "answer" || intent.kind === "defer")) {
-    const drafts = { ...next.act.drafts };
-    delete drafts[targetKey(intent)];
-    return { ...next, act: { ...next.act, drafts, overlay: null } };
-  }
-  return next;
-}
+/** Whether the latest feed still lists the target question as pending. */
+export const isPending = pending;
