@@ -34,12 +34,14 @@ import {
   activeStates,
   type QuestionId,
   type QuestionLine,
+  type RunEvent,
   type RunEventBody,
   type RunName,
   type RunRecord,
   type RunState,
 } from "../schemas/daemon";
 import type { AppServer } from "./app-server";
+import { advancePace, countPace, emptyPace, type PaceWindow } from "./pace";
 
 export interface SubAgentState {
   readonly threadId: string;
@@ -81,6 +83,22 @@ export interface Run {
   serverGeneration: symbol | null;
   retireServer: Effect.Effect<void>;
   recoveryVersion: number;
+  commands: { total: number; failed: number } | null;
+  filesWritten: Set<string> | null;
+  pace: PaceWindow;
+}
+
+function countEvent(run: Run, entry: RunEvent) {
+  const body = entry.event;
+  if (body._tag === "Command" && body.exitCode !== null && run.commands !== null) {
+    run.commands = {
+      total: run.commands.total + 1,
+      failed: run.commands.failed + (body.exitCode === 0 ? 0 : 1),
+    };
+  }
+  if (body._tag === "FileChange") for (const path of body.paths) run.filesWritten?.add(path);
+  if (body._tag !== "TokenUsage" && body._tag !== "Other")
+    run.pace = countPace(run.pace, DateTime.toEpochMillis(entry.at));
 }
 
 export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir: string) {
@@ -186,17 +204,16 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
     );
     const events = yield* Store.readEvents(dir, 0, Number.MAX_SAFE_INTEGER).pipe(
       Effect.map((page) => page.events),
-      // State age is display metadata. Corruption must still be reported by
-      // history reads, but must not prevent pending-transition recovery.
+      // Journal corruption leaves display figures unknown without blocking transition recovery.
       Effect.catchTag("SchemaError", (error) =>
         Effect.logWarning("supervisor.state-age.unavailable").pipe(
           Effect.annotateLogs({
             name: record.name,
             ...causeFields(Cause.fail(error)),
             action:
-              "State age uses creation time; preserve and inspect events.jsonl before retrying history reads.",
+              "State age uses creation time and command/file figures are unknown; preserve and inspect events.jsonl before retrying history reads.",
           }),
-          Effect.as([]),
+          Effect.as(null),
         ),
       ),
     );
@@ -219,7 +236,7 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
       lastActivityAt: null,
       title,
       lastCommentary: null,
-      stateSince: DateTime.toEpochMillis(stateSince(record, events)),
+      stateSince: DateTime.toEpochMillis(stateSince(record, events ?? [])),
       questions,
       lastHandoff:
         handoff === null
@@ -235,7 +252,11 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
       serverGeneration: null,
       retireServer: Effect.void,
       recoveryVersion: 0,
+      commands: events === null ? null : { total: 0, failed: 0 },
+      filesWritten: events === null ? null : new Set(),
+      pace: emptyPace(yield* Clock.currentTimeMillis),
     };
+    for (const entry of events ?? []) countEvent(run, entry);
     const previous = runs.get(record.name);
     runs.set(record.name, run);
     if (previous) yield* wake(previous);
@@ -283,6 +304,8 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
     Store.appendEvent(run.dir, body).pipe(
       Effect.tap((entry) =>
         Effect.gen(function* () {
+          run.pace = advancePace(run.pace, DateTime.toEpochMillis(entry.at));
+          countEvent(run, entry);
           updateTurnAttention(
             run,
             body._tag === "Retrying"
@@ -324,6 +347,8 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
         { _tag: "StateChanged", from: pending.from, to: pending.to },
         pending.id,
       );
+      run.pace = advancePace(run.pace, DateTime.toEpochMillis(entry.at));
+      countEvent(run, entry);
       run.stateSince = DateTime.toEpochMillis(entry.at);
     }
     yield* save(run, { pendingStateEvent: null });
@@ -650,6 +675,20 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
       ),
     );
   });
+  yield* FiberSet.run(
+    workers,
+    Effect.gen(function* () {
+      const now = yield* Clock.currentTimeMillis;
+      yield* Effect.sleep(60_000 - (now % 60_000));
+      const at = yield* Clock.currentTimeMillis;
+      for (const run of runs.values()) {
+        const next = advancePace(run.pace, at);
+        if (next === run.pace) continue;
+        run.pace = next;
+        yield* wake(run);
+      }
+    }).pipe(Effect.forever),
+  );
   return {
     fork: <A, E, R>(work: Effect.Effect<A, E, R>) => FiberSet.run(workers, work),
     failed: FiberSet.join(workers),
@@ -694,4 +733,5 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
     wake,
   };
 });
+/** Registry operations and the current supervised runs. */
 export type Registry = Effect.Success<ReturnType<typeof makeRegistry>>;
