@@ -14,13 +14,16 @@ afterEach(() => cleanup());
 const model = (feed: MonitorFeed | null, columns: number, key?: string, rows = 40) => {
   let state = initialState({ group: "/repo", defaults, version: "0.1.3", now, columns, rows });
   if (feed) state = reduce(state, { type: "feed", value: feed });
-  if (key) state = reduce(state, { type: "key", key });
+  if (key === "!") {
+    state = { ...state, attentionOnly: true };
+    state = { ...state, selected: view(state).groups[0]?.rows[0]?.name ?? null };
+  } else if (key) state = reduce(state, { type: "key", key });
   return view(state);
 };
 const feeds: { name: string; feed: MonitorFeed | null; key?: string }[] = [
   { name: "probing", feed: null },
   { name: "list", feed: live(mixedRuns()) },
-  { name: "attention", feed: live(mixedRuns()), key: "a" },
+  { name: "attention", feed: live(mixedRuns()), key: "!" },
   { name: "help", feed: live(mixedRuns()), key: "?" },
   { name: "empty", feed: live([]) },
   {
@@ -205,7 +208,7 @@ describe("monitor frames", () => {
     }
   });
   it("fills every selected cell, closes note frames and preserves narrow urgency", async () => {
-    const result = await frame(live(mixedRuns()), 140, "a", true);
+    const result = await frame(live(mixedRuns()), 140, "!", true);
     const selected = result
       .split("\n")
       .filter((line) => line.includes("fix-hooks") || line.includes("/root/"));

@@ -1,9 +1,13 @@
-import { Box, Text, useInput } from "ink";
-import { memo, useEffect, useMemo, useState } from "react";
+import { Box, Text } from "ink";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import stringWidth from "string-width";
+import type { ActMessage } from "../core/monitor/act";
 import type { RowView, ViewModel } from "../core/monitor/model";
+import { ActNotice, ActOverlay } from "./act";
 import { Glyph, Line, pad, Tick, truncate } from "./components";
 import { DetailScreen } from "./detail";
+import { monitorHeader } from "./header";
+import { MonitorInput } from "./input";
 import { type Theme, theme } from "./theme";
 
 const NoteHeading = memo(function NoteHeading({
@@ -131,7 +135,9 @@ function Help({ model, colors }: { model: ViewModel; colors: Theme }) {
     "↑/k previous       ↓/j next",
     "Home first         End last",
     "PgUp scroll up     PgDn scroll down",
-    model.detail ? "Tab next pane      j/k scroll pane" : "a attention only   Enter open / expand",
+    model.detail ? "Tab next pane      j/k scroll pane" : "! needs me         Enter open / expand",
+    "a answer           d defer",
+    "w watch only       ! needs me",
     ...(model.detail
       ? ["PgUp/PgDn page      Home/End jump", "f follow feed      Esc return to list"]
       : []),
@@ -168,26 +174,24 @@ function Help({ model, colors }: { model: ViewModel; colors: Theme }) {
     </Box>
   );
 }
-export const Screen = memo(function Screen({ model, colors }: { model: ViewModel; colors: Theme }) {
+/** Renders a monitor frame exclusively from its view model. */
+export const Screen = memo(function Screen({
+  model,
+  colors,
+  onAct = () => {},
+  onKey = () => {},
+}: {
+  model: ViewModel;
+  colors: Theme;
+  onAct?: (message: ActMessage) => void;
+  onKey?: (key: string) => void;
+}) {
   const width = model.columns;
   const bodyColors = useMemo(
     () => (model.screen === "reconnecting" ? theme(colors.level, false, true) : colors),
     [colors, model.screen],
   );
-  const mark = colors.paint("››", "fg") + colors.paint("›", "signal");
-  const left = `${mark} ${colors.paint("foreman", "fg", true)} ${colors.paint(model.header.version, "muted")}`;
-  const counts = model.header.counts
-    .map((count) => colors.paint("■", count.tone) + colors.paint(` ${count.count} ${count.state}`))
-    .join("  ");
-  const rightParts = [
-    colors.paint(model.header.daemon, model.header.caution ? "interrupted" : "muted"),
-    colors.paint(model.header.defaults, "muted"),
-    counts,
-  ];
-  while (rightParts.length && stringWidth(`${left}  ${rightParts.join("  ")}`) > width)
-    rightParts.shift();
-  const right = rightParts.join("  ");
-  const header = left + " ".repeat(Math.max(1, width - stringWidth(left + right))) + right;
+  const header = monitorHeader(model, colors);
   const blocks: { key: string; height: number; content: React.ReactNode }[] = [];
   if (model.message.length && (model.groups.length === 0 || model.screen !== "list")) {
     for (const [index, message] of model.message.entries())
@@ -298,7 +302,7 @@ export const Screen = memo(function Screen({ model, colors }: { model: ViewModel
         ),
       });
   }
-  const available = Math.max(1, model.rows - 2);
+  const available = Math.max(1, model.rows - 2 - Number(model.act.notice !== null));
   const offset = model.offset;
   let skipped = 0;
   const visible = blocks.flatMap((block) => {
@@ -316,7 +320,9 @@ export const Screen = memo(function Screen({ model, colors }: { model: ViewModel
     : [
         ["↑↓/jk", "select"],
         ["Enter", "open"],
-        ["a", model.footer.attentionOnly ? "all runs" : "attention"],
+        ["a", "answer"],
+        ["d", "defer"],
+        ["!", "needs me"],
         ["?", "help"],
         ["q", "quit"],
       ];
@@ -327,23 +333,31 @@ export const Screen = memo(function Screen({ model, colors }: { model: ViewModel
           ["jk", "scroll"],
           ["f", "follow"],
           ["Esc", "list"],
+          ...(width >= 80
+            ? [
+                ["a", "answer"],
+                ["d", "defer"],
+              ]
+            : []),
           ["?", "help"],
           ["q", "quit"],
         ]
       : hints;
   const footerHints =
-    model.layout === "narrow" && !model.footer.compact
+    model.act.hints?.map(({ key, label }) => [key, label]) ??
+    (model.layout === "narrow" && !model.footer.compact
       ? detailHints.filter(([key]) => key !== "Enter")
-      : detailHints;
+      : detailHints);
   const footerLeft = footerHints
     .map(
       ([key, label]) =>
         colors.paint(key ?? "", "fg", true) + colors.paint(` ${label ?? ""}`, "muted"),
     )
     .join("  ");
-  const footerRight = model.footer.compact
-    ? ""
-    : colors.paint(model.footer.status, model.footer.caution ? "interrupted" : "muted");
+  const footerRight =
+    model.footer.compact || stringWidth(footerLeft + model.footer.status) + 1 > width
+      ? ""
+      : colors.paint(model.footer.status, model.footer.caution ? "interrupted" : "muted");
   const footer =
     footerLeft +
     " ".repeat(Math.max(1, width - stringWidth(footerLeft + footerRight))) +
@@ -375,38 +389,42 @@ export const Screen = memo(function Screen({ model, colors }: { model: ViewModel
       <Line width={width} colors={colors} bar>
         {header}
       </Line>
-      {body}
+      <Box height={available} flexDirection="column">
+        {body}
+        {(model.act.confirm || model.act.answer) && (
+          <ActOverlay
+            act={model.act}
+            columns={width}
+            height={available}
+            colors={colors}
+            onAct={onAct}
+            onKey={onKey}
+          />
+        )}
+      </Box>
+      <ActNotice act={model.act} width={width} colors={colors} />
       <Line width={width} colors={colors} bar>
         {footer}
       </Line>
     </Box>
   );
 });
+/** Routes monitor keys separately from the controlled answer input. */
 export function MonitorApp({
   model,
   colors,
   onKey,
   onTick,
+  onAct = () => {},
 }: {
   model: ViewModel;
   colors: Theme;
   onKey: (key: string) => void;
   onTick: (now: number) => void;
+  onAct?: (message: ActMessage) => void;
 }) {
   const [now, setNow] = useState(model.now);
-  useInput((input, key) => {
-    if (key.ctrl && input === "c") onKey("ctrl-c");
-    else if (key.upArrow) onKey("up");
-    else if (key.downArrow) onKey("down");
-    else if (key.pageUp) onKey("page-up");
-    else if (key.pageDown) onKey("page-down");
-    else if (key.return) onKey("enter");
-    else if (key.escape) onKey("escape");
-    else if (key.home) onKey("home");
-    else if (key.end) onKey("end");
-    else if (key.tab) onKey("tab");
-    else onKey(input);
-  });
+  const blocked = useRef(false);
   useEffect(() => {
     if (!model.animating) return;
     const timer = setInterval(() => {
@@ -418,7 +436,15 @@ export function MonitorApp({
   }, [model.animating, onTick]);
   return (
     <Tick value={now}>
-      <Screen model={model} colors={colors} />
+      <MonitorInput model={model} onKey={onKey} blocked={blocked} />
+      <Screen
+        model={model}
+        colors={colors}
+        onKey={onKey}
+        onAct={(message) => {
+          if (!blocked.current) onAct(message);
+        }}
+      />
     </Tick>
   );
 }
