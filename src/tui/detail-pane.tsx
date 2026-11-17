@@ -118,7 +118,7 @@ export function DetailPane({
     <Box flexDirection="column" width={width} height={pane.height} flexShrink={0}>
       <Line width={width} colors={colors}>
         {rule(
-          colors.paint(pane.title, tone, true) +
+          colors.paint(pane.title, "fg", true) +
             (tabs
               ? "  " +
                 (

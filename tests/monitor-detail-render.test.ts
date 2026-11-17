@@ -79,6 +79,11 @@ async function frame(
 }
 const feedKeys = Array.from({ length: 7 }, () => "tab");
 describe("monitor detail frames", () => {
+  it("keeps unfocused titles bold and readable while only the focused border is bright", async () => {
+    const result = await frame(detailLive(sample, events), 140, [], true);
+    expect(result).toContain("38;2;45;50;43m╭─ \u001b[1m\u001b[38;2;228;232;224mDigest");
+    expect(result).toMatch(/38;2;228;232;224m╭─ [^\n]*Task/);
+  });
   it("renders the model's selected Files pane, timeline and feed tabs together at 140x40", () => {
     const name = sample.run.name;
     let state = initialState({
