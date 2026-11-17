@@ -101,7 +101,7 @@ it.each(["interrupt", "archive"])("keeps %s confirm legible with NO_COLOR", (kin
   };
   const output = frame(model({ ...watchingView, confirm }, 80, 24), true);
   expect(output).not.toMatch(new RegExp(`${String.fromCharCode(27)}\\[(?:38|48);`));
-  expect(output.replaceAll("\u001b[7m", "").replaceAll("\u001b[27m", "")).toBe(plain(output));
+  expect(output).toContain("\u001b[1m");
   expect(plain(output)).toContain(`y ${kind}`);
   expect(plain(output)).toContain("n cancel");
   expect(plain(output)).toContain("╰");

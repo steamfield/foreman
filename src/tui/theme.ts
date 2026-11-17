@@ -43,7 +43,7 @@ export function theme(level: ColorSupportLevel = chalk.level, noColor = false, s
         else if (tone === "interrupted") style = color.yellow;
       }
       const painted = style(text);
-      return bold && capability > 0 ? weight.bold(painted) : painted;
+      return bold ? weight.bold(painted) : painted;
     },
     select(text: string) {
       if (capability === 0) return weight.inverse(text);

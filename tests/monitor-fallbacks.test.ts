@@ -145,7 +145,7 @@ function attention(columns: number) {
     columns,
   );
 }
-it("uses heavy question frames, uppercase attention and only inverse escapes in NO_COLOR at 100x24", () => {
+it("uses heavy question frames, uppercase attention and only weight and inverse escapes in NO_COLOR at 100x24", () => {
   const output = frame(view(attention(100)), true);
   const text = plain(output);
   for (const label of [
@@ -160,7 +160,9 @@ it("uses heavy question frames, uppercase attention and only inverse escapes in 
   ])
     expect(text).toContain(label);
   expect(output).toContain("\u001b[7m");
-  expect(output.replaceAll("\u001b[7m", "").replaceAll("\u001b[27m", "")).toBe(text);
+  // Spec 3.7: under NO_COLOR, glyphs and weight carry meaning, so bold and inverse are the only escapes.
+  const weightAndInverse = new RegExp(`${String.fromCharCode(27)}\\[(?:1|22|7|27)m`, "g");
+  expect(output.replace(weightAndInverse, "")).toBe(text);
 });
 it("compacts notes, pinned rows, flags, subagents and freshness into the 80x24 board", () => {
   const output = plain(frame(view(attention(80))));
