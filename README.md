@@ -22,14 +22,25 @@ A run is in one of these states: `starting`, `running`, `waiting` (a question ne
 
 ## Watch your runs
 
-`foreman monitor` opens a live, read-only terminal view of every run across repositories, grouped by repo and updated as work happens. Each run shows its state, how much of its budget is used, what it is doing right now, any attention flags and its subagents. Pending questions sit at the top with the command that answers them. Press Enter, or run `foreman monitor <name>`, for one run's detail: contract, digest, questions, subagents, hand-off and a live event feed.
+`foreman monitor` opens a live terminal view of every run across repositories, grouped by repo and updated as work happens. Each run shows its state, task, model, activity and budget as space allows. Pending questions and attention rows sit above the groups; a preview of the selected run appears when there is room. Press Enter, or run `foreman monitor <name>`, for its contract, digest, questions, subagents, hand-off, changed files, timeline and live event feed.
 
 ```sh
 foreman monitor              # every run on this machine
 foreman monitor fix-hooks    # one run's detail and live feed
 ```
 
-The monitor never starts a daemon or keeps one alive. Without a running daemon it shows saved state from disk and says so. Without a terminal, or with `--json`, it prints a snapshot (`foreman status --all`) instead, which is what scripts and agents should use. Keys: `↑↓` or `j`/`k` select, Enter opens, Tab changes pane, `f` toggles follow, `a` shows attention only, `?` is help, `q` quits. [The design contract](docs/design/monitor.md) describes the screen in full.
+The live view opens watching, with a passive connection that does not keep the daemon alive. The first action asks you to switch to acting, which lets you answer, defer, steer, follow up, interrupt, archive and mark reviewed. Its acting connection keeps the running daemon alive while open. Press `w` to return to watching; the next action asks again. The live monitor never starts or replaces a daemon. Without a compatible running daemon it shows saved state and cannot act.
+
+| Screen | Main keys |
+| --- | --- |
+| List | `↑↓` or `j`/`k` select, Enter opens or expands older idle runs, `/` filters, `!` toggles `needs:me`, `:` opens the palette, `g` cycles grouping, `h` opens history. |
+| List and detail | `a` answers, `d` defers (except in Files, where it opens a diff), `s` steers, `F` follows up, `i` interrupts, `x` archives. Actions apply when the run's state allows them. |
+| Answer or compose box | Enter or Ctrl-S sends, Ctrl-E opens `$EDITOR`, Esc cancels and keeps the draft. Ctrl-D defers a pending answer. Interrupt and archive have separate confirms. |
+| Detail and review | Tab changes pane, `j`/`k` moves, `D` opens the tracked diff in `$PAGER`, `R` refreshes files. Use `d` on an untracked file to read its diff. In detail, `f` toggles feed follow, `1`–`5` filters the feed and `/` searches it. `r` opens review for a finished run; `r` there marks it reviewed. Esc goes back. |
+
+`?` shows help and the legend; `q` quits when no action overlay or text input is open. For a one-row pane use `foreman monitor --line`; for a status bar use `foreman monitor --line --once` to print one update and exit. Line mode stays passive, works with redirected streams and cannot take a run name or `--json`.
+
+Without interactive stdin and stdout, with `--json`, or inside a Codex delegate, the ordinary monitor prints a snapshot: `status <name>` for a named run, otherwise `status --all`. That path may start the daemon. Agents use `status --all`, `wait` and `events`. [The design contract](docs/design/monitor.md) describes the screens and keys in full.
 
 ## Install
 
@@ -100,7 +111,7 @@ All commands accept `--json` and `--help`. Commands below follow `foreman`; angl
 | `start <name> --new-worktree --contract <file>` | Create a worktree and start; accepts `--from`, `--setup`, `--write`, `--model`, `--effort`, `--tier`, `--budget`, `--question-timeout`, `--skip-deps-check` |
 | `start <name> --worktree <path> --contract <file>` | Use a prepared linked worktree inside the main checkout; foreman never removes it or its branch |
 | `status [<name>] [--all]` | Full digest for one run, or a line per run in the group (`Digests` in JSON). Use `--all` without a name for cached live activity across every repo (`Overview` in JSON); keep using `wait` for outcomes rather than polling |
-| `monitor [name]` | Live, read-only terminal view of every run, or one run's detail; see [Watch your runs](#watch-your-runs). Needs interactive stdin and stdout; otherwise prints `status <name>` or `status --all`, which may start the daemon |
+| `monitor [name]` | Live terminal list or run detail; `--line [--once]` prints compact status. See [Watch your runs](#watch-your-runs). |
 | `events <name> [--after <n>] [--limit <n>] [--verbose] [--follow]` | Read up to 100 stored events per page by default. Text hides protocol chatter and token usage unless `--verbose` is set. JSON includes every event in the selected page. `--follow` streams text until the run becomes inactive and all events are printed, or Ctrl-C (exit 130); it cannot be combined with `--json`. Follow connects passively and never starts, replaces or keeps a daemon alive. Without a compatible daemon it prints saved events and one stderr note explaining why follow stopped, then exits 0; `foreman status <name>` starts supervision. |
 | `answer <name> <question-id> [<text>] [--file <path>]` | Answer now, send a late answer or correct a previous answer |
 | `defer <name> <question-id> [<note>]` | Release a pending question early |
