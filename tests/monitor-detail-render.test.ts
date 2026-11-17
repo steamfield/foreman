@@ -111,19 +111,31 @@ describe("monitor detail frames", () => {
       "▲ outside May change",
       "+42",
       "−7",
-      "Feed · all",
       "cmds",
       "files",
       "msgs",
       "q&a",
     ])
       expect(text).toContain(label);
+    const feedBorder = text
+      .split("\n")
+      .find((line) => line.includes("╭─ Feed "))
+      ?.split("╭─ Feed ")[1];
+    expect(feedBorder).toBeDefined();
+    expect(feedBorder?.match(/\ball\b/g)).toHaveLength(1);
     expect(output.split("\n").find((line) => line.includes("src/client.ts"))).toContain(
       "\u001b[48;2;27;30;26m",
     );
     expect(text.split("\n")).toHaveLength(40);
     for (const line of text.split("\n")) expect(stringWidth(line)).toBeLessThanOrEqual(140);
     expect(text.replace(/ +$/gm, "")).toMatchSnapshot();
+  });
+  it("shows the selected filter in the narrow feed tabs", async () => {
+    const result = await frame(detailLive(sample, events), 70, [...feedKeys, "2"], true);
+    const border = result.split("\n").find((line) => strip(line).startsWith("╭─ Feed "));
+    expect(border).toBeDefined();
+    const esc = String.fromCharCode(27);
+    expect(border).toMatch(new RegExp(`${esc}\\[48;2;27;30;26m(?:${esc}\\[[0-9;]*m)* cmds `));
   });
   it("shows header warnings, new files and the successful last command after an earlier failure", async () => {
     const data = detail(

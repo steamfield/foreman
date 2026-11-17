@@ -23,7 +23,7 @@ export function detailPanes(
     handoff: "Hand-off",
     commands: "Commands",
     files: `Files · ${detail.changes?.files?.length ?? 0} changed`,
-    feed: `Feed · ${detail.feedFilter}`,
+    feed: "Feed",
   };
   const heights: Record<PaneId, number> = {
     task: 8,
