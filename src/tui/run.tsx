@@ -110,9 +110,8 @@ export const runMonitor = Effect.fn("tui.runMonitor")(function* <R, R2 = never>(
       Queue.offerUnsafe(actions, next.act.inFlight);
     if (next.act.editor && next.act.editor.id !== state.act.editor?.id)
       Queue.offerUnsafe(editors, next.act.editor);
-    // The model lane supplies clipboard requests alongside the history request.
-    if (next.history?.id !== state.history?.id)
-      Queue.offerUnsafe(finds, { history: next.history, clipboard: null });
+    if (next.history?.id !== state.history?.id || next.clipboard?.id !== state.clipboard?.id)
+      Queue.offerUnsafe(finds, { history: next.history, clipboard: next.clipboard });
     state = next;
     model = view(state, model);
     instance?.rerender(frame());
@@ -133,7 +132,14 @@ export const runMonitor = Effect.fn("tui.runMonitor")(function* <R, R2 = never>(
   };
   const frame = () => (
     <TerminalOwner ready={editorTerminal}>
-      <App model={model} colors={colors} onKey={onKey} onTick={onTick} onAct={update} />
+      <App
+        model={model}
+        colors={colors}
+        onKey={onKey}
+        onTick={onTick}
+        onAct={update}
+        onFind={update}
+      />
     </TerminalOwner>
   );
   const mounted = yield* Effect.acquireRelease(

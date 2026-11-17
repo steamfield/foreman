@@ -124,13 +124,11 @@ it("renders the hidden waiting warning in signal tone", () => {
   );
   expect(output).toContain("\u001b[38;2;255;91;20m■ 1 waiting run hidden by this filter");
 });
-it("shows shown and hidden counts for a partly filtered group", () => {
+it("shows the model's shown and hidden counts for a partly filtered group", () => {
   const output = renderToString(
     createElement(GroupHeading, {
       title: "repo",
-      summary: "1 running",
-      shown: 1,
-      hidden: 4,
+      summary: "1 shown · 4 hidden by filter",
       width: 100,
       colors: theme(0),
     }),

@@ -261,6 +261,7 @@ export type Message =
   | ActMessage
   | { readonly type: "preview-feed"; readonly name: RunName; readonly value: DetailFeed }
   | { readonly type: "filter-text"; readonly text: string }
+  | { readonly type: "palette-query"; readonly text: string }
   | {
       readonly type: "history-result";
       readonly id: number;

@@ -192,15 +192,7 @@ export function listGroups(model: ViewModel, colors: Theme) {
       key: `group:${group.id}`,
       height: 1,
       content: (
-        <GroupHeading
-          title={group.title}
-          summary={group.summary}
-          shown={group.rows.length}
-          // The model lane supplies the group's hidden count.
-          hidden={0}
-          width={width}
-          colors={colors}
-        />
+        <GroupHeading title={group.title} summary={group.summary} width={width} colors={colors} />
       ),
     });
     if (

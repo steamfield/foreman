@@ -18,6 +18,8 @@ export function reduceFind(state: State, msg: Message): State | string | null {
   if (msg.type === "history-result") return historyResult(state, msg);
   if (msg.type === "filter-text")
     return state.filter.editing ? setFilter(state, msg.text, true) : state;
+  if (msg.type === "palette-query")
+    return state.palette ? { ...state, palette: { query: msg.text, index: 0 } } : state;
   if (msg.type !== "key" || state.act.overlay || state.act.editor) return null;
   if (state.filter.editing) return filterKey(state, msg.key);
   if (state.palette) return paletteKey(state, msg.key);
