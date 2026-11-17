@@ -16,6 +16,38 @@ import { theme } from "./theme";
 type ActingOpener = () => ReturnType<typeof openActing>;
 type ActRequest = NonNullable<ActState["inFlight"]>;
 
+/** Streams the selected run's preview after selection settles. */
+export const runPreview = <R,>(
+  selected: Stream.Stream<RunName | null, never, R>,
+  detail: (name: RunName) => Stream.Stream<DetailFeed, never, R>,
+  dispatch: (message: Message) => void,
+) =>
+  selected.pipe(
+    Stream.changes,
+    Stream.switchMap((name) =>
+      name === null
+        ? Stream.empty
+        : Stream.unwrap(
+            Effect.sleep(250).pipe(
+              Effect.as(
+                Stream.suspend(() => detail(name)).pipe(
+                  Stream.tap((value) =>
+                    Effect.sync(() => dispatch({ type: "preview-feed", name, value })),
+                  ),
+                ),
+              ),
+            ),
+          ),
+    ),
+    Stream.runDrain,
+  );
+
+function previewName(state: State): RunName | null {
+  if (state.detail || !state.feed) return null;
+  const overview = state.feed._tag === "Reconnecting" ? state.feed.last : state.feed.overview;
+  return overview?.runs.find((run) => run.name === state.selected)?.name ?? null;
+}
+
 function TerminalOwner({
   ready,
   children,
@@ -118,18 +150,22 @@ export const runMonitor = Effect.fn("tui.runMonitor")(function* <R>(
   let model = view(state);
   let instance: ReturnType<typeof render> | undefined;
   const opened = yield* Queue.unbounded<RunName | null>();
+  const selected = yield* Queue.unbounded<RunName | null>();
   const actions = yield* Queue.unbounded<ActRequest>();
   const editors = yield* Queue.unbounded<NonNullable<ActState["editor"]>>();
   const editorTerminal = yield* Deferred.make<SuspendTerminal>();
   yield* Effect.addFinalizer(() => Queue.shutdown(opened));
+  yield* Effect.addFinalizer(() => Queue.shutdown(selected));
   yield* Effect.addFinalizer(() => Queue.shutdown(actions));
   yield* Effect.addFinalizer(() => Queue.shutdown(editors));
   Queue.offerUnsafe(opened, state.detail?.name ?? null);
+  Queue.offerUnsafe(selected, previewName(state));
   const update = (message: Message) => {
     const next = reduce(state, message);
     if (next === state) return;
     if (next.detail?.name !== state.detail?.name)
       Queue.offerUnsafe(opened, next.detail?.name ?? null);
+    if (previewName(next) !== previewName(state)) Queue.offerUnsafe(selected, previewName(next));
     if (next.act.inFlight && next.act.inFlight.id !== state.act.inFlight?.id)
       Queue.offerUnsafe(actions, next.act.inFlight);
     if (next.act.editor && next.act.editor.id !== state.act.editor?.id)
@@ -207,6 +243,7 @@ export const runMonitor = Effect.fn("tui.runMonitor")(function* <R>(
       [
         updates,
         details,
+        runPreview(Stream.fromQueue(selected), detail, update),
         resizes,
         input,
         runActing(open, Stream.fromQueue(actions), update),

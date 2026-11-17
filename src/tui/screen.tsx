@@ -2,181 +2,17 @@ import { Box, Text } from "ink";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import stringWidth from "string-width";
 import type { ActMessage } from "../core/monitor/act";
-import type { RowView, ViewModel } from "../core/monitor/model";
+import type { ViewModel } from "../core/monitor/model";
 import { ActNotice, ActOverlay } from "./act";
-import { Glyph, Line, pad, Tick, truncate } from "./components";
+import { Glyph, Help, Line, monitorFooter, NoteHeading, pad, Tick, truncate } from "./components";
 import { DetailScreen } from "./detail";
 import { monitorHeader } from "./header";
 import { MonitorInput } from "./input";
+import { listGroups } from "./list-row";
+import { PinnedRows } from "./pinned";
+import { Preview } from "./preview";
 import { type Theme, theme } from "./theme";
 
-const NoteHeading = memo(function NoteHeading({
-  title,
-  width,
-  colors,
-  saved,
-}: {
-  title: string;
-  width: number;
-  colors: Theme;
-  saved: boolean;
-}) {
-  const label = truncate(title, width - 6);
-  return (
-    <Text wrap="truncate-end">
-      {colors.fill(colors.paint("╭─ ", "line"))}
-      {saved ? (
-        colors.fill(colors.paint("■", "signal"))
-      ) : (
-        <Glyph kind="waiting" tone="signal" colors={colors} />
-      )}
-      {colors.fill(
-        colors.paint(label.slice(1), "signal") +
-          colors.paint(` ${"─".repeat(Math.max(0, width - stringWidth(label) - 6))}─╮`, "line"),
-      )}
-    </Text>
-  );
-});
-const RunRow = memo(
-  function RunRow({
-    row,
-    model,
-    colors,
-    selected,
-  }: {
-    row: RowView;
-    model: Pick<ViewModel, "columns" | "layout" | "budgetCells">;
-    colors: Theme;
-    selected: boolean;
-  }) {
-    const { columns: width, layout } = model;
-    let tail = "";
-    if (layout !== "narrow") {
-      tail = colors.paint(
-        `  ${pad(`t${row.turn}${layout === "wide" && row.turnKind ? ` ${row.turnKind}` : ""}`, layout === "wide" ? 12 : 4)}`,
-        "muted",
-      );
-      if (row.budget)
-        tail += `  ${colors.paint("━".repeat(row.budget.filled), row.budget.tone)}${colors.paint("─".repeat(Math.max(0, model.budgetCells - row.budget.filled)), "line")} ${colors.paint(row.budget.label.padStart(7), "muted")}`;
-      tail += row.flags.map((flag) => colors.paint(` · ${flag.text}`, flag.tone)).join("");
-    }
-    const stateLabel = row.stale ? `${row.state} · not supervised` : row.state;
-    const nameWidth = Math.max(
-      1,
-      Math.min(layout === "narrow" ? 24 : 20, width - stateLabel.length - 12),
-    );
-    const prefix = ` ${colors.paint(pad(truncate(row.name, nameWidth), nameWidth), "fg", true)}  ${colors.paint(stateLabel.padEnd(11), row.tone)} ${colors.paint(row.age, "muted")}`;
-    let activity = colors.paint(`    ${row.activity}`, row.activityTone);
-    if (row.activityAge !== null)
-      activity = `    ${colors.paint("…", "running")}${colors.paint(row.activity.slice(1), "fg")}${colors.paint(` · ${row.activityAge}`, "muted")}`;
-    if (layout === "narrow") {
-      let suffix = "";
-      if (row.flags[0]) suffix += colors.paint(` · ${row.flags[0].text}`, row.flags[0].tone);
-      if (row.subagents.length)
-        suffix += colors.paint(` · ${row.subagents.length} subagents`, "muted");
-      activity = truncate(activity, Math.max(4, width - stringWidth(suffix))) + suffix;
-    }
-    const lead = (
-      <Glyph
-        kind={row.stale ? "lost" : row.state}
-        tone={row.tone}
-        colors={colors}
-        selected={selected}
-      />
-    );
-    const content = pad(truncate(prefix + tail, Math.max(0, width - 2)), Math.max(0, width - 2));
-    return (
-      <Box flexDirection="column" width={width}>
-        <Text wrap="truncate-end">
-          {selected ? colors.select(" ") : colors.fill(" ")}
-          {lead}
-          {selected ? colors.select(content) : colors.fill(content)}
-        </Text>
-        <Line width={width} colors={colors} selected={selected}>
-          {activity}
-        </Line>
-        {layout !== "narrow" &&
-          row.subagents.map((agent, index) => {
-            const tree = index === row.subagents.length - 1 ? "└─" : "├─";
-            const text =
-              colors.paint(` ${agent.path}`, "fg") + colors.paint(`  ${agent.text}`, "muted");
-            const start = colors.paint(`    ${tree} `, "line");
-            return (
-              <Text key={agent.path} wrap="truncate-end">
-                {selected ? colors.select(start) : colors.fill(start)}
-                <Glyph
-                  kind={agent.working ? "working" : "subagent-idle"}
-                  tone={agent.working ? "running" : "muted"}
-                  colors={colors}
-                  selected={selected}
-                />
-                {selected
-                  ? colors.select(pad(truncate(text, width - 8), width - 8))
-                  : colors.fill(pad(truncate(text, width - 8), width - 8))}
-              </Text>
-            );
-          })}
-      </Box>
-    );
-  },
-  (previous, next) =>
-    previous.row === next.row &&
-    previous.colors === next.colors &&
-    previous.selected === next.selected &&
-    previous.model.columns === next.model.columns &&
-    previous.model.layout === next.model.layout,
-);
-
-function Help({ model, colors }: { model: ViewModel; colors: Theme }) {
-  const width = Math.min(76, model.columns);
-  const lines = [
-    "Monitor help",
-    " ",
-    "↑/k previous       ↓/j next",
-    "Home first         End last",
-    "PgUp scroll up     PgDn scroll down",
-    model.detail ? "Tab next pane      j/k scroll pane" : "! needs me         Enter open / expand",
-    "a answer           d defer",
-    "s steer            F follow up",
-    "i interrupt        x archive",
-    "ctrl-e open $EDITOR in any text box",
-    "w watch only       ! needs me",
-    ...(model.detail
-      ? ["PgUp/PgDn page      Home/End jump", "f follow feed      Esc return to list"]
-      : []),
-    "? close help       Esc close help",
-    "q quit             Ctrl-C interrupt",
-    "  ",
-    "⣾ running  ◐ starting  ■/□ waiting  ✓ idle",
-    "× failed  ■ interrupted  ◐ unknown  ◌ lost",
-    "⠿ working subagent  · idle subagent",
-    "   ",
-    "foreman status --all for scripts and agents",
-  ];
-  return (
-    <Box
-      width={model.columns}
-      height={Math.max(1, model.rows - 2)}
-      alignItems="center"
-      justifyContent="center"
-      flexDirection="column"
-    >
-      <Line width={width} colors={colors}>
-        {colors.paint(`╭${"─".repeat(Math.max(0, width - 2))}╮`, "line")}
-      </Line>
-      {lines.slice(0, Math.max(0, model.rows - 6)).map((text, index) => (
-        <Line key={text} width={width} colors={colors}>
-          {colors.paint("│ ", "line") +
-            colors.paint(pad(truncate(text, width - 4), width - 4), "fg", index === 0) +
-            colors.paint(" │", "line")}
-        </Line>
-      ))}
-      <Line width={width} colors={colors}>
-        {colors.paint(`╰${"─".repeat(Math.max(0, width - 2))}╯`, "line")}
-      </Line>
-    </Box>
-  );
-}
 /** Renders a monitor frame exclusively from its view model. */
 export const Screen = memo(function Screen({
   model,
@@ -263,136 +99,32 @@ export const Screen = memo(function Screen({
         </Line>
       ),
     });
-  for (const group of model.groups) {
-    const title = bodyColors.paint("── ", "line") + bodyColors.paint(`${group.title} `, "fg", true);
-    const summary =
-      bodyColors.paint(` ${group.summary} `, "muted") + bodyColors.paint("──", "line");
+  if (model.pinned.length)
     blocks.push({
-      key: `group:${group.id}`,
-      height: 1,
+      key: "pinned",
+      height: model.pinned.length,
       content: (
-        <Line width={width} colors={bodyColors}>
-          {title +
-            bodyColors.paint(
-              "─".repeat(Math.max(0, width - stringWidth(title + summary))),
-              "line",
-            ) +
-            summary}
-        </Line>
+        <PinnedRows pinned={model.pinned} morePinned={0} width={width} colors={bodyColors} />
       ),
     });
-    for (const row of group.rows)
-      blocks.push({
-        key: row.name,
-        height: 2 + (model.layout === "narrow" ? 0 : row.subagents.length),
-        content: (
-          <RunRow
-            row={row}
-            model={model}
-            colors={bodyColors}
-            selected={model.selected === row.name}
-          />
-        ),
-      });
-    if (group.older)
-      blocks.push({
-        key: group.older.id,
-        height: 1,
-        content: (
-          <Line width={width} colors={bodyColors} selected={model.selected === group.older.id}>
-            {bodyColors.paint(group.older.text, "muted")}
-          </Line>
-        ),
-      });
-  }
+  blocks.push(...listGroups(model, bodyColors));
   const available = Math.max(1, model.rows - 2 - Number(model.act.notice !== null));
+  const preview = !model.detail && !model.overlay ? model.preview : null;
+  const listHeight = Math.max(0, available - (preview ? 5 : 0));
   const offset = model.offset;
   let skipped = 0;
   const visible = blocks.flatMap((block) => {
     const before = skipped;
     skipped += block.height;
-    return skipped > offset && before < offset + available
+    return skipped > offset && before < offset + listHeight
       ? [{ ...block, crop: Math.max(0, offset - before) }]
       : [];
   });
-  const hints = model.footer.compact
-    ? [
-        ["?", "help"],
-        ["q", "quit"],
-      ]
-    : [
-        ["↑↓/jk", "select"],
-        ["Enter", "open"],
-        ["a", "answer"],
-        ["d", "defer"],
-        ["!", model.footer.attentionOnly ? "all runs" : "needs me"],
-        ...(width >= 100
-          ? [
-              ["s", "steer"],
-              ["i", "interrupt"],
-            ]
-          : []),
-        ...(width >= 140
-          ? [
-              ["F", "follow up"],
-              ["x", "archive"],
-            ]
-          : []),
-        ["?", "help"],
-        ["q", "quit"],
-      ];
-  const detailHints =
-    model.detail && !model.footer.compact
-      ? [
-          ["Tab", "pane"],
-          ["jk", "scroll"],
-          ["f", "follow"],
-          ["Esc", "list"],
-          ...(width >= 80
-            ? [
-                ["a", "answer"],
-                ["d", "defer"],
-              ]
-            : []),
-          ...(width >= 100
-            ? [
-                ["s", "steer"],
-                ["i", "interrupt"],
-              ]
-            : []),
-          ...(width >= 140
-            ? [
-                ["F", "follow up"],
-                ["x", "archive"],
-              ]
-            : []),
-          ["?", "help"],
-          ["q", "quit"],
-        ]
-      : hints;
-  const footerHints =
-    model.act.hints?.map(({ key, label }) => [key, label]) ??
-    (model.layout === "narrow" && !model.footer.compact
-      ? detailHints.filter(([key]) => key !== "Enter")
-      : detailHints);
-  const footerLeft = footerHints
-    .map(
-      ([key, label]) =>
-        colors.paint(key ?? "", "fg", true) + colors.paint(` ${label ?? ""}`, "muted"),
-    )
-    .join("  ");
-  const footerRight =
-    model.footer.compact || stringWidth(footerLeft + model.footer.status) + 1 > width
-      ? ""
-      : colors.paint(model.footer.status, model.footer.caution ? "interrupted" : "muted");
-  const footer =
-    footerLeft +
-    " ".repeat(Math.max(1, width - stringWidth(footerLeft + footerRight))) +
-    footerRight;
+  const footer = monitorFooter(model, colors);
   let body = (
     <Box
       flexDirection="column"
-      height={available}
+      height={listHeight}
       overflow="hidden"
       justifyContent={model.groups.length ? "flex-start" : "center"}
     >
@@ -418,6 +150,7 @@ export const Screen = memo(function Screen({
       </Line>
       <Box height={available} flexDirection="column">
         {body}
+        {preview && <Preview preview={preview} width={width} colors={bodyColors} />}
         {(model.act.confirm || model.act.answer || model.act.compose) && (
           <ActOverlay
             act={model.act}
