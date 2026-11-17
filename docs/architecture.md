@@ -32,7 +32,7 @@ The socket protocol is newline-delimited JSON with request ids. `src/schemas/dae
 
 The daemon starts the app server lazily when a request needs it. Runs use separate persistent Codex threads in the shared child, routed by thread id. This saves a process per run, but an app-server failure can lose supervision for every active run on that connection. The next request needing Codex starts a new child; an inactive run can resume its saved thread. It needs both a thread id and an existing worktree. Resume does not recreate the thread's dynamic question tool, so question delivery on resumed threads depends on Codex retaining it.
 
-Protocol compatibility uses the recorded Codex 0.166.0 schema hash, not a version-number comparison. A failed check or mismatch adds a warning to new runs; it does not itself refuse start. Replies that fail decoding still fail the request. The client gives `thread/start` 180 seconds for MCP startup, and other requests 30 seconds by default. Global Codex MCP servers remain enabled.
+Protocol compatibility uses the recorded Codex 0.169.0 schema hash, not a version-number comparison. A failed check or mismatch adds a warning to new runs; it does not itself refuse start. Replies that fail decoding still fail the request. The client gives `thread/start` 180 seconds for MCP startup, and other requests 30 seconds by default. Global Codex MCP servers remain enabled.
 
 ## Daemon ownership and replacement
 

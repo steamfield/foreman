@@ -251,6 +251,7 @@ export const handleNotification = Effect.fn("supervisor.notification")(function*
         Schema.is(Codex.SubAgentActivityItem)(item) &&
         (item.kind === "started" || item.kind === "interacted" || item.kind === "completed")
       ) {
+        const at = item.startedAtMs ?? now;
         let agent = run.subagents.get(item.agentThreadId);
         if (!agent) {
           agent = {
@@ -259,19 +260,19 @@ export const handleNotification = Effect.fn("supervisor.notification")(function*
             model: null,
             effort: null,
             state: "working",
-            startedAt: item.startedAtMs,
-            lastInteractionAt: item.startedAtMs,
+            startedAt: at,
+            lastInteractionAt: at,
             interactions: 0,
           };
           run.subagents.set(item.agentThreadId, agent);
         }
         if (item.kind === "started") {
-          agent.model ??= item.model;
-          agent.effort ??= item.reasoningEffort;
+          agent.model ??= item.model ?? null;
+          agent.effort ??= item.reasoningEffort ?? null;
         } else if (item.kind === "interacted") {
           agent.state = "working";
           agent.interactions += 1;
-          agent.lastInteractionAt = item.startedAtMs;
+          agent.lastInteractionAt = at;
         } else agent.state = "idle";
         yield* registry.wake(run);
       }

@@ -1,9 +1,9 @@
 import { Schema } from "effect";
 
-// The `codex app-server` messages foreman sends and reads, for Codex 0.166.0 with the
-// experimental API. Only the fields foreman uses are declared. Decoding ignores fields Codex
-// adds; a field it removes fails decoding. src/codex/protocol.ts records the Codex version
-// and protocol schema these were written from.
+// The `codex app-server` messages foreman sends and reads, written for Codex 0.166.0 with the
+// experimental API and checked against 0.169.0. Only the fields foreman uses are declared.
+// Decoding ignores fields Codex adds; a field it removes fails decoding. src/codex/protocol.ts
+// records the Codex version and protocol schema these were last checked against.
 
 export const CodexThreadId = Schema.String.check(Schema.isMinLength(1)).pipe(
   Schema.brand("CodexThreadId"),
@@ -180,10 +180,11 @@ export const SubAgentActivityItem = Schema.Struct({
   kind: Schema.String,
   agentThreadId: Schema.String,
   agentPath: Schema.String,
-  model: Schema.NullOr(Schema.String),
-  reasoningEffort: Schema.NullOr(Schema.String),
-  startedAtMs: Schema.Number,
-  completedAtMs: Schema.NullOr(Schema.Number),
+  // Codex 0.169 makes these optional ("if recorded"), defaulting to null.
+  model: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  reasoningEffort: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  startedAtMs: Schema.optionalKey(Schema.NullOr(Schema.Number)),
+  completedAtMs: Schema.optionalKey(Schema.NullOr(Schema.Number)),
 });
 // Any other item type: userMessage, reasoning, plan, mcpToolCall and whatever Codex adds.
 export const OtherItem = Schema.Struct({

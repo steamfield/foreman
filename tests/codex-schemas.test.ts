@@ -58,6 +58,24 @@ describe("Codex schemas", () => {
     },
   );
 
+  it.each([
+    ["null", { startedAtMs: null, completedAtMs: null, model: null, reasoningEffort: null }],
+    ["omitted", {}],
+  ])("keeps subagent activity whose optional fields are %s (Codex 0.169)", (_, optional) => {
+    const item = {
+      type: "subAgentActivity",
+      id: "activity",
+      kind: "started",
+      agentThreadId: "child",
+      agentPath: "/root/tests",
+      ...optional,
+    };
+    expect(Schema.is(Codex.SubAgentActivityItem)(item)).toBe(true);
+    expect(
+      Schema.decodeUnknownSync(Codex.ItemNotification)({ threadId: "t", turnId: "u", item }).item,
+    ).toEqual(item);
+  });
+
   it("preserves agent text with an unfamiliar phase and accepts unknown item types", () => {
     const item = { type: "agentMessage", id: "item", text: "Hand-off", phase: "future_phase" };
     expect(Schema.decodeUnknownSync(Codex.ThreadItem)(item)).toEqual(item);

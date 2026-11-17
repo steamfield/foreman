@@ -23,6 +23,7 @@ import {
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import { TestClock } from "effect/testing";
 import { openConnection } from "../src/codex/client";
+import { supportedCodex } from "../src/codex/protocol";
 import { AppConfig } from "../src/config";
 import { QUIET_AFTER_MS } from "../src/core/monitor/attention";
 import { commandResult } from "../src/core/process";
@@ -583,13 +584,13 @@ describe("supervisor over the real daemon socket", () => {
                     `repo (${f.repo})`,
                     "unit  waiting 0s  turn 1 (start)  gpt-6.1-sol high priority read-only  budget 0s/1h0m  q1 (blocked) pending 0s, auto-defer in 15m00s: Which path?",
                     "  /root/tests  working · 0s ago",
-                    `  warning: Could not check the Codex protocol for "${fake}": Codex schema generation exited with code 1. Install Codex 0.166.0 or correct CODEX_BIN, then run foreman doctor to check compatibility.`,
+                    `  warning: Could not check the Codex protocol for "${fake}": Codex schema generation exited with code 1. Install Codex ${supportedCodex.version} or correct CODEX_BIN, then run foreman doctor to check compatibility.`,
                     `  next: FOREMAN_HOME=${f.dataDir} foreman answer unit q1 "<answer>"`,
                     "",
                     `a-other (${other.repo}) · other repo: its own session supervises it`,
                     "foreign  waiting 0s  turn 1 (start)  gpt-6.1-sol high priority read-only  budget 0s/1h0m  q1 (blocked) pending 0s, auto-defer in 15m00s: Which path?",
                     "  /root/tests  working · 0s ago",
-                    `  warning: Could not check the Codex protocol for "${fake}": Codex schema generation exited with code 1. Install Codex 0.166.0 or correct CODEX_BIN, then run foreman doctor to check compatibility.`,
+                    `  warning: Could not check the Codex protocol for "${fake}": Codex schema generation exited with code 1. Install Codex ${supportedCodex.version} or correct CODEX_BIN, then run foreman doctor to check compatibility.`,
                     "",
                   ].join("\n"),
                 );
@@ -1489,7 +1490,7 @@ describe("supervisor over the real daemon socket", () => {
       expect(result.stderr).toBe("");
       expect(result.stdout).toContain(f.env.CODEX_BIN);
       expect(result.stdout).toContain("schema generation exited with code 1");
-      expect(result.stdout).toContain("Install Codex 0.166.0");
+      expect(result.stdout).toContain(`Install Codex ${supportedCodex.version}`);
       expect(result.stdout).toContain("foreman doctor");
     }).pipe(Effect.provide(platform)),
   );

@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.1] - 2026-11-17
+
+### Changed
+
+- foreman now checks the Codex protocol against Codex 0.169.0 instead of 0.166.0, so `doctor` and new runs stop warning about a protocol mismatch on 0.169.0. Install it with `npm i -g @openai/codex@0.169.0`; on 0.166.0 you now see that warning instead.
+
+### Fixed
+
+- `foreman status --all` and `status --all --json` now say who interrupted an interrupted run (the orchestrator, the turn budget, repo hooks or foreman monitor), as single-run `status` already did.
+- Sub-agent activity from Codex 0.169.0 no longer fails to decode when Codex leaves out the sub-agent's model, effort or timestamps, so `status --all` and the monitor keep tracking those sub-agents.
+
 ## [0.3.0] - 2026-11-17
 
 ### Added
