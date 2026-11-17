@@ -11,6 +11,7 @@ const dataDir = process.argv[2];
 if (dataDir === undefined) throw new Error("data directory required");
 const build = process.argv[3] === "daemon" ? "test" : (process.argv[3] ?? "test");
 const mode = process.argv[4];
+const parent = process.ppid;
 if (mode === "legacy") {
   await import("./legacy");
 } else {
@@ -60,9 +61,26 @@ if (mode === "legacy") {
           idleLimitMs: 30_000,
         }),
       );
-      while (!(yield* fs.exists(`${dataDir}/foreman.sock`))) yield* Effect.yieldNow;
-      yield* fs.writeFileString(`${dataDir}/ready`, "");
-      yield* Fiber.join(running);
+      // The daemon returns without listening when another process holds its lock, so readiness
+      // races the daemon itself rather than waiting for a socket that may never appear.
+      const listening = Effect.gen(function* () {
+        while (!(yield* fs.exists(`${dataDir}/foreman.sock`))) yield* Effect.sleep(20);
+      }).pipe(Effect.timeout("10 seconds"));
+      // Clients launch this fixture detached, so nothing stops it when a test run crashes. It
+      // exits once the process that started it dies or its test removes the data directory.
+      const orphaned = Effect.gen(function* () {
+        while (process.ppid === parent && (yield* fs.exists(dataDir))) yield* Effect.sleep(200);
+        return yield* Effect.fail(
+          new Error(`Fixture daemon for ${dataDir} lost its parent or data directory`),
+        );
+      });
+      yield* Effect.raceFirst(
+        Fiber.join(running),
+        listening.pipe(
+          Effect.andThen(fs.writeFileString(`${dataDir}/ready`, "")),
+          Effect.andThen(orphaned),
+        ),
+      );
     }).pipe(
       Effect.scoped,
       Effect.provide(
