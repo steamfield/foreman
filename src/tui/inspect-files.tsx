@@ -12,6 +12,7 @@ export function InspectFiles({
   colors,
   focused = false,
   note = "",
+  message = null,
   offset = 0,
 }: {
   files: ReviewView["files"];
@@ -20,6 +21,7 @@ export function InspectFiles({
   colors: Theme;
   focused?: boolean;
   note?: string;
+  message?: string | null;
   offset?: number;
 }) {
   const rows = Math.max(0, height - 2 - Number(Boolean(note)));
@@ -32,6 +34,16 @@ export function InspectFiles({
       focused={focused}
     >
       {Array.from({ length: rows }, (_, index) => {
+        if (message && index === 0)
+          return (
+            <InspectRow
+              key="message"
+              text={colors.paint(message, "muted")}
+              width={width}
+              colors={colors}
+              focused={focused}
+            />
+          );
         const file = files[index + offset];
         const suffix = file
           ? `${file.outside ? `${colors.paint("▲ outside May change", "interrupted")}  ` : ""}${colors.paint(file.added, "done")} ${colors.paint(file.removed, "failed")}`
@@ -48,11 +60,19 @@ export function InspectFiles({
             text={file ? `${path}  ${suffix}` : ""}
             width={width}
             colors={colors}
+            focused={focused}
             selected={focused && file?.selected}
           />
         );
       })}
-      {note && <InspectRow text={colors.paint(note, "muted")} width={width} colors={colors} />}
+      {note && (
+        <InspectRow
+          text={colors.paint(note, "muted")}
+          width={width}
+          colors={colors}
+          focused={focused}
+        />
+      )}
     </InspectFrame>
   );
 }

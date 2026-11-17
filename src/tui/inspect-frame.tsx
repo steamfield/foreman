@@ -45,19 +45,22 @@ export function InspectRow({
   width,
   colors,
   selected = false,
+  focused = false,
 }: {
   text: string;
   width: number;
   colors: Theme;
   selected?: boolean;
+  focused?: boolean;
 }) {
+  const tone = focused ? "fg" : "line";
   const inside = pad(truncate(text, Math.max(0, width - 4)), Math.max(0, width - 4));
   return (
     <Box height={1} flexShrink={0}>
       <Line width={width} colors={colors}>
-        {colors.paint("│ ", "line") +
+        {colors.paint("│ ", tone) +
           (selected ? colors.select(inside) : inside) +
-          colors.paint(" │", "line")}
+          colors.paint(" │", tone)}
       </Line>
     </Box>
   );

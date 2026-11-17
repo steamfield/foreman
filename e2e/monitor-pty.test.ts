@@ -175,7 +175,15 @@ test("compiled monitor handles selection, panes, follow, help and filtering thro
       (_raw, text) => text.includes("Task") && text.includes("Inspect unit task"),
       key("\r"),
     );
-    for (const pane of ["Digest", "Questions", "Subagents", "Hand-off", "Commands", "Feed"]) {
+    for (const pane of [
+      "Digest",
+      "Questions",
+      "Subagents",
+      "Hand-off",
+      "Commands",
+      "Files",
+      "Feed",
+    ]) {
       await waitFor((raw) => raw.includes(`38;2;228;232;224m╭─ \u001b[1m${pane}`), key("\t"));
     }
     expect(stripVTControlCharacters(output)).toContain("unit journal message");

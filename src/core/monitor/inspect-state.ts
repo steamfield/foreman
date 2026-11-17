@@ -49,7 +49,7 @@ export function refreshChanges(state: State): State {
   };
 }
 
-/** Requests a selected file's diff, retaining the detail's opening pane. */
+/** Requests a selected file's diff and gives it focus in review. */
 export function openFileDiff(state: State, selected = state.detail?.changes?.selected ?? 0): State {
   const detail = state.detail;
   const file = detail?.changes?.files?.[selected];
@@ -60,6 +60,7 @@ export function openFileDiff(state: State, selected = state.detail?.changes?.sel
     detail: {
       ...detail,
       changes: { ...detail.changes, selected },
+      reviewFocus: detail.review ? "diff" : detail.reviewFocus,
       diff: { id: state.nextInspectId, path: file.path, text: null, error: null, offset: 0 },
     },
   };
