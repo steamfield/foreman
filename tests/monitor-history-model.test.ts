@@ -33,12 +33,31 @@ const result = (
   entries: readonly HistoryEntry[] | null,
   error: string | null = null,
   id = state.history?.id ?? -1,
-) => reduce(state, { type: "history-result", id, entries, error });
+) => reduce(state, { type: "history-result", id, entries, error, skipped: 0 });
 
 describe("monitor history", () => {
+  it.each([true, false])(
+    "shows unreadable run counts while preserving healthy rows (rows=%s)",
+    (hasRows) => {
+      const state = key(start(), "h");
+      const loaded = reduce(state, {
+        type: "history-result",
+        id: state.history?.id ?? -1,
+        entries: hasRows ? [entry()] : [],
+        error: null,
+        skipped: 2,
+      });
+      expect(view(loaded).history).toMatchObject({
+        status: "ready",
+        message: "2 runs unreadable · see logs",
+      });
+      expect(view(loaded).history?.rows).toHaveLength(hasRows ? 1 : 0);
+      expect(view(key(loaded, "j")).history?.message).toBe("2 runs unreadable · see logs");
+    },
+  );
   it("opens a numbered loading request and increments the next id on reopening", () => {
     const state = key(start(), "h");
-    expect(state.history).toEqual({ id: 1, entries: null, error: null, selected: 0 });
+    expect(state.history).toEqual({ id: 1, entries: null, error: null, selected: 0, skipped: 0 });
     expect(state.nextHistoryId).toBe(2);
     expect(view(state).history).toMatchObject({
       status: "loading",

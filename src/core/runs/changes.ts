@@ -3,7 +3,7 @@
  * counts, and unified diff text. Read-only git commands with --no-optional-locks; never
  * touches the index or refs. Runs on demand, never on a timer.
  */
-import { Effect, Stream } from "effect";
+import { Effect, FileSystem, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner, CommandLine } from "effect/process";
 import { WorktreeInvalid } from "../../errors";
 import { commandResult, diagnosticTail } from "../process";
@@ -14,7 +14,7 @@ import { allowedPaths, covers } from "./worktree";
 export type ChangedFile = {
   readonly path: string;
   readonly status: "added" | "modified" | "deleted" | "renamed" | "untracked";
-  /** Null for binary files. */
+  /** Null when counts are unavailable, including binary files and symlinks. */
   readonly added: number | null;
   readonly removed: number | null;
   /** True when the path falls outside the contract's May change list. */
@@ -32,33 +32,42 @@ const commandFailure = (command: ChildProcess.StandardCommand, code: number, std
     detail: `${CommandLine.display([command.command, ...command.args])} exited ${code} in ${command.options.cwd}:\n${diagnosticTail(stderr)}\nPlease inspect the ${command.command === "git" ? "Git" : "command"} output and resolve the reported issue before retrying.`,
   });
 
-const output = Effect.fnUntraced(function* (
-  command: ChildProcess.StandardCommand,
-  noIndex = false,
-) {
+const output = Effect.fnUntraced(function* (command: ChildProcess.StandardCommand) {
   const result = yield* commandResult(command).pipe(
     Effect.mapError((error) => new WorktreeInvalid({ detail: error.detail })),
   );
-  if (result.code !== 0 && !(noIndex && result.code === 1))
-    return yield* commandFailure(command, result.code, result.stderr);
+  if (result.code !== 0) return yield* commandFailure(command, result.code, result.stderr);
   return result.stdout;
 });
 
-const untrackedCounts = Effect.fnUntraced(function* (worktree: string, path: string) {
-  const regularFile = yield* output(
-    ChildProcess.make(
-      "find",
-      [`./${path}`, "-prune", "-type", "f", "-size", "-1000000c", "-print"],
-      { cwd: worktree },
+const untrackedCounts = Effect.fnUntraced(function* (
+  worktree: string,
+  path: string,
+  countLines: boolean,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const file = `${worktree}/${path}`;
+  return yield* Effect.gen(function* () {
+    const info = yield* fs.lstat(file);
+    if (!countLines || info.type !== "File" || info.size >= 1_000_000n)
+      return { added: null, removed: null };
+    const bytes = yield* fs.readFile(file);
+    if (bytes.length >= 1_000_000 || bytes.includes(0)) return { added: null, removed: null };
+    let lines = 0;
+    for (const byte of bytes) if (byte === 10) lines++;
+    if (bytes.length > 0 && bytes.at(-1) !== 10) lines++;
+    return { added: lines, removed: 0 };
+  }).pipe(
+    Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(null)),
+    Effect.mapError((error) =>
+      Object.assign(
+        new WorktreeInvalid({
+          detail: `Could not read ${file}: ${error.reason.method} (${error.reason._tag}). Check file permissions before retrying.`,
+        }),
+        { cause: error },
+      ),
     ),
   );
-  if (regularFile === "") return { added: null, removed: null };
-  const text = yield* output(
-    gitCommand(worktree, ["diff", "--no-index", "--numstat", "-z", "--", "/dev/null", path]),
-    true,
-  );
-  const counts = [...parseCounts(text).values()][0];
-  return counts ?? { added: 0, removed: 0 };
 });
 
 const capturePrefix = Effect.fnUntraced(function* <E, R>(
@@ -123,7 +132,7 @@ const diffOutput = (command: ChildProcess.StandardCommand, maxBytes: number, noI
 /**
  * Lists the worktree's changes against `baseCommit`, sorted by path.
  *
- * @throws {WorktreeInvalid} When git fails in the worktree.
+ * @throws {WorktreeInvalid} When Git or an untracked file cannot be read.
  */
 export const readChanges = (
   worktree: string,
@@ -132,7 +141,7 @@ export const readChanges = (
 ): Effect.Effect<
   readonly ChangedFile[],
   WorktreeInvalid,
-  ChildProcessSpawner.ChildProcessSpawner
+  ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem
 > =>
   Effect.gen(function* () {
     const counts = parseCounts(
@@ -150,9 +159,16 @@ export const readChanges = (
         gitCommand(worktree, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
       ),
     );
-    for (const path of untracked) {
+    const loaded = yield* Effect.forEach(
+      untracked,
+      (path, index) => untrackedCounts(worktree, path, index < 200),
+      { concurrency: 8 },
+    );
+    for (const [index, path] of untracked.entries()) {
+      const count = loaded[index];
+      if (!count) continue;
       statuses.set(path, "untracked");
-      counts.set(path, yield* untrackedCounts(worktree, path));
+      counts.set(path, count);
     }
     const allowed = allowedPaths(contract);
     return [...statuses]

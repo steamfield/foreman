@@ -13,7 +13,12 @@ import type { Terminal } from "../services/terminal";
 import { runActing } from "./acting";
 import { type EditorRunner, runEditors } from "./editor";
 import { type FindRequests, type HistoryReader, runFind } from "./find-executor";
-import { type InspectReaders, type InspectRequests, runInspect } from "./inspect-executor";
+import {
+  type InspectReaders,
+  type InspectRequests,
+  inspectDetail,
+  runInspect,
+} from "./inspect-executor";
 import { type PagerRunner, runPagers } from "./pager";
 import { MonitorApp } from "./screen";
 import { theme } from "./theme";
@@ -112,7 +117,6 @@ export const runMonitor = Effect.fn("tui.runMonitor")(function* <R, R2 = never, 
   yield* Effect.addFinalizer(() => Queue.shutdown(pagers));
   Queue.offerUnsafe(opened, state.detail?.name ?? null);
   Queue.offerUnsafe(selected, previewName(state));
-  Queue.offerUnsafe(inspections, state);
   const update = (message: Message) => {
     const next = reduce(state, message);
     if (next === state) return;
@@ -126,8 +130,12 @@ export const runMonitor = Effect.fn("tui.runMonitor")(function* <R, R2 = never, 
     if (next.history?.id !== state.history?.id || next.clipboard?.id !== state.clipboard?.id)
       Queue.offerUnsafe(finds, { history: next.history, clipboard: next.clipboard });
     if (
-      next.detail?.changes?.id !== state.detail?.changes?.id ||
-      next.detail?.diff?.id !== state.detail?.diff?.id
+      inspectDetail(next) !== null &&
+      (next.detail?.changes?.id !== state.detail?.changes?.id ||
+        next.detail?.diff?.id !== state.detail?.diff?.id ||
+        (inspectDetail(state) === null &&
+          next.detail?.changes?.files === null &&
+          next.detail.changes.error === null))
     )
       Queue.offerUnsafe(inspections, next);
     if (next.pager && next.pager.id !== state.pager?.id) Queue.offerUnsafe(pagers, next);

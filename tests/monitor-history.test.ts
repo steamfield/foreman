@@ -54,11 +54,11 @@ const withLogs = Effect.fnUntraced(function* (home: string, limit: number) {
       annotations: input.fiber.getRef(References.CurrentLogAnnotations),
     });
   });
-  const entries = yield* readHistory(home, limit).pipe(
+  const result = yield* readHistory(home, limit).pipe(
     Effect.provide(Logger.layer([logger])),
     Effect.provideService(References.MinimumLogLevel, "Debug"),
   );
-  return { entries, logs };
+  return { ...result, logs };
 });
 
 it.effect("merges archived and inactive current runs newest-ended first", () =>
@@ -92,7 +92,10 @@ it.effect("merges archived and inactive current runs newest-ended first", () =>
     }
     for (const state of ["starting", "running", "waiting"] as const)
       yield* save(home, record(state, state));
-    assert.deepStrictEqual(yield* readHistory(home, 10), expected.toReversed());
+    assert.deepStrictEqual(yield* readHistory(home, 10), {
+      entries: expected.toReversed(),
+      skipped: 0,
+    });
   }).pipe(Effect.provide(NodeServices.layer)),
 );
 
@@ -108,11 +111,14 @@ it.effect("uses the last StateChanged time, falling back to updatedAt without st
     yield* Store.appendEvent(dir, { _tag: "StateChanged", from: "running", to: "idle" });
     yield* TestClock.setTime(8000);
     yield* Store.appendEvent(dir, { _tag: "Other", method: "later activity" });
-    assert.deepStrictEqual((yield* readHistory(home, 10))[0]?.endedAt, DateTime.makeUnsafe(3000));
+    assert.deepStrictEqual(
+      (yield* readHistory(home, 10)).entries[0]?.endedAt,
+      DateTime.makeUnsafe(3000),
+    );
     yield* fs.writeFileString(`${dir}/events.jsonl`, "");
-    assert.deepStrictEqual((yield* readHistory(home, 10))[0]?.endedAt, saved.updatedAt);
+    assert.deepStrictEqual((yield* readHistory(home, 10)).entries[0]?.endedAt, saved.updatedAt);
     yield* Store.appendEvent(dir, { _tag: "Other", method: "no transition" });
-    assert.deepStrictEqual((yield* readHistory(home, 10))[0]?.endedAt, saved.updatedAt);
+    assert.deepStrictEqual((yield* readHistory(home, 10)).entries[0]?.endedAt, saved.updatedAt);
   }).pipe(Effect.provide(NodeServices.layer)),
 );
 
@@ -136,7 +142,7 @@ it.effect("matches saved overview titles, completed commands and distinct writte
     for (const paths of [["a.ts"], ["a.ts", "b.ts"]])
       yield* Store.appendEvent(dir, { _tag: "FileChange", paths });
     const overview = (yield* diskOverview(home)).runs[0];
-    const history = (yield* readHistory(home, 10))[0];
+    const history = (yield* readHistory(home, 10)).entries[0];
     assert.isDefined(overview);
     assert.isDefined(history);
     assert.strictEqual(history.title, "Task title");
@@ -174,7 +180,7 @@ it.effect("limits journal reads to the two newest record mtimes before sorting b
 );
 
 it.effect.each(["run.json", "events.jsonl"] as const)(
-  "skips corrupt %s and logs the directory and original error tag once at debug",
+  "reports corrupt %s in skipped and logs its path and error tag once at warn",
   (file) =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -182,13 +188,14 @@ it.effect.each(["run.json", "events.jsonl"] as const)(
       yield* save(home, record("good", "idle"));
       const bad = yield* save(home, record("bad", "failed"), true);
       yield* fs.writeFileString(`${bad}/${file}`, "broken\n");
-      const { entries, logs } = yield* withLogs(home, 10);
+      const { entries, skipped, logs } = yield* withLogs(home, 10);
       assert.deepStrictEqual(
         entries.map((entry) => entry.name),
         ["good"],
       );
       assert.strictEqual(logs.length, 1);
-      assert.strictEqual(logs[0]?.level, "Debug");
+      assert.strictEqual(skipped, 1);
+      assert.strictEqual(logs[0]?.level, "Warn");
       assert.strictEqual(logs[0]?.annotations.path, bad);
       assert.strictEqual(logs[0]?.annotations.errorTag, "SchemaError");
     }).pipe(Effect.provide(NodeServices.layer)),
@@ -199,7 +206,7 @@ it.effect.each(["runs", "archive"] as const)("returns [] with missing %s", (miss
     const fs = yield* FileSystem.FileSystem;
     const home = yield* fs.makeTempDirectoryScoped();
     if (missing === "archive") yield* fs.makeDirectory(`${home}/runs`);
-    assert.deepStrictEqual(yield* withLogs(home, 10), { entries: [], logs: [] });
+    assert.deepStrictEqual(yield* withLogs(home, 10), { entries: [], skipped: 0, logs: [] });
     assert.isFalse(yield* fs.exists(`${home}/runs/.archive`));
   }).pipe(Effect.provide(NodeServices.layer)),
 );
@@ -227,7 +234,7 @@ it.effect("includes every specified inactive outcome and orders equal end times 
     for (const state of ["unknown", "lost", "interrupted", "failed", "idle"] as const)
       yield* save(home, { ...record(state, state), tokens: null });
     assert.deepStrictEqual(
-      (yield* readHistory(home, 10)).map(({ name, state, tokensTotal }) => ({
+      (yield* readHistory(home, 10)).entries.map(({ name, state, tokensTotal }) => ({
         name,
         state,
         tokensTotal,
@@ -279,7 +286,7 @@ it.effect("recovers from journal and archive I/O failures without hiding healthy
       bad,
     ]);
     assert.isTrue(
-      logs.every((log) => log.level === "Debug" && log.annotations.errorTag === "PlatformError"),
+      logs.every((log) => log.level === "Warn" && log.annotations.errorTag === "PlatformError"),
     );
   }).pipe(Effect.provide(NodeServices.layer)),
 );
@@ -296,9 +303,41 @@ it.effect("preserves store tolerance for legacy records and uncommitted journal 
     yield* Store.appendEvent(dir, { _tag: "StateChanged", from: "running", to: "idle" });
     yield* fs.writeFileString(`${dir}/events.jsonl`, "torn", { flag: "a" });
     assert.deepStrictEqual(
-      (yield* readHistory(home, 10)).map((entry) => entry.name),
+      (yield* readHistory(home, 10)).entries.map((entry) => entry.name),
       ["unit"],
     );
     assert.isTrue((yield* fs.readFileString(`${dir}/events.jsonl`)).endsWith("torn"));
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("decodes only the latest 10,000 committed events and marks counts as lower bounds", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const home = yield* fs.makeTempDirectoryScoped();
+    const dir = yield* save(home, record("bounded", "idle"));
+    const lines = Array.from({ length: 10_000 }, (_, index) =>
+      JSON.stringify({
+        seq: index + 2,
+        at: "2026-11-16T12:00:00Z",
+        event:
+          index === 9_999
+            ? { _tag: "FileChange", paths: ["a.ts", "a.ts", "b.ts"] }
+            : {
+                _tag: "Command",
+                command: "check",
+                status: "completed",
+                exitCode: 0,
+                outputTail: "",
+              },
+      }),
+    );
+    yield* fs.writeFileString(`${dir}/events.jsonl`, `broken old event\n${lines.join("\n")}\ntorn`);
+    const { entries, skipped, logs } = yield* withLogs(home, 1);
+    assert.strictEqual(skipped, 0);
+    assert.deepStrictEqual(logs, []);
+    assert.strictEqual(entries.length, 1);
+    assert.deepStrictEqual(entries[0]?.commands, { total: 9_999, failed: 0 });
+    assert.strictEqual(entries[0]?.filesWritten, 2);
+    assert.strictEqual(entries[0]?.countsAtLeast, true);
   }).pipe(Effect.provide(NodeServices.layer)),
 );

@@ -1,8 +1,78 @@
 import { execFileSync } from "node:child_process";
 import { NodeServices } from "@effect/platform-node";
-import { expect, it } from "@effect/vitest";
+import { afterEach, expect, it, vi } from "@effect/vitest";
 import { Effect, FileSystem } from "effect";
 import { readChanges, readDiff } from "../src/core/runs/changes";
+
+afterEach(() => vi.unstubAllEnvs());
+
+it.effect("reads untracked counts without spawning per-file commands", () =>
+  Effect.gen(function* () {
+    const f = yield* fixture();
+    const git = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+    const bin = yield* f.fs.makeTempDirectoryScoped();
+    for (const [name, executable] of [
+      ["git", git],
+      ["find", "/usr/bin/find"],
+    ]) {
+      yield* f.fs.writeFileString(
+        `${bin}/${name}`,
+        `#!/bin/sh\nprintf '${name}\\n' >> '${bin}/calls'\nexec '${executable}' "$@"\n`,
+        { mode: 0o700 },
+      );
+    }
+    vi.stubEnv("PATH", `${bin}:/usr/bin:/bin`);
+    const changes = yield* readChanges(f.root, f.base, f.contract);
+    expect(changes).toHaveLength(9);
+    expect(yield* f.fs.readFileString(`${bin}/calls`)).toBe("git\ngit\ngit\n");
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect.each([0, 201])(
+  "skips an untracked file removed after status with %i earlier paths",
+  (earlier) =>
+    Effect.gen(function* () {
+      const f = yield* fixture();
+      for (let i = 0; i < earlier; i++) yield* f.write(`a${i}.txt`, "text\n");
+      const git = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+      const bin = yield* f.fs.makeTempDirectoryScoped();
+      yield* f.fs.writeFileString(
+        `${bin}/git`,
+        `#!/bin/sh\n'${git}' "$@"\ncode=$?\nif [ "$2" = status ]; then rm '${f.root}/untracked.txt'; fi\nexit "$code"\n`,
+        { mode: 0o700 },
+      );
+      vi.stubEnv("PATH", `${bin}:/usr/bin:/bin`);
+      const changes = yield* readChanges(f.root, f.base, f.contract);
+      expect(changes.some((file) => file.path === "untracked.txt")).toBe(false);
+      expect(changes.find((file) => file.path === "modified.txt")).toEqual({
+        path: "modified.txt",
+        status: "modified",
+        added: 2,
+        removed: 1,
+        outside: false,
+      });
+    }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("counts at most 200 untracked files and keeps excess paths with unknown counts", () =>
+  Effect.gen(function* () {
+    const f = yield* fixture();
+    for (let i = 0; i < 201; i++)
+      yield* f.write(`a${String(i).padStart(3, "0")}.txt`, "one\ntwo\n");
+    const changes = yield* readChanges(f.root, f.base, "");
+    const untracked = changes.filter((file) => file.status === "untracked");
+    expect(untracked).toHaveLength(204);
+    expect(untracked.filter((file) => file.added !== null)).toHaveLength(200);
+    expect(changes.find((file) => file.path === "a199.txt")?.added).toBe(2);
+    expect(changes.find((file) => file.path === "a200.txt")).toEqual({
+      path: "a200.txt",
+      status: "untracked",
+      added: null,
+      removed: null,
+      outside: false,
+    });
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
 
 const fixture = Effect.fnUntraced(function* () {
   const fs = yield* FileSystem.FileSystem;

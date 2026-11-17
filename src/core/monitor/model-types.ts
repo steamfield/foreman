@@ -332,6 +332,7 @@ export type State = {
   readonly history: {
     readonly id: number;
     readonly entries: readonly HistoryEntry[] | null;
+    readonly skipped: number;
     readonly error: string | null;
     readonly selected: number;
   } | null;
@@ -374,5 +375,6 @@ export type Message =
       readonly type: "history-result";
       readonly id: number;
       readonly entries: readonly HistoryEntry[] | null;
+      readonly skipped: number;
       readonly error: string | null;
     };

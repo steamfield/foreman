@@ -14,7 +14,10 @@ export function historyResult(
   msg: Extract<Message, { type: "history-result" }>,
 ): State {
   if (!state.history || state.history.id !== msg.id) return state;
-  const next = { ...state, history: { ...state.history, entries: msg.entries, error: msg.error } };
+  const next = {
+    ...state,
+    history: { ...state.history, entries: msg.entries, error: msg.error, skipped: msg.skipped },
+  };
   return {
     ...next,
     history: {
@@ -69,11 +72,16 @@ export function historyView(state: State): HistoryView | null {
   } else if (history.entries === null) {
     status = "loading";
     message = "Reading run history…";
+  } else if (history.skipped > 0) {
+    message = `${history.skipped} runs unreadable · see logs`;
   }
   const selected = Math.max(0, Math.min(history.selected, rows.length - 1));
   const height = Math.max(
     1,
-    state.rows - 4 - Number(state.filter.editing || !!state.filter.text.trim()),
+    state.rows -
+      4 -
+      Number(state.filter.editing || !!state.filter.text.trim()) -
+      Number(history.skipped > 0),
   );
   return { status, message, rows, selected, offset: Math.max(0, selected - height + 1) };
 }
