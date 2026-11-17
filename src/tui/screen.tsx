@@ -1,18 +1,20 @@
-import { Box, Text } from "ink";
+import { Box } from "ink";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import stringWidth from "string-width";
 import type { ActMessage } from "../core/monitor/act";
 import type { Message, ViewModel } from "../core/monitor/model";
 import { ActNotice, ActOverlay } from "./act";
-import { Glyph, Help, Line, monitorFooter, NoteHeading, pad, Tick, truncate } from "./components";
+import { Line, monitorFooter, Tick } from "./components";
 import { DetailScreen } from "./detail";
 import { DiffPane } from "./diff";
 import { FilterBar, HiddenWaiting } from "./filter-bar";
 import type { FindMessage } from "./find-input";
 import { monitorHeader } from "./header";
+import { Help } from "./help";
 import { History } from "./history";
 import { MonitorInput } from "./input";
 import { listGroups } from "./list-row";
+import { messageBlocks } from "./messages";
+import { QuestionNote } from "./notes";
 import { Palette } from "./palette";
 import { PinnedRows } from "./pinned";
 import { Preview } from "./preview";
@@ -43,63 +45,23 @@ export const Screen = memo(function Screen({
   const header = model.history
     ? colors.paint(`History · ${model.history.rows.length} runs`, "fg", true)
     : monitorHeader(model, colors);
-  const blocks: { key: string; height: number; content: React.ReactNode }[] = [];
-  if (model.message.length && (model.groups.length === 0 || model.screen !== "list")) {
-    for (const [index, message] of model.message.entries())
-      blocks.push({
-        key: `message:${index}`,
-        height: 1,
-        content:
-          model.screen === "probing" && index === 0 ? (
-            <Text>
-              {colors.fill(
-                " ".repeat(Math.max(0, Math.floor((width - stringWidth(message) - 2) / 2))),
-              )}
-              <Glyph kind="probing" tone="muted" colors={colors} />
-              {colors.fill(colors.paint(` ${message}`))}
-            </Text>
-          ) : (
-            <Line width={width} colors={colors}>
-              {colors.paint(
-                pad("", Math.max(0, Math.floor((width - stringWidth(message)) / 2))) + message,
-                index === 1 ? "muted" : "fg",
-              )}
-            </Line>
-          ),
-      });
-  }
+  const blocks: { key: string; height: number; content: React.ReactNode }[] = messageBlocks(
+    model,
+    colors,
+  );
   for (const note of model.notes) {
     blocks.push({
-      key: `${note.id}:heading`,
-      height: 1,
+      key: note.id,
+      height: width < 100 ? 3 : 4,
       content: (
-        <NoteHeading
-          title={note.title}
+        <QuestionNote
+          note={note}
           width={width}
           colors={bodyColors}
           saved={model.screen === "saved"}
         />
       ),
     });
-    const noteLines = [
-      bodyColors.paint("│ ", "line") +
-        bodyColors.paint(pad(truncate(note.text, width - 4), width - 4), "muted") +
-        bodyColors.paint(" │", "line"),
-      bodyColors.paint("│ ", "line") +
-        bodyColors.paint(pad(truncate(note.command, width - 4), width - 4)) +
-        bodyColors.paint(" │", "line"),
-      bodyColors.paint(`╰${"─".repeat(Math.max(0, width - 2))}╯`, "line"),
-    ];
-    for (const [index, text] of noteLines.entries())
-      blocks.push({
-        key: `${note.id}:${index}`,
-        height: 1,
-        content: (
-          <Line width={width} colors={bodyColors}>
-            {text}
-          </Line>
-        ),
-      });
   }
   if (model.moreNotes)
     blocks.push({
@@ -114,7 +76,7 @@ export const Screen = memo(function Screen({
   if (model.pinned.length)
     blocks.push({
       key: "pinned",
-      height: model.pinned.length,
+      height: (width < 100 ? 1 : model.pinned.length) + Number(model.morePinned > 0),
       content: (
         <PinnedRows
           pinned={model.pinned}

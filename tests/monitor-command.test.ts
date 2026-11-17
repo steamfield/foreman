@@ -249,7 +249,7 @@ describe("monitor command", () => {
         yield* Effect.promise(async () => {
           try {
             await terminal.waitFor("foreman answer unit q1 --file <path>");
-            await terminal.waitFor(/unit\s+(?:\S+ · \S+\s+)?waiting/);
+            await terminal.waitFor(/unit\s+(?:\S+ · \S+\s+)?waiting/i);
             terminal.stdin.push("\r");
             await terminal.waitFor("Esc list");
             await terminal.waitFor("Task");

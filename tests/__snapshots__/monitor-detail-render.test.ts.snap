@@ -1,7 +1,7 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
 exports[`monitor detail frames > NO_COLOR keeps state and event glyphs readable 1`] = `
-"››› foreman 0.1.3   ◇ watching                                                       daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 1 waiting
+"››› foreman 0.1.3   ◇ watching                                                       daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 1 WAITING
 ╭─ ■ waiting  fix-hooks ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
 │   worktree /repo/work                                                   branch work                                                      │
 │       base abc123                                                       --from main                                                      │
@@ -158,7 +158,7 @@ exports[`monitor detail frames > Tab 7 focuses Feed and shows its content 1`] = 
 `;
 
 exports[`monitor detail frames > detail layout at 70 columns 1`] = `
-"››› foreman 0.1.3   ◇ watching  gpt-6.1-sol · high · fast  ■ 1 waiting
+"››› foreman 0.1.3   ◇ watching  gpt-6.1-sol · high · fast  ■ 1 WAITING
 ╭─ ■ waiting  fix-hooks ─────────────────────────────────────────────╮
 │   worktree /repo/work                                              │
 │     branch work                                                    │
@@ -197,11 +197,11 @@ exports[`monitor detail frames > detail layout at 70 columns 1`] = `
 │ q1 · question · pending · 3m ago                                   │
 │ Question 1: keep the API?                                          │
 │ q2 · question · deferred · 3m ago                                  │
-Tab pane  jk move  d diff file  Esc list  ? help  q quit"
+Tab pane  jk move  d diff file  Esc list  ? help  q quit          0.0s"
 `;
 
 exports[`monitor detail frames > detail layout at 70 columns 2`] = `
-"››› foreman 0.1.3   ◇ watching  gpt-6.1-sol · high · fast  ■ 1 waiting
+"››› foreman 0.1.3   ◇ watching  gpt-6.1-sol · high · fast  ■ 1 WAITING
 ╭─ Timeline──────────────────────────────────────────────────────────╮
 │ ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄… │
 │                                                                  … │
@@ -240,11 +240,11 @@ exports[`monitor detail frames > detail layout at 70 columns 2`] = `
 │                                                                    │
 │                                                                    │
 ╰────────────────────────────────────────────────────────────────────╯
-Tab pane  jk move  d diff file  Esc list  ? help  q quit"
+Tab pane  jk move  d diff file  Esc list  ? help  q quit          0.0s"
 `;
 
 exports[`monitor detail frames > detail layout at 100 columns 1`] = `
-"››› foreman 0.1.3   ◇ watching               daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 1 waiting
+"››› foreman 0.1.3   ◇ watching               daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 1 WAITING
 ╭─ ■ waiting  fix-hooks ───────────────────────────────────────────────────────────────────────────╮
 │   worktree /repo/work                               branch work                                  │
 │       base abc123                                   --from main                                  │
@@ -287,7 +287,7 @@ Tab pane  jk move  d diff file  / search feed  s steer  i interrupt  Esc list  ?
 `;
 
 exports[`monitor detail frames > detail layout at 100 columns 2`] = `
-"››› foreman 0.1.3   ◇ watching               daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 1 waiting
+"››› foreman 0.1.3   ◇ watching               daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 1 WAITING
 ╭─ Timeline────────────────────────────────────────────────────────────────────────────────────────╮
 │ ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄… │
 │                                                                                                … │
@@ -330,7 +330,7 @@ Tab pane  jk move  d diff file  / search feed  s steer  i interrupt  Esc list  ?
 `;
 
 exports[`monitor detail frames > detail layout at 140 columns 1`] = `
-"››› foreman 0.1.3   ◇ watching                                                       daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 1 waiting
+"››› foreman 0.1.3   ◇ watching                                                       daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 1 WAITING
 ╭─ ■ waiting  fix-hooks ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
 │   worktree /repo/work                                                   branch work                                                      │
 │       base abc123                                                       --from main                                                      │
@@ -373,7 +373,7 @@ Tab pane  jk move  d diff file  D all in $PAGER  1-5 feed filter  / search feed 
 `;
 
 exports[`monitor detail frames > detail layout at 140 columns 2`] = `
-"››› foreman 0.1.3   ◇ watching                                                       daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 1 waiting
+"››› foreman 0.1.3   ◇ watching                                                       daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 1 WAITING
 ╭─ ■ waiting  fix-hooks ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
 │   worktree /repo/work                                                   branch work                                                      │
 │       base abc123                                                       --from main                                                      │
@@ -674,7 +674,7 @@ exports[`monitor detail frames > running colors 1`] = `
 `;
 
 exports[`monitor detail frames > shows 30 feed entries and a paused header without losing its place 1`] = `
-"››› foreman 0.1.3   ◇ watching               daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 1 waiting
+"››› foreman 0.1.3   ◇ watching               daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 1 WAITING
 ╭─ Timeline────────────────────────────────────────────────────────────────────────────────────────╮
 │                                                                                                … │
 │                                                                                                … │
@@ -717,7 +717,7 @@ Tab pane  jk move  d diff file  / search feed  s steer  i interrupt  Esc list  ?
 `;
 
 exports[`monitor detail frames > shows 30 feed entries and a paused header without losing its place 2`] = `
-"››› foreman 0.1.3   ◇ watching               daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 1 waiting
+"››› foreman 0.1.3   ◇ watching               daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 1 WAITING
 ╭─ Timeline────────────────────────────────────────────────────────────────────────────────────────╮
 │                                                                                                … │
 │                                                                                                … │
@@ -760,7 +760,7 @@ Tab pane  jk move  d diff file  / search feed  s steer  i interrupt  Esc list  ?
 `;
 
 exports[`monitor detail frames > shows header warnings, new files and the successful last command after an earlier failure 1`] = `
-"››› foreman 0.1.3   ◇ watching               daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 1 waiting
+"››› foreman 0.1.3   ◇ watching               daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 1 WAITING
 ╭─ ⣾ running  fix-hooks ───────────────────────────────────────────────────────────────────────────╮
 │   worktree /repo/work                               branch work                                  │
 │       base abc123                                   --from main                                  │
@@ -846,7 +846,7 @@ exports[`monitor detail frames > starting colors 1`] = `
 `;
 
 exports[`monitor detail frames > state block 0 at 100 columns 1`] = `
-"››› foreman 0.1.3   ◇ watching               daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 1 waiting
+"››› foreman 0.1.3   ◇ watching               daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 1 WAITING
 Saved state · daemon not running
 The monitor checks again automatically; start work in another terminal.
 foreman status fix-hooks
@@ -932,7 +932,7 @@ exports[`monitor detail frames > state block 0 colors 1`] = `
 `;
 
 exports[`monitor detail frames > state block 1 at 100 columns 1`] = `
-"››› foreman 0.1.3   ◇ watching               daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 1 waiting
+"››› foreman 0.1.3   ◇ watching               daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 1 WAITING
 Saved state · daemon is outdated
 The monitor checks again automatically; start work in another terminal.
 foreman status fix-hooks
@@ -1018,7 +1018,7 @@ exports[`monitor detail frames > state block 1 colors 1`] = `
 `;
 
 exports[`monitor detail frames > state block 2 at 100 columns 1`] = `
-"››› foreman 0.1.3   ◇ watching               daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 1 waiting
+"››› foreman 0.1.3   ◇ watching               daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 1 WAITING
 Reconnecting to daemon
 Connection lost
 foreman status fix-hooks
@@ -1104,7 +1104,7 @@ exports[`monitor detail frames > state block 2 colors 1`] = `
 `;
 
 exports[`monitor detail frames > state block 3 at 100 columns 1`] = `
-"››› foreman 0.1.3   ◇ watching               daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 1 waiting
+"››› foreman 0.1.3   ◇ watching               daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 1 WAITING
 
 
 
@@ -1147,7 +1147,7 @@ Tab pane  jk move  d diff file  / search feed  s steer  i interrupt  Esc list  ?
 `;
 
 exports[`monitor detail frames > state block 4 at 100 columns 1`] = `
-"››› foreman 0.1.3   ◇ watching               daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 1 waiting
+"››› foreman 0.1.3   ◇ watching               daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 1 WAITING
 
 
 
@@ -1233,7 +1233,7 @@ exports[`monitor detail frames > state block 4 colors 1`] = `
 `;
 
 exports[`monitor detail frames > state block 5 at 100 columns 1`] = `
-"››› foreman 0.1.3   ◇ watching               daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 1 waiting
+"››› foreman 0.1.3   ◇ watching               daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 1 WAITING
 Saved state · daemon not running
 The monitor checks again automatically; start work in another terminal.
 foreman status fix-hooks
@@ -1276,7 +1276,7 @@ Tab pane  jk move  d diff file  / search feed  s steer  i interrupt  Esc list  ?
 `;
 
 exports[`monitor detail frames > state block 6 at 100 columns 1`] = `
-"››› foreman 0.1.3   ◇ watching               daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 1 waiting
+"››› foreman 0.1.3   ◇ watching               daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 1 WAITING
 Saved state · daemon not running
 The monitor checks again automatically; start work in another terminal.
 foreman status fix-hooks

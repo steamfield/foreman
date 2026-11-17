@@ -1,5 +1,5 @@
 import type { RunView } from "../../schemas/monitor";
-import type { RowView } from "./model";
+import type { FlagView, RowView } from "./model";
 import { pace } from "./pace";
 
 /** Formats an elapsed interval as a compact, bounded terminal duration. */
@@ -41,4 +41,31 @@ function reviewHint(run: RunView): RowView["review"] {
   return run.filesWritten
     ? { text: `${run.filesWritten} files · r review`, key: "r", bold: true, tone: "fg" }
     : null;
+}
+
+/** Keeps the most urgent row flag readable in the compact list. */
+export function compactFlags(
+  flags: readonly FlagView[],
+  review: RowView["review"],
+  percent: number,
+): FlagView[] {
+  const urgent =
+    flags.find((flag) => flag.tone === "signal") ??
+    flags.find((flag) => flag.tone === "failed") ??
+    flags.find((flag) => flag.tone === "interrupted");
+  if (urgent)
+    return [
+      {
+        ...urgent,
+        text: urgent.text
+          .replace(/ pending.*$/, "")
+          .replace(/^(\d+) hooks blocked$/, "$1 hooks")
+          .replace(/^(\d+) outside scope$/, "$1 scope")
+          .replace(/retrying \(.*\)/, "retrying"),
+      },
+    ];
+  if (percent >= 80)
+    return [{ text: `${percent}%`, tone: percent >= 100 ? "failed" : "interrupted" }];
+  if (review) return [{ text: review.key ? "review" : "reviewed", tone: review.tone }];
+  return flags[0] ? [flags[0]] : [];
 }

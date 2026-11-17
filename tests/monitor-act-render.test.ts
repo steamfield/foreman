@@ -168,7 +168,7 @@ it.each([confirming, answering])(
   (act) => {
     const output = frame(model(act, 80, 24), true);
     expect(output).not.toMatch(new RegExp(`${String.fromCharCode(27)}\\[(?:38|48);`));
-    expect(output).toContain("\u001b[1m");
+    expect(output.replaceAll("\u001b[7m", "").replaceAll("\u001b[27m", "")).toBe(plain(output));
     expect(plain(output)).toContain(act.answer?.title ?? act.confirm?.title);
     expect(plain(output)).toContain("╰");
     expect(plain(output)).toContain("esc cancel");

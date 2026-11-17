@@ -2,9 +2,9 @@
 
 exports[`monitor frames > all states at 70 columns 1`] = `
 "››› foreman 0.1.3   ◇ watching
- × failed failed 12m ago · bun run check           ⏎ open  F follow up
+× failed FAILED 12m
 ── repo  1 failed · 1 idle · 1 interrupted · 1 lost · 1 running · 1 s…
- × failed          failed        12m                                  
+ × failed          FAILED        12m                                  
     … bun run check · 20s                                             
  ✓ idle            idle          12m
     … bun run check · 20s
@@ -18,7 +18,7 @@ exports[`monitor frames > all states at 70 columns 1`] = `
     … bun run check · 20s
  ◐ unknown         unknown       12m
     … bun run check · 20s
- ■ waiting         waiting       12m
+ ■ waiting         WAITING       12m
     … bun run check · 20s
 
 
@@ -40,15 +40,15 @@ exports[`monitor frames > all states at 70 columns 1`] = `
 │ Now    … bun run check …  Said   ·                                 │
 │ Files                                              0 outside scope │
 ╰────────────────────────────────────────────────────────────────────╯
-↑↓/jk select  a answer  d defer  ! needs me  ? help  q quit"
+⏎ open  a answer  / filter  : palette  ? help  q quit             0.0s"
 `;
 
 exports[`monitor frames > all states at 100 columns 1`] = `
 "››› foreman 0.1.3   ◇ watching
- × failed failed 12m ago · bun run check                                         ⏎ open  F follow up
+ × failed FAILED 12m ago · bun run check                                         ⏎ open  F follow up
 ── repo  1 failed · 1 idle · 1 interrupted · 1 lost · 1 running · 1 starting · 1 unknown · 1 waitin…
    RUN              MODEL · EFFORT  STATUS            TASK       PROGRESS       BUDGET  FLAGS
- × failed           sol · high      failed        12m Fix hooks                                     
+ × failed           sol · high      FAILED        12m Fix hooks                                     
     … bun run check · 20s                                                                           
  ✓ idle             sol · high      idle          12m Fix hooks
     … bun run check · 20s
@@ -62,7 +62,7 @@ exports[`monitor frames > all states at 100 columns 1`] = `
     … bun run check · 20s
  ◐ unknown          sol · high      unknown       12m Fix hooks                 ━─────
     … bun run check · 20s
- ■ waiting          sol · high      waiting       12m Fix hooks                 ━─────
+ ■ waiting          sol · high      WAITING       12m Fix hooks                 ━─────
     … bun run check · 20s
 
 
@@ -87,11 +87,11 @@ exports[`monitor frames > all states at 100 columns 1`] = `
 `;
 
 exports[`monitor frames > all states at 140 columns 1`] = `
-"››› foreman 0.1.3   ◇ watching          ■ 1 starting  ■ 1 running  ■ 1 waiting  ■ 1 unknown  ■ 1 idle  ■ 1 failed  ■ 1 interrupted  ■ 1 lost
- × failed failed 12m ago · bun run check                                                                                 ⏎ open  F follow up
+"››› foreman 0.1.3   ◇ watching          ■ 1 starting  ■ 1 running  ■ 1 WAITING  ■ 1 unknown  ■ 1 idle  ■ 1 FAILED  ■ 1 interrupted  ■ 1 lost
+ × failed FAILED 12m ago · bun run check                                                                                 ⏎ open  F follow up
 ── repo ───────────────────────────────────── 1 failed · 1 idle · 1 interrupted · 1 lost · 1 running · 1 starting · 1 unknown · 1 waiting ──
    RUN                  MODEL · EFFORT  STATUS            TASK                   PACE         PROGRESS       BUDGET             FLAGS
- × failed               sol · high      failed        12m Fix hooks              ·                                                          
+ × failed               sol · high      FAILED        12m Fix hooks              ·                                                          
     … bun run check · 20s                                                                                                                   
  ✓ idle                 sol · high      idle          12m Fix hooks              ·
     … bun run check · 20s
@@ -105,7 +105,7 @@ exports[`monitor frames > all states at 140 columns 1`] = `
     … bun run check · 20s
  ◐ unknown              sol · high      unknown       12m Fix hooks              ·                           ━━────────  12/60m
     … bun run check · 20s
- ■ waiting              sol · high      waiting       12m Fix hooks              ·                           ━━────────  12/60m
+ ■ waiting              sol · high      WAITING       12m Fix hooks              ·                           ━━────────  12/60m
     … bun run check · 20s
 
 
@@ -173,19 +173,19 @@ exports[`monitor frames > all states colors 1`] = `
 `;
 
 exports[`monitor frames > attention at 100 columns 1`] = `
-"››› foreman 0.1.3   ◇ watching         gpt-6.1-sol · high · fast  ■ 2 waiting  ■ 1 running  ■ 2 idle
-╭─ ■ waiting  fix-hooks q2 · 3m · defers in 12m ───────────────────────────────────────────────────╮
-│ Keep the existing hook API?                                                                      │
-│ foreman answer fix-hooks q2 --file <path>                                                        │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
-╭─ ■ waiting  other q2 · 3m · defers in 12m ───────────────────────────────────────────────────────╮
-│ Keep the existing hook API?                                                                      │
-│ other repo: its own session supervises it                                                        │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+"››› foreman 0.1.3   ◇ watching         gpt-6.1-sol · high · fast  ■ 2 WAITING  ■ 1 running  ■ 2 idle
+┏━ ■ WAITING  fix-hooks q2 · 3m · defers in 12m ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Keep the existing hook API?                                                                      ┃
+┃ foreman answer fix-hooks q2 --file <path>                                                        ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+┏━ ■ WAITING  other q2 · 3m · defers in 12m ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Keep the existing hook API?                                                                      ┃
+┃ other repo: its own session supervises it                                                        ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
  ▲ parser quiet 6m · Checking the parser boundaries                             s steer  i interrupt
 ── repo ─────────────────────────────────────────────────────────────────── 1 waiting · 1 running ──
    RUN              MODEL · EFFORT  STATUS        TASK           PROGRESS       BUDGET  FLAGS
- ■ fix-hooks        sol · high      waiting   12m Fix hooks                     ━─────  q2 pending …
+ ■ fix-hooks        sol · high      WAITING   12m Fix hooks                     ━─────  q2 pending …
     … bun run check · 20s                                                                           
     ├─ ⠿ /root/acceptance_tests  working · 20s ago · gpt-6-sol · medium                             
     └─ · /root/review  idle · 2m ago                                                                
@@ -193,7 +193,7 @@ exports[`monitor frames > attention at 100 columns 1`] = `
     “Checking the parser boundaries”
 ── other ────────────────────────────────────────────────────────────────────────────── 1 waiting ──
    RUN              MODEL · EFFORT  STATUS        TASK           PROGRESS       BUDGET  FLAGS
- ■ other            sol · high      waiting   12m Fix hooks                     ━─────  q2 pending …
+ ■ other            sol · high      WAITING   12m Fix hooks                     ━─────  q2 pending …
     … bun run check · 20s
 
 
@@ -216,7 +216,7 @@ exports[`monitor frames > attention at 100 columns 1`] = `
 `;
 
 exports[`monitor frames > empty at 100 columns 1`] = `
-"››› foreman 0.1.3   ◇ watching                          daemon up 2h14m  gpt-6.1-sol · high · fast
+"››› foreman 0.1.3   ◇ watching                                                       daemon up 2h14m
 
 
 
@@ -229,37 +229,37 @@ exports[`monitor frames > empty at 100 columns 1`] = `
 
 
 
+          No runs on this machine yet.
+
+          Runs are started by your coding agent. Ask it to delegate, for example:
+            “Use foreman to have Codex fix the flaky hook test.”
+
+          Check this repo is ready     foreman doctor
+          Teach your agent foreman     foreman skill install
+
+          What you will see here
+            ⣾  running    a turn is executing; the second line says what it is doing
+            ■  waiting    Codex asked a question and needs a person
+            ✓  done       the turn finished; review it, then archive
+            ×  failed     the turn ended with an error
+            ━━━─── budget     time used of the turn's limit, not progress
 
 
 
 
 
 
-                                              No runs.
-                                           Start one with
-                                           foreman start
 
 
 
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-↑↓/jk select  Enter open  a answer  d defer  ! needs me  s steer  i interrupt  ? help  q quit"
+? help  q quit                                                                      updated 0.0s ago"
 `;
 
 exports[`monitor frames > empty colors 1`] = `
-"[48;2;27;30;26m[38;2;228;232;224m››[38;2;255;91;20m›[39m [1m[38;2;228;232;224mforeman[39m[22m [38;2;154;162;148m0.1.3[39m   [38;2;154;162;148m◇ watching[39m                                                                  [38;2;154;162;148mdaemon up 2h14m[39m  [38;2;154;162;148mgpt-6.1-sol · high · fast[39m  [49m
+"[48;2;27;30;26m[38;2;228;232;224m››[38;2;255;91;20m›[39m [1m[38;2;228;232;224mforeman[39m[22m [38;2;154;162;148m0.1.3[39m   [38;2;154;162;148m◇ watching[39m                                                                                               [38;2;154;162;148mdaemon up 2h14m[39m[49m
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
@@ -272,37 +272,37 @@ exports[`monitor frames > empty colors 1`] = `
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                              [1m[38;2;228;232;224mNo runs on this machine yet.[39m[22m                                                                                  [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                              [38;2;228;232;224mRuns are started by your coding agent. Ask it to delegate, for example:[39m                                       [49m
+[48;2;18;20;18m                              [38;2;154;162;148m  “Use foreman to have Codex fix the flaky hook test.”[39m                                                        [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                              [38;2;228;232;224mCheck this repo is ready     [1mforeman doctor[22m[39m                                                                   [49m
+[48;2;18;20;18m                              [38;2;228;232;224mTeach your agent [1mforeman     foreman skill install[22m[39m                                                            [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                              [38;2;154;162;148mWhat you will see here[39m                                                                                        [49m
+[48;2;18;20;18m                              [38;2;111;168;255m  ⣾[38;2;228;232;224m  running    a turn is executing; the second line says what it is doing[39m                                    [49m
+[48;2;18;20;18m                              [38;2;255;91;20m  ■[38;2;228;232;224m  waiting    Codex asked a question and needs a person[39m                                                     [49m
+[48;2;18;20;18m                              [38;2;92;201;138m  ✓[38;2;228;232;224m  done       the turn finished; review it, then archive[39m                                                    [49m
+[48;2;18;20;18m                              [38;2;255;122;112m  ×[38;2;228;232;224m  failed     the turn ended with an error[39m                                                                  [49m
+[48;2;18;20;18m                                [38;2;228;232;224m━━━[38;2;45;50;43m───[38;2;228;232;224m budget     time used of the turn's limit, not progress[39m                                               [49m
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
-[48;2;18;20;18m[38;2;228;232;224m                                                                  No runs.[39m                                                                  [49m
-[48;2;18;20;18m[38;2;154;162;148m                                                               Start one with[39m                                                               [49m
-[48;2;18;20;18m[38;2;228;232;224m                                                               foreman start[39m                                                                [49m
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
-[48;2;18;20;18m                                                                                                                                            [49m
-[48;2;18;20;18m                                                                                                                                            [49m
-[48;2;18;20;18m                                                                                                                                            [49m
-[48;2;18;20;18m                                                                                                                                            [49m
-[48;2;18;20;18m                                                                                                                                            [49m
-[48;2;18;20;18m                                                                                                                                            [49m
-[48;2;18;20;18m                                                                                                                                            [49m
-[48;2;18;20;18m                                                                                                                                            [49m
-[48;2;18;20;18m                                                                                                                                            [49m
-[48;2;18;20;18m                                                                                                                                            [49m
-[48;2;18;20;18m                                                                                                                                            [49m
-[48;2;27;30;26m[1m[38;2;228;232;224m↑↓/jk[22m[38;2;154;162;148m select[39m  [1m[38;2;228;232;224mEnter[22m[38;2;154;162;148m open[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m answer[39m  [1m[38;2;228;232;224md[22m[38;2;154;162;148m defer[39m  [1m[38;2;228;232;224m![22m[38;2;154;162;148m needs me[39m  [1m[38;2;228;232;224m/[22m[38;2;154;162;148m filter[39m  [1m[38;2;228;232;224m:[22m[38;2;154;162;148m palette[39m  [1m[38;2;228;232;224ms[22m[38;2;154;162;148m steer[39m  [1m[38;2;228;232;224mi[22m[38;2;154;162;148m interrupt[39m  [1m[38;2;228;232;224mF[22m[38;2;154;162;148m follow up[39m  [1m[38;2;228;232;224mx[22m[38;2;154;162;148m archive[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m  [49m"
+[48;2;27;30;26m[1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                                                                                                              [38;2;154;162;148mupdated 0.0s ago[39m[49m"
 `;
 
 exports[`monitor frames > help at 100 columns 1`] = `
-"››› foreman 0.1.3   ◇ watching         gpt-6.1-sol · high · fast  ■ 2 waiting  ■ 1 running  ■ 2 idle
+"››› foreman 0.1.3   ◇ watching         gpt-6.1-sol · high · fast  ■ 2 WAITING  ■ 1 running  ■ 2 idle
 
 
 
@@ -310,29 +310,29 @@ exports[`monitor frames > help at 100 columns 1`] = `
 
 
 
-            ╭──────────────────────────────────────────────────────────────────────────╮
-            │ Monitor help                                                             │
-            │                                                                          │
-            │ ↑/k previous       ↓/j next                                              │
-            │ Home first         End last                                              │
-            │ PgUp scroll up     PgDn scroll down                                      │
-            │ ! needs me         Enter open / expand                                   │
-            │ a answer           d defer                                               │
-            │ s steer            F follow up                                           │
-            │ i interrupt        x archive                                             │
-            │ ctrl-e open $EDITOR in any text box                                      │
-            │ w watch only       ! needs me                                            │
-            │ / filter           : palette                                             │
-            │ g group            h history                                             │
-            │ ? close help       Esc close help                                        │
-            │ q quit             Ctrl-C interrupt                                      │
-            │                                                                          │
-            │ ⣾ running  ◐ starting  ■/□ waiting  ✓ idle                               │
-            │ × failed  ■ interrupted  ◐ unknown  ◌ lost                               │
-            │ ⠿ working subagent  · idle subagent                                      │
-            │                                                                          │
-            │ foreman status --all for scripts and agents                              │
-            ╰──────────────────────────────────────────────────────────────────────────╯
+
+    ╭──────────────────────────────────────────────────────────────────────────────────────────╮
+    │ Monitor help                                                                             │
+    │ ↑↓/jk select   Home/End first/last   PgUp/PgDn page                                      │
+    │ Enter open / expand   Tab next pane   j/k scroll pane                                    │
+    │ a answer   d defer   s steer   F follow up                                               │
+    │ i interrupt   x archive   y confirm   k keep worktree                                    │
+    │ ctrl-e $EDITOR   ctrl-s send   ctrl-d defer   enter send                                 │
+    │ w watch only   ! needs me                                                                │
+    │ / filter   : palette / copy command   g group   h history                                │
+    │ d diff file   D $PAGER   r review / r reviewed   R refresh files                         │
+    │ n/p hunk   f follow feed   1-5 feed filters   / search feed                              │
+    │ ? close help   Esc back / cancel   q quit   Ctrl-C quit                                  │
+    │ ⣾  running    a turn is executing; the second line says what it is doing                 │
+    │ ■  waiting    Codex asked a question and needs a person                                  │
+    │ ✓  done       the turn finished; review it, then archive                                 │
+    │ ×  failed     the turn ended with an error                                               │
+    │ ◐ starting / unknown   ■ interrupted   ◌ lost                                            │
+    │ ⠿ working subagent   · idle subagent                                                     │
+    │ ━━━─── budget: time used of the turn's limit, not progress                               │
+    │ foreman status --all for scripts and agents                                              │
+    ╰──────────────────────────────────────────────────────────────────────────────────────────╯
+
 
 
 
@@ -353,29 +353,29 @@ exports[`monitor frames > help colors 1`] = `
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
-[48;2;18;20;18m                                [38;2;45;50;43m╭──────────────────────────────────────────────────────────────────────────╮[39m                                [49m
-[48;2;18;20;18m                                [38;2;45;50;43m│ [1m[38;2;228;232;224mMonitor help                                                            [22m[38;2;45;50;43m │[39m                                [49m
-[48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224m                                                                        [38;2;45;50;43m │[39m                                [49m
-[48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224m↑/k previous       ↓/j next                                             [38;2;45;50;43m │[39m                                [49m
-[48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224mHome first         End last                                             [38;2;45;50;43m │[39m                                [49m
-[48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224mPgUp scroll up     PgDn scroll down                                     [38;2;45;50;43m │[39m                                [49m
-[48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224m! needs me         Enter open / expand                                  [38;2;45;50;43m │[39m                                [49m
-[48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224ma answer           d defer                                              [38;2;45;50;43m │[39m                                [49m
-[48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224ms steer            F follow up                                          [38;2;45;50;43m │[39m                                [49m
-[48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224mi interrupt        x archive                                            [38;2;45;50;43m │[39m                                [49m
-[48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224mctrl-e open $EDITOR in any text box                                     [38;2;45;50;43m │[39m                                [49m
-[48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224mw watch only       ! needs me                                           [38;2;45;50;43m │[39m                                [49m
-[48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224m/ filter           : palette                                            [38;2;45;50;43m │[39m                                [49m
-[48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224mg group            h history                                            [38;2;45;50;43m │[39m                                [49m
-[48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224m? close help       Esc close help                                       [38;2;45;50;43m │[39m                                [49m
-[48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224mq quit             Ctrl-C interrupt                                     [38;2;45;50;43m │[39m                                [49m
-[48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224m                                                                        [38;2;45;50;43m │[39m                                [49m
-[48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224m⣾ running  ◐ starting  ■/□ waiting  ✓ idle                              [38;2;45;50;43m │[39m                                [49m
-[48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224m× failed  ■ interrupted  ◐ unknown  ◌ lost                              [38;2;45;50;43m │[39m                                [49m
-[48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224m⠿ working subagent  · idle subagent                                     [38;2;45;50;43m │[39m                                [49m
-[48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224m                                                                        [38;2;45;50;43m │[39m                                [49m
-[48;2;18;20;18m                                [38;2;45;50;43m│ [38;2;228;232;224mforeman status --all for scripts and agents                             [38;2;45;50;43m │[39m                                [49m
-[48;2;18;20;18m                                [38;2;45;50;43m╰──────────────────────────────────────────────────────────────────────────╯[39m                                [49m
+[48;2;18;20;18m                                                                                                                                            [49m
+[48;2;18;20;18m                        [38;2;45;50;43m╭──────────────────────────────────────────────────────────────────────────────────────────╮[39m                        [49m
+[48;2;18;20;18m                        [38;2;45;50;43m│ [38;2;228;232;224mMonitor help                                                                            [38;2;45;50;43m │[39m                        [49m
+[48;2;18;20;18m                        [38;2;45;50;43m│ [38;2;228;232;224m↑↓/jk select   Home/End first/last   PgUp/PgDn page                                     [38;2;45;50;43m │[39m                        [49m
+[48;2;18;20;18m                        [38;2;45;50;43m│ [38;2;228;232;224mEnter open / expand   Tab next pane   j/k scroll pane                                   [38;2;45;50;43m │[39m                        [49m
+[48;2;18;20;18m                        [38;2;45;50;43m│ [38;2;228;232;224ma answer   d defer   s steer   F follow up                                              [38;2;45;50;43m │[39m                        [49m
+[48;2;18;20;18m                        [38;2;45;50;43m│ [38;2;228;232;224mi interrupt   x archive   y confirm   k keep worktree                                   [38;2;45;50;43m │[39m                        [49m
+[48;2;18;20;18m                        [38;2;45;50;43m│ [38;2;228;232;224mctrl-e $EDITOR   ctrl-s send   ctrl-d defer   enter send                                [38;2;45;50;43m │[39m                        [49m
+[48;2;18;20;18m                        [38;2;45;50;43m│ [38;2;228;232;224mw watch only   ! needs me                                                               [38;2;45;50;43m │[39m                        [49m
+[48;2;18;20;18m                        [38;2;45;50;43m│ [38;2;228;232;224m/ filter   : palette / copy command   g group   h history                               [38;2;45;50;43m │[39m                        [49m
+[48;2;18;20;18m                        [38;2;45;50;43m│ [38;2;228;232;224md diff file   D $PAGER   r review / r reviewed   R refresh files                        [38;2;45;50;43m │[39m                        [49m
+[48;2;18;20;18m                        [38;2;45;50;43m│ [38;2;228;232;224mn/p hunk   f follow feed   1-5 feed filters   / search feed                             [38;2;45;50;43m │[39m                        [49m
+[48;2;18;20;18m                        [38;2;45;50;43m│ [38;2;228;232;224m? close help   Esc back / cancel   q quit   Ctrl-C quit                                 [38;2;45;50;43m │[39m                        [49m
+[48;2;18;20;18m                        [38;2;45;50;43m│ [38;2;228;232;224m⣾  running    a turn is executing; the second line says what it is doing                [38;2;45;50;43m │[39m                        [49m
+[48;2;18;20;18m                        [38;2;45;50;43m│ [38;2;228;232;224m■  waiting    Codex asked a question and needs a person                                 [38;2;45;50;43m │[39m                        [49m
+[48;2;18;20;18m                        [38;2;45;50;43m│ [38;2;228;232;224m✓  done       the turn finished; review it, then archive                                [38;2;45;50;43m │[39m                        [49m
+[48;2;18;20;18m                        [38;2;45;50;43m│ [38;2;228;232;224m×  failed     the turn ended with an error                                              [38;2;45;50;43m │[39m                        [49m
+[48;2;18;20;18m                        [38;2;45;50;43m│ [38;2;228;232;224m◐ starting / unknown   ■ interrupted   ◌ lost                                           [38;2;45;50;43m │[39m                        [49m
+[48;2;18;20;18m                        [38;2;45;50;43m│ [38;2;228;232;224m⠿ working subagent   · idle subagent                                                    [38;2;45;50;43m │[39m                        [49m
+[48;2;18;20;18m                        [38;2;45;50;43m│ [38;2;228;232;224m━━━─── budget: time used of the turn's limit, not progress                              [38;2;45;50;43m │[39m                        [49m
+[48;2;18;20;18m                        [38;2;45;50;43m│ [38;2;228;232;224mforeman status --all for scripts and agents                                             [38;2;45;50;43m │[39m                        [49m
+[48;2;18;20;18m                        [38;2;45;50;43m╰──────────────────────────────────────────────────────────────────────────────────────────╯[39m                        [49m
+[48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
@@ -388,27 +388,27 @@ exports[`monitor frames > help colors 1`] = `
 `;
 
 exports[`monitor frames > list at 70 columns 1`] = `
-"››› foreman 0.1.3   ◇ watching      ■ 2 waiting  ■ 1 running  ■ 2 idle
-╭─ ■ waiting  fix-hooks q2 · 3m · defers in 12m ─────────────────────╮
-│ Keep the existing hook API?                                        │
-│ foreman answer fix-hooks q2 --file <path>                          │
-╰────────────────────────────────────────────────────────────────────╯
-╭─ ■ waiting  other q2 · 3m · defers in 12m ─────────────────────────╮
-│ Keep the existing hook API?                                        │
-│ other repo: its own session supervises it                          │
-╰────────────────────────────────────────────────────────────────────╯
- ▲ parser quiet 6m · Checking the parser boundar… s steer  i interrupt
+"››› foreman 0.1.3   ◇ watching      ■ 2 WAITING  ■ 1 running  ■ 2 idle
+┏━ ■ WAITING  fix-hooks q2 · 3m · defers in 12m ━━━━━━━━━━━━━━━━━━━━━┓
+┃ Keep the existing hook API?                                        ┃
+┗ a answer ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+┏━ ■ WAITING  other q2 · 3m · defers in 12m ━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Keep the existing hook API?                                        ┃
+┗ other repo: its own session supervises it ━━━━━━━━━━━━━━━━━━━━━━━━━┛
+▲ parser quiet 6m
 ── repo ──────────────────────────── 2 idle · 1 waiting · 1 running ──
  ✓ finished        idle      12m                                      
     done: All checks passed.                                          
- ■ fix-hooks       waiting   12m q2 pending 3m
-    … bun run check · 20s · q2 pending 3m · 2 subagents
- ⣾ parser          running   12m 3 hooks blocked
-    “Checking the parser boundaries” · 3 hooks blocked
+ ■ fix-hooks       WAITING   12m q2
+    … bun run check · 20s · 2 subagents
+ ⣾ parser          running   12m 3 hooks
+    “Checking the parser boundaries”
 · 1 idle run older than 24h
 ── other ──────────────────────────────────────────────── 1 waiting ──
- ■ other           waiting   12m q2 pending 3m
-    … bun run check · 20s · q2 pending 3m
+ ■ other           WAITING   12m q2
+    … bun run check · 20s
+
+
 
 
 
@@ -427,25 +427,25 @@ exports[`monitor frames > list at 70 columns 1`] = `
 │ Now    done: All checks…  Said   ·                                 │
 │ Files                                              0 outside scope │
 ╰────────────────────────────────────────────────────────────────────╯
-↑↓/jk select  a answer  d defer  ! needs me  ? help  q quit"
+⏎ open  a answer  / filter  : palette  ? help  q quit             0.0s"
 `;
 
 exports[`monitor frames > list at 100 columns 1`] = `
-"››› foreman 0.1.3   ◇ watching         gpt-6.1-sol · high · fast  ■ 2 waiting  ■ 1 running  ■ 2 idle
-╭─ ■ waiting  fix-hooks q2 · 3m · defers in 12m ───────────────────────────────────────────────────╮
-│ Keep the existing hook API?                                                                      │
-│ foreman answer fix-hooks q2 --file <path>                                                        │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
-╭─ ■ waiting  other q2 · 3m · defers in 12m ───────────────────────────────────────────────────────╮
-│ Keep the existing hook API?                                                                      │
-│ other repo: its own session supervises it                                                        │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+"››› foreman 0.1.3   ◇ watching         gpt-6.1-sol · high · fast  ■ 2 WAITING  ■ 1 running  ■ 2 idle
+┏━ ■ WAITING  fix-hooks q2 · 3m · defers in 12m ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Keep the existing hook API?                                                                      ┃
+┃ foreman answer fix-hooks q2 --file <path>                                                        ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+┏━ ■ WAITING  other q2 · 3m · defers in 12m ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Keep the existing hook API?                                                                      ┃
+┃ other repo: its own session supervises it                                                        ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
  ▲ parser quiet 6m · Checking the parser boundaries                             s steer  i interrupt
 ── repo ────────────────────────────────────────────────────────── 2 idle · 1 waiting · 1 running ──
    RUN              MODEL · EFFORT  STATUS        TASK           PROGRESS       BUDGET  FLAGS
  ✓ finished         sol · high      idle      12m Fix hooks                                         
     done: All checks passed.                                                                        
- ■ fix-hooks        sol · high      waiting   12m Fix hooks                     ━─────  q2 pending …
+ ■ fix-hooks        sol · high      WAITING   12m Fix hooks                     ━─────  q2 pending …
     … bun run check · 20s
     ├─ ⠿ /root/acceptance_tests  working · 20s ago · gpt-6-sol · medium
     └─ · /root/review  idle · 2m ago
@@ -454,7 +454,7 @@ exports[`monitor frames > list at 100 columns 1`] = `
 · 1 idle run older than 24h
 ── other ────────────────────────────────────────────────────────────────────────────── 1 waiting ──
    RUN              MODEL · EFFORT  STATUS        TASK           PROGRESS       BUDGET  FLAGS
- ■ other            sol · high      waiting   12m Fix hooks                     ━─────  q2 pending …
+ ■ other            sol · high      WAITING   12m Fix hooks                     ━─────  q2 pending …
     … bun run check · 20s
 
 
@@ -474,21 +474,21 @@ exports[`monitor frames > list at 100 columns 1`] = `
 `;
 
 exports[`monitor frames > list at 140 columns 1`] = `
-"››› foreman 0.1.3   ◇ watching                                daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 2 waiting  ■ 1 running  ■ 2 idle
-╭─ ■ waiting  fix-hooks q2 · 3m · defers in 12m ───────────────────────────────────────────────────────────────────────────────────────────╮
-│ Keep the existing hook API?                                                                                                              │
-│ foreman answer fix-hooks q2 --file <path>                                                                                                │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
-╭─ ■ waiting  other q2 · 3m · defers in 12m ───────────────────────────────────────────────────────────────────────────────────────────────╮
-│ Keep the existing hook API?                                                                                                              │
-│ other repo: its own session supervises it                                                                                                │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+"››› foreman 0.1.3   ◇ watching                                daemon up 2h14m  gpt-6.1-sol · high · fast  ■ 2 WAITING  ■ 1 running  ■ 2 idle
+┏━ ■ WAITING  fix-hooks q2 · 3m · defers in 12m ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Keep the existing hook API?                                                                                                              ┃
+┃ foreman answer fix-hooks q2 --file <path>                                                                                                ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+┏━ ■ WAITING  other q2 · 3m · defers in 12m ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Keep the existing hook API?                                                                                                              ┃
+┃ other repo: its own session supervises it                                                                                                ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
  ▲ parser quiet 6m · Checking the parser boundaries                                                                     s steer  i interrupt
 ── repo ────────────────────────────────────────────────────────────────────────────────────────────────── 2 idle · 1 waiting · 1 running ──
    RUN                  MODEL · EFFORT  STATUS         TASK                      PACE         PROGRESS       BUDGET             FLAGS
  ✓ finished             sol · high      idle       12m Fix hooks                 ·                                                          
     done: All checks passed.                                                                                                                
- ■ fix-hooks            sol · high      waiting    12m Fix hooks                 ·                           ━━────────  12/60m q2 pending …
+ ■ fix-hooks            sol · high      WAITING    12m Fix hooks                 ·                           ━━────────  12/60m q2 pending …
     … bun run check · 20s
     ├─ ⠿ /root/acceptance_tests  working · 20s ago · gpt-6-sol · medium
     └─ · /root/review  idle · 2m ago
@@ -497,7 +497,7 @@ exports[`monitor frames > list at 140 columns 1`] = `
 · 1 idle run older than 24h
 ── other ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 1 waiting ──
    RUN                  MODEL · EFFORT  STATUS         TASK                      PACE         PROGRESS       BUDGET             FLAGS
- ■ other                sol · high      waiting    12m Fix hooks                 ·                           ━━────────  12/60m q2 pending …
+ ■ other                sol · high      WAITING    12m Fix hooks                 ·                           ━━────────  12/60m q2 pending …
     … bun run check · 20s
 
 
@@ -517,24 +517,24 @@ exports[`monitor frames > list at 140 columns 1`] = `
 `;
 
 exports[`monitor frames > outdated active at 100 columns 1`] = `
-"››› foreman 0.1.3   ◇ watching         gpt-6.1-sol · high · fast  ■ 2 waiting  ■ 1 running  ■ 2 idle
+"››› foreman 0.1.3   ◇ watching         gpt-6.1-sol · high · fast  ■ 2 WAITING  ■ 1 running  ■ 2 idle
                                   Saved state · daemon is outdated
                  The monitor will reconnect when a compatible daemon is available.
                                         foreman status --all
-╭─ ■ waiting  fix-hooks q2 · 3m · defers in 12m ───────────────────────────────────────────────────╮
-│ Keep the existing hook API?                                                                      │
-│ foreman answer fix-hooks q2 --file <path>                                                        │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
-╭─ ■ waiting  other q2 · 3m · defers in 12m ───────────────────────────────────────────────────────╮
-│ Keep the existing hook API?                                                                      │
-│ other repo: its own session supervises it                                                        │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+┏━ ■ WAITING  fix-hooks q2 · 3m · defers in 12m ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Keep the existing hook API?                                                                      ┃
+┃ foreman answer fix-hooks q2 --file <path>                                                        ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+┏━ ■ WAITING  other q2 · 3m · defers in 12m ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Keep the existing hook API?                                                                      ┃
+┃ other repo: its own session supervises it                                                        ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
  ▲ parser quiet 6m · Checking the parser boundaries                             s steer  i interrupt
 ── repo ────────────────────────────────────────────────────────── 2 idle · 1 waiting · 1 running ──
    RUN              MODEL · EFFORT  STATUS        TASK           PROGRESS       BUDGET  FLAGS
  ✓ finished         sol · high      idle      12m Fix hooks                                         
     done: All checks passed.                                                                        
- ■ fix-hooks        sol · high      waiting   12m Fix hooks                     ━─────  q2 pending …
+ ■ fix-hooks        sol · high      WAITING   12m Fix hooks                     ━─────  q2 pending …
     … bun run check · 20s
     ├─ ⠿ /root/acceptance_tests  working · 20s ago · gpt-6-sol · medium
     └─ · /root/review  idle · 2m ago
@@ -543,7 +543,7 @@ exports[`monitor frames > outdated active at 100 columns 1`] = `
 · 1 idle run older than 24h
 ── other ────────────────────────────────────────────────────────────────────────────── 1 waiting ──
    RUN              MODEL · EFFORT  STATUS        TASK           PROGRESS       BUDGET  FLAGS
- ■ other            sol · high      waiting   12m Fix hooks                     ━─────  q2 pending …
+ ■ other            sol · high      WAITING   12m Fix hooks                     ━─────  q2 pending …
     … bun run check · 20s
 
 
@@ -561,9 +561,9 @@ exports[`monitor frames > outdated active at 100 columns 1`] = `
 
 exports[`monitor frames > outdated active colors 1`] = `
 "[48;2;27;30;26m[38;2;228;232;224m››[38;2;255;91;20m›[39m [1m[38;2;228;232;224mforeman[39m[22m [38;2;154;162;148m0.1.3[39m   [38;2;154;162;148m◇ watching[39m                  [38;2;226;192;79mdaemon outdated · saved state[39m  [38;2;154;162;148mgpt-6.1-sol · high · fast[39m  [38;2;255;91;20m■[38;2;228;232;224m 2 waiting[39m  [38;2;111;168;255m■[38;2;228;232;224m 1 running[39m  [38;2;92;201;138m■[38;2;228;232;224m 2 idle[39m[49m
-[48;2;18;20;18m[38;2;228;232;224m                                                      Saved state · daemon is outdated[39m                                                      [49m
-[48;2;18;20;18m[38;2;154;162;148m                                     The monitor will reconnect when a compatible daemon is available.[39m                                      [49m
-[48;2;18;20;18m[38;2;228;232;224m                                                            foreman status --all[39m                                                            [49m
+[48;2;18;20;18m                                                      [38;2;228;232;224mSaved state · daemon is outdated[39m                                                      [49m
+[48;2;18;20;18m                                     [38;2;154;162;148mThe monitor will reconnect when a compatible daemon is available.[39m                                      [49m
+[48;2;18;20;18m                                                            [38;2;228;232;224mforeman status --all[39m                                                            [49m
 [48;2;18;20;18m[38;2;45;50;43m╭─ [38;2;255;91;20m■ waiting  fix-hooks q2 · 3m · defers in 12m[38;2;45;50;43m ───────────────────────────────────────────────────────────────────────────────────────────╮[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148mKeep the existing hook API?                                                                                                             [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mforeman answer fix-hooks q2 --file <path>                                                                                               [38;2;45;50;43m │[39m[49m
@@ -709,8 +709,8 @@ exports[`monitor frames > probing colors 1`] = `
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                           [38;2;154;162;148m◐[38;2;228;232;224m Connecting to daemon[39m                                                           [49m
-[48;2;18;20;18m[38;2;154;162;148m                                                            Reading current runs[39m                                                            [49m
-[48;2;18;20;18m[38;2;228;232;224m                                                            foreman status --all[39m                                                            [49m
+[48;2;18;20;18m                                                            [38;2;154;162;148mReading current runs[39m                                                            [49m
+[48;2;18;20;18m                                                            [38;2;228;232;224mforeman status --all[39m                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
@@ -732,24 +732,24 @@ exports[`monitor frames > probing colors 1`] = `
 `;
 
 exports[`monitor frames > reconnecting at 100 columns 1`] = `
-"››› foreman 0.1.3   ◇ watching         gpt-6.1-sol · high · fast  ■ 2 waiting  ■ 1 running  ■ 2 idle
+"››› foreman 0.1.3   ◇ watching         gpt-6.1-sol · high · fast  ■ 2 WAITING  ■ 1 running  ■ 2 idle
                                        Reconnecting to daemon
                                           Connection lost
                                         foreman status --all
-╭─ ■ waiting  fix-hooks q2 · 3m · defers in 12m ───────────────────────────────────────────────────╮
-│ Keep the existing hook API?                                                                      │
-│ foreman answer fix-hooks q2 --file <path>                                                        │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
-╭─ ■ waiting  other q2 · 3m · defers in 12m ───────────────────────────────────────────────────────╮
-│ Keep the existing hook API?                                                                      │
-│ other repo: its own session supervises it                                                        │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+┏━ ■ WAITING  fix-hooks q2 · 3m · defers in 12m ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Keep the existing hook API?                                                                      ┃
+┃ foreman answer fix-hooks q2 --file <path>                                                        ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+┏━ ■ WAITING  other q2 · 3m · defers in 12m ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Keep the existing hook API?                                                                      ┃
+┃ other repo: its own session supervises it                                                        ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
  ▲ parser quiet 6m · Checking the parser boundaries                             s steer  i interrupt
 ── repo ────────────────────────────────────────────────────────── 2 idle · 1 waiting · 1 running ──
    RUN              MODEL · EFFORT  STATUS        TASK           PROGRESS       BUDGET  FLAGS
  ✓ finished         sol · high      idle      12m Fix hooks                                         
     done: All checks passed.                                                                        
- ■ fix-hooks        sol · high      waiting   12m Fix hooks                     ━─────  q2 pending …
+ ■ fix-hooks        sol · high      WAITING   12m Fix hooks                     ━─────  q2 pending …
     … bun run check · 20s
     ├─ ⠿ /root/acceptance_tests  working · 20s ago · gpt-6-sol · medium
     └─ · /root/review  idle · 2m ago
@@ -758,7 +758,7 @@ exports[`monitor frames > reconnecting at 100 columns 1`] = `
 · 1 idle run older than 24h
 ── other ────────────────────────────────────────────────────────────────────────────── 1 waiting ──
    RUN              MODEL · EFFORT  STATUS        TASK           PROGRESS       BUDGET  FLAGS
- ■ other            sol · high      waiting   12m Fix hooks                     ━─────  q2 pending …
+ ■ other            sol · high      WAITING   12m Fix hooks                     ━─────  q2 pending …
     … bun run check · 20s
 
 
@@ -776,9 +776,9 @@ exports[`monitor frames > reconnecting at 100 columns 1`] = `
 
 exports[`monitor frames > reconnecting colors 1`] = `
 "[48;2;27;30;26m[38;2;228;232;224m››[38;2;255;91;20m›[39m [1m[38;2;228;232;224mforeman[39m[22m [38;2;154;162;148m0.1.3[39m   [38;2;154;162;148m◇ watching[39m                                [38;2;226;192;79mdaemon up 2h14m[39m  [38;2;154;162;148mgpt-6.1-sol · high · fast[39m  [38;2;255;91;20m■[38;2;228;232;224m 2 waiting[39m  [38;2;111;168;255m■[38;2;228;232;224m 1 running[39m  [38;2;92;201;138m■[38;2;228;232;224m 2 idle[39m[49m
-[48;2;18;20;18m[38;2;228;232;224m                                                           Reconnecting to daemon[39m                                                           [49m
-[48;2;18;20;18m[38;2;154;162;148m                                                              Connection lost[39m                                                               [49m
-[48;2;18;20;18m[38;2;228;232;224m                                                            foreman status --all[39m                                                            [49m
+[48;2;18;20;18m                                                           [38;2;228;232;224mReconnecting to daemon[39m                                                           [49m
+[48;2;18;20;18m                                                              [38;2;154;162;148mConnection lost[39m                                                               [49m
+[48;2;18;20;18m                                                            [38;2;228;232;224mforeman status --all[39m                                                            [49m
 [48;2;18;20;18m[38;2;45;50;43m╭─ [38;2;154;162;148m■ waiting  fix-hooks q2 · 3m · defers in 12m[38;2;45;50;43m ───────────────────────────────────────────────────────────────────────────────────────────╮[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148mKeep the existing hook API?                                                                                                             [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148mforeman answer fix-hooks q2 --file <path>                                                                                               [38;2;45;50;43m │[39m[49m
@@ -861,23 +861,23 @@ exports[`monitor frames > reconnecting without history at 100 columns 1`] = `
 `;
 
 exports[`monitor frames > saved at 100 columns 1`] = `
-"››› foreman 0.1.3   ◇ watching         gpt-6.1-sol · high · fast  ■ 2 waiting  ■ 1 running  ■ 2 idle
+"››› foreman 0.1.3   ◇ watching             no daemon · showing saved runs  gpt-6.1-sol · high · fast
                                   Saved state · daemon not running
               The monitor checks again automatically; start work in another terminal.
                                         foreman status --all
-╭─ ■ waiting  fix-hooks q2 · 3m · defers in 12m ───────────────────────────────────────────────────╮
-│ Keep the existing hook API?                                                                      │
-│ foreman answer fix-hooks q2 --file <path>                                                        │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
-╭─ ■ waiting  other q2 · 3m · defers in 12m ───────────────────────────────────────────────────────╮
-│ Keep the existing hook API?                                                                      │
-│ other repo: its own session supervises it                                                        │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+┏━ ■ WAITING  fix-hooks q2 · 3m · defers in 12m ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Keep the existing hook API?                                                                      ┃
+┃ foreman answer fix-hooks q2 --file <path>                                                        ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+┏━ ■ WAITING  other q2 · 3m · defers in 12m ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Keep the existing hook API?                                                                      ┃
+┃ other repo: its own session supervises it                                                        ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 ── repo ────────────────────────────────────────────────────────── 2 idle · 1 waiting · 1 running ──
    RUN              MODEL · EFFORT  STATUS                         TASK  PROGRESS       BUDGET  FLA…
  ✓ finished         sol · high      idle                       12m Fix h…                           
     done: All checks passed.                                                                        
- ◌ fix-hooks        sol · high      waiting · not supervised   12m Fix h…                       q2 …
+ ◌ fix-hooks        sol · high      WAITING · not supervised   12m Fix h…                       q2 …
     … bun run check · 20s
     ├─ · /root/acceptance_tests  working · 20s ago · gpt-6-sol · medium
     └─ · /root/review  idle · 2m ago
@@ -886,7 +886,7 @@ exports[`monitor frames > saved at 100 columns 1`] = `
 · 1 idle run older than 24h
 ── other ────────────────────────────────────────────────────────────────────────────── 1 waiting ──
    RUN              MODEL · EFFORT  STATUS                         TASK  PROGRESS       BUDGET  FLA…
- ◌ other            sol · high      waiting · not supervised   12m Fix h…                       q2 …
+ ◌ other            sol · high      WAITING · not supervised   12m Fix h…                       q2 …
     … bun run check · 20s
 
 
@@ -904,10 +904,10 @@ exports[`monitor frames > saved at 100 columns 1`] = `
 `;
 
 exports[`monitor frames > saved colors 1`] = `
-"[48;2;27;30;26m[38;2;228;232;224m››[38;2;255;91;20m›[39m [1m[38;2;228;232;224mforeman[39m[22m [38;2;154;162;148m0.1.3[39m   [38;2;154;162;148m◇ watching[39m               [38;2;226;192;79mdaemon not running · saved state[39m  [38;2;154;162;148mgpt-6.1-sol · high · fast[39m  [38;2;154;162;148m■[38;2;228;232;224m 2 waiting[39m  [38;2;154;162;148m■[38;2;228;232;224m 1 running[39m  [38;2;92;201;138m■[38;2;228;232;224m 2 idle[39m[49m
-[48;2;18;20;18m[38;2;228;232;224m                                                      Saved state · daemon not running[39m                                                      [49m
-[48;2;18;20;18m[38;2;154;162;148m                                  The monitor checks again automatically; start work in another terminal.[39m                                   [49m
-[48;2;18;20;18m[38;2;228;232;224m                                                            foreman status --all[39m                                                            [49m
+"[48;2;27;30;26m[38;2;228;232;224m››[38;2;255;91;20m›[39m [1m[38;2;228;232;224mforeman[39m[22m [38;2;154;162;148m0.1.3[39m   [38;2;154;162;148m◇ watching[39m                 [38;2;226;192;79mno daemon · showing saved runs[39m  [38;2;154;162;148mgpt-6.1-sol · high · fast[39m  [38;2;154;162;148m■[38;2;228;232;224m 2 waiting[39m  [38;2;154;162;148m■[38;2;228;232;224m 1 running[39m  [38;2;92;201;138m■[38;2;228;232;224m 2 idle[39m[49m
+[48;2;18;20;18m                                                      [38;2;228;232;224mSaved state · daemon not running[39m                                                      [49m
+[48;2;18;20;18m                                  [38;2;154;162;148mThe monitor checks again automatically; start work in another terminal.[39m                                   [49m
+[48;2;18;20;18m                                                            [38;2;228;232;224mforeman status --all[39m                                                            [49m
 [48;2;18;20;18m[38;2;45;50;43m╭─ [38;2;255;91;20m■ waiting  fix-hooks q2 · 3m · defers in 12m[38;2;45;50;43m ───────────────────────────────────────────────────────────────────────────────────────────╮[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148mKeep the existing hook API?                                                                                                             [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mforeman answer fix-hooks q2 --file <path>                                                                                               [38;2;45;50;43m │[39m[49m
@@ -947,7 +947,7 @@ exports[`monitor frames > saved colors 1`] = `
 `;
 
 exports[`monitor frames > saved empty at 100 columns 1`] = `
-"››› foreman 0.1.3   ◇ watching         daemon not running · saved state  gpt-6.1-sol · high · fast
+"››› foreman 0.1.3   ◇ watching                                        no daemon · showing saved runs
 
 
 
@@ -959,6 +959,22 @@ exports[`monitor frames > saved empty at 100 columns 1`] = `
 
 
 
+          No runs on this machine yet.
+
+          Runs are started by your coding agent. Ask it to delegate, for example:
+            “Use foreman to have Codex fix the flaky hook test.”
+
+          Check this repo is ready     foreman doctor
+          Teach your agent foreman     foreman skill install
+
+          What you will see here
+            ⣾  running    a turn is executing; the second line says what it is doing
+            ■  waiting    Codex asked a question and needs a person
+            ✓  done       the turn finished; review it, then archive
+            ×  failed     the turn ended with an error
+            ━━━─── budget     time used of the turn's limit, not progress
+
+          This screen updates by itself. Checking for a daemon again in 10s.
 
 
 
@@ -966,31 +982,15 @@ exports[`monitor frames > saved empty at 100 columns 1`] = `
 
 
 
-                                  Saved state · daemon not running
-              The monitor checks again automatically; start work in another terminal.
-                                        foreman status --all
 
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-↑↓/jk select  Enter open  a answer  d defer  ! needs me  s steer  i interrupt  ? help  q quit"
+? help  q quit                                                           saved state · read 0.0s ago"
 `;
 
 exports[`monitor frames > saved starting at 100 columns 1`] = `
-"››› foreman 0.1.3   ◇ watching                               gpt-6.1-sol · high · fast  ■ 1 starting
+"››› foreman 0.1.3   ◇ watching             no daemon · showing saved runs  gpt-6.1-sol · high · fast
                                   Saved state · daemon not running
               The monitor checks again automatically; start work in another terminal.
                                         foreman status --all

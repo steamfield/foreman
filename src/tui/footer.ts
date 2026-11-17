@@ -8,7 +8,9 @@ const common: readonly Hint[] = [
   ["q", "quit"],
 ];
 function listHints(model: ViewModel): readonly Hint[] {
-  if (model.footer.compact) return common;
+  if (model.footer.compact || model.firstRun) return common;
+  if (model.columns < 100)
+    return [["⏎", "open"], ["a", "answer"], ["/", "filter"], [":", "palette"], ...common];
   return [
     ["↑↓/jk", "select"],
     ["Enter", "open"],
@@ -93,7 +95,7 @@ function hints(model: ViewModel): readonly Hint[] {
       ["Esc", model.diff ? "back" : "list"],
     ];
   const result = model.detail ? detailHints(model) : listHints(model);
-  return model.layout === "narrow" ? result.filter(([key]) => key !== "Enter") : result;
+  return result;
 }
 
 /** Formats responsive hints and preserves room for connection status when it fits. */
@@ -101,9 +103,13 @@ export function monitorFooter(model: ViewModel, colors: Theme): string {
   const left = hints(model)
     .map(([key, label]) => colors.paint(key, "fg", true) + colors.paint(` ${label}`, "muted"))
     .join("  ");
+  let status = model.footer.status;
+  if (model.firstRun && model.header.caution)
+    status = `saved state · read ${status.replace(/^updated /, "")}`;
+  else if (model.columns < 100) status = status.replace(/^updated /, "").replace(/ ago$/, "");
   const right =
-    model.footer.compact || stringWidth(left + model.footer.status) + 1 > model.columns
+    model.footer.compact || stringWidth(left + status) + 1 > model.columns
       ? ""
-      : colors.paint(model.footer.status, model.footer.caution ? "interrupted" : "muted");
+      : colors.paint(status, model.footer.caution ? "interrupted" : "muted");
   return left + " ".repeat(Math.max(1, model.columns - stringWidth(left + right))) + right;
 }
