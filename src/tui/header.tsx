@@ -1,5 +1,5 @@
 import stringWidth from "string-width";
-import type { ViewModel } from "../core/monitor/model";
+import type { ViewModel } from "../core/monitor/model-types";
 import { ModeChip } from "./act";
 import type { Theme } from "./theme";
 

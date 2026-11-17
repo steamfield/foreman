@@ -1,7 +1,7 @@
 import { selectedRun } from "./act-target";
 import { diffKey } from "./diff";
 import { openDetail, openFileDiff, refreshChanges } from "./inspect-state";
-import type { State } from "./model";
+import type { State } from "./model-types";
 
 /** Routes inspection shortcuts before the acting commands that share their keys. */
 export function inspectKey(state: State, key: string): State | null {

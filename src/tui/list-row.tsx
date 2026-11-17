@@ -1,7 +1,7 @@
 import { Box, Text } from "ink";
 import { memo } from "react";
 import stringWidth from "string-width";
-import type { RowView, ViewModel } from "../core/monitor/model";
+import type { RowView, ViewModel } from "../core/monitor/model-types";
 import { PACE_MINUTES } from "../schemas/monitor";
 import { Glyph, Line, pad, truncate } from "./components";
 import { GroupHeading } from "./group-heading";

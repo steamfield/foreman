@@ -2,8 +2,8 @@ import { DateTime } from "effect";
 import type { RunEvent } from "../../schemas/daemon";
 import type { Detail, RunView } from "../../schemas/monitor";
 import type { DetailFeed } from "./detail-feed";
-import type { PreviewView, RowView, State } from "./model";
-import { duration } from "./row";
+import { duration } from "./format";
+import type { PreviewView, RowView, State } from "./model-types";
 
 const clean = (text: string) => text.replace(/\p{Cc}/gu, " ");
 const oneLine = (text: string) => clean(text.split(/\r?\n/, 1)[0] ?? "");

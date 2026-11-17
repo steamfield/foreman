@@ -1,6 +1,6 @@
 import { Box, Text } from "ink";
 import stringWidth from "string-width";
-import type { DetailLine, Message, PaneView, ViewModel } from "../core/monitor/model";
+import type { DetailLine, Message, PaneView, ViewModel } from "../core/monitor/model-types";
 import { Glyph, Line, pad, truncate } from "./components";
 import { FindInput } from "./find-input";
 import type { Theme } from "./theme";

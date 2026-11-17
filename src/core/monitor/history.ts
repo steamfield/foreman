@@ -1,8 +1,8 @@
 import { DateTime } from "effect";
 import { tokenCount } from "../runs/digest";
 import { matchesFilter } from "./filter";
-import { type HistoryView, type Message, type State, stateTone } from "./model";
-import { duration } from "./row";
+import { duration, stateTone } from "./format";
+import type { HistoryView, Message, State } from "./model-types";
 
 const clean = (text: string) => text.replace(/\p{Cc}/gu, " ");
 const entries = (state: State) =>

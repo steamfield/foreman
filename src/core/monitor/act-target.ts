@@ -2,7 +2,8 @@ import { DateTime } from "effect";
 import type { RunName } from "../../schemas/daemon";
 import type { RunView } from "../../schemas/monitor";
 import type { ActAction, AnswerTarget, ComposeTarget } from "./act";
-import { grouped, type State } from "./model";
+import { grouped } from "./list-groups";
+import type { State } from "./model-types";
 
 /** The retained draft key for an answer or composed message. */
 export const targetKey = (

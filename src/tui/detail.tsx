@@ -1,12 +1,7 @@
 import { Box, Text } from "ink";
 import stringWidth from "string-width";
-import {
-  type DetailView,
-  detailLayout,
-  type Message,
-  type PaneView,
-  type ViewModel,
-} from "../core/monitor/model";
+import { detailLayout } from "../core/monitor/detail-view";
+import type { DetailView, Message, PaneView, ViewModel } from "../core/monitor/model-types";
 import { Glyph, Line, pad, truncate } from "./components";
 import { DetailPane } from "./detail-pane";
 import { type Theme, theme } from "./theme";

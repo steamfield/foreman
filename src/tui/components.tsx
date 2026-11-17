@@ -2,7 +2,7 @@ import cliTruncate from "cli-truncate";
 import { Text } from "ink";
 import { createContext, memo, use } from "react";
 import stringWidth from "string-width";
-import type { Tone } from "../core/monitor/model";
+import type { Tone } from "../core/monitor/model-types";
 import type { Theme } from "./theme";
 
 /** Shares the animation timestamp with glyph cells. */

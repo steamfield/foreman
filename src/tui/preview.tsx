@@ -1,6 +1,6 @@
 import { Box } from "ink";
 import stringWidth from "string-width";
-import type { PreviewView } from "../core/monitor/model";
+import type { PreviewView } from "../core/monitor/model-types";
 import { Line, pad, truncate } from "./components";
 import type { Theme } from "./theme";
 

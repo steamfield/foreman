@@ -1,5 +1,5 @@
 import type { HistoryEntry, RunView } from "../../schemas/monitor";
-import type { FilterBarView, State } from "./model";
+import type { FilterBarView, State } from "./model-types";
 import { pinnedKinds } from "./pinned";
 
 const tokens = (text: string) => text.toLowerCase().split(/\s+/).filter(Boolean);

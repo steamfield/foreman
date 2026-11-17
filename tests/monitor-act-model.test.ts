@@ -1,6 +1,8 @@
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { clockTime, initialState, reduce, type State, view } from "../src/core/monitor/model";
+import { clockTime } from "../src/core/monitor/format";
+import { initialState, reduce, view } from "../src/core/monitor/model";
+import type { State } from "../src/core/monitor/model-types";
 import { QuestionId } from "../src/schemas/daemon";
 import { at, defaults, live, now, overview, question, run } from "./helpers/monitor";
 

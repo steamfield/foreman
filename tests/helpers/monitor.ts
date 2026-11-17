@@ -1,7 +1,8 @@
 import { DateTime, Schema } from "effect";
 import type { DetailFeed } from "../../src/core/monitor/detail-feed";
 import type { MonitorFeed } from "../../src/core/monitor/feed";
-import { initialState, reduce, type State } from "../../src/core/monitor/model";
+import { initialState, reduce } from "../../src/core/monitor/model";
+import type { State } from "../../src/core/monitor/model-types";
 import { QuestionId, type RunEvent } from "../../src/schemas/daemon";
 import type { Detail } from "../../src/schemas/monitor";
 import { type Overview, RunView } from "../../src/schemas/monitor";

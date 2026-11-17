@@ -4,7 +4,8 @@ import { createElement } from "react";
 import stringWidth from "string-width";
 import { expect, it } from "vitest";
 import type { MonitorFeed } from "../src/core/monitor/feed";
-import { initialState, reduce, type ViewModel, view } from "../src/core/monitor/model";
+import { initialState, reduce, view } from "../src/core/monitor/model";
+import type { ViewModel } from "../src/core/monitor/model-types";
 import { Screen } from "../src/tui/screen";
 import { theme } from "../src/tui/theme";
 import {

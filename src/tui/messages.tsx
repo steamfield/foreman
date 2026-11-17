@@ -1,7 +1,7 @@
 import { Text } from "ink";
 import stringWidth from "string-width";
 import { stateLegend } from "../core/monitor/legend";
-import type { Tone, ViewModel } from "../core/monitor/model";
+import type { Tone, ViewModel } from "../core/monitor/model-types";
 import { Glyph, Line } from "./components";
 import type { Theme } from "./theme";
 

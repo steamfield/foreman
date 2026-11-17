@@ -1,8 +1,8 @@
 import { DateTime } from "effect";
 import { activeStates } from "../../schemas/daemon";
 import type { RunView } from "../../schemas/monitor";
-import type { PinnedRowView } from "./model";
-import { duration } from "./row";
+import { duration } from "./format";
+import type { PinnedRowView } from "./model-types";
 
 const oneLine = (text: string) => text.split(/\r?\n/, 1)[0]?.replace(/\p{Cc}/gu, " ") ?? "";
 const epoch = DateTime.toEpochMillis;

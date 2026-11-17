@@ -1,6 +1,6 @@
 import { Box, Text } from "ink";
 import stringWidth from "string-width";
-import type { FilterBarView } from "../core/monitor/model";
+import type { FilterBarView } from "../core/monitor/model-types";
 import { Line, pad, truncate } from "./components";
 import { FindInput, type FindMessage } from "./find-input";
 import type { Theme } from "./theme";

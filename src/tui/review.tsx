@@ -1,7 +1,7 @@
 import { Box, Text } from "ink";
 import stringWidth from "string-width";
 import { reviewLayout } from "../core/monitor/diff";
-import type { ViewModel } from "../core/monitor/model";
+import type { ViewModel } from "../core/monitor/model-types";
 import { Glyph, pad, truncate } from "./components";
 import { DiffPane } from "./diff";
 import { InspectFiles } from "./inspect-files";

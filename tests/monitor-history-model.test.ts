@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { initialState, reduce, type State, view } from "../src/core/monitor/model";
+import { initialState, reduce, view } from "../src/core/monitor/model";
+import type { State } from "../src/core/monitor/model-types";
 import type { HistoryEntry } from "../src/schemas/monitor";
 import { at, defaults, live, now, run } from "./helpers/monitor";
 

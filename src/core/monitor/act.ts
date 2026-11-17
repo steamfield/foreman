@@ -8,7 +8,7 @@
 import type { QuestionId, RunName } from "../../schemas/daemon";
 import { reduceActMessage } from "./act-reducer";
 import { targetKey as draftKey, isPending as pending } from "./act-target";
-import type { DetailLine, State } from "./model";
+import type { DetailLine, State } from "./model-types";
 
 /** Watching is the passive 0.2.0 connection; acting holds an active one. */
 export type ActMode = "watching" | "acting";

@@ -1,7 +1,8 @@
 import { DateTime } from "effect";
 import { activeStates, type RunEvent } from "../../schemas/daemon";
 import type { Detail } from "../../schemas/monitor";
-import { clockTime, type State, type TimelineView, type Tone } from "./model";
+import { clockTime } from "./format";
+import type { State, TimelineView, Tone } from "./model-types";
 
 type Cell = TimelineView["cells"][number];
 const cell = (glyph: string, tone: Tone): Cell => ({ glyph, tone });
