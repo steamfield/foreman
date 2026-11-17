@@ -311,7 +311,7 @@ describe("monitor inspection", () => {
   ])("filters %s to %s", (shortcut, filter, count) => {
     const state = key(inspectStart(), shortcut);
     expect(view(state).feedTabs).toEqual({ filter, search: "", editing: false });
-    expect(feed(state)?.title).toBe(`Feed · ${filter}`);
+    expect(feed(state)?.title).toBe("Feed");
     expect(feed(state)?.lines).toHaveLength(count);
   });
   it("searches feed text case-insensitively, Enter keeps it and Escape clears it", () => {
