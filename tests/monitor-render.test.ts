@@ -20,7 +20,7 @@ const model = (feed: MonitorFeed | null, columns: number, key?: string, rows = 4
 const feeds: { name: string; feed: MonitorFeed | null; key?: string }[] = [
   { name: "probing", feed: null },
   { name: "list", feed: live(mixedRuns()) },
-  { name: "attention", feed: live(mixedRuns()), key: "a" },
+  { name: "attention", feed: live(mixedRuns()), key: "!" },
   { name: "help", feed: live(mixedRuns()), key: "?" },
   { name: "empty", feed: live([]) },
   {
@@ -205,7 +205,7 @@ describe("monitor frames", () => {
     }
   });
   it("fills every selected cell, closes note frames and preserves narrow urgency", async () => {
-    const result = await frame(live(mixedRuns()), 140, "a", true);
+    const result = await frame(live(mixedRuns()), 140, "!", true);
     const selected = result
       .split("\n")
       .filter((line) => line.includes("fix-hooks") || line.includes("/root/"));
