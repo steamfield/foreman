@@ -143,6 +143,7 @@ const interruptions: Record<NonNullable<Digest["interruptedBy"]>, string> = {
   budget: "turn budget expired; foreman result shows the hand-off",
   orchestrator: "by the orchestrator",
   "repo-hooks": "repo hooks did not run",
+  monitor: "from foreman monitor",
 };
 
 export function renderStatus(digest: Digest): string {
@@ -152,6 +153,7 @@ export function renderStatus(digest: Digest): string {
     `turn ${digest.turn}${digest.turnKind === null ? "" : ` (${digest.turnKind})`}`,
     duration(digest.elapsedMs),
     ...(digest.interruptedBy === "budget" ? ["budget expired"] : []),
+    ...(digest.interruptedBy === "monitor" ? [interruptions.monitor] : []),
     ...digest.questions.map(({ id }) => `${id} pending`),
     ...(digest.unansweredQuestions ?? []).map(({ id }) => `${id} deferred, unanswered`),
     ...(digest.warnings.some((warning) => warning.startsWith("worktree removed: "))

@@ -14,6 +14,9 @@ export const SubAgentView = Schema.Struct({
 }).annotate({ title: "SubAgentView", description: "A supervised run's child agent" });
 export type SubAgentView = typeof SubAgentView.Type;
 
+/** Minutes covered by `RunView.pace`. */
+export const PACE_MINUTES = 12;
+
 export const RunView = Schema.Struct({
   name: Schema.String.check(Schema.isPattern(/^[a-z0-9][a-z0-9._-]{0,63}$/)).pipe(
     Schema.brand("RunName"),
@@ -70,6 +73,14 @@ export const RunView = Schema.Struct({
   lastActivityAt: Schema.NullOr(Timestamp),
   subagents: Schema.Array(SubAgentView),
   warnings: Schema.Array(Schema.String),
+  // Commands finished in this run so far, and how many exited non-zero; null when unknown.
+  commands: Schema.NullOr(Schema.Struct({ total: Schema.Int, failed: Schema.Int })),
+  // Distinct paths the run has written; null when unknown.
+  filesWritten: Schema.NullOr(Schema.Int),
+  // Journal events per minute over the last PACE_MINUTES minutes, oldest first; empty when not supervised.
+  pace: Schema.Array(Schema.Int),
+  // When a person marked the latest result reviewed in foreman monitor; null when not reviewed.
+  reviewedAt: Schema.NullOr(Timestamp),
 }).annotate({
   title: "RunView",
   description: "Cached live state and attention for a supervised run",
@@ -82,6 +93,29 @@ export const Overview = Schema.TaggedStruct("Overview", {
   runs: Schema.Array(RunView),
 }).annotate({ title: "Overview", description: "All current runs across repository groups" });
 export type Overview = typeof Overview.Type;
+
+export const HistoryEntry = Schema.Struct({
+  name: RunView.fields.name,
+  repo: Schema.String,
+  title: Schema.NullOr(Schema.String),
+  state: RunView.fields.state,
+  archived: Schema.Boolean,
+  model: Schema.String,
+  effort: Schema.String,
+  createdAt: Timestamp,
+  endedAt: Schema.NullOr(Timestamp),
+  turns: Schema.Int,
+  tokensTotal: Schema.Number,
+  commands: RunView.fields.commands,
+  filesWritten: RunView.fields.filesWritten,
+  // Where the run's files live: the run directory or its archive directory.
+  dir: Schema.String,
+}).annotate({
+  title: "HistoryEntry",
+  description:
+    "A finished or archived run's outcome, read from disk for the monitor's history view",
+});
+export type HistoryEntry = typeof HistoryEntry.Type;
 
 export const DetailQuestion = Schema.Struct({
   id: RunView.fields.questions.value.fields.id,

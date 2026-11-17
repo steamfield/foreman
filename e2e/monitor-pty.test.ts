@@ -86,7 +86,7 @@ test("compiled monitor paints saved state in a PTY and quits without starting a 
       rows: 24,
       data(terminal, bytes) {
         output += decoder.decode(bytes, { stream: true });
-        if (!quitSent && output.includes("Saved state · daemon not running")) {
+        if (!quitSent && output.includes("No runs on this machine yet.")) {
           quitSent = true;
           terminal.write("q");
         }
@@ -175,19 +175,27 @@ test("compiled monitor handles selection, panes, follow, help and filtering thro
       (_raw, text) => text.includes("Task") && text.includes("Inspect unit task"),
       key("\r"),
     );
-    for (const pane of ["Digest", "Questions", "Subagents", "Hand-off", "Commands", "Feed"]) {
+    for (const pane of [
+      "Digest",
+      "Questions",
+      "Subagents",
+      "Hand-off",
+      "Commands",
+      "Files",
+      "Feed",
+    ]) {
       await waitFor((raw) => raw.includes(`38;2;228;232;224m╭─ \u001b[1m${pane}`), key("\t"));
     }
     expect(stripVTControlCharacters(output)).toContain("unit journal message");
     await waitFor((_raw, text) => text.includes("paused · f to follow"), key("f"));
-    await waitFor((_raw, text) => text.includes("attention"), key("\u001b"));
+    await waitFor((_raw, text) => text.includes("needs me"), key("\u001b"));
     await waitFor((_raw, text) => text.includes("Monitor help"), key("?"));
     await waitFor((_raw, text) => text.includes("finished"), key("?"));
-    await waitFor((_raw, text) => text.includes("runs"), key("a"));
+    await waitFor((_raw, text) => text.includes("runs"), key("!"));
     // Resize requests a complete frame after Ink's incremental footer update.
     const resized = output.length;
     child.terminal?.resize(101, 40);
-    await waitFor((_raw, text) => text.includes("a all runs"), resized);
+    await waitFor((_raw, text) => text.includes("! all runs"), resized);
     const filtered = stripVTControlCharacters(output.slice(resized));
     expect(filtered).toContain("unit");
     expect(filtered).not.toContain("finished");

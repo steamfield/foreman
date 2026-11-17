@@ -1,7 +1,8 @@
 import { renderToString } from "ink";
 import { createElement } from "react";
 import { expect, it } from "vitest";
-import { EVENT_BUFFER_LIMIT, initialState, reduce, view } from "../src/core/monitor/model";
+import { initialState, reduce, view } from "../src/core/monitor/model";
+import { EVENT_BUFFER_LIMIT } from "../src/core/monitor/model-types";
 import { Screen } from "../src/tui/screen";
 import { theme } from "../src/tui/theme";
 import { defaults, detailLive, live, messageEvents, now, run } from "./helpers/monitor";

@@ -32,7 +32,7 @@ Fallbacks:
 - Color capability is taken from Ink's chalk detection.
 - Truecolor uses the hex values above. 256-color uses chalk's nearest match.
 - 16-color mode paints no background. States map to blue, green, red and yellow; `signal` maps to bright red with bold; muted maps to the default color with no emphasis.
-- `NO_COLOR`, or no color support, gives no color and no background. Selection becomes inverse video, and the state glyphs and bold weight carry all meaning.
+- `NO_COLOR`, or no color support, gives no color and no background. Bold and inverse video are kept: selection becomes inverse, names and keys stay bold, and state glyphs carry meaning. Waiting and failed labels become `WAITING` and `FAILED`; question frames use heavy box drawing. Pinned failures read `FAILED` and budget warnings read `% OF BUDGET`.
 - The renderer never uses dim (SGR 2), italics or blink. Muted text uses the muted color, because dim renders inconsistently across terminals.
 
 ## Type
@@ -80,88 +80,125 @@ Ages and elapsed times recompute on the tick at one-second resolution, from time
 
 ## Components
 
-Header bar: one line on `console-2`.
-- Left side: the mark, then `foreman` in bold, then the version in muted.
-- Right side, in this order: daemon status, which is either `daemon up 2h14m` (muted) or `daemon not running · saved state` (amber); a default-settings chip such as `gpt-6.1-sol · high · fast` (muted); and state count badges such as `■ 2 running` and `■ 1 waiting`, each with its square in the state color and its count in fg.
-- Drop elements from the right as width shrinks. The counts go last.
+### Header and footer
 
-Attention notes: these appear only when some run in the list needs a person. The note sits between the header and the groups, at most three of them, and a fourth case shows `+N more`.
-- Each note is a frame drawn in `console-line` and headed by a waiting badge, for example `╭─ ■ waiting  fix-hooks q2 · 3m · defers in 12m ─╮`.
-- The body is one line of question text truncated with `…`, then the copyable command `foreman answer fix-hooks q2 --file <path>` in fg.
-- Notes for other repos show `other repo: its own session supervises it` in place of the command.
+The header is one line on `console-2`: the mark, bold `foreman`, muted version and the mode chip. Watching reads `◇ watching` in muted; acting reads `◆ acting` in running blue. Acting adds `daemon stays up while this monitor is open · w to watch only` when it fits. The right side holds that note, daemon status, default model settings and state counts. As width shrinks, the acting note drops first, then daemon status and defaults, keeping counts longest. With no daemon, the order favors keeping the daemon warning.
 
-Group header: a section rule in the rr style, with square corners.
-- Layout: `── claude-codex ───────────────────── 2 running · 1 waiting ──`.
-- The rule is `console-line`, the title is fg bold, and the summary is muted.
-- The cwd's group comes first, then groups ordered by most recent activity.
+The footer uses the same background, with bold keys and muted labels on the left and freshness or reconnection status on the right when it fits. Hints follow the current screen or overlay. The ordinary list and detail footer collapses to `? help  q quit` below 24 rows. At narrow widths the list favors open, answer, filter, palette and help.
 
-Run row: two lines, then one line per subagent.
-- Line 1: the lead glyph; the name in bold; the state word in the state color with its age in muted; `t2 followup` in muted; the budget bar; and flags.
-- Line 2 is indented four columns and shows the activity. It comes from the first source that applies:
-  - an open command, shown as `…` plus the command text in fg and its age in muted
-  - the latest commentary, in muted, inside `“…”`
-  - the outcome, as `done:` or `failed:` plus its first line
-- Selection paints the full width of all of the run's lines with `console-2`. There is no colored left stripe, following the site's rule for active items.
+### Questions and pinned rows
 
-Flags appear after the budget bar, separated by `·`:
-- `q2 pending 3m` in `signal`
-- `2 deferred` in amber
-- `quiet 6m` in amber
-- `retrying (usage limit)` in amber
-- `3 hooks blocked` in red
-- `2 outside scope` in amber
-- settings that differ from the defaults (`effort medium`, `read-only`) in muted
+Question notes precede the groups, at most three (one below 24 rows), followed by `+N more`. A frame names the run, question id, waiting age and deferral countdown. Its question text is one truncated line. At 100 columns and above a separate line shows `foreman answer fix-hooks q2 --file <path>`; below 100 the frame becomes three lines and offers `a answer` on its bottom border. Other repos retain `other repo: its own session supervises it`. Notes remain visible when their runs are hidden by a filter.
 
-Budget bar: 10 cells.
-- Elapsed cells are `━`. They are running blue below 80% of the budget, amber from 80%, and red at 100% or past it, which is the hand-off case.
-- Remaining cells are `─` in `console-line`.
-- `12/60m` follows in muted.
-- Inactive runs show no bar.
+Non-question attention follows the question notes: failed runs first, then active runs at or above 80% of budget, then quiet running runs without an open command. Within each reason, older cases come first. There are at most three pinned rows and a `+N more` count. A run can have more than one reason. Failed rows use `×` and red; budget and quiet rows use `▲` and amber. At 100 columns and above each row includes its reason and key hints; below 100 the three cases share one compact line. These rows also remain visible through filtering. Saved state with no daemon suppresses budget and quiet pins.
 
-Subagent line: `├─`, then the glyph, then the path (`/root/acceptance_tests`) in fg, then `working · 20s ago` or `idle · 2m ago` in muted. Model and effort appear only when they differ from the parent's.
+### Groups and run rows
 
-Older idle runs: one muted line per group, `· 7 idle runs older than 24h`. Enter on it expands them.
+`g` cycles repo, state and recent grouping. Repo grouping puts the cwd's main checkout first, then repos by recent activity. State grouping orders waiting, running, starting, failed, interrupted, unknown, lost and idle. Recent grouping is one flat group ordered by state-change time. Group rules use `console-line`, bold fg titles and muted state counts; while filtering, summaries report shown and hidden counts. Idle runs older than 24 hours collapse to a muted count per group; Enter expands them.
 
-Footer bar: one line on `console-2`.
-- Left side: key hints, each with the key in bold fg and the action in muted, two spaces apart.
-- Right side: `updated 0.4s ago` in muted. When the connection is lost it shows `reconnecting in 4s` in amber instead.
-- Below 24 rows, the footer shrinks to `? help  q quit`.
+Each run has two lines, plus subagent lines at 100 columns and above. Line 1 has the lead glyph, bold name, model and effort, state and age, task, pace, progress, budget and flags as width allows. The task is the stored title taken from the contract's first heading, falling back to its first nonblank line. Model names are shortened and medium effort reads `med`. Progress reads `t2 · 14 cmds` with a red failure count. Pace is events per minute over the last 12 minutes, an activity signal rather than completion progress.
 
-Detail view:
-- Header block: a frame headed by the run's state badge and its name. Inside it, two columns of label and value pairs. Labels are muted and right-aligned; values are fg.
-- Panes are frames with `╭─ Title ─────── value ─╮` headers in rr's section-header style. The focused pane's border and title are fg, and unfocused panes use `console-line`.
-- The panes are task, digest, questions, subagents, hand-off, commands and the feed.
-- Feed entries follow the site's EventFeed:
-  - a muted timestamp
-  - commands with `…`, `✓` or `×N`
-  - file writes as `write <path>`
-  - messages as plain fg text
-  - questions and hooks blocked as small framed notes headed by their badges
-  - state, turn and resolution lines in muted
-- When follow is on, the feed header shows `following` in muted. When it is off it shows `paused · f to follow`.
+Line 2 is indented four columns. It shows the open command and age first, otherwise commentary in quotes, otherwise the outcome as `done:` or `failed:` and its first prose line. Subagents use tree lines, a working or idle glyph, path and activity age; model and effort appear when they differ from the parent's. Below 100 columns the activity line carries a subagent count instead. Selection fills every line of the run with `console-2`, with no colored stripe.
 
-Help overlay: a centered frame drawn over a `console` fill. It holds the key table in two columns, the glyph legend, and a single line pointing to `foreman status --all` for scripts and agents.
+Flags after the budget show pending questions in `signal`, deferred questions, quiet, retries and outside-scope writes in amber, hook blocks in red, and non-default settings in muted. Below 100 columns only the most urgent flag is kept, with compact wording; when no urgent flag applies it can show budget percent or `review`/`reviewed`.
 
-Empty, no-daemon, outdated and lost states: a centered block. One fg line says what is happening, one muted line says what to do, and the command to run is shown in fg. The `◐` spinner appears only while probing.
+The budget bar uses `━` for elapsed cells and `─` in `console-line` for remaining cells. Elapsed cells are blue below 80%, amber from 80% and red at 100%. It has 10 cells at 120 columns and above, 6 at 80–119, and none below 80. The `12/60m` label appears at 140 columns and above. Inactive or unsupervised runs have no bar. It measures time spent against the turn's limit, never work completed.
+
+### Preview strip
+
+At 30 rows and above, the selected list run gets a five-line frame above the footer. It shows contract prose (falling back to the task title), current activity, the latest retained commentary, and up to three recorded file paths with a remaining count. Outside-scope paths use `▲` and an outside count. These paths come from the detail digest, without line counts or a worktree refresh. The strip disappears in detail, history and help, and when no run is selected.
+
+### Filter, palette and history
+
+`/` in the list or history opens a filter bar under the header. Matching is case-insensitive and every whitespace-separated token must match. Enter keeps the filter; Esc clears it. The bar shows matching and total counts. The list also warns when waiting runs are hidden, while keeping their attention notes visible.
+
+| Token | Match |
+| --- | --- |
+| `state:running,waiting` | Any named state in the comma-separated list |
+| `repo:text` | Repository path containing text |
+| `model:text` | Model or effort containing text |
+| `needs:me` | Pending questions or a failed, budget or quiet pin in the list |
+| Plain text | Run name, task title or activity; history also searches repo |
+
+`!` adds or removes `needs:me` without discarding other tokens. `:` in the list opens a centered command palette for the selected run. Typing filters labels; arrows choose, Enter executes and Esc closes. It lists eligible answer, defer, steer, follow-up, interrupt and archive actions, copyable CLI commands, and grouping, history, filter and help. While watching, a heading explains that actions switch to acting. Copy uses the terminal's OSC 52 clipboard support and reports a notice.
+
+`h` opens history, a table of finished and archived runs with repo, task, outcome, end age, duration, turns and tokens. It reads at most 500 run journals and reports unreadable entries. The list filter carries into history. Arrows or `j`/`k` select; Home/End jump; `h` or Esc returns. History is a browsing table, with no Enter-to-open or mutation shortcuts.
+
+## Watching and acting
+
+The interactive monitor opens watching. The first eligible action opens `Switch to acting?`, explaining that acting holds the daemon open. `y` or Enter confirms; `n` or Esc cancels. The confirmed action then opens its input or confirm, or sends the immediate action. `w` returns to watching, and the next action asks again. Acting needs a live daemon of this build; saved or reconnecting feeds show a notice instead. The live monitor never starts or replaces a daemon.
+
+| Action | Key and target |
+| --- | --- |
+| Answer | `a` targets the selected run's first pending question, falling back to a question in the unfiltered list. Review can target a deferred question for a late answer. |
+| Defer | `d` sends immediately while acting for a pending question; in the Files pane it opens a diff instead. A deferred question cannot be deferred again. |
+| Steer | `s` opens compose for a starting or running turn. |
+| Follow up | `F` opens compose for idle, failed or interrupted runs. |
+| Interrupt | `i` opens a confirm for starting, running or waiting runs. |
+| Archive | `x` opens a confirm for idle, failed, interrupted or lost runs. The daemon treats `unknown` as active, so those runs are not offered archive until `foreman status` resolves them. |
+| Mark reviewed | `r` in review marks an idle, failed or interrupted run reviewed. |
+
+Overlays are centered over the list or detail, at most 104 columns wide with a four-column outer margin. They use fg borders and titles, console fill, and their own footer hints. While open they own input, so typing `q` or `j` in a draft does not quit or move selection.
+
+The answer box names the run and question, kind, asked time, waiting age and deferral countdown. It wraps the question and clips it with `…` when height is limited. When detail events are loaded and there is room, `Leading up to it` shows up to three preceding feed lines. The draft occupies a three-line input area. Enter or Ctrl-S sends nonblank text; Ctrl-D defers a pending question; Ctrl-E opens `$EDITOR`; Esc closes and keeps the draft. The delegating agent may answer too: the first accepted answer wins. If the question resolves while typing or the daemon rejects the answer, the draft is kept.
+
+Compose for steer and follow-up shows run, turn, state and age above the same draft input. Enter or Ctrl-S sends; Ctrl-E opens `$EDITOR`; Esc keeps the draft and closes. Editor hand-off suspends the TUI and restores it on return. Successful sends remove the corresponding draft; failures keep it.
+
+The interrupt confirm shows turn and budget facts, the open command when present, command count when detail is loaded, and outside-scope writes. `y` interrupts, `s` switches to steer when eligible, and `n` or Esc cancels. The archive confirm names the worktree and branch and warns about deletion and uncommitted changes. `y` requests normal archive cleanup, `k` archives while keeping the worktree, and `n` or Esc cancels. The daemon still enforces safe managed cleanup and retains prepared worktrees; the confirm does not override those checks. Enter confirms acting only; interrupt and archive require their displayed letter.
+
+Notices occupy one line above the footer: `✓` with done color for success, `×` with failed color for errors. They name the result or rejection and clear on the next key. A lost acting connection returns to watching and retains drafts. If a mutation was in flight, its outcome can be unknown and the notice points to `foreman status <name>`.
+
+## Detail, diff and review
+
+Enter on a list run or `foreman monitor <name>` opens detail. Its framed header shows state and name plus worktree, branch, base, model, turn and connection facts. Labels are muted and values fg. The panes are Task, Digest, Questions, Subagents, Hand-off, Commands, Files and Feed, cycled with Tab. Focused borders and titles use fg; other borders use `console-line`. Arrows or `j`/`k` scroll the focused pane; Home/End and PgUp/PgDn move through it. Esc returns to the list.
+
+Feed entries use muted timestamps; commands use `…`, `✓` and `×N`; file writes read `write <path>`; messages use fg; questions and hook blocks are framed notes. State, turn and resolution lines use muted. Monitor resolutions and interruptions say `from monitor`. `f` toggles follow; scrolling upward in the feed pauses it. The title reads `following` or `paused · f to follow`. Keys `1`–`5` select all, commands, files, messages or questions (including hook blocks). `/` searches displayed feed lines case-insensitively; Enter retains the search and Esc clears it. The feed buffers 1,000 events and shows dropped-event and gap notices.
+
+Files lists changed paths against the recorded base commit, including untracked files, with status, added/removed counts and `▲` for paths outside May change. Unavailable untracked counts read `?`; other unavailable counts read `binary`. Reads happen on opening detail or review and on `R`, rather than continuously. `j`/`k` selects a file and `d` opens its unified diff, including an untracked file's contents. `D` from detail, diff or review opens the combined tracked Git diff in `$PAGER` (default `less -R`); it excludes untracked files, which must be opened individually with `d`. Diff lines retain `+`/`-`, old/new line numbers and hunk headers; additions are green, removals red and hunk headers blue. `n`/`p` jumps hunks, `[`/`]` changes files, arrows or `j`/`k` scroll, and PgUp/PgDn/Home/End navigate. Esc closes the diff. Inline diffs stop at 512 KiB with a notice; pager reads refuse diffs over 16 MiB.
+
+A timeline frame above detail compresses the run's lifetime into working `━`, failed-command `×`, quiet `┄` and question `■` cells, with time ticks and a legend. When subagents exist it adds their activity track. It uses retained events, appears at widths of at least 40 columns when height permits, and is absent in review.
+
+`r` from the list or detail opens review for an idle, failed or interrupted run. The summary shows turns, elapsed/budget time, commands, changed files, outside-scope count and review status. Hand-off and `Decided without you` frames sit above Files and Diff; below 120 columns Files and Diff stack. Deferred decisions show the question and the first subsequent agent message when available. Tab cycles hand-off, decisions, files and diff. `a` can answer an unresolved deferred question late; `r` marks reviewed through the daemon, `F` follows up and `x` archives. Marking reviewed does not commit or archive; a new turn clears the mark.
+
+## First run, help and connection states
+
+With no current runs and a compatible or absent daemon, the first-run screen explains that the coding agent starts runs, gives an example delegation request, and names `foreman doctor` and `foreman skill install`. It teaches running, waiting, done and failed, plus the budget bar's meaning. With no daemon it shows the next probe countdown and updates itself. An outdated daemon keeps its saved-state explanation instead. The screen does not offer a start-run action.
+
+`?` opens a centered keyboard reference and the same state legend, plus starting, unknown, interrupted, lost and subagent glyphs. It ends with `foreman status --all for scripts and agents`. `?` or Esc closes it. `q` quits when no action overlay or text input is open; Ctrl-C interrupts and restores the terminal.
+
+Saved, outdated, reconnecting and archived-detail states say what is available and give a command where needed. No daemon means saved active rows are explicitly unsupervised. An outdated daemon's rows can still animate, but acting is unavailable. Reconnecting retains the last data with subdued tones. Watching and acting both preserve the feed's passive reconnection behavior; acting has its own connection-loss notice.
 
 ## Layout breakpoints
 
 | Width | Layout |
 | --- | --- |
-| ≥ 120 | Full row and side-by-side detail panes |
-| 80–119 | The budget bar shrinks to 6 cells, the turn kind drops, and detail panes stack |
-| < 80 | Lead glyph, name, state and age on line 1; activity on line 2; flags reduced to the most urgent one; no tree lines for subagents (count only) |
+| ≥ 140 | All optional columns, including the numeric budget label; 10-cell bar and side-by-side detail/feed |
+| 120–139 | Budget label drops; pace remains; 10-cell bar and side-by-side detail/feed |
+| 100–119 | Pace drops; progress remains; 6-cell bar; detail panes stack |
+| 90–99 | Progress drops; model and task remain; subagents become a count and flags compact |
+| 80–89 | Model drops; task remains with name, state, age and 6-cell budget bar; compact question notes and pins |
+| < 80 | Task and budget bar drop; name, state, age, activity and a compact flag remain |
 
 | Height | Layout |
 | --- | --- |
 | < 24 | Footer collapsed, attention notes limited to one |
-| ≥ 40 | Detail panes get their full height, and the feed shows 30+ entries |
+| 24–29 | Standard footer; no preview strip |
+| ≥ 30 | Five-line selected-run preview in the list |
+| ≥ 40 | Detail panes have more room for feed entries and the timeline |
 
-Truncation always uses `…` at the end of a field, and never wraps a row. Wide characters are measured with Ink's string width.
+At 80 columns the list remains two lines per run, with Task still visible. Notes take three lines, pins share one line, subagents become a count and the footer keeps its shorter hints. Optional columns drop in this order: budget label, pace, progress, model, task. Truncation uses `…`, and rows never wrap. Terminal string width determines clipping, including wide characters. Overlay paragraphs and input can wrap within their frames.
+
+## Line mode and snapshots
+
+`foreman monitor --line` prints a compact passive overview without input, overlays or an alternate screen. With a pending question it shows the oldest run/question and age, plus a count of further questions; it also counts working, done, failed and interrupted runs. With no pending question it says `nothing needs you`. Saved state identifies no daemon or an outdated daemon and counts saved runs; reconnecting is explicit.
+
+On a TTY it rewrites one line, clipped to terminal width minus one, until interrupted. With redirected output it prints changed lines without color. `--line --once` prints the first update and exits for a status bar, even when that update is saved state. Line mode works inside a Codex delegate and never starts, replaces or keeps a daemon alive. It rejects a run name or `--json`; `--once` requires `--line`.
+
+Ordinary `monitor` without both TTYs, with `--json`, or under `CODEX_DELEGATE` prints the normal named status or all-runs snapshot. That path may start the daemon; text output includes a note explaining the fallback. Scripts and agents use `status --all`, `wait` and `events`.
 
 ## Verification
 
 - `tests/monitor-theme.test.ts` checks that every token in `src/tui/theme.ts` equals the matching value in `site/src/styles/global.css`, and that the contrast of `console-muted` and each state color on `console` and `console-2` is 4.5:1 or better.
-- Golden render tests with `ink-testing-library` cover the list, detail, help and each state at 70, 100 and 140 columns. Each test keeps two snapshots: frames with ANSI stripped (the layout), and frames with escapes kept for one fixture per state (the colors).
-- A render benchmark test renders a 10-run frame 100 times and asserts it stays under a stated time budget.
-- `NO_COLOR=1` render tests show that state stays readable from glyphs alone.
+- Render and model tests under `tests/monitor-*.test.ts` cover list, detail, acting overlays, finding, inspection, review, first-run and narrow layouts. Snapshots pin list, detail and review frames.
+- `tests/monitor-render.bench.ts` measures rendering separately from the unit gate.
+- `tests/monitor-fallbacks.test.ts` checks 80-column and `NO_COLOR` treatment, including retained bold and inverse selection. `tests/monitor-command.test.ts` and `tests/monitor-line.test.ts` cover line mode and snapshot fallbacks.

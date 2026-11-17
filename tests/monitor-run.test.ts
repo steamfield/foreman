@@ -30,6 +30,7 @@ it("restores the terminal and reports one defect when a component throws during 
         Stream.make(live()),
         () => Stream.never,
         true,
+        undefined,
         ThrowingApp,
       ).pipe(
         Effect.scoped,

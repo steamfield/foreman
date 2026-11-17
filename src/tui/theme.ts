@@ -1,5 +1,5 @@
 import chalk, { Chalk, type ColorSupportLevel } from "chalk";
-import type { Tone } from "../core/monitor/model";
+import type { Tone } from "../core/monitor/model-types";
 
 export const tokens = {
   console: "#121412",

@@ -100,6 +100,12 @@ const rejectRequest = Effect.fnUntraced(function* (
   );
 });
 
+/** The monitor's refusal when another actor already answered or ended a question. */
+const alreadyResolved = (name: string, id: string, state: string | undefined) =>
+  new RunConflict({
+    detail: `Question ${id} in run ${name} was resolved as ${state}; nothing was sent. Use foreman answer ${name} ${id} "<text>" to send a late answer or correction.`,
+  });
+
 const buildSupervisor = Effect.fn("supervisor.build")(function* () {
   const config = yield* AppConfig;
   const host = yield* Host;
@@ -203,12 +209,19 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
     message: string,
     resolution: "late" | "correction",
     continuation?: string,
+    expectOpen?: true,
+    source?: "monitor",
   ) {
     while (true) {
       const changed = yield* registry.change;
       const accepted = yield* run.lock.withPermits(1)(
         Effect.gen(function* () {
           yield* registry.requireCurrent(run);
+          if (expectOpen) {
+            const question = yield* questions.inspect(run, id);
+            if (!question.open && question.state !== "deferred")
+              return yield* alreadyResolved(run.record.name, id, question.state);
+          }
           if (activeStates.has(run.record.state)) return null;
           const result = yield* followupLocked(
             run,
@@ -222,6 +235,7 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
             text,
             "followup",
             continuation === undefined ? undefined : { id: continuation, turn: run.record.turns },
+            source,
           );
           return { ...result, delivery: "followup" as const };
         }),
@@ -238,13 +252,24 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
       Effect.gen(function* () {
         yield* registry.requireCurrent(run);
         const question = yield* questions.inspect(run, body.question);
+        if (body.expectOpen && !question.open && question.state !== "deferred")
+          return yield* alreadyResolved(body.name, body.question, question.state);
         if (!question.open && question.pending[0])
           return yield* new RunConflict({
             detail: `Cannot answer ${body.question} in run ${body.name} while ${question.pending[0].id} is pending. Use foreman answer ${body.name} ${question.pending[0].id} "<answer>"; it can include this change.`,
           });
         if (question.open) {
           const accepted = yield* acceptedCursor(run);
-          yield* questions.resolve(run, yield* servers.get, body.question, body.text, "answered");
+          yield* questions.resolve(
+            run,
+            yield* servers.get,
+            body.question,
+            body.text,
+            "answered",
+            "orchestrator",
+            undefined,
+            body.source,
+          );
           return { _tag: "Accepted" as const, ...accepted, delivery: "response" as const };
         }
         const resolution: "correction" | "late" = question.correction ? "correction" : "late";
@@ -258,12 +283,27 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
         ) {
           const continuation = crypto.randomUUID();
           const queued = yield* acceptedCursor(run, continuation);
-          yield* questions.record(run, body.question, resolution, body.text, "queued");
+          yield* questions.record(
+            run,
+            body.question,
+            resolution,
+            body.text,
+            "queued",
+            undefined,
+            body.source,
+          );
           yield* registry.enqueueAnswer(
             run,
-            followupAnswer(run, body.question, body.text, message, resolution, continuation).pipe(
-              Effect.asVoid,
-            ),
+            followupAnswer(
+              run,
+              body.question,
+              body.text,
+              message,
+              resolution,
+              continuation,
+              undefined,
+              body.source,
+            ).pipe(Effect.asVoid),
           );
           return { _tag: "Accepted" as const, ...queued, delivery: "queued" as const };
         }
@@ -271,7 +311,15 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
           const accepted = yield* acceptedCursor(run);
           const result = yield* turns.steer(run, message).pipe(Effect.result);
           if (result._tag === "Success") {
-            yield* questions.record(run, body.question, resolution, body.text, "steer");
+            yield* questions.record(
+              run,
+              body.question,
+              resolution,
+              body.text,
+              "steer",
+              undefined,
+              body.source,
+            );
             return { _tag: "Accepted" as const, ...accepted, delivery: "steer" as const };
           }
           if (
@@ -293,6 +341,9 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
       body.text,
       prepared.message,
       prepared.resolution,
+      undefined,
+      body.expectOpen,
+      body.source,
     );
   });
   const dispatch = Effect.fnUntraced(function* (
@@ -407,6 +458,16 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
                   !activeStates.has(run.record.state) && handoff.latestTurnWithoutHandoff,
               };
             }
+            if (body._tag === "Review") {
+              if (["starting", "running", "waiting"].includes(run.record.state))
+                return yield* new RunConflict({
+                  detail: `${body.name} is ${run.record.state}; wait until the run is inactive before marking it reviewed.`,
+                });
+              yield* registry.save(run, {
+                reviewedAt: DateTime.makeUnsafe(yield* Clock.currentTimeMillis),
+              });
+              return { _tag: "Ok" };
+            }
             const accepted = yield* acceptedCursor(run);
             switch (body._tag) {
               case "Steer":
@@ -414,7 +475,7 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
                 yield* questions.supersede(run);
                 break;
               case "Interrupt":
-                yield* turns.interrupt(run, yield* servers.get, "orchestrator");
+                yield* turns.interrupt(run, yield* servers.get, body.source ?? "orchestrator");
                 break;
               case "Defer": {
                 const question = yield* questions.inspect(run, body.question);
@@ -430,6 +491,7 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
                   "deferred",
                   "orchestrator",
                   body.note,
+                  body.source,
                 );
                 break;
               }

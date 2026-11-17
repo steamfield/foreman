@@ -1,6 +1,8 @@
 import { DateTime, Schema } from "effect";
 import type { DetailFeed } from "../../src/core/monitor/detail-feed";
 import type { MonitorFeed } from "../../src/core/monitor/feed";
+import { initialState, reduce } from "../../src/core/monitor/model";
+import type { State } from "../../src/core/monitor/model-types";
 import { QuestionId, type RunEvent } from "../../src/schemas/daemon";
 import type { Detail } from "../../src/schemas/monitor";
 import { type Overview, RunView } from "../../src/schemas/monitor";
@@ -41,6 +43,10 @@ export function run(name = "fix-hooks", overrides: Partial<RunView> = {}): RunVi
       lastActivityAt: "2026-11-16T11:59:40Z",
       subagents: [],
       warnings: [],
+      commands: null,
+      filesWritten: null,
+      pace: [],
+      reviewedAt: null,
     }),
     ...overrides,
   };
@@ -280,4 +286,33 @@ export function detailEvents(): RunEvent[] {
       },
     },
   ];
+}
+
+/** Sends a terminal key through the monitor's public reducer. */
+export const monitorKey = (state: State, key: string): State => reduce(state, { type: "key", key });
+
+/** Opens a live detail with the supplied run and event journal. */
+export function inspectStart(data = detail(), events = detailEvents()): State {
+  return reduce(
+    initialState({
+      group: "/repo",
+      defaults,
+      version: "dev",
+      now,
+      columns: 100,
+      rows: 40,
+      name: data.run.name,
+    }),
+    {
+      type: "detail-feed",
+      name: data.run.name,
+      value: detailLive(data, events),
+    },
+  );
+}
+
+/** Moves focus through the detail's visible panes. */
+export function focusFiles(state: State): State {
+  for (let i = 0; i < 10 && state.detail?.focus !== "files"; i++) state = monitorKey(state, "tab");
+  return state;
 }

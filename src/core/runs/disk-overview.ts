@@ -31,6 +31,14 @@ export const diskRunView = Effect.fn("runs.diskRunView")(function* (
   const handoff = yield* optionalText(path.join(dir, "last-message.md"));
   const title = contractTitle(yield* optionalText(path.join(dir, "contract.md")));
   const at = DateTime.toEpochMillis(record.updatedAt);
+  const { events } = yield* Store.readEvents(dir, 0, Number.MAX_SAFE_INTEGER);
+  const commands = events
+    .map((entry) => entry.event)
+    .filter((event) => event._tag === "Command")
+    .filter((event) => event.exitCode !== null);
+  const filesWritten = new Set(
+    events.flatMap(({ event }) => (event._tag === "FileChange" ? event.paths : [])),
+  );
   const digest = buildDigest(record, [], [], dir, at, null);
   const current = activity({
     state: record.state,
@@ -51,10 +59,7 @@ export const diskRunView = Effect.fn("runs.diskRunView")(function* (
     tier: record.tier,
     sandbox: digest.sandbox,
     state: record.state,
-    stateSince: stateSince(
-      record,
-      (yield* Store.readEvents(dir, 0, Number.MAX_SAFE_INTEGER)).events,
-    ),
+    stateSince: stateSince(record, events),
     turn: record.turns,
     turnKind: record.turnKind,
     turnStartedAt: record.turnStartedAt,
@@ -89,6 +94,13 @@ export const diskRunView = Effect.fn("runs.diskRunView")(function* (
     lastActivityAt: null,
     subagents: [],
     warnings: record.warnings,
+    commands: {
+      total: commands.length,
+      failed: commands.filter((command) => command.exitCode !== 0).length,
+    },
+    filesWritten: filesWritten.size,
+    pace: [],
+    reviewedAt: record.reviewedAt ?? null,
   };
   return view;
 });

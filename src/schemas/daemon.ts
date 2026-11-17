@@ -43,7 +43,7 @@ export const Sandbox = Schema.Literals(["read-only", "danger-full-access"]);
 export type Sandbox = typeof Sandbox.Type;
 
 export const TurnKind = Schema.Literals(["start", "followup", "handoff"]);
-export const InterruptedBy = Schema.Literals(["orchestrator", "budget", "repo-hooks"]);
+export const InterruptedBy = Schema.Literals(["orchestrator", "budget", "repo-hooks", "monitor"]);
 export type TurnKind = typeof TurnKind.Type;
 
 // Unversioned storage is version 1. Question/event writers use version 2.
@@ -125,6 +125,8 @@ export const RunRecord = Schema.Struct({
   warnings: Schema.Array(Schema.String),
   createdAt: Schema.DateTimeUtcFromString,
   updatedAt: Schema.DateTimeUtcFromString,
+  // Set by a Review request; cleared when a new turn starts.
+  reviewedAt: Schema.optionalKey(Schema.NullOr(Schema.DateTimeUtcFromString)),
   pendingStateEvent: Schema.optionalKey(
     Schema.NullOr(
       Schema.Struct({
@@ -170,6 +172,8 @@ export const RunEventBody = Schema.TaggedUnion({
       "correction",
       "superseded",
     ]),
+    // Present when a person answered or deferred from foreman monitor.
+    source: Schema.optionalKey(Schema.Literal("monitor")),
   },
   Steered: { message: Schema.String },
   Interrupted: { by: InterruptedBy },
@@ -321,9 +325,23 @@ export const DaemonRequestBody = Schema.TaggedUnion({
     budgetMs: Schema.optionalKey(Schema.Int),
     effort: Schema.optionalKey(Schema.String),
   },
-  Interrupt: { name: RunName },
-  Answer: { name: RunName, question: QuestionId, text: Schema.String },
-  Defer: { name: RunName, question: QuestionId, note: Schema.optionalKey(Schema.String) },
+  Interrupt: { name: RunName, source: Schema.optionalKey(Schema.Literal("monitor")) },
+  // A person marked the run's result reviewed in foreman monitor.
+  Review: { name: RunName },
+  Answer: {
+    name: RunName,
+    question: QuestionId,
+    text: Schema.String,
+    // Set by the monitor: refuse with RunConflict instead of sending a late answer or correction.
+    expectOpen: Schema.optionalKey(Schema.Literal(true)),
+    source: Schema.optionalKey(Schema.Literal("monitor")),
+  },
+  Defer: {
+    name: RunName,
+    question: QuestionId,
+    note: Schema.optionalKey(Schema.String),
+    source: Schema.optionalKey(Schema.Literal("monitor")),
+  },
   Result: { name: RunName },
   Archive: { name: RunName, keepWorktree: Schema.optionalKey(Schema.Boolean) },
   Wait: {

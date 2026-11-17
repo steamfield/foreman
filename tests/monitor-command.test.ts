@@ -1,8 +1,10 @@
+import { stripVTControlCharacters } from "node:util";
 import { NodeSocket, NodeSocketServer } from "@effect/platform-node";
 import chalk from "chalk";
 import { Deferred, Effect, FileSystem, Queue, Schema, Stream } from "effect";
 import { Command } from "effect/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
+import stringWidth from "string-width";
 import { describe, expect, it } from "vitest";
 import { cli } from "../src/cli";
 import { makeMonitorCommand, monitorCommand } from "../src/commands/monitor";
@@ -12,11 +14,12 @@ import { requestJson } from "../src/daemon/protocol";
 import { daemon } from "../src/daemon/server";
 import { DaemonSockets } from "../src/daemon/sockets";
 import { Overview } from "../src/schemas/monitor";
+import { Terminal } from "../src/services/terminal";
 import { makeSupervisor } from "../src/supervisor";
 import { askOrchestrator, successfulTurn } from "./fixtures/fake-app-server/scenarios";
-import { listeningSockets, runCli } from "./helpers/cli";
+import { listeningSockets, runCli, tempDir } from "./helpers/cli";
 import { eventsFixture, eventsPlatform } from "./helpers/events";
-import { live, overview, run, subagents } from "./helpers/monitor";
+import { live, overview, question, run, subagents } from "./helpers/monitor";
 import { monitorTerminal } from "./helpers/monitor-terminal";
 
 const parsed = (
@@ -40,6 +43,192 @@ const withRun = (
     }).pipe(Effect.scoped, Effect.provide(eventsPlatform)),
   );
 describe("monitor command", () => {
+  it("prints only the first fake overview with --line --once and exits zero", async () => {
+    const args = ["monitor", "--line", "--once"];
+    const result = await runCli(args, {
+      program: parsed(args, monitorTerminal(80, 1, false), () =>
+        Stream.make(live([run(), run("done", { state: "idle" })]), live([])),
+      ),
+    });
+    expect(result).toEqual({
+      status: 0,
+      stdout: "›››  ⣾ 1 working  ✓ 1 done  ·  nothing needs you\n",
+      stderr: "",
+    });
+  });
+
+  it("reads saved state without starting a daemon or creating a socket", async () => {
+    const home = await tempDir();
+    expect(
+      await runCli(["monitor", "--line", "--once"], { home, env: { FOREMAN_HOME: `${home}/d` } }),
+    ).toEqual({ status: 0, stdout: "›››  no daemon · 0 runs saved\n", stderr: "" });
+    expect(
+      await Effect.runPromise(
+        FileSystem.FileSystem.pipe(
+          Effect.flatMap((fs) => fs.exists(`${home}/d/foreman.sock`)),
+          Effect.provide(eventsPlatform),
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  it("reads the real passive overview without an interactive stdin inside a delegate", async () => {
+    await withRun(async (fixture) => {
+      const args = ["monitor", "--line", "--once"];
+      const terminal = { ...monitorTerminal(), layer: Terminal.layer(Terminal.nonInteractive) };
+      expect(
+        await runCli(args, {
+          home: fixture.root,
+          env: { ...fixture.env, CODEX_DELEGATE: "1" },
+          program: parsed(args, terminal),
+        }),
+      ).toEqual({
+        status: 0,
+        stdout: "›››  ⣾ 0 working  ✓ 1 done  ·  nothing needs you\n",
+        stderr: "",
+      });
+    });
+  });
+
+  it.each([
+    { tty: true, noColor: false },
+    { tty: true, noColor: true },
+    { tty: false, noColor: false },
+  ])(
+    "paints the question signal only for TTY colour output ($tty, NO_COLOR=$noColor)",
+    async ({ tty, noColor }) => {
+      const terminal = monitorTerminal(80, 1, tty);
+      const args = ["monitor", "--line", "--once"];
+      const result = await runCli(args, {
+        env: noColor ? { NO_COLOR: "" } : {},
+        program: parsed(args, terminal, () =>
+          Stream.make(
+            live([
+              run("fix-hooks", { state: "waiting", questions: question.id ? [question.id] : [] }),
+            ]),
+          ),
+        ),
+      });
+      expect(result.status).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(terminal.output()).toBe("");
+      if (tty && !noColor) {
+        const esc = String.fromCharCode(27);
+        expect(result.stdout).toMatch(
+          new RegExp(`${esc}\\[38;2;255;91;20m■ fix-hooks q2 \\S+${esc}\\[39m`),
+        );
+        expect(result.stdout).toContain("\u001b[38;2;111;168;255m⣾ 1 working");
+        expect(result.stdout).toContain(
+          "\u001b[38;2;228;232;224m››\u001b[39m\u001b[38;2;255;91;20m›",
+        );
+      } else {
+        expect(result.stdout).not.toContain("\u001b");
+        expect(result.stdout).toMatch(/^››› {2}■ fix-hooks q2 \S+ {2}· {2}⣾ 1 working\n$/);
+      }
+    },
+  );
+
+  it("prints non-TTY streaming lines only when their rendered text changes", async () => {
+    const args = ["monitor", "--line"];
+    expect(
+      await runCli(args, {
+        program: parsed(args, monitorTerminal(80, 1, false), () =>
+          Stream.make(live(), { ...live(), receivedAt: Date.now() }, live([]), live([])),
+        ),
+      }),
+    ).toEqual({
+      status: 0,
+      stdout: "›››  ⣾ 1 working  ·  nothing needs you\n›››  ⣾ 0 working  ·  nothing needs you\n",
+      stderr: "",
+    });
+  });
+
+  it("rewrites a TTY stream in place and ends with one newline", async () => {
+    const terminal = monitorTerminal(80, 1);
+    const args = ["monitor", "--line"];
+    expect(
+      await runCli(args, {
+        env: { NO_COLOR: "1" },
+        program: parsed(args, terminal, () => Stream.make(live(), live([]))),
+      }),
+    ).toEqual({ status: 0, stdout: "", stderr: "" });
+    expect(terminal.output()).toBe(
+      "\r›››  ⣾ 1 working  ·  nothing needs you\u001b[K\r›››  ⣾ 0 working  ·  nothing needs you\u001b[K\n",
+    );
+    expect(terminal.stdin.isRaw).toBe(false);
+  });
+
+  it.each([
+    { columns: 80, noColor: true },
+    { columns: 20, noColor: false },
+    { columns: 1, noColor: false },
+  ])(
+    "keeps long TTY updates inside one physical row ($columns columns, NO_COLOR=$noColor)",
+    async ({ columns, noColor }) => {
+      const terminal = monitorTerminal(columns, 1);
+      const args = ["monitor", "--line"];
+      expect(
+        await runCli(args, {
+          env: noColor ? { NO_COLOR: "1" } : {},
+          program: parsed(args, terminal, () =>
+            Stream.make(
+              live([
+                run("a".repeat(64), {
+                  state: "waiting",
+                  questions: question.id ? [question.id] : [],
+                }),
+              ]),
+              live([]),
+            ),
+          ),
+        }),
+      ).toEqual({ status: 0, stdout: "", stderr: "" });
+      const frames = terminal.output().split("\r").slice(1);
+      expect(frames).toHaveLength(2);
+      for (const frame of frames) {
+        const visible = stripVTControlCharacters(frame).replace(/\n$/, "");
+        expect(stringWidth(visible)).toBeLessThan(columns);
+        expect(visible).not.toContain("\n");
+      }
+      const first = stripVTControlCharacters(frames[0] ?? "");
+      expect(first.endsWith("…")).toBe(columns > 1);
+    },
+  );
+
+  it.each([false, true])("handles Ctrl-C like events --follow (TTY=%s)", async (tty) => {
+    const terminal = monitorTerminal(80, 1, tty);
+    const controller = new AbortController();
+    const args = ["monitor", "--line"];
+    let stdout = "";
+    const pending = runCli(args, {
+      signal: controller.signal,
+      env: { NO_COLOR: "1" },
+      stdout: async (chunk) => {
+        stdout += chunk;
+        controller.abort();
+      },
+      program: parsed(args, terminal, () => Stream.make(live()).pipe(Stream.concat(Stream.never))),
+    });
+    try {
+      if (tty) {
+        await terminal.waitFor("nothing needs you");
+        expect(terminal.output()).not.toContain("\n");
+        controller.abort();
+      }
+      expect({ ...(await pending), stdout }).toEqual({
+        status: 130,
+        stdout: tty ? "" : "›››  ⣾ 1 working  ·  nothing needs you\n",
+        stderr: "Interrupted.\n",
+      });
+      expect(terminal.output()).toBe(
+        tty ? "\r›››  ⣾ 1 working  ·  nothing needs you\u001b[K\n" : "",
+      );
+    } finally {
+      controller.abort();
+      await pending;
+    }
+  });
+
   it("opens a pending run through the real overview and detail feeds and exits cleanly", async () => {
     await Effect.runPromise(
       Effect.gen(function* () {
@@ -60,13 +249,14 @@ describe("monitor command", () => {
         yield* Effect.promise(async () => {
           try {
             await terminal.waitFor("foreman answer unit q1 --file <path>");
-            await terminal.waitFor(/unit\s+waiting/);
+            await terminal.waitFor(/unit\s+(?:\S+ · \S+\s+)?waiting/i);
             terminal.stdin.push("\r");
+            await terminal.waitFor("Esc list");
             await terminal.waitFor("Task");
             await terminal.waitFor("Read the repo.");
             const beforeEsc = terminal.output().length;
             terminal.stdin.push("\u001b");
-            await terminal.waitFor("a attention", beforeEsc);
+            await terminal.waitFor("Enter open", beforeEsc);
             terminal.stdin.push("q");
             expect(await pending).toEqual({ status: 0, stdout: "", stderr: "" });
             expect(terminal.output().split("\u001b[?1049l")).toHaveLength(2);
@@ -205,7 +395,7 @@ describe("monitor command", () => {
           yield* Effect.promise(async () => {
             const before = terminal.output().length;
             terminal.stdin.push("\u001b");
-            await terminal.waitFor("a attention", before);
+            await terminal.waitFor("a answer", before);
           });
           yield* Deferred.await(closed).pipe(Effect.timeout("3 seconds"));
           if (opened === 0)

@@ -1,0 +1,77 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`draws all four review sections at 100x30 1`] = `
+"››› foreman test   ◇ watching                                connecting  gpt-6.1-sol · high · fast
+✓ idle  rename-flags  Rename --from to --base                        1 turn · 3 files · not reviewed
+╭─ Hand-off · turn 1 · 11:58───────────────────────────────────────────────────────────────────────╮
+│ Renamed the flag.                                                                                │
+│ Checks pass.                                                                                     │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ Decided without you · 1─────────────────────────────────────────────────────────────────────────╮
+│ q1 deferred after 15m · Keep --from working?                                                     │
+│ → Codex went with: Keep a hidden alias.                                                          │
+│ a answer late (starts a follow-up turn)                                                          │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ Files · 1───────────────────────────────────────────────────────────────────────────────────────╮
+│ M src/cli.ts                                                                              +14 −6 │
+│ all in scope · checks ✓                                                                          │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ src/cli.ts · 1 of 1 · hunk 1 of 1  n/p hunk─────────────────────────────────────────────────────╮
+│        42 +base: Options.text                                                                    │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+Tab pane  jk scroll  n/p hunk  D open in $PAGER  r mark reviewed  F follow up  x archive  Esc back"
+`;
+
+exports[`draws all four review sections at 140x40 1`] = `
+"››› foreman test   ◇ watching                                                                        connecting  gpt-6.1-sol · high · fast
+✓ idle  rename-flags  Rename --from to --base                                                                1 turn · 3 files · not reviewed
+╭─ Hand-off · turn 1 · 11:58───────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Renamed the flag.                                                                                                                        │
+│ Checks pass.                                                                                                                             │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ Decided without you · 1─────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ q1 deferred after 15m · Keep --from working?                                                                                             │
+│ → Codex went with: Keep a hidden alias.                                                                                                  │
+│ a answer late (starts a follow-up turn)                                                                                                  │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ Files · 1───────────────────────────────╮╭─ src/cli.ts · 1 of 1 · hunk 1 of 1  n/p hunk─────────────────────────────────────────────────╮
+│ M src/cli.ts                      +14 −6 ││        42 +base: Options.text                                                                │
+│                                          ││                                                                                              │
+│                                          ││                                                                                              │
+│                                          ││                                                                                              │
+│                                          ││                                                                                              │
+│                                          ││                                                                                              │
+│                                          ││                                                                                              │
+│                                          ││                                                                                              │
+│                                          ││                                                                                              │
+│                                          ││                                                                                              │
+│                                          ││                                                                                              │
+│                                          ││                                                                                              │
+│                                          ││                                                                                              │
+│                                          ││                                                                                              │
+│                                          ││                                                                                              │
+│                                          ││                                                                                              │
+│                                          ││                                                                                              │
+│                                          ││                                                                                              │
+│                                          ││                                                                                              │
+│                                          ││                                                                                              │
+│                                          ││                                                                                              │
+│                                          ││                                                                                              │
+│                                          ││                                                                                              │
+│                                          ││                                                                                              │
+│                                          ││                                                                                              │
+│ all in scope · checks ✓                  ││                                                                                              │
+╰──────────────────────────────────────────╯╰──────────────────────────────────────────────────────────────────────────────────────────────╯
+Tab pane  jk scroll  n/p hunk  D open in $PAGER  r mark reviewed  F follow up  x archive  Esc back                          updated 0.0s ago"
+`;

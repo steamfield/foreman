@@ -33,6 +33,30 @@ it("documents monitor as a human view and status --all as the machine interface"
   );
 });
 
+it("documents monitor line flags and both tmux examples", async () => {
+  const result = await runCli(["monitor", "--help"]);
+  expect(result).toMatchObject({ status: 0, stderr: "" });
+  expect(result.stdout).toContain("--line");
+  expect(result.stdout).toContain("--once");
+  expect(result.stdout).toContain("foreman monitor --line --once");
+  expect(result.stdout).toContain("tmux status-right");
+  expect(result.stdout).toContain("one-row pane");
+});
+
+it.each([
+  { args: ["monitor", "--line", "--json"], flags: ["--line", "--json"], json: true },
+  { args: ["monitor", "--once"], flags: ["--once", "--line"], json: false },
+  { args: ["monitor", "--line", "unit"], flags: ["--line", "name"], json: false },
+])("rejects invalid monitor line usage $args", async ({ args, flags, json }) => {
+  const result = await runCli(args, { env: { LOG_LEVEL: "none" } });
+  expect(result.status).toBe(2);
+  expect(result.stdout).toBe("");
+  const detail = json
+    ? Schema.decodeUnknownSync(ErrorEnvelope)(JSON.parse(result.stderr)).error.detail
+    : result.stderr;
+  for (const flag of flags) expect(detail).toContain(flag);
+});
+
 it.each([false, true])("status rejects a name with --all (json=%s)", async (json) => {
   const result = await runCli(["status", "unit", "--all", ...(json ? ["--json"] : [])]);
   expect(result.status).toBe(2);
