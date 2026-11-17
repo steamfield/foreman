@@ -101,6 +101,11 @@ export const diskRunView = Effect.fn("runs.diskRunView")(function* (
     filesWritten: filesWritten.size,
     pace: [],
     reviewedAt: record.reviewedAt ?? null,
+    interruptedBy:
+      record.state === "interrupted"
+        ? (events.map(({ event }) => event).findLast((event) => event._tag === "Interrupted")?.by ??
+          null)
+        : null,
   };
   return view;
 });

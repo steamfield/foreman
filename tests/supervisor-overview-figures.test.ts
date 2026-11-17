@@ -129,3 +129,27 @@ it.effect("serves cached figures without reopening the journal", () =>
     });
   }).pipe(Effect.provide(NodeServices.layer)),
 );
+
+it.effect("reports who interrupted an interrupted run, and survives a registry restart", () =>
+  Effect.gen(function* () {
+    const { home, registry, run } = yield* fixture();
+    expect(projectRun(run, "repo", 0).interruptedBy).toBeNull();
+    yield* registry.event(run, { _tag: "Interrupted", by: "monitor" });
+    yield* registry.state(run, "interrupted");
+    expect(projectRun(run, "repo", 0).interruptedBy).toBe("monitor");
+    const recovered = yield* makeRegistry(home);
+    const loaded = yield* recovered.lookup(run.record.name);
+    expect(loaded.record.state).toBe("interrupted");
+    expect(projectRun(loaded, "repo", 0).interruptedBy).toBe("monitor");
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("drops the interruption cause once the run moves on", () =>
+  Effect.gen(function* () {
+    const { registry, run } = yield* fixture();
+    yield* registry.event(run, { _tag: "Interrupted", by: "orchestrator" });
+    yield* registry.state(run, "interrupted");
+    yield* registry.state(run, "running");
+    expect(projectRun(run, "repo", 0).interruptedBy).toBeNull();
+  }).pipe(Effect.provide(NodeServices.layer)),
+);

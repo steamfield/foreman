@@ -139,7 +139,7 @@ function commandPreview(command: string): string {
   return first.length > 160 ? `${first.slice(0, 159)}…` : first;
 }
 
-const interruptions: Record<NonNullable<Digest["interruptedBy"]>, string> = {
+export const interruptions: Record<NonNullable<Digest["interruptedBy"]>, string> = {
   budget: "turn budget expired; foreman result shows the hand-off",
   orchestrator: "by the orchestrator",
   "repo-hooks": "repo hooks did not run",

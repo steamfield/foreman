@@ -14,6 +14,9 @@ export const SubAgentView = Schema.Struct({
 }).annotate({ title: "SubAgentView", description: "A supervised run's child agent" });
 export type SubAgentView = typeof SubAgentView.Type;
 
+export const InterruptedBy = Schema.Literals(["orchestrator", "budget", "repo-hooks", "monitor"]);
+export type InterruptedBy = typeof InterruptedBy.Type;
+
 /** Minutes covered by `RunView.pace`. */
 export const PACE_MINUTES = 12;
 
@@ -81,6 +84,8 @@ export const RunView = Schema.Struct({
   pace: Schema.Array(Schema.Int),
   // When a person marked the latest result reviewed in foreman monitor; null when not reviewed.
   reviewedAt: Schema.NullOr(Timestamp),
+  // Who caused the latest interruption while the run is interrupted; null otherwise or when unknown.
+  interruptedBy: Schema.NullOr(InterruptedBy),
 }).annotate({
   title: "RunView",
   description: "Cached live state and attention for a supervised run",

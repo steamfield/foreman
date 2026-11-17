@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { makeDetailSchema, Overview } from "./monitor";
+import { InterruptedBy, makeDetailSchema, Overview } from "./monitor";
 
 // Shapes shared by the foreman CLI, the daemon and the run store: run state on disk, the
 // normalized event log, the digest, and the socket protocol. docs/rfcs/0001-foreman.md is the
@@ -43,8 +43,8 @@ export const Sandbox = Schema.Literals(["read-only", "danger-full-access"]);
 export type Sandbox = typeof Sandbox.Type;
 
 export const TurnKind = Schema.Literals(["start", "followup", "handoff"]);
-export const InterruptedBy = Schema.Literals(["orchestrator", "budget", "repo-hooks", "monitor"]);
 export type TurnKind = typeof TurnKind.Type;
+export { InterruptedBy };
 
 // Unversioned storage is version 1. Question/event writers use version 2.
 // Socket peers negotiate builds; incompatible busy daemons refuse new question commands.

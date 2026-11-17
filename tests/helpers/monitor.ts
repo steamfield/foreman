@@ -47,6 +47,7 @@ export function run(name = "fix-hooks", overrides: Partial<RunView> = {}): RunVi
       filesWritten: null,
       pace: [],
       reviewedAt: null,
+      interruptedBy: null,
     }),
     ...overrides,
   };

@@ -76,6 +76,7 @@ export function projectRun(run: Run, repo: string, now: number): RunView {
     filesWritten: run.filesWritten?.size ?? null,
     pace: advancePace(run.pace, now).buckets,
     reviewedAt: record.reviewedAt ?? null,
+    interruptedBy: record.state === "interrupted" ? run.interruptedBy : null,
   };
 }
 

@@ -1,6 +1,7 @@
 import { DateTime } from "effect";
 import { activeStates } from "../../schemas/daemon";
 import type { Overview, RunView } from "../../schemas/monitor";
+import { interruptions } from "../runs/digest";
 
 const oneLine = (text: string) => text.replace(/\s+/g, " ").trim();
 const age = (ms: number) => {
@@ -14,6 +15,7 @@ const elapsed = (at: DateTime.Utc, now: number) => age(now - DateTime.toEpochMil
 
 function runLines(run: RunView, own: boolean, executable: string, now: number) {
   const flags = [
+    ...(run.interruptedBy === null ? [] : [`interrupted: ${interruptions[run.interruptedBy]}`]),
     ...run.questions.map(
       (question) =>
         `${question.id} (${question.kind}) pending ${elapsed(question.askedAt, now)}${question.defersAt === null ? "" : `, auto-defer in ${age(DateTime.toEpochMillis(question.defersAt) - now)}`}: ${oneLine(question.text)}`,

@@ -32,6 +32,7 @@ import { causeFields, redactDiagnosticText } from "../logging";
 import type { RpcId, ThreadItem } from "../schemas/codex";
 import {
   activeStates,
+  type InterruptedBy,
   type QuestionId,
   type QuestionLine,
   type RunEvent,
@@ -85,6 +86,7 @@ export interface Run {
   recoveryVersion: number;
   commands: { total: number; failed: number } | null;
   filesWritten: Set<string> | null;
+  interruptedBy: InterruptedBy | null;
   pace: PaceWindow;
 }
 
@@ -97,6 +99,7 @@ function countEvent(run: Run, entry: RunEvent) {
     };
   }
   if (body._tag === "FileChange") for (const path of body.paths) run.filesWritten?.add(path);
+  if (body._tag === "Interrupted") run.interruptedBy = body.by;
   if (body._tag !== "TokenUsage" && body._tag !== "Other")
     run.pace = countPace(run.pace, DateTime.toEpochMillis(entry.at));
 }
@@ -254,6 +257,7 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
       recoveryVersion: 0,
       commands: events === null ? null : { total: 0, failed: 0 },
       filesWritten: events === null ? null : new Set(),
+      interruptedBy: null,
       pace: emptyPace(yield* Clock.currentTimeMillis),
     };
     for (const entry of events ?? []) countEvent(run, entry);
