@@ -157,7 +157,7 @@ describe("daemon lifecycle and protocol", () => {
           ChildProcess.make(
             bun,
             [fileURLToPath(new URL("./fixtures/daemon/entry.ts", import.meta.url)), dataDir],
-            { stdout: "ignore", stderr: "inherit" },
+            { stdout: "ignore", stderr: "inherit", forceKillAfter: "2 seconds" },
           ),
         );
         yield* ready(dataDir).pipe(Effect.timeout("3 seconds"));
@@ -329,6 +329,7 @@ describe("daemon lifecycle and protocol", () => {
         const child = yield* spawner.spawn(
           ChildProcess.make(bun, [fixture, dataDir, "test", "codex-busy", "old-bin", "old-home"], {
             stderr: "inherit",
+            forceKillAfter: "2 seconds",
           }),
         );
         yield* ready(dataDir).pipe(Effect.timeout("3 seconds"));
@@ -487,6 +488,7 @@ describe("daemon lifecycle and protocol", () => {
           ChildProcess.make(bun, [fixture, dataDir, mode === "same" ? "test" : "old", mode], {
             stdout: "ignore",
             stderr: "inherit",
+            forceKillAfter: "2 seconds",
           }),
         );
         // Observe readiness without the upgrading client, including the legacy wire format.
