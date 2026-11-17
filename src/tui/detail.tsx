@@ -1,106 +1,58 @@
 import { Box, Text } from "ink";
+import { Fragment } from "react";
 import stringWidth from "string-width";
-import {
-  type DetailLine,
-  type DetailView,
-  detailLayout,
-  type PaneView,
-  type ViewModel,
-} from "../core/monitor/model";
+import { type DetailView, detailLayout, type PaneView } from "../core/monitor/model";
 import { Glyph, Line, pad, truncate } from "./components";
+import { DetailPane } from "./detail-pane";
+import { InspectFiles } from "./inspect-files";
+import type { InspectMessage, InspectViewModel } from "./inspect-view";
 import { type Theme, theme } from "./theme";
+import { Timeline } from "./timeline";
 
-function rule(title: string, value: string, width: number, tone: "fg" | "line", colors: Theme) {
-  const right = truncate(value, Math.max(0, Math.floor(width / 2)));
-  // `╭─ title ───╮` alone, or `╭─ title ─── value ─╮` with a value.
-  const fixed = right === "" ? 6 : 8;
-  const left = truncate(title, Math.max(0, width - stringWidth(right) - fixed - 1));
-  const remaining = Math.max(0, width - stringWidth(left) - stringWidth(right) - fixed);
-  return (
-    colors.paint("╭─ ", tone) +
-    left +
-    colors.paint(` ${"─".repeat(remaining)}`, tone) +
-    (right === "" ? "" : ` ${colors.paint(right, "muted")} `) +
-    colors.paint("─╮", tone)
-  );
+function fitPane(pane: PaneView, height: number): PaneView {
+  const maximum = Math.max(0, pane.lines.length - height + 2);
+  const atEnd = pane.offset === Math.max(0, pane.lines.length - pane.height + 2);
+  return { ...pane, height, offset: atEnd ? maximum : Math.min(pane.offset, maximum) };
 }
-function content(line: DetailLine, width: number, colors: Theme) {
-  if (line.frame === "top")
-    return rule(
-      colors.paint(`${line.at ?? ""} `, "muted") + colors.paint(line.text, line.tone, true),
-      "",
-      width,
-      "line",
-      colors,
-    );
-  if (line.frame === "bottom")
-    return colors.paint(`╰${"─".repeat(Math.max(0, width - 2))}╯`, "line");
-  if (line.frame === "body")
-    return (
-      colors.paint("│ ", "line") +
-      colors.paint(pad(truncate(line.text, width - 4), width - 4), line.tone) +
-      colors.paint(" │", "line")
-    );
-  return (
-    (line.at ? colors.paint(`${line.at} `, "muted") : "") +
-    (line.symbol ? colors.paint(`${line.symbol} `, line.tone) : "") +
-    colors.paint(line.text, line.symbol ? "fg" : line.tone)
+
+function inspectionLayout(detail: DetailView, model: InspectViewModel, height: number) {
+  const original = detailLayout(detail, model.columns, model.rows);
+  if (!model.timeline && !model.files) return { ...original, filesHeight: 0 };
+  const timelineHeight = model.timeline ? 5 + Number(model.timeline.subagentCells !== null) : 0;
+  const available = Math.max(
+    1,
+    height - detail.message.length - timelineHeight - (model.timeline ? original.headerHeight : 0),
   );
-}
-function Pane({
-  pane,
-  width,
-  colors,
-  contentColors = colors,
-}: {
-  pane: PaneView;
-  width: number;
-  colors: Theme;
-  contentColors?: Theme;
-}) {
-  const tone = pane.focused ? "fg" : "line";
-  const rows = [];
-  for (let position = pane.offset; position < pane.offset + pane.height - 2; position++) {
-    const line = pane.lines[position];
-    const inside = Math.max(0, width - 4);
-    rows.push(
-      <Text key={`${pane.id}:${position}`} wrap="truncate-end">
-        {colors.fill(colors.paint("│ ", tone))}
-        {line?.kind ? (
-          <>
-            <Glyph
-              kind={line.kind}
-              tone={line.kind === "working" ? "running" : "muted"}
-              colors={contentColors}
-            />
-            {colors.fill(
-              contentColors.paint(
-                pad(truncate(` ${line.text}`, Math.max(0, inside - 1)), Math.max(0, inside - 1)),
-                line.tone,
-              ),
-            )}
-          </>
-        ) : (
-          colors.fill(
-            pad(truncate(line ? content(line, inside, contentColors) : "", inside), inside),
-          )
-        )}
-        {colors.fill(colors.paint(" │", tone))}
-      </Text>,
-    );
+  const filesHeight = model.files
+    ? Math.min(model.files.length + 2, Math.max(3, Math.floor(available / 3)))
+    : 0;
+  let position = model.timeline ? 0 : original.headerHeight;
+  let start = 0;
+  let end = 0;
+  const blocks = detail.panes
+    .filter((pane) => model.columns < 120 || pane.id !== "feed")
+    .flatMap((pane) => [
+      { ...pane, height: Math.min(pane.height, available) },
+      ...(pane.id === "task" && filesHeight
+        ? [{ height: filesHeight, focused: Boolean(model.filesFocused) }]
+        : []),
+    ]);
+  if (!detail.panes.some((pane) => pane.id === "task") && filesHeight)
+    blocks.unshift({ height: filesHeight, focused: Boolean(model.filesFocused) });
+  for (const block of blocks) {
+    if (block.focused) {
+      start = position;
+      end = position + block.height;
+    }
+    position += block.height;
   }
-  return (
-    <Box flexDirection="column" width={width} height={pane.height} flexShrink={0}>
-      <Line width={width} colors={colors}>
-        {rule(colors.paint(pane.title, tone, true), pane.value, width, tone, colors)}
-      </Line>
-      {rows}
-      <Line width={width} colors={colors}>
-        {colors.paint(`╰${"─".repeat(Math.max(0, width - 2))}╯`, tone)}
-      </Line>
-    </Box>
-  );
+  return {
+    height: available,
+    offset: end > available ? Math.min(start, end - available) : 0,
+    filesHeight,
+  };
 }
+
 function Header({
   detail,
   width,
@@ -165,12 +117,17 @@ export function DetailScreen({
   detail,
   model,
   colors,
+  onFind = () => {},
+  onKey = () => {},
+  height = Math.max(1, model.rows - 2),
 }: {
   detail: DetailView;
-  model: ViewModel;
+  model: InspectViewModel;
   colors: Theme;
+  onFind?: (message: InspectMessage) => void;
+  onKey?: (key: string) => void;
+  height?: number;
 }) {
-  const height = Math.max(1, model.rows - 2);
   const width = model.columns;
   if (detail.message.length && detail.panes.length === 0)
     return (
@@ -195,8 +152,18 @@ export function DetailScreen({
   const bodyColors = detail.status === "reconnecting" ? theme(colors.level, false, true) : colors;
   const leftWidth = wide ? Math.floor(width * 0.48) : width;
   const panes = detail.panes.filter((pane) => !wide || pane.id !== "feed");
-  const { offset, height: paneHeight } = detailLayout(detail, width, model.rows);
+  const { offset, height: paneHeight, filesHeight } = inspectionLayout(detail, model, height);
   const feed = detail.panes.find((pane) => pane.id === "feed");
+  const filePane = model.files ? (
+    <InspectFiles
+      files={model.files}
+      width={leftWidth}
+      height={filesHeight}
+      offset={Math.max(0, model.files.findIndex((file) => file.selected) - filesHeight + 3)}
+      colors={colors}
+      focused={model.filesFocused}
+    />
+  ) : null;
   return (
     <Box width={width} height={height} flexDirection="column" overflow="hidden">
       {detail.message.map((message, index) => (
@@ -204,28 +171,55 @@ export function DetailScreen({
           {colors.paint(message, index === 1 ? "muted" : "fg")}
         </Line>
       ))}
+      {model.timeline && (
+        <>
+          <Header
+            detail={detail}
+            width={width}
+            narrow={model.layout === "narrow"}
+            colors={bodyColors}
+          />
+          <Timeline timeline={model.timeline} width={width} colors={bodyColors} />
+        </>
+      )}
       <Box width={width} height={paneHeight} flexDirection="row" overflow="hidden">
         <Box width={leftWidth} height={paneHeight} flexDirection="column" overflow="hidden">
           <Box flexDirection="column" flexShrink={0} marginTop={-offset}>
-            <Header
-              detail={detail}
-              width={leftWidth}
-              narrow={model.layout === "narrow"}
-              colors={bodyColors}
-            />
-            {panes.map((pane) => (
-              <Pane
-                key={pane.id}
-                pane={pane}
+            {!model.timeline && (
+              <Header
+                detail={detail}
                 width={leftWidth}
-                colors={colors}
-                contentColors={bodyColors}
+                narrow={model.layout === "narrow"}
+                colors={bodyColors}
               />
+            )}
+            {!panes.some((pane) => pane.id === "task") && filePane}
+            {panes.map((pane) => (
+              <Fragment key={pane.id}>
+                <DetailPane
+                  pane={fitPane(pane, Math.min(pane.height, paneHeight))}
+                  width={leftWidth}
+                  colors={colors}
+                  contentColors={bodyColors}
+                  tabs={pane.id === "feed" ? model.feedTabs : null}
+                  onFind={onFind}
+                  onKey={onKey}
+                />
+                {pane.id === "task" && filePane}
+              </Fragment>
             ))}
           </Box>
         </Box>
         {wide && feed ? (
-          <Pane pane={feed} width={width - leftWidth} colors={colors} contentColors={bodyColors} />
+          <DetailPane
+            pane={fitPane(feed, paneHeight)}
+            width={width - leftWidth}
+            colors={colors}
+            contentColors={bodyColors}
+            tabs={model.feedTabs}
+            onFind={onFind}
+            onKey={onKey}
+          />
         ) : null}
       </Box>
     </Box>

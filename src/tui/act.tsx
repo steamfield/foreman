@@ -4,6 +4,7 @@ import type { ActMessage, ActView } from "../core/monitor/act";
 import { FrameContent, FramedParagraph, FramedText, FrameRow, frameHeading } from "./act-frame";
 import { AnswerInput } from "./answer-input";
 import { Line } from "./components";
+import type { ContextAnswer } from "./inspect-view";
 import type { Theme } from "./theme";
 
 /** Paints the current watching or acting mode without using the attention tone. */
@@ -49,7 +50,7 @@ function AnswerBox({
   onAct,
   onKey,
 }: {
-  answer: NonNullable<ActView["answer"]>;
+  answer: ContextAnswer;
   width: number;
   height: number;
   colors: Theme;
@@ -60,6 +61,8 @@ function AnswerBox({
   let action = `${colors.paint("enter", "fg", true)} send  ${colors.paint("ctrl-d", "fg", true)} defer  ${colors.paint("esc", "fg", true)} cancel`;
   if (answer.resolved) action = resolved;
   if (answer.sending) action = "sending…";
+  const contextLimit = Math.max(0, Math.floor((height - 18) / 2));
+  const context = contextLimit > 0 ? (answer.context?.slice(-contextLimit) ?? []) : [];
   return (
     <Box flexDirection="column" width={width} maxHeight={height} overflow="hidden">
       <Line width={width} colors={colors}>
@@ -69,10 +72,24 @@ function AnswerBox({
       <Question
         text={answer.question}
         width={width}
-        height={Math.max(1, height - 15)}
+        height={Math.max(1, height - 15 - (context.length ? context.length + 1 : 0))}
         colors={colors}
       />
       <FramedText text="" width={width} colors={colors} />
+      {context.length > 0 && (
+        <>
+          <FramedText
+            text={colors.paint("Leading up to it", "fg", true)}
+            width={width}
+            colors={colors}
+          />
+          {context
+            .map((text, position) => ({ text, id: `context:${position}` }))
+            .map(({ text, id }) => (
+              <FramedText key={id} text={text} width={width} colors={colors} muted />
+            ))}
+        </>
+      )}
       <FramedText text={colors.paint("Your answer", "fg", true)} width={width} colors={colors} />
       <FrameRow width={width} colors={colors} height={3}>
         <AnswerInput answer={answer} width={width} colors={colors} onAct={onAct} onKey={onKey} />

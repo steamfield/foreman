@@ -40,28 +40,28 @@ function detailHints(model: ViewModel): readonly Hint[] {
   if (model.footer.compact) return common;
   return [
     ["Tab", "pane"],
-    ["jk", "scroll"],
-    ["f", "follow"],
-    ["Esc", "list"],
-    ...(model.columns >= 80
+    ["jk", "move"],
+    ["d", "diff file"],
+    ...(model.columns >= 140
       ? ([
-          ["a", "answer"],
-          ["d", "defer"],
+          ["D", "all in $PAGER"],
+          ["1-5", "feed filter"],
         ] satisfies Hint[])
       : []),
     ...(model.columns >= 100
       ? ([
+          ["/", "search feed"],
           ["s", "steer"],
           ["i", "interrupt"],
         ] satisfies Hint[])
       : []),
+    ["Esc", "list"],
     ...(model.columns >= 140
       ? ([
           ["F", "follow up"],
           ["x", "archive"],
         ] satisfies Hint[])
-      : []),
-    ...common,
+      : common),
   ];
 }
 function hints(model: ViewModel): readonly Hint[] {
@@ -74,6 +74,24 @@ function hints(model: ViewModel): readonly Hint[] {
     ];
   if (model.history) return [["jk", "move"], ["/", "filter"], ["h/esc", "back"], ...common];
   if (model.act.hints) return model.act.hints.map(({ key, label }) => [key, label]);
+  if (model.diff)
+    return [
+      ["jk", "scroll"],
+      ["n/p", "hunk"],
+      ["D", "open in $PAGER"],
+      ["Esc", "back"],
+    ];
+  if (model.review)
+    return [
+      ["Tab", "pane"],
+      ["jk", "scroll"],
+      ["n/p", "hunk"],
+      ["D", "open in $PAGER"],
+      ["r", "mark reviewed"],
+      ["F", "follow up"],
+      ["x", "archive"],
+      ["Esc", "list"],
+    ];
   const result = model.detail ? detailHints(model) : listHints(model);
   return model.layout === "narrow" ? result.filter(([key]) => key !== "Enter") : result;
 }

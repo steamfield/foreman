@@ -8,6 +8,7 @@ import { openActing } from "../core/monitor/acting";
 import { detailFeed } from "../core/monitor/detail-feed";
 import { monitorFeed } from "../core/monitor/feed";
 import { defaultModel } from "../core/preflight/model";
+import { readChanges, readDiff } from "../core/runs/changes";
 import { readHistory } from "../core/runs/history";
 import { RunName } from "../schemas/daemon";
 import { Host } from "../services/host";
@@ -40,6 +41,7 @@ export const makeMonitorCommand = (source: typeof monitorFeed = monitorFeed) =>
       }
       const { runMonitor } = yield* Effect.promise(() => import("../tui/run"));
       const { makeEditorRunner } = yield* Effect.promise(() => import("../tui/editor"));
+      const { makePagerRunner } = yield* Effect.promise(() => import("../tui/pager"));
       yield* runMonitor(
         terminal,
         {
@@ -70,6 +72,8 @@ export const makeMonitorCommand = (source: typeof monitorFeed = monitorFeed) =>
         undefined,
         yield* makeEditorRunner(config.inheritedEnvironment),
         () => readHistory(config.home, 500),
+        { changes: readChanges, diff: readDiff },
+        yield* makePagerRunner(config.inheritedEnvironment),
       ).pipe(Effect.scoped);
     }),
   ).pipe(
