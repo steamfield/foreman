@@ -4,7 +4,7 @@ Instructions for coding agents working in this repository. Keep this file under 
 
 ## Overview
 
-foreman 0.2.0 lets Claude Code delegate coding tasks to OpenAI's Codex in git worktrees and supervise them through a local daemon. It drives `codex app-server` over JSON-RPC with the Codex CLI's ChatGPT login. The TypeScript CLI uses Effect 4 and compiles to one binary with Bun. The command is `foreman`; npm installs use `@steamfield/foreman`.
+foreman 0.3.0 lets Claude Code delegate coding tasks to OpenAI's Codex in git worktrees and supervise them through a local daemon. It drives `codex app-server` over JSON-RPC with the Codex CLI's ChatGPT login. The TypeScript CLI uses Effect 4 and compiles to one binary with Bun. The command is `foreman`; npm installs use `@steamfield/foreman`.
 
 The daemon owns turns, question deferral and late answers, budgets and repo hook enforcement. Mutation continuations wait on the named run; explicit `wait --all` supervises a repo group. `foreman monitor` is the human's live view and can act after confirmation; agents use `status --all`, `wait` and `events`. Agents learn the installed version through `foreman guide` and command `--help`; `foreman skill install` installs the thin entry point. Read [repo setup](README.md#one-time-repo-setup) before delegating into another repo and [architecture](docs/architecture.md) before changing supervision or storage.
 

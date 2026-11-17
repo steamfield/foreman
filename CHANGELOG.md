@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0] - 2026-11-17
+
+### Added
+
+- `foreman monitor` can act on runs. It opens watching; the first action asks once per session before switching to acting, and `w` goes back to watching. While acting you can answer or defer a question, steer a running turn, send a follow-up, interrupt, archive and mark a run reviewed, with a confirm before interrupt and archive. Ctrl-e edits any text box in `$EDITOR`. While acting, the monitor keeps the running daemon alive; it still never starts or replaces one.
+- Actions taken in the monitor are recorded with their source, so a run's events say "from foreman monitor". When the monitor and Claude Code answer the same question, the first answer wins; the monitor's later answer is refused and its draft kept.
+- The run list shows task, model, progress and pace columns that drop out as the terminal narrows, pins failed, over-budget and quiet runs to the top, and shows a preview strip for the selected run.
+- `/` filters the list, `:` opens a command palette, `g` changes grouping and `h` shows a history of finished and archived runs. A filter never hides a run that is waiting on you without saying so.
+- Run detail shows changed files with line counts, a file's diff, the whole diff in `$PAGER`, a timeline, feed filters and search, and a review screen that combines the hand-off, files and diff.
+- A first-run screen doubles as the legend for states and glyphs. The layout works at 80 columns, and `NO_COLOR` keeps bold and inverse video so state stays readable without color.
+- `foreman monitor --line` prints a compact, passive one-line feed for tmux status bars and one-row panes; `--once` prints the first update and exits.
+
 ## [0.2.0] - 2026-11-16
 
 ### Added
