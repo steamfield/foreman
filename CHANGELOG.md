@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.1] - 2026-11-17
+
+### Fixed
+
+- Test runs no longer leave daemon fixture processes running at full CPU. A fixture daemon that lost the startup lock race, or whose test run crashed, used to spin forever after its parent and temp directory were gone; it now waits for its socket with a deadline and exits once orphaned. No change to the shipped CLI.
+
 ## [0.2.0] - 2026-11-16
 
 ### Added
