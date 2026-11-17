@@ -1,6 +1,6 @@
 import { DateTime } from "effect";
 import { activeStates, type RunEvent, type RunName } from "../../schemas/daemon";
-import type { Detail, RunView } from "../../schemas/monitor";
+import type { Detail, HistoryEntry, RunView } from "../../schemas/monitor";
 import { tokenCount } from "../runs/digest";
 import { type ActMessage, type ActState, type ActView, initialAct, reduceAct } from "./act";
 import { actView } from "./act-view";
@@ -117,6 +117,46 @@ export type PreviewView = {
   readonly moreFiles: number;
   readonly outsideCount: number | null;
 };
+/** The filter bar under the header while `/` is editing or a filter is applied. */
+export type FilterBarView = {
+  readonly text: string;
+  readonly editing: boolean;
+  readonly shown: number;
+  readonly total: number;
+  /** Waiting runs the filter hides, so a question is never invisible. */
+  readonly hiddenWaiting: number;
+};
+/** The `:` command palette. */
+export type PaletteView = {
+  readonly query: string;
+  readonly subject: string | null;
+  readonly items: readonly {
+    readonly label: string;
+    readonly detail: string;
+    readonly key: string | null;
+    readonly selected: boolean;
+    readonly heading: boolean;
+  }[];
+};
+/** The history screen opened with `h`. */
+export type HistoryView = {
+  readonly status: "loading" | "ready" | "failed";
+  readonly message: string | null;
+  readonly rows: readonly {
+    readonly name: string;
+    readonly repo: string;
+    readonly task: string | null;
+    readonly outcome: string;
+    readonly tone: Tone;
+    readonly ended: string;
+    readonly duration: string;
+    readonly turns: number;
+    readonly tokens: string;
+    readonly archived: boolean;
+  }[];
+  readonly selected: number;
+  readonly offset: number;
+};
 export type GroupView = {
   readonly id: string;
   readonly title: string;
@@ -154,6 +194,10 @@ export type ViewModel = {
   /** Number of attention rows hidden by the three-row cap. */
   readonly morePinned: number;
   readonly preview: PreviewView | null;
+  readonly filterBar: FilterBarView | null;
+  readonly palette: PaletteView | null;
+  readonly history: HistoryView | null;
+  readonly grouping: "repo" | "state" | "recent";
 };
 export type State = {
   readonly group: string;
@@ -179,6 +223,19 @@ export type State = {
     readonly follow: boolean;
   } | null;
   readonly act: ActState;
+  /** The `/` filter text and whether its input is open. */
+  readonly filter: { readonly text: string; readonly editing: boolean };
+  /** The `:` palette query and highlighted item, or null when closed. */
+  readonly palette: { readonly query: string; readonly index: number } | null;
+  readonly grouping: "repo" | "state" | "recent";
+  /** The history screen, its request id while loading, and its rows once read. */
+  readonly history: {
+    readonly id: number;
+    readonly entries: readonly HistoryEntry[] | null;
+    readonly error: string | null;
+    readonly selected: number;
+  } | null;
+  readonly nextHistoryId: number;
   /** The selected run's detail feed while the list is showing, for the preview strip. */
   readonly preview: {
     readonly name: RunName;
@@ -193,7 +250,13 @@ export type Message =
   | { readonly type: "tick"; readonly now: number }
   | { readonly type: "resize"; readonly columns: number; readonly rows: number }
   | ActMessage
-  | { readonly type: "preview-feed"; readonly name: RunName; readonly value: DetailFeed };
+  | { readonly type: "preview-feed"; readonly name: RunName; readonly value: DetailFeed }
+  | {
+      readonly type: "history-result";
+      readonly id: number;
+      readonly entries: readonly HistoryEntry[] | null;
+      readonly error: string | null;
+    };
 export const initialState = (
   options: Pick<State, "group" | "defaults" | "version" | "now" | "columns" | "rows"> & {
     readonly name?: RunName;
@@ -208,6 +271,11 @@ export const initialState = (
   scroll: null,
   act: initialAct,
   preview: null,
+  filter: { text: "", editing: false },
+  palette: null,
+  grouping: "repo",
+  history: null,
+  nextHistoryId: 1,
   detail: options.name === undefined ? null : openDetail(options.name),
 });
 function openDetail(name: RunName): NonNullable<State["detail"]> {
@@ -754,6 +822,10 @@ export function view(state: State, previous?: ViewModel): ViewModel {
     listColumns: optionalColumns,
     ...pinned,
     preview,
+    filterBar: null,
+    palette: null,
+    history: null,
+    grouping: state.grouping,
     animating:
       !state.help &&
       (state.detail

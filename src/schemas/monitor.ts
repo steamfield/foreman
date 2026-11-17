@@ -92,6 +92,29 @@ export const Overview = Schema.TaggedStruct("Overview", {
 }).annotate({ title: "Overview", description: "All current runs across repository groups" });
 export type Overview = typeof Overview.Type;
 
+export const HistoryEntry = Schema.Struct({
+  name: RunView.fields.name,
+  repo: Schema.String,
+  title: Schema.NullOr(Schema.String),
+  state: RunView.fields.state,
+  archived: Schema.Boolean,
+  model: Schema.String,
+  effort: Schema.String,
+  createdAt: Timestamp,
+  endedAt: Schema.NullOr(Timestamp),
+  turns: Schema.Int,
+  tokensTotal: Schema.Number,
+  commands: RunView.fields.commands,
+  filesWritten: RunView.fields.filesWritten,
+  // Where the run's files live: the run directory or its archive directory.
+  dir: Schema.String,
+}).annotate({
+  title: "HistoryEntry",
+  description:
+    "A finished or archived run's outcome, read from disk for the monitor's history view",
+});
+export type HistoryEntry = typeof HistoryEntry.Type;
+
 export const DetailQuestion = Schema.Struct({
   id: RunView.fields.questions.value.fields.id,
   kind: Schema.Literals(["question", "blocked"]),
