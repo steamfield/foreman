@@ -39,6 +39,47 @@ function review() {
 }
 
 describe("finished run review", () => {
+  it.each([
+    [140, 26],
+    [100, 21],
+  ])("pages by the inline diff's visible rows at %i columns", (columns, page) => {
+    let state = reduce(review(), { type: "resize", columns, rows: 40 });
+    state = key(key(key(state, "tab"), "tab"), "tab");
+    const id = state.detail?.diff?.id;
+    if (id === undefined) throw new Error("Expected diff request");
+    state = reduce(state, {
+      type: "diff-result",
+      id,
+      error: null,
+      text: {
+        text: Array.from({ length: 100 }, (_, index) => `line ${index}`).join("\n"),
+        truncated: false,
+      },
+    });
+    const next = key(state, "page-down");
+    expect(view(next).diff?.offset).toBe(page);
+    expect(view(key(next, "page-up")).diff?.offset).toBe(0);
+  });
+  it("focuses the review diff opened from Files and restores Files on Escape", () => {
+    const files = key(key(review(), "tab"), "tab");
+    expect(view(files).review?.focus).toBe("files");
+    let opened = key(files, "d");
+    expect(view(opened).review?.focus).toBe("diff");
+    const id = opened.detail?.diff?.id;
+    if (id === undefined) throw new Error("Expected diff request");
+    opened = reduce(opened, {
+      type: "diff-result",
+      id,
+      error: null,
+      text: { text: "first\nsecond", truncated: false },
+    });
+    const moved = key(opened, "j");
+    expect(view(moved).diff?.offset).toBe(1);
+    expect(moved.detail?.changes?.selected).toBe(0);
+    const closed = key(moved, "escape");
+    expect(view(closed).diff).toBeNull();
+    expect(view(closed).review?.focus).toBe("files");
+  });
   it("answers deferred questions from review and its diff, with acting confirmation", () => {
     for (const diff of [false, true]) {
       let state = review();

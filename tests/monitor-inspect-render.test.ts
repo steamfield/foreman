@@ -4,8 +4,13 @@ import { cleanup, render } from "ink-testing-library";
 import { createElement } from "react";
 import stringWidth from "string-width";
 import { afterEach, expect, it } from "vitest";
-import { type DiffView, initialState, reduce, view } from "../src/core/monitor/model";
-import type { InspectViewModel } from "../src/tui/inspect-view";
+import {
+  type DiffView,
+  initialState,
+  reduce,
+  type ViewModel,
+  view,
+} from "../src/core/monitor/model";
 import { MonitorApp, Screen } from "../src/tui/screen";
 import { theme } from "../src/tui/theme";
 import { defaults, live, now, run } from "./helpers/monitor";
@@ -31,7 +36,7 @@ it.each(["review", "reviewed"])("renders the model's %s hint in the flags column
     output.split("\n").find((line) => line.includes("finished") && line.includes("idle")),
   ).toContain(hint);
 });
-function model(columns = 140): InspectViewModel {
+function model(columns = 140): ViewModel {
   return {
     ...view(initialState({ group: "/repo", defaults, version: "test", now, columns, rows: 40 })),
     screen: "list",
@@ -46,7 +51,7 @@ function model(columns = 140): InspectViewModel {
       message: [],
       header: [["task", "Retry connections"]],
       warnings: [],
-      focus: "task",
+      focus: "files",
       panes: [
         {
           id: "task",
@@ -54,6 +59,21 @@ function model(columns = 140): InspectViewModel {
           value: "",
           lines: [{ text: "Retry connections", tone: "fg" }],
           height: 3,
+          offset: 0,
+          focused: false,
+        },
+        {
+          id: "files",
+          title: "Files · 1 changed",
+          value: "",
+          lines: [
+            {
+              text: "M src/client.ts  +42 −7  ▲ outside May change",
+              tone: "interrupted",
+              selected: true,
+            },
+          ],
+          height: 4,
           offset: 0,
           focused: true,
         },
@@ -78,17 +98,6 @@ function model(columns = 140): InspectViewModel {
       ticks: "11:52     12:04",
       legend: "working · waiting",
     },
-    files: [
-      {
-        path: "src/client.ts",
-        status: "M",
-        added: "+42",
-        removed: "−7",
-        outside: true,
-        selected: true,
-      },
-    ],
-    filesFocused: true,
     feedTabs: { filter: "all", search: "", editing: false },
   };
 }
@@ -107,11 +116,46 @@ const diff: DiffView = {
     { text: ` context ${"界".repeat(200)}`, kind: "context", oldLine: 42, newLine: 42 },
   ],
 };
-function frame(value: InspectViewModel, noColor = false) {
+function frame(value: ViewModel, noColor = false) {
   return renderToString(createElement(Screen, { model: value, colors: theme(3, noColor) }), {
     columns: value.columns,
   });
 }
+it("keeps the selected file visible when the timeline shrinks its pane", () => {
+  const value = model(100);
+  if (!value.detail) throw new Error("Expected detail");
+  const output = plain(
+    frame({
+      ...value,
+      rows: 24,
+      detail: {
+        ...value.detail,
+        header: Array.from(
+          { length: 14 },
+          (_, index) => [`field ${index}`, `value ${index}`] as const,
+        ),
+        panes: [
+          {
+            id: "files",
+            title: "Files · 20 changed",
+            value: "",
+            height: 8,
+            offset: 11,
+            focused: true,
+            lines: Array.from({ length: 20 }, (_, index) => ({
+              text: `M src/file-${index}.ts  +1 −0`,
+              tone: "fg",
+              selected: index === 16,
+            })),
+          },
+        ],
+      },
+    }),
+  );
+  expect(output).toContain("src/file-16.ts");
+  expect(output).not.toContain("src/file-11.ts");
+  expect(output.split("\n")).toHaveLength(24);
+});
 it.each([140, 100, 80])(
   "draws timeline, files and feed tabs without wrapping at %i columns",
   (columns) => {
@@ -159,6 +203,7 @@ it("keeps existing actions and escape hints visible as the detail footer narrows
 });
 it("paints counts, scope warnings, selected files and the active tab", () => {
   const value = model();
+  if (!value.detail) throw new Error("Expected detail");
   const output = frame(value);
   expect(output).toContain(theme(3).paint("+42", "done"));
   expect(output).toContain("\u001b[38;2;255;122;112m−7");
@@ -168,7 +213,14 @@ it("paints counts, scope warnings, selected files and the active tab", () => {
     "\u001b[48;2;27;30;26m",
   );
   expect(
-    frame({ ...value, filesFocused: false })
+    frame({
+      ...value,
+      detail: {
+        ...value.detail,
+        focus: "task",
+        panes: value.detail.panes.map((pane) => ({ ...pane, focused: pane.id === "task" })),
+      },
+    })
       .split("\n")
       .find((line) => line.includes("src/client.ts")),
   ).not.toContain("\u001b[48;2;27;30;26m");

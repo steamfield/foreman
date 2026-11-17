@@ -1,55 +1,58 @@
 import { Box, Text } from "ink";
-import { Fragment } from "react";
 import stringWidth from "string-width";
-import { type DetailView, detailLayout, type PaneView } from "../core/monitor/model";
+import {
+  type DetailView,
+  detailLayout,
+  type Message,
+  type PaneView,
+  type ViewModel,
+} from "../core/monitor/model";
 import { Glyph, Line, pad, truncate } from "./components";
 import { DetailPane } from "./detail-pane";
-import { InspectFiles } from "./inspect-files";
-import type { InspectMessage, InspectViewModel } from "./inspect-view";
 import { type Theme, theme } from "./theme";
 import { Timeline } from "./timeline";
 
 function fitPane(pane: PaneView, height: number): PaneView {
   const maximum = Math.max(0, pane.lines.length - height + 2);
   const atEnd = pane.offset === Math.max(0, pane.lines.length - pane.height + 2);
+  const selected = pane.id === "files" ? pane.lines.findIndex((line) => line.selected) : -1;
+  if (selected >= 0)
+    return { ...pane, height, offset: Math.min(maximum, Math.max(0, selected - height + 3)) };
   return { ...pane, height, offset: atEnd ? maximum : Math.min(pane.offset, maximum) };
 }
 
-function inspectionLayout(detail: DetailView, model: InspectViewModel, height: number) {
+function inspectionLayout(detail: DetailView, model: ViewModel, height: number) {
   const original = detailLayout(detail, model.columns, model.rows);
-  if (!model.timeline && !model.files) return { ...original, filesHeight: 0 };
   const timelineHeight = model.timeline ? 5 + Number(model.timeline.subagentCells !== null) : 0;
+  const header = model.columns >= 120 || detail.focus !== "feed";
+  const timeline =
+    Boolean(model.timeline) &&
+    height - detail.message.length - timelineHeight - (header ? original.headerHeight : 0) >= 3;
+  const pinnedHeader = timeline && header;
   const available = Math.max(
     1,
-    height - detail.message.length - timelineHeight - (model.timeline ? original.headerHeight : 0),
+    height -
+      detail.message.length -
+      (timeline ? timelineHeight : 0) -
+      (pinnedHeader ? original.headerHeight : 0),
   );
-  const filesHeight = model.files
-    ? Math.min(model.files.length + 2, Math.max(3, Math.floor(available / 3)))
-    : 0;
-  let position = model.timeline ? 0 : original.headerHeight;
+  let position = pinnedHeader ? 0 : original.headerHeight;
   let start = 0;
   let end = 0;
-  const blocks = detail.panes
-    .filter((pane) => model.columns < 120 || pane.id !== "feed")
-    .flatMap((pane) => [
-      { ...pane, height: Math.min(pane.height, available) },
-      ...(pane.id === "task" && filesHeight
-        ? [{ height: filesHeight, focused: Boolean(model.filesFocused) }]
-        : []),
-    ]);
-  if (!detail.panes.some((pane) => pane.id === "task") && filesHeight)
-    blocks.unshift({ height: filesHeight, focused: Boolean(model.filesFocused) });
-  for (const block of blocks) {
-    if (block.focused) {
+  for (const pane of detail.panes) {
+    if (model.columns >= 120 && pane.id === "feed") continue;
+    const paneHeight = Math.min(pane.height, available);
+    if (pane.id === detail.focus) {
       start = position;
-      end = position + block.height;
+      end = position + paneHeight;
     }
-    position += block.height;
+    position += paneHeight;
   }
   return {
     height: available,
     offset: end > available ? Math.min(start, end - available) : 0,
-    filesHeight,
+    timeline,
+    pinnedHeader,
   };
 }
 
@@ -113,6 +116,7 @@ function Header({
   );
 }
 
+/** Draws model detail panes beneath the run header and timeline. */
 export function DetailScreen({
   detail,
   model,
@@ -122,9 +126,9 @@ export function DetailScreen({
   height = Math.max(1, model.rows - 2),
 }: {
   detail: DetailView;
-  model: InspectViewModel;
+  model: ViewModel;
   colors: Theme;
-  onFind?: (message: InspectMessage) => void;
+  onFind?: (message: Extract<Message, { type: "feed-search-text" }>) => void;
   onKey?: (key: string) => void;
   height?: number;
 }) {
@@ -152,18 +156,13 @@ export function DetailScreen({
   const bodyColors = detail.status === "reconnecting" ? theme(colors.level, false, true) : colors;
   const leftWidth = wide ? Math.floor(width * 0.48) : width;
   const panes = detail.panes.filter((pane) => !wide || pane.id !== "feed");
-  const { offset, height: paneHeight, filesHeight } = inspectionLayout(detail, model, height);
+  const {
+    offset,
+    height: paneHeight,
+    timeline,
+    pinnedHeader,
+  } = inspectionLayout(detail, model, height);
   const feed = detail.panes.find((pane) => pane.id === "feed");
-  const filePane = model.files ? (
-    <InspectFiles
-      files={model.files}
-      width={leftWidth}
-      height={filesHeight}
-      offset={Math.max(0, model.files.findIndex((file) => file.selected) - filesHeight + 3)}
-      colors={colors}
-      focused={model.filesFocused}
-    />
-  ) : null;
   return (
     <Box width={width} height={height} flexDirection="column" overflow="hidden">
       {detail.message.map((message, index) => (
@@ -171,21 +170,21 @@ export function DetailScreen({
           {colors.paint(message, index === 1 ? "muted" : "fg")}
         </Line>
       ))}
-      {model.timeline && (
-        <>
-          <Header
-            detail={detail}
-            width={width}
-            narrow={model.layout === "narrow"}
-            colors={bodyColors}
-          />
-          <Timeline timeline={model.timeline} width={width} colors={bodyColors} />
-        </>
+      {pinnedHeader && (
+        <Header
+          detail={detail}
+          width={width}
+          narrow={model.layout === "narrow"}
+          colors={bodyColors}
+        />
+      )}
+      {timeline && model.timeline && (
+        <Timeline timeline={model.timeline} width={width} colors={bodyColors} />
       )}
       <Box width={width} height={paneHeight} flexDirection="row" overflow="hidden">
         <Box width={leftWidth} height={paneHeight} flexDirection="column" overflow="hidden">
           <Box flexDirection="column" flexShrink={0} marginTop={-offset}>
-            {!model.timeline && (
+            {!pinnedHeader && (
               <Header
                 detail={detail}
                 width={leftWidth}
@@ -193,26 +192,26 @@ export function DetailScreen({
                 colors={bodyColors}
               />
             )}
-            {!panes.some((pane) => pane.id === "task") && filePane}
             {panes.map((pane) => (
-              <Fragment key={pane.id}>
-                <DetailPane
-                  pane={fitPane(pane, Math.min(pane.height, paneHeight))}
-                  width={leftWidth}
-                  colors={colors}
-                  contentColors={bodyColors}
-                  tabs={pane.id === "feed" ? model.feedTabs : null}
-                  onFind={onFind}
-                  onKey={onKey}
-                />
-                {pane.id === "task" && filePane}
-              </Fragment>
+              <DetailPane
+                key={pane.id}
+                pane={fitPane(
+                  { ...pane, focused: pane.id === detail.focus },
+                  Math.min(pane.height, paneHeight),
+                )}
+                width={leftWidth}
+                colors={colors}
+                contentColors={bodyColors}
+                tabs={pane.id === "feed" ? model.feedTabs : null}
+                onFind={onFind}
+                onKey={onKey}
+              />
             ))}
           </Box>
         </Box>
         {wide && feed ? (
           <DetailPane
-            pane={fitPane(feed, paneHeight)}
+            pane={fitPane({ ...feed, focused: detail.focus === "feed" }, paneHeight)}
             width={width - leftWidth}
             colors={colors}
             contentColors={bodyColors}

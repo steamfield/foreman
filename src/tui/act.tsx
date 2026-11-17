@@ -4,7 +4,6 @@ import type { ActMessage, ActView } from "../core/monitor/act";
 import { FrameContent, FramedParagraph, FramedText, FrameRow, frameHeading } from "./act-frame";
 import { AnswerInput } from "./answer-input";
 import { Line } from "./components";
-import type { ContextAnswer } from "./inspect-view";
 import type { Theme } from "./theme";
 
 /** Paints the current watching or acting mode without using the attention tone. */
@@ -50,7 +49,7 @@ function AnswerBox({
   onAct,
   onKey,
 }: {
-  answer: ContextAnswer;
+  answer: NonNullable<ActView["answer"]>;
   width: number;
   height: number;
   colors: Theme;
@@ -62,7 +61,7 @@ function AnswerBox({
   if (answer.resolved) action = resolved;
   if (answer.sending) action = "sending…";
   const contextLimit = Math.max(0, Math.floor((height - 18) / 2));
-  const context = contextLimit > 0 ? (answer.context?.slice(-contextLimit) ?? []) : [];
+  const context = contextLimit > 0 ? answer.context.slice(-contextLimit) : [];
   return (
     <Box flexDirection="column" width={width} maxHeight={height} overflow="hidden">
       <Line width={width} colors={colors}>
@@ -84,9 +83,17 @@ function AnswerBox({
             colors={colors}
           />
           {context
-            .map((text, position) => ({ text, id: `context:${position}` }))
-            .map(({ text, id }) => (
-              <FramedText key={id} text={text} width={width} colors={colors} muted />
+            .map((line, position) => ({ line, id: `context:${position}` }))
+            .map(({ line, id }) => (
+              <FramedText
+                key={id}
+                text={
+                  (line.at ? colors.paint(`${line.at} `, "muted") : "") +
+                  colors.paint(`${line.symbol ? `${line.symbol} ` : ""}${line.text}`, line.tone)
+                }
+                width={width}
+                colors={colors}
+              />
             ))}
         </>
       )}

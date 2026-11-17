@@ -6,7 +6,6 @@ import stringWidth from "string-width";
 import { afterEach, expect, it } from "vitest";
 import type { ActMessage, ActView } from "../src/core/monitor/act";
 import { initialState, reduce, type ViewModel, view } from "../src/core/monitor/model";
-import type { ContextAnswer } from "../src/tui/inspect-view";
 import { MonitorApp, Screen } from "../src/tui/screen";
 import { theme } from "../src/tui/theme";
 import { at, defaults, detailLive, live, now, run } from "./helpers/monitor";
@@ -81,23 +80,33 @@ function frame(value: ViewModel, noColor = false) {
 const plain = (text: string) => stripVTControlCharacters(text);
 
 it("shows the context leading up to an answer", () => {
-  const contextual: ContextAnswer = {
+  const contextual: NonNullable<ActView["answer"]> = {
     ...answer,
-    context: ["12:01 inspecting client", "12:02 retry count differs"],
+    context: [
+      { at: "12:01", symbol: "✓", text: "inspecting client", tone: "done" },
+      { at: "12:02", symbol: "×", text: "retry count differs", tone: "failed" },
+    ],
   };
-  const output = plain(frame(model({ ...answering, answer: contextual })));
+  const rendered = frame(model({ ...answering, answer: contextual }));
+  const output = plain(rendered);
   for (const text of [
     "Leading up to it",
-    "12:01 inspecting client",
-    "12:02 retry count differs",
+    "12:01 ✓ inspecting client",
+    "12:02 × retry count differs",
     "Your answer",
   ])
     expect(output).toContain(text);
+  expect(rendered).toMatch(new RegExp(`${String.fromCharCode(27)}\\[38;2;154;162;148m12:01 `));
+  expect(rendered).toContain(theme(3).paint("✓ inspecting client", "done"));
+  expect(rendered).toContain(theme(3).paint("× retry count differs", "failed"));
 });
 it("keeps the answer input and send hints visible when context has no room on a short terminal", () => {
-  const contextual: ContextAnswer = {
+  const contextual: NonNullable<ActView["answer"]> = {
     ...answer,
-    context: Array.from({ length: 30 }, (_, index) => `context line ${index}`),
+    context: Array.from({ length: 30 }, (_, index) => ({
+      text: `context line ${index}`,
+      tone: "fg",
+    })),
   };
   const output = plain(frame(model({ ...answering, answer: contextual }, 80, 20)));
   expect(output).toContain("Your answer");

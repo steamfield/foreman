@@ -1,6 +1,32 @@
 import type { DiffText } from "../runs/changes";
 import { openFileDiff } from "./inspect-state";
-import type { DiffView, State } from "./model";
+import { type DiffView, type ReviewView, type State, view } from "./model";
+
+/** Computes review pane dimensions for rendering and diff navigation. */
+export function reviewLayout(review: ReviewView, width: number, height: number) {
+  const handoffHeight = Math.min(
+    (review.handoff?.lines.length ?? 1) + 2,
+    Math.max(3, Math.floor(height / 4)),
+  );
+  const decisionHeight = Math.min(
+    Math.max(1, review.decided.length * 3) + 2,
+    Math.max(3, Math.floor(height / 4)),
+  );
+  const remaining = Math.max(6, height - 1 - handoffHeight - decisionHeight);
+  const stacked = width < 120;
+  const fileHeight = stacked
+    ? Math.min(remaining - 3, Math.max(1, review.files.length) + 3)
+    : remaining;
+  return {
+    handoffHeight,
+    decisionHeight,
+    remaining,
+    stacked,
+    fileHeight,
+    fileWidth: stacked ? width : Math.floor(width * 0.32),
+    diffHeight: stacked ? remaining - fileHeight : remaining,
+  };
+}
 
 /** Parses unified diff lines while tracking each side's hunk line numbers. */
 export function parseDiff(diff: DiffText): DiffView["lines"] {
@@ -69,7 +95,11 @@ export function diffKey(state: State, key: string): State {
   const detail = state.detail;
   const diff = detail?.diff;
   if (!detail || !diff) return state;
-  if (key === "escape") return { ...state, detail: { ...detail, diff: null } };
+  if (key === "escape")
+    return {
+      ...state,
+      detail: { ...detail, diff: null, reviewFocus: detail.review ? "files" : detail.reviewFocus },
+    };
   if (key === "]" || key === "[") {
     const files = detail.changes?.files ?? [];
     const index = files.findIndex((file) => file.path === diff.path);
@@ -78,13 +108,28 @@ export function diffKey(state: State, key: string): State {
   }
   const model = diffView(state);
   if (!model) return state;
-  const offset = navigate(model, state.rows, key);
+  const page = key.startsWith("page-") ? diffPage(state, model) : 1;
+  const offset = navigate(model, page, key);
   return { ...state, detail: { ...detail, diff: { ...diff, offset } } };
 }
 
-function navigate(model: DiffView, rows: number, key: string): number {
+function diffPage(state: State, diff: DiffView): number {
+  const model = view(state);
+  const height = Math.max(
+    1,
+    model.rows -
+      2 -
+      Number(model.act.notice !== null) -
+      Number(model.filterBar !== null && !model.overlay),
+  );
+  const viewport = model.review
+    ? reviewLayout(model.review, model.columns, height).diffHeight
+    : height;
+  return Math.max(1, viewport - 2 - Number(diff.truncated));
+}
+
+function navigate(model: DiffView, page: number, key: string): number {
   const maximum = Math.max(0, model.lines.length - 1);
-  const page = Math.max(1, rows - 4);
   if (key === "home") return 0;
   if (key === "end") return maximum;
   if (key === "n" || key === "p") {

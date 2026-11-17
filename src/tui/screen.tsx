@@ -2,7 +2,7 @@ import { Box, Text } from "ink";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import stringWidth from "string-width";
 import type { ActMessage } from "../core/monitor/act";
-import type { ViewModel } from "../core/monitor/model";
+import type { Message, ViewModel } from "../core/monitor/model";
 import { ActNotice, ActOverlay } from "./act";
 import { Glyph, Help, Line, monitorFooter, NoteHeading, pad, Tick, truncate } from "./components";
 import { DetailScreen } from "./detail";
@@ -12,7 +12,6 @@ import type { FindMessage } from "./find-input";
 import { monitorHeader } from "./header";
 import { History } from "./history";
 import { MonitorInput } from "./input";
-import type { InspectMessage, InspectViewModel } from "./inspect-view";
 import { listGroups } from "./list-row";
 import { Palette } from "./palette";
 import { PinnedRows } from "./pinned";
@@ -29,12 +28,12 @@ export const Screen = memo(function Screen({
   onFind = () => {},
   onInspect = () => {},
 }: {
-  model: InspectViewModel;
+  model: ViewModel;
   colors: Theme;
   onAct?: (message: ActMessage) => void;
   onKey?: (key: string) => void;
   onFind?: (message: FindMessage) => void;
-  onInspect?: (message: InspectMessage) => void;
+  onInspect?: (message: Extract<Message, { type: "feed-search-text" }>) => void;
 }) {
   const width = model.columns;
   const bodyColors = useMemo(
@@ -162,9 +161,9 @@ export const Screen = memo(function Screen({
   if (model.overlay) body = <Help model={model} colors={colors} />;
   else if (model.history)
     body = <History history={model.history} width={width} height={available} colors={colors} />;
+  else if (model.review) body = <ReviewScreen model={model} colors={colors} height={available} />;
   else if (model.diff)
     body = <DiffPane diff={model.diff} width={width} height={available} colors={colors} />;
-  else if (model.review) body = <ReviewScreen model={model} colors={colors} height={available} />;
   else if (model.detail)
     body = (
       <DetailScreen
@@ -243,7 +242,7 @@ export function MonitorApp({
   onTick: (now: number) => void;
   onAct?: (message: ActMessage) => void;
   onFind?: (message: FindMessage) => void;
-  onInspect?: (message: InspectMessage) => void;
+  onInspect?: (message: Extract<Message, { type: "feed-search-text" }>) => void;
 }) {
   const [now, setNow] = useState(model.now);
   const blocked = useRef(false);

@@ -74,7 +74,7 @@ function hints(model: ViewModel): readonly Hint[] {
     ];
   if (model.history) return [["jk", "move"], ["/", "filter"], ["h/esc", "back"], ...common];
   if (model.act.hints) return model.act.hints.map(({ key, label }) => [key, label]);
-  if (model.diff)
+  if (model.diff && !model.review)
     return [
       ["jk", "scroll"],
       ["n/p", "hunk"],
@@ -90,7 +90,7 @@ function hints(model: ViewModel): readonly Hint[] {
       ["r", "mark reviewed"],
       ["F", "follow up"],
       ["x", "archive"],
-      ["Esc", "list"],
+      ["Esc", model.diff ? "back" : "list"],
     ];
   const result = model.detail ? detailHints(model) : listHints(model);
   return model.layout === "narrow" ? result.filter(([key]) => key !== "Enter") : result;

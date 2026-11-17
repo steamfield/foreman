@@ -76,8 +76,54 @@ async function frame(
     chalk.level = previous;
   }
 }
-const feedKeys = Array.from({ length: 6 }, () => "tab");
+const feedKeys = Array.from({ length: 7 }, () => "tab");
 describe("monitor detail frames", () => {
+  it("renders the model's selected Files pane, timeline and feed tabs together at 140x40", () => {
+    const name = sample.run.name;
+    let state = initialState({
+      group: "/repo",
+      defaults,
+      version: "test",
+      now,
+      columns: 140,
+      rows: 40,
+      name,
+    });
+    state = reduce(state, { type: "detail-feed", name, value: detailLive(sample, events) });
+    const id = state.detail?.changes?.id;
+    if (id === undefined) throw new Error("Expected changes request");
+    state = reduce(state, {
+      type: "changes-result",
+      id,
+      error: null,
+      files: [{ path: "src/client.ts", status: "modified", added: 42, removed: 7, outside: true }],
+    });
+    for (let index = 0; index < 6; index++) state = reduce(state, { type: "key", key: "tab" });
+    const output = renderToString(createElement(Screen, { model: view(state), colors: theme(3) }), {
+      columns: 140,
+    });
+    const text = strip(output);
+    for (const label of [
+      "Timeline",
+      "Files · 1 changed",
+      "src/client.ts",
+      "▲ outside May change",
+      "+42",
+      "−7",
+      "Feed · all",
+      "cmds",
+      "files",
+      "msgs",
+      "q&a",
+    ])
+      expect(text).toContain(label);
+    expect(output.split("\n").find((line) => line.includes("src/client.ts"))).toContain(
+      "\u001b[48;2;27;30;26m",
+    );
+    expect(text.split("\n")).toHaveLength(40);
+    for (const line of text.split("\n")) expect(stringWidth(line)).toBeLessThanOrEqual(140);
+    expect(text.replace(/ +$/gm, "")).toMatchSnapshot();
+  });
   it("shows header warnings, new files and the successful last command after an earlier failure", async () => {
     const data = detail(
       run("fix-hooks", {
@@ -126,8 +172,9 @@ describe("monitor detail frames", () => {
     [3, "Subagents", "/root/acceptance_tests"],
     [4, "Hand-off", "Updated the hooks."],
     [5, "Commands", "foreman answer fix-hooks q1 --file <path>"],
-    [6, "Feed", "following"],
-    [7, "Task", "# Fix hook handling"],
+    [6, "Files", "loading changes…"],
+    [7, "Feed", "following"],
+    [8, "Task", "# Fix hook handling"],
   ] as const)("Tab %i focuses %s and shows its content", async (tabs, title, text) => {
     const result = await frame(
       detailLive(sample, events),
@@ -137,7 +184,7 @@ describe("monitor detail frames", () => {
     );
     expect(result).toMatch(new RegExp(`38;2;228;232;224m[^\\n]*╭─ [^\\n]*${title}`));
     expect(strip(result)).toContain(text);
-    if (tabs < 7) expect(paneFrame(result, title)).toMatchSnapshot();
+    if (tabs < 8) expect(paneFrame(result, title)).toMatchSnapshot();
     if (title === "Questions") {
       const last = await frame(detailLive(sample, events), 100, ["tab", "tab", "end"]);
       expect(paneFrame(last, title)).toMatchSnapshot("resolved and cancelled questions");

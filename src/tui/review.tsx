@@ -1,10 +1,11 @@
 import { Box, Text } from "ink";
 import stringWidth from "string-width";
+import { reviewLayout } from "../core/monitor/diff";
+import type { ViewModel } from "../core/monitor/model";
 import { Glyph, pad, truncate } from "./components";
 import { DiffPane } from "./diff";
 import { InspectFiles } from "./inspect-files";
 import { InspectFrame, InspectRow } from "./inspect-frame";
-import type { InspectViewModel } from "./inspect-view";
 import type { Theme } from "./theme";
 
 function ReviewTextPane({
@@ -31,7 +32,7 @@ function ReviewTextPane({
   return (
     <InspectFrame title={title} width={width} height={height} colors={colors} focused={focused}>
       {rows.map(({ id, text }) => (
-        <InspectRow key={id} text={text} width={width} colors={colors} />
+        <InspectRow key={id} text={text} width={width} colors={colors} focused={focused} />
       ))}
     </InspectFrame>
   );
@@ -43,7 +44,7 @@ export function ReviewScreen({
   colors,
   height,
 }: {
-  model: InspectViewModel;
+  model: ViewModel;
   colors: Theme;
   height: number;
 }) {
@@ -61,23 +62,14 @@ export function ReviewScreen({
   const summary = truncate(review.summary, Math.floor(width / 2));
   const headerWidth = Math.max(0, width - stringWidth(summary) - 2);
   const handoff = review.handoff?.lines ?? ["No hand-off recorded."];
-  const handoffHeight = Math.min(handoff.length + 2, Math.max(3, Math.floor(height / 4)));
   const decisions = review.decided.flatMap((item) => [
     `${item.asked} · ${item.question}`,
-    `→ ${item.outcome}`,
-    "a answer late (starts a follow-up turn)",
+    item.outcome,
+    review.lateAnswerHint,
   ]);
-  const decisionHeight = Math.min(
-    Math.max(1, decisions.length) + 2,
-    Math.max(3, Math.floor(height / 4)),
-  );
-  const remaining = Math.max(6, height - 1 - handoffHeight - decisionHeight);
-  const stacked = width < 120;
-  const fileHeight = stacked
-    ? Math.min(remaining - 3, Math.max(3, review.files.length + 3))
-    : remaining;
-  const fileWidth = stacked ? width : Math.floor(width * 0.32);
-  const focus = model.detail?.focus;
+  const { handoffHeight, decisionHeight, remaining, stacked, fileHeight, fileWidth, diffHeight } =
+    reviewLayout(review, width, height);
+  const focus = review.focus;
   return (
     <Box width={width} height={height} flexDirection="column" overflow="hidden">
       <Box width={width} height={1} flexShrink={0}>
@@ -91,7 +83,7 @@ export function ReviewScreen({
         </Text>
       </Box>
       <ReviewTextPane
-        title={`Hand-off${review.handoff?.title ? ` · ${review.handoff.title}` : ""}`}
+        title={review.handoff?.title ?? "Hand-off"}
         width={width}
         height={handoffHeight}
         colors={colors}
@@ -104,7 +96,7 @@ export function ReviewScreen({
         width={width}
         height={decisionHeight}
         colors={colors}
-        focused={focus === "questions"}
+        focused={focus === "decided"}
         lines={(decisions.length ? decisions : ["No unattended decisions."]).map((text, position) =>
           colors.paint(text, position % 3 === 0 ? "interrupted" : "fg"),
         )}
@@ -113,30 +105,49 @@ export function ReviewScreen({
       <Box width={width} height={remaining} flexDirection={stacked ? "column" : "row"}>
         <InspectFiles
           files={review.files}
+          message={review.filesMessage}
           note={review.filesNote}
           width={fileWidth}
           height={fileHeight}
           offset={Math.max(0, review.files.findIndex((file) => file.selected) - fileHeight + 4)}
-          focused={focus !== "questions" && focus !== "handoff"}
+          focused={focus === "files"}
           colors={colors}
         />
-        <DiffPane
-          diff={
-            review.diff ?? {
-              title: "Diff",
-              position: "",
-              status: "loading",
-              message: "Select a file to read its diff.",
-              lines: [],
-              offset: 0,
-              truncated: false,
-            }
-          }
+        <ReviewDiff
+          diff={model.diff}
           width={stacked ? width : width - fileWidth}
-          height={stacked ? remaining - fileHeight : remaining}
+          height={diffHeight}
           colors={colors}
+          focused={focus === "diff"}
         />
       </Box>
     </Box>
+  );
+}
+
+function ReviewDiff({
+  diff,
+  width,
+  height,
+  colors,
+  focused,
+}: {
+  diff: ViewModel["diff"];
+  width: number;
+  height: number;
+  colors: Theme;
+  focused: boolean;
+}) {
+  if (diff)
+    return <DiffPane diff={diff} width={width} height={height} colors={colors} focused={focused} />;
+  return (
+    <InspectFrame title="Diff" width={width} height={height} colors={colors} focused={focused}>
+      <InspectRow
+        text={colors.paint("Select a file to read its diff.", "muted")}
+        width={width}
+        colors={colors}
+        focused={focused}
+      />
+    </InspectFrame>
   );
 }

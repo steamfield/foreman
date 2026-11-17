@@ -35,6 +35,26 @@ const feed = (state: ReturnType<typeof inspectStart>) =>
   view(state).detail?.panes.find((p) => p.id === "feed");
 
 describe("monitor inspection", () => {
+  it.each([
+    [false, 36],
+    [true, 35],
+  ])("pages a full-screen diff with truncation=%s by its visible rows", (truncated, page) => {
+    let state = key(focusFiles(loaded()), "d");
+    const id = state.detail?.diff?.id;
+    if (id === undefined) throw new Error("Expected diff request");
+    state = reduce(state, {
+      type: "diff-result",
+      id,
+      error: null,
+      text: {
+        text: Array.from({ length: 100 }, (_, index) => `line ${index}`).join("\n"),
+        truncated,
+      },
+    });
+    const next = key(state, "page-down");
+    expect(view(next).diff?.offset).toBe(page);
+    expect(view(key(next, "page-up")).diff?.offset).toBe(0);
+  });
   it("visits the first hunk from patch headers, including one-hunk diffs", () => {
     const opened = key(focusFiles(loaded()), "d");
     for (const text of [

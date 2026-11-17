@@ -1,9 +1,8 @@
 import { Box, Text } from "ink";
 import stringWidth from "string-width";
-import type { DetailLine, PaneView, ViewModel } from "../core/monitor/model";
+import type { DetailLine, Message, PaneView, ViewModel } from "../core/monitor/model";
 import { Glyph, Line, pad, truncate } from "./components";
 import { FindInput } from "./find-input";
-import type { InspectMessage } from "./inspect-view";
 import type { Theme } from "./theme";
 
 function rule(title: string, value: string, width: number, tone: "fg" | "line", colors: Theme) {
@@ -43,6 +42,27 @@ function content(line: DetailLine, width: number, colors: Theme) {
     colors.paint(line.text, line.symbol ? "fg" : line.tone)
   );
 }
+
+function fileContent(line: DetailLine, width: number, colors: Theme) {
+  const match = /^(.*) {2}(\+\d+|binary) (−\d+|binary)( {2}▲ outside May change)?$/.exec(line.text);
+  if (!match) return colors.paint(line.text, line.tone);
+  const [, path = "", added = "", removed = "", outside = ""] = match;
+  const suffix =
+    (outside ? `${colors.paint(outside.trim(), line.tone)}  ` : "") +
+    colors.paint(added, "done") +
+    " " +
+    colors.paint(removed, "failed");
+  const pathWidth = Math.max(0, width - stringWidth(suffix) - 2);
+  return `${colors.paint(pad(truncate(path, pathWidth), pathWidth))}  ${suffix}`;
+}
+
+function rowContent(line: DetailLine | undefined, pane: PaneView, width: number, colors: Theme) {
+  if (!line) return " ".repeat(width);
+  const text =
+    pane.id === "files" ? fileContent(line, width, colors) : content(line, width, colors);
+  const padded = pad(truncate(text, width), width);
+  return pane.id === "files" && pane.focused && line.selected ? colors.select(padded) : padded;
+}
 /** Draws a detail pane with optional feed tabs and controlled search. */
 export function DetailPane({
   pane,
@@ -58,7 +78,7 @@ export function DetailPane({
   colors: Theme;
   contentColors?: Theme;
   tabs?: ViewModel["feedTabs"];
-  onFind?: (message: InspectMessage) => void;
+  onFind?: (message: Extract<Message, { type: "feed-search-text" }>) => void;
   onKey?: (key: string) => void;
 }) {
   const tone = pane.focused ? "fg" : "line";
@@ -88,9 +108,7 @@ export function DetailPane({
             )}
           </>
         ) : (
-          colors.fill(
-            pad(truncate(line ? content(line, inside, contentColors) : "", inside), inside),
-          )
+          colors.fill(rowContent(line, pane, inside, contentColors))
         )}
         {colors.fill(colors.paint(" │", tone))}
       </Text>,

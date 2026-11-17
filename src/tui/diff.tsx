@@ -56,13 +56,14 @@ export function DiffPane({
         id: `diff:${diff.offset + index}`,
         text: rows[index] ?? "",
       })).map(({ id, text }) => (
-        <InspectRow key={id} text={text} width={width} colors={colors} />
+        <InspectRow key={id} text={text} width={width} colors={colors} focused={focused} />
       ))}
       {diff.truncated && (
         <InspectRow
           text={colors.paint("… diff truncated · D opens more in $PAGER", "muted")}
           width={width}
           colors={colors}
+          focused={focused}
         />
       )}
     </InspectFrame>
