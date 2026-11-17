@@ -18,7 +18,7 @@ const actions = [
   { key: "s", action: "steer", states: ["running", "starting"] },
   { key: "F", action: "followup", states: ["idle", "failed", "interrupted"] },
   { key: "i", action: "interrupt", states: ["running", "starting", "waiting"] },
-  { key: "x", action: "archive", states: ["idle", "failed", "interrupted", "lost", "unknown"] },
+  { key: "x", action: "archive", states: ["idle", "failed", "interrupted", "lost"] },
 ] as const;
 const states: RunView["state"][] = [
   "running",

@@ -33,7 +33,7 @@ export function eligible(action: ActAction, run: RunView): boolean {
     case "interrupt":
       return ["running", "starting", "waiting"].includes(run.state);
     case "archive":
-      return ["idle", "failed", "interrupted", "lost", "unknown"].includes(run.state);
+      return ["idle", "failed", "interrupted", "lost"].includes(run.state);
     case "answer":
     case "defer":
       return run.questions.length > 0;

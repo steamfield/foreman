@@ -257,6 +257,14 @@ describe("monitor grouping", () => {
 });
 
 describe("monitor command palette", () => {
+  it("offers no actions for an unknown run, which the daemon treats as active", () => {
+    const model = view(key(start([run("subject", { state: "unknown" })]), ":"));
+    expect(
+      model.palette?.items.filter(
+        (item) => !item.heading && ["i", "s", "F", "a", "d", "x"].includes(item.key ?? ""),
+      ),
+    ).toEqual([]);
+  });
   it.each([
     ["running", ["interrupt", "steer"]],
     ["starting", ["interrupt", "steer"]],
@@ -264,7 +272,6 @@ describe("monitor command palette", () => {
     ["idle", ["follow up", "archive"]],
     ["failed", ["follow up", "archive"]],
     ["interrupted", ["follow up", "archive"]],
-    ["unknown", ["archive"]],
     ["lost", ["archive"]],
   ] as const)("lists eligible actions for %s with a watching heading", (state, expected) => {
     const model = view(
