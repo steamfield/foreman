@@ -17,10 +17,11 @@ export function duration(ms: number): string {
 export function rowFacts(
   run: RunView,
   live: boolean,
-): Pick<RowView, "task" | "modelLabel" | "progress" | "pace"> {
+): Pick<RowView, "task" | "modelLabel" | "progress" | "pace" | "review"> {
   const model = run.model.replace(/^gpt-\d+(?:\.\d+)*-/, "");
   const effort = run.effort === "medium" ? "med" : run.effort;
   return {
+    review: reviewHint(run),
     task: run.title?.replace(/\p{Cc}/gu, " ") ?? null,
     modelLabel: `${model} · ${effort}`.replace(/\p{Cc}/gu, " "),
     progress:
@@ -32,4 +33,12 @@ export function rowFacts(
           },
     pace: pace(run, live),
   };
+}
+
+function reviewHint(run: RunView): RowView["review"] {
+  if (!["idle", "failed", "interrupted"].includes(run.state)) return null;
+  if (run.reviewedAt !== null) return { text: "reviewed", key: null, bold: false, tone: "muted" };
+  return run.filesWritten
+    ? { text: `${run.filesWritten} files · r review`, key: "r", bold: true, tone: "fg" }
+    : null;
 }

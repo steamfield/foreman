@@ -6,17 +6,24 @@ import { tokenCount } from "../runs/digest";
 import { type ActMessage, type ActState, type ActView, initialAct, reduceAct } from "./act";
 import { actView } from "./act-view";
 import { firstProseLine, shellCommand } from "./attention";
+import { changedLines } from "./changed-files";
 import type { DetailFeed } from "./detail-feed";
+import { feedSearchInput, filteredEvents } from "./detail-filter";
+import { diffView } from "./diff";
 import type { MonitorFeed } from "./feed";
 import { filterBar } from "./filter";
 import { findHelpKeys, reduceFind } from "./find";
 import { historyView } from "./history";
+import { inspectKey } from "./inspect-input";
+import { inspectResult, openDetail } from "./inspect-state";
 import { listColumns } from "./list-columns";
 import { listGroups } from "./list-groups";
 import { paletteView } from "./palette";
 import { pinnedRows } from "./pinned";
 import { previewFeed, previewView, syncPreview } from "./preview";
+import { reviewView } from "./review";
 import { duration, rowFacts } from "./row";
+import { timelineView } from "./timeline";
 
 /** Formats elapsed time for monitor views. */
 export { duration } from "./row";
@@ -31,6 +38,7 @@ export const DETAIL_PANES = [
   "subagents",
   "handoff",
   "commands",
+  "files",
   "feed",
 ] as const;
 export type PaneId = (typeof DETAIL_PANES)[number];
@@ -61,6 +69,12 @@ export type DiffView = {
 };
 /** The review screen for a finished run. */
 export type ReviewView = {
+  /** The review pane selected by Tab. */
+  readonly focus: "handoff" | "decided" | "files" | "diff";
+  /** Loading, failure or empty-list text for the shared Files pane. */
+  readonly filesMessage: string | null;
+  /** Explains how a late answer resumes a finished run. */
+  readonly lateAnswerHint: string;
   readonly summary: string;
   readonly reviewed: boolean;
   readonly handoff: { readonly title: string; readonly lines: readonly string[] } | null;
@@ -80,6 +94,8 @@ export type ReviewView = {
   readonly filesNote: string;
 };
 export type DetailLine = {
+  /** True for the Files pane's currently selected path. */
+  readonly selected?: boolean;
   readonly text: string;
   readonly tone: Tone;
   readonly kind?: "working" | "subagent-idle";
@@ -120,6 +136,13 @@ export type Tone =
 export type Defaults = Pick<RunView, "model" | "effort" | "tier">;
 export type FlagView = { readonly text: string; readonly tone: Tone };
 export type RowView = {
+  /** Finished work's review prompt, including the emphasized action key. */
+  readonly review: {
+    readonly text: string;
+    readonly key: "r" | null;
+    readonly bold: boolean;
+    readonly tone: Tone;
+  } | null;
   readonly name: string;
   readonly stale: boolean;
   readonly state: RunView["state"];
@@ -301,6 +324,8 @@ export type State = {
     readonly feedSearch: { readonly text: string; readonly editing: boolean };
     /** True when the run opened in the review screen instead of plain detail. */
     readonly review: boolean;
+    /** Review has its own pane cycle, separate from the detail panes. */
+    readonly reviewFocus: ReviewView["focus"];
   } | null;
   /** A pending `$PAGER` hand-off for the whole diff; the executor replies with `pager-result`. */
   readonly pager: { readonly id: number; readonly name: RunName } | null;
@@ -379,34 +404,9 @@ export const initialState = (
   nextHistoryId: 1,
   clipboard: null,
   pager: null,
-  nextInspectId: 1,
-  detail: options.name === undefined ? null : openDetail(options.name),
+  nextInspectId: options.name === undefined ? 1 : 2,
+  detail: options.name === undefined ? null : openDetail(options.name, 1),
 });
-function openDetail(name: RunName): NonNullable<State["detail"]> {
-  return {
-    name,
-    feed: null,
-    events: [],
-    gap: false,
-    dropped: 0,
-    focus: "task",
-    follow: true,
-    offsets: {
-      task: 0,
-      digest: 0,
-      questions: 0,
-      subagents: 0,
-      handoff: 0,
-      commands: 0,
-      feed: 0,
-    },
-    changes: null,
-    diff: null,
-    feedFilter: "all",
-    feedSearch: { text: "", editing: false },
-    review: false,
-  };
-}
 const epoch = DateTime.toEpochMillis;
 const cleanText = (text: string) => text.replace(/\p{Cc}/gu, " ");
 const oneLine = (text: string) => text.split(/\r?\n/, 1)[0]?.replace(/\p{Cc}/gu, " ") ?? "";
@@ -510,6 +510,12 @@ export function reduce(state: State, msg: Message): State {
 function reduceState(state: State, msg: Message): State {
   if (msg.type === "key" && state.act.notice !== null)
     state = { ...state, act: { ...state.act, notice: null } };
+  const inspected = inspectResult(state, msg) ?? feedSearchInput(state, msg);
+  if (inspected !== null) return inspected;
+  if (msg.type === "key") {
+    const inspection = inspectKey(state, msg.key);
+    if (inspection !== null) return inspection;
+  }
   const found = reduceFind(state, msg);
   if (typeof found === "string")
     return reduceState({ ...state, palette: null }, { type: "key", key: found });
@@ -546,8 +552,14 @@ function reduceState(state: State, msg: Message): State {
       (data &&
         incomingDetail &&
         epoch(data.record.createdAt) !== epoch(incomingDetail.record.createdAt))
-    )
-      detail = { ...openDetail(detail.name), focus: detail.focus, follow: detail.follow };
+    ) {
+      detail = {
+        ...openDetail(detail.name, state.nextInspectId, detail.review),
+        focus: detail.focus,
+        follow: detail.follow,
+      };
+      state = { ...state, nextInspectId: state.nextInspectId + 1 };
+    }
     const incoming =
       msg.value._tag === "Live" || msg.value._tag === "Saved" ? msg.value.events : [];
     const lastSeq = detail.events.at(-1)?.seq ?? 0;
@@ -555,8 +567,21 @@ function reduceState(state: State, msg: Message): State {
     const dropped = Math.max(0, appended.length - EVENT_BUFFER_LIMIT);
     const gap =
       detail.gap || ((msg.value._tag === "Live" || msg.value._tag === "Saved") && msg.value.gap);
-    const removedLines = data ? feedLines(detail.events.slice(0, dropped), data).length : 0;
-    const addedMarkers = Number(!detail.gap && gap) + Number(detail.dropped === 0 && dropped > 0);
+    const matches = (text: string) =>
+      text.toLocaleLowerCase().includes(detail.feedSearch.text.toLocaleLowerCase());
+    const removedLines = data
+      ? feedLines(filteredEvents(detail.events.slice(0, dropped), detail.feedFilter), data).filter(
+          (line) => matches(line.text),
+        ).length
+      : 0;
+    const gapMarker = "gap: earlier events are no longer available";
+    const droppedMarker = (count: number) =>
+      count > 0 && matches(`${count} older events dropped from buffer`);
+    const addedMarkers =
+      Number(gap && matches(gapMarker)) -
+      Number(detail.gap && matches(gapMarker)) +
+      Number(droppedMarker(detail.dropped + dropped)) -
+      Number(droppedMarker(detail.dropped));
     return {
       ...state,
       now:
@@ -659,7 +684,13 @@ function reduceState(state: State, msg: Message): State {
       const run = grouped(state)
         .flatMap((group) => group.runs)
         .find((run) => run.name === state.selected);
-      return run ? { ...state, detail: openDetail(run.name) } : state;
+      return run
+        ? {
+            ...state,
+            detail: openDetail(run.name, state.nextInspectId),
+            nextInspectId: state.nextInspectId + 1,
+          }
+        : state;
     } else {
       const keys = selectable(state);
       const index = Math.max(0, keys.indexOf(state.selected ?? ""));
@@ -949,10 +980,16 @@ export function view(state: State, previous?: ViewModel): ViewModel {
     palette: paletteView(state),
     history: historyView(state),
     grouping: state.grouping,
-    timeline: null,
-    diff: null,
-    review: null,
-    feedTabs: null,
+    timeline: timelineView(state, currentDetail(state)),
+    diff: diffView(state),
+    review: reviewView(state, currentDetail(state)),
+    feedTabs: state.detail
+      ? {
+          filter: state.detail.feedFilter,
+          search: state.detail.feedSearch.text,
+          editing: state.detail.feedSearch.editing,
+        }
+      : null,
     helpKeys: findHelpKeys,
     animating:
       !state.help &&
@@ -1011,7 +1048,8 @@ function detailAnimating(state: State, detail: DetailView | null): boolean {
 }
 const textLines = (text: string, tone: Tone = "fg"): DetailLine[] =>
   text.split(/\r?\n/).map((text) => ({ text: cleanText(text), tone }));
-function feedLines(events: readonly RunEvent[], data: Detail): DetailLine[] {
+/** Converts journal events to the feed lines shared by detail and answer context. */
+export function feedLines(events: readonly RunEvent[], data: Detail): DetailLine[] {
   return events.flatMap(({ at, event }): DetailLine[] => {
     const timestamp = clockTime(at);
     const line = (text: string, tone: Tone = "muted", symbol?: string): DetailLine[] => [
@@ -1193,6 +1231,7 @@ function detailView(state: State): DetailView | null {
       : textLines("No subagents recorded.", "muted"),
     handoff: textLines(data.handoff?.text ?? "No hand-off available."),
     commands: commands.map((text) => ({ text, tone: "fg" })),
+    files: changedLines(detail.changes),
     feed: [
       ...(detail.gap
         ? textLines("gap: earlier events are no longer available", "interrupted")
@@ -1200,8 +1239,10 @@ function detailView(state: State): DetailView | null {
       ...(detail.dropped
         ? textLines(`${detail.dropped} older events dropped from buffer`, "muted")
         : []),
-      ...feedLines(detail.events, data),
-    ],
+      ...feedLines(filteredEvents(detail.events, detail.feedFilter), data),
+    ].filter((line) =>
+      line.text.toLocaleLowerCase().includes(detail.feedSearch.text.toLocaleLowerCase()),
+    ),
   };
   if (state.columns < 80)
     entries.subagents = textLines(`${run.subagents.length} subagents`, "muted");
@@ -1212,7 +1253,8 @@ function detailView(state: State): DetailView | null {
     subagents: "Subagents",
     handoff: "Hand-off",
     commands: "Commands",
-    feed: "Feed",
+    files: `Files · ${detail.changes?.files?.length ?? 0} changed`,
+    feed: `Feed · ${detail.feedFilter}`,
   };
   const heights: Record<PaneId, number> = {
     task: 8,
@@ -1221,6 +1263,7 @@ function detailView(state: State): DetailView | null {
     subagents: 6,
     handoff: 7,
     commands: 6,
+    files: 8,
     feed: state.rows >= 40 ? Math.max(34, state.rows - 2) : Math.max(6, state.rows - 2),
   };
   const panes = DETAIL_PANES.map((id): PaneView => {
@@ -1233,13 +1276,18 @@ function detailView(state: State): DetailView | null {
     else if (id === "task" && data.contractTruncated)
       value = `truncated at ${data.contractByteLimit} bytes`;
     else if (id === "handoff" && data.handoff) value = `turn ${data.handoff.turn}`;
+    let offset = id === "feed" && detail.follow ? maximum : Math.min(maximum, detail.offsets[id]);
+    if (id === "files") {
+      const selected = detail.changes?.selected ?? 0;
+      offset = Math.min(maximum, Math.max(0, selected - (height - 3)));
+    }
     return {
       id,
       title: titles[id],
       lines: entries[id],
       height,
       focused: detail.focus === id,
-      offset: id === "feed" && detail.follow ? maximum : Math.min(maximum, detail.offsets[id]),
+      offset,
       value,
     };
   });

@@ -20,6 +20,7 @@ const watching: ActView = {
   hints: null,
 };
 const answer: NonNullable<ActView["answer"]> = {
+  context: [],
   title: "■ answer  fix-hooks q2",
   meta: "question · waited 3m · defers in 12m",
   question:

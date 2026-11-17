@@ -8,7 +8,7 @@
 import type { QuestionId, RunName } from "../../schemas/daemon";
 import { reduceActMessage } from "./act-reducer";
 import { targetKey as draftKey, isPending as pending } from "./act-target";
-import type { State } from "./model";
+import type { DetailLine, State } from "./model";
 
 /** Watching is the passive 0.2.0 connection; acting holds an active one. */
 export type ActMode = "watching" | "acting";
@@ -31,7 +31,14 @@ export type ActIntent =
   | { readonly kind: "review"; readonly name: RunName };
 
 /** The action keys that need acting; confirm-acting resumes the one that asked. */
-export type ActAction = "answer" | "defer" | "steer" | "followup" | "interrupt" | "archive";
+export type ActAction =
+  | "answer"
+  | "defer"
+  | "steer"
+  | "followup"
+  | "interrupt"
+  | "archive"
+  | "review";
 
 /** The run a steer or follow-up box is open on, copied from the feed when it opened. */
 export type ComposeTarget = {
@@ -116,6 +123,8 @@ export type ActView = {
     readonly sending: boolean;
   } | null;
   readonly answer: {
+    /** Up to three feed lines leading up to this question, when its detail is loaded. */
+    readonly context: readonly DetailLine[];
     readonly title: string;
     readonly meta: string;
     readonly question: string;
@@ -165,5 +174,5 @@ export function reduceAct(
 /** The draft key for a question or composed message. */
 export const targetKey = draftKey;
 
-/** Whether the latest feed still lists the target question as pending. */
+/** Whether the latest feed still accepts an answer to this pending or deferred question. */
 export const isPending = pending;

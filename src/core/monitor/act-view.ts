@@ -13,7 +13,7 @@ import {
 } from "./act";
 import { confirmView } from "./act-confirm";
 import { findRun } from "./act-target";
-import { clockTime, duration, type State } from "./model";
+import { clockTime, duration, feedLines, type State } from "./model";
 
 /** Builds the acting portion of the screen without adding animation. */
 export function actView(state: State): ActView {
@@ -63,6 +63,7 @@ function answerView(state: State, target: AnswerTarget): ActView["answer"] {
     title: `${target.name} ${target.question}`,
     meta: `${target.kind} · asked ${clockTime(DateTime.makeUnsafe(target.askedAt))} · waited ${duration(state.now - target.askedAt)}${target.defersAt === null ? "" : ` · defers in ${duration(target.defersAt - state.now)}`}`,
     question: target.text.replace(/[^\P{Cc}\n]/gu, " "),
+    context: answerContext(state, target),
     draft: drafts[targetKey(target)] ?? "",
     sending:
       inFlight?.intent.kind === "answer" &&
@@ -71,4 +72,20 @@ function answerView(state: State, target: AnswerTarget): ActView["answer"] {
     resolved: !isPending(state, target),
     alsoWaiting: `The delegating agent may answer too. First answer wins; the other side sees ${target.question} resolved.`,
   };
+}
+
+function answerContext(
+  state: State,
+  target: AnswerTarget,
+): NonNullable<ActView["answer"]>["context"] {
+  const detail = state.detail;
+  if (!detail || detail.name !== target.name) return [];
+  const feed = detail.feed;
+  if (!feed || feed._tag === "Archived") return [];
+  const data = feed._tag === "Reconnecting" ? feed.last : feed.detail;
+  if (!data) return [];
+  const index = detail.events.findIndex(
+    (entry) => entry.event._tag === "QuestionAsked" && entry.event.id === target.question,
+  );
+  return index < 0 ? [] : feedLines(detail.events.slice(0, index), data).slice(-3);
 }
