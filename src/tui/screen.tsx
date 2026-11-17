@@ -6,9 +6,13 @@ import type { ViewModel } from "../core/monitor/model";
 import { ActNotice, ActOverlay } from "./act";
 import { Glyph, Help, Line, monitorFooter, NoteHeading, pad, Tick, truncate } from "./components";
 import { DetailScreen } from "./detail";
+import { FilterBar, HiddenWaiting } from "./filter-bar";
+import type { FindMessage } from "./find-input";
 import { monitorHeader } from "./header";
+import { History } from "./history";
 import { MonitorInput } from "./input";
 import { listGroups } from "./list-row";
+import { Palette } from "./palette";
 import { PinnedRows } from "./pinned";
 import { Preview } from "./preview";
 import { type Theme, theme } from "./theme";
@@ -19,18 +23,22 @@ export const Screen = memo(function Screen({
   colors,
   onAct = () => {},
   onKey = () => {},
+  onFind = () => {},
 }: {
   model: ViewModel;
   colors: Theme;
   onAct?: (message: ActMessage) => void;
   onKey?: (key: string) => void;
+  onFind?: (message: FindMessage) => void;
 }) {
   const width = model.columns;
   const bodyColors = useMemo(
     () => (model.screen === "reconnecting" ? theme(colors.level, false, true) : colors),
     [colors, model.screen],
   );
-  const header = monitorHeader(model, colors);
+  const header = model.history
+    ? colors.paint(`History · ${model.history.rows.length} runs`, "fg", true)
+    : monitorHeader(model, colors);
   const blocks: { key: string; height: number; content: React.ReactNode }[] = [];
   if (model.message.length && (model.groups.length === 0 || model.screen !== "list")) {
     for (const [index, message] of model.message.entries())
@@ -113,9 +121,15 @@ export const Screen = memo(function Screen({
       ),
     });
   blocks.push(...listGroups(model, bodyColors));
-  const available = Math.max(1, model.rows - 2 - Number(model.act.notice !== null));
-  const preview = !model.detail && !model.overlay ? model.preview : null;
-  const listHeight = Math.max(0, available - (preview ? 5 : 0));
+  const hiddenWaiting =
+    !model.detail && !model.history && !model.overlay ? (model.filterBar?.hiddenWaiting ?? 0) : 0;
+  const filterVisible = model.filterBar !== null && !model.overlay;
+  const available = Math.max(
+    1,
+    model.rows - 2 - Number(model.act.notice !== null) - Number(filterVisible),
+  );
+  const preview = !model.detail && !model.overlay && !model.history ? model.preview : null;
+  const listHeight = Math.max(0, available - (preview ? 5 : 0) - Number(hiddenWaiting > 0));
   const offset = model.offset;
   let skipped = 0;
   const visible = blocks.flatMap((block) => {
@@ -141,6 +155,8 @@ export const Screen = memo(function Screen({
     </Box>
   );
   if (model.overlay) body = <Help model={model} colors={colors} />;
+  else if (model.history)
+    body = <History history={model.history} width={width} height={available} colors={colors} />;
   else if (model.detail)
     body = <DetailScreen detail={model.detail} model={model} colors={colors} />;
   return (
@@ -153,9 +169,29 @@ export const Screen = memo(function Screen({
       <Line width={width} colors={colors} bar>
         {header}
       </Line>
+      {filterVisible && model.filterBar && (
+        <FilterBar
+          filter={model.filterBar}
+          width={width}
+          colors={colors}
+          onFind={onFind}
+          onKey={onKey}
+        />
+      )}
       <Box height={available} flexDirection="column">
         {body}
+        <HiddenWaiting count={hiddenWaiting} width={width} colors={bodyColors} />
         {preview && <Preview preview={preview} width={width} colors={bodyColors} />}
+        {model.palette && !model.overlay && (
+          <Palette
+            palette={model.palette}
+            columns={width}
+            height={available}
+            colors={colors}
+            onFind={onFind}
+            onKey={onKey}
+          />
+        )}
         {(model.act.confirm || model.act.answer || model.act.compose) && (
           <ActOverlay
             act={model.act}
@@ -181,12 +217,14 @@ export function MonitorApp({
   onKey,
   onTick,
   onAct = () => {},
+  onFind = () => {},
 }: {
   model: ViewModel;
   colors: Theme;
   onKey: (key: string) => void;
   onTick: (now: number) => void;
   onAct?: (message: ActMessage) => void;
+  onFind?: (message: FindMessage) => void;
 }) {
   const [now, setNow] = useState(model.now);
   const blocked = useRef(false);
@@ -208,6 +246,9 @@ export function MonitorApp({
         onKey={onKey}
         onAct={(message) => {
           if (!blocked.current) onAct(message);
+        }}
+        onFind={(message) => {
+          if (!blocked.current) onFind(message);
         }}
       />
     </Tick>

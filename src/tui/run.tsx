@@ -1,20 +1,25 @@
-import { Deferred, Effect, Fiber, FiberSet, Queue, Stream } from "effect";
+import { Deferred, Effect, Fiber, Queue, Stream } from "effect";
 import { render, type SuspendTerminal, useApp } from "ink";
 import { type ReactNode, useEffect } from "react";
-import type { ActMessage, ActState } from "../core/monitor/act";
-import type { ActingSession, openActing } from "../core/monitor/acting";
+import type { ActState } from "../core/monitor/act";
+import type { openActing } from "../core/monitor/acting";
 import type { DetailFeed } from "../core/monitor/detail-feed";
 import type { MonitorFeed } from "../core/monitor/feed";
 import { initialState, type Message, reduce, type State, view } from "../core/monitor/model";
-import { type AppError, DaemonUnavailable, detailFor, errorTable } from "../errors";
+import { DaemonUnavailable } from "../errors";
 import type { RunName } from "../schemas/daemon";
 import type { Terminal } from "../services/terminal";
+import { runActing } from "./acting";
 import { type EditorRunner, runEditors } from "./editor";
+import { type FindRequests, type HistoryReader, runFind } from "./find-executor";
 import { MonitorApp } from "./screen";
 import { theme } from "./theme";
 
 type ActingOpener = () => ReturnType<typeof openActing>;
 type ActRequest = NonNullable<ActState["inFlight"]>;
+
+/** Executes acting intents while owning the scoped connection. */
+export { runActing } from "./acting";
 
 /** Streams the selected run's preview after selection settles. */
 export const runPreview = <R,>(
@@ -62,76 +67,8 @@ function TerminalOwner({
   return children;
 }
 
-/** Executes acting intents while owning and observing the session's scoped fiber. */
-export const runActing = Effect.fn("tui.runActing")(function* <R>(
-  open: ActingOpener,
-  requests: Stream.Stream<ActRequest, never, R>,
-  dispatch: (message: ActMessage) => void,
-) {
-  const fibers = yield* FiberSet.make<void, never>();
-  let held: Fiber.Fiber<void, never> | undefined;
-  let session: ActingSession | undefined;
-  let lastId = 0;
-  const report = <R2,>(id: number, effect: Effect.Effect<string, AppError, R2>) =>
-    effect.pipe(
-      Effect.match({
-        onFailure: (error) =>
-          dispatch({
-            type: "act-outcome",
-            outcome: { id, ok: false, text: detailFor(error) ?? errorTable[error._tag].message },
-          }),
-        onSuccess: (text) => dispatch({ type: "act-outcome", outcome: { id, ok: true, text } }),
-      }),
-    );
-  const enter = (id: number) =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const opened = yield* open().pipe(Effect.result);
-        if (opened._tag === "Failure") {
-          yield* report(id, Effect.fail(opened.failure));
-          return;
-        }
-        session = opened.success;
-        yield* report(id, Effect.succeed("acting"));
-        yield* session.closed;
-        dispatch({ type: "acting-lost", text: "The daemon connection closed; back to watching." });
-      }),
-    ).pipe(
-      Effect.ensuring(
-        Effect.sync(() => {
-          session = undefined;
-        }),
-      ),
-    );
-  const execute = (request: ActRequest) =>
-    Effect.gen(function* () {
-      if (request.id === lastId) return;
-      lastId = request.id;
-      const { id, intent } = request;
-      if (intent.kind === "enter-acting") {
-        if (held) yield* Fiber.interrupt(held);
-        held = yield* FiberSet.run(fibers, enter(id));
-      } else if (intent.kind === "leave-acting") {
-        if (held) yield* Fiber.interrupt(held);
-        held = undefined;
-        yield* report(id, Effect.succeed("watching"));
-      } else
-        yield* report(
-          id,
-          session
-            ? session.send(intent)
-            : Effect.fail(
-                new DaemonUnavailable({
-                  detail: "The daemon connection closed; back to watching.",
-                }),
-              ),
-        );
-    });
-  yield* Effect.raceFirst(Stream.runForEach(requests, execute), FiberSet.join(fibers));
-}, Effect.scoped);
-
 /** Runs the interactive monitor and releases its terminal and acting session on exit. */
-export const runMonitor = Effect.fn("tui.runMonitor")(function* <R>(
+export const runMonitor = Effect.fn("tui.runMonitor")(function* <R, R2 = never>(
   terminal: Terminal["Service"],
   options: Parameters<typeof initialState>[0],
   feed: Stream.Stream<MonitorFeed, never, R>,
@@ -140,6 +77,7 @@ export const runMonitor = Effect.fn("tui.runMonitor")(function* <R>(
   open: ActingOpener = () => Effect.fail(new DaemonUnavailable()),
   App: typeof MonitorApp = MonitorApp,
   edit: EditorRunner = () => Effect.fail(new Error("No editor runner was provided.")),
+  read: HistoryReader<R2> = () => Effect.die("No history reader was provided."),
 ) {
   const { stdin, stdout, stderr } = terminal;
   if (stdin === null || stdout === null || stderr === null)
@@ -153,11 +91,13 @@ export const runMonitor = Effect.fn("tui.runMonitor")(function* <R>(
   const selected = yield* Queue.unbounded<RunName | null>();
   const actions = yield* Queue.unbounded<ActRequest>();
   const editors = yield* Queue.unbounded<NonNullable<ActState["editor"]>>();
+  const finds = yield* Queue.unbounded<FindRequests>();
   const editorTerminal = yield* Deferred.make<SuspendTerminal>();
   yield* Effect.addFinalizer(() => Queue.shutdown(opened));
   yield* Effect.addFinalizer(() => Queue.shutdown(selected));
   yield* Effect.addFinalizer(() => Queue.shutdown(actions));
   yield* Effect.addFinalizer(() => Queue.shutdown(editors));
+  yield* Effect.addFinalizer(() => Queue.shutdown(finds));
   Queue.offerUnsafe(opened, state.detail?.name ?? null);
   Queue.offerUnsafe(selected, previewName(state));
   const update = (message: Message) => {
@@ -170,6 +110,9 @@ export const runMonitor = Effect.fn("tui.runMonitor")(function* <R>(
       Queue.offerUnsafe(actions, next.act.inFlight);
     if (next.act.editor && next.act.editor.id !== state.act.editor?.id)
       Queue.offerUnsafe(editors, next.act.editor);
+    // The model lane supplies clipboard requests alongside the history request.
+    if (next.history?.id !== state.history?.id)
+      Queue.offerUnsafe(finds, { history: next.history, clipboard: null });
     state = next;
     model = view(state, model);
     instance?.rerender(frame());
@@ -177,7 +120,12 @@ export const runMonitor = Effect.fn("tui.runMonitor")(function* <R>(
   const onTick = (now: number) => update({ type: "tick", now });
   const onKey = (key: string) => {
     if (
-      (key === "q" && !model.act.answer && !model.act.confirm && !model.act.compose) ||
+      (key === "q" &&
+        !model.act.answer &&
+        !model.act.confirm &&
+        !model.act.compose &&
+        !model.filterBar?.editing &&
+        !model.palette) ||
       key === "ctrl-c"
     )
       Deferred.doneUnsafe(done, Effect.succeed(key === "q" ? "quit" : "interrupt"));
@@ -247,6 +195,7 @@ export const runMonitor = Effect.fn("tui.runMonitor")(function* <R>(
         resizes,
         input,
         runActing(open, Stream.fromQueue(actions), update),
+        runFind(read, Stream.fromQueue(finds), update, stdout),
         Deferred.await(editorTerminal).pipe(
           Effect.flatMap((suspend) => runEditors(edit, suspend, Stream.fromQueue(editors), update)),
         ),

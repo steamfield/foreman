@@ -8,6 +8,7 @@ import { openActing } from "../core/monitor/acting";
 import { detailFeed } from "../core/monitor/detail-feed";
 import { monitorFeed } from "../core/monitor/feed";
 import { defaultModel } from "../core/preflight/model";
+import { readHistory } from "../core/runs/history";
 import { RunName } from "../schemas/daemon";
 import { Host } from "../services/host";
 import { Invocation } from "../services/invocation";
@@ -68,6 +69,7 @@ export const makeMonitorCommand = (source: typeof monitorFeed = monitorFeed) =>
         () => openActing(config.home),
         undefined,
         yield* makeEditorRunner(config.inheritedEnvironment),
+        () => readHistory(config.home, 500),
       ).pipe(Effect.scoped);
     }),
   ).pipe(
