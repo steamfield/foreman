@@ -151,6 +151,15 @@ it.live.each(["answer", "defer"] as const)("acting sends %s and returns its outc
         ? { resolution: "answered", text: "café 🐈" }
         : { _tag: "Deferred", id: question },
     );
+    expect(
+      (yield* f.snapshot).events.events.find(({ event }) => event._tag === "QuestionResolved")
+        ?.event,
+    ).toEqual({
+      _tag: "QuestionResolved",
+      id: question,
+      resolution: kind === "answer" ? "answered" : "deferred",
+      source: "monitor",
+    });
   }).pipe(Effect.provide(platform)),
 );
 

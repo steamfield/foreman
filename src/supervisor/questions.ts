@@ -36,6 +36,7 @@ export const makeQuestions = Effect.fn("supervisor.questions")(function* (regist
     text: string | null,
     delivery?: AnswerDelivery,
     continuation?: { readonly id: string; readonly turn: number },
+    source?: "monitor",
   ) {
     yield* registry.question(run, {
       _tag: "Resolved",
@@ -50,6 +51,7 @@ export const makeQuestions = Effect.fn("supervisor.questions")(function* (regist
       id,
       resolution,
       ...(continuation === undefined ? {} : { continuation }),
+      ...(source === undefined ? {} : { source }),
     });
   }, Effect.uninterruptible);
   const supersede = Effect.fnUntraced(function* (run: Run) {
@@ -64,6 +66,7 @@ export const makeQuestions = Effect.fn("supervisor.questions")(function* (regist
     resolution: "answered" | "deferred",
     by: "timeout" | "orchestrator" = "orchestrator",
     note?: string,
+    source?: "monitor",
   ) {
     const lines = yield* Store.readQuestions(run.dir);
     if (!lines.some((line) => line._tag === "Asked" && line.id === id))
@@ -92,7 +95,12 @@ export const makeQuestions = Effect.fn("supervisor.questions")(function* (regist
           ? { _tag: "Deferred", id, by, ...(note === undefined ? {} : { note }), at }
           : { _tag: "Resolved", id, resolution, delivery: "response", text, at },
       );
-      yield* registry.event(run, { _tag: "QuestionResolved", id, resolution });
+      yield* registry.event(run, {
+        _tag: "QuestionResolved",
+        id,
+        resolution,
+        ...(source === undefined ? {} : { source }),
+      });
       if (run.calls.size === 0 && run.record.state === "waiting")
         yield* registry.state(run, "running");
     }).pipe(

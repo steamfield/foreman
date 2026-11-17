@@ -105,7 +105,7 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
   const interrupt = Effect.fnUntraced(function* (
     run: Run,
     server: AppServer,
-    by: "budget" | "repo-hooks" | "orchestrator",
+    by: "budget" | "repo-hooks" | "orchestrator" | "monitor",
   ) {
     if (!run.record.threadId || !run.record.activeTurnId)
       return yield* new RunConflict({

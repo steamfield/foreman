@@ -8,32 +8,63 @@ import { Effect, type FileSystem, type Path, type Scope } from "effect";
 import { activeRequest, openActive } from "../../daemon/client";
 import type { DaemonSockets } from "../../daemon/sockets";
 import type { AppError } from "../../errors";
+import type { DaemonRequestBody, DaemonResult } from "../../schemas/daemon";
 import { Host } from "../../services/host";
 import type { ActIntent } from "./act";
 
-/** The answer and defer intents a session can send. */
+/** The mutation intents an acting session can send. */
 export type SendableIntent = Exclude<ActIntent, { kind: "enter-acting" | "leave-acting" }>;
 
-/** An active daemon connection and the answer and defer requests it can send. */
+/** An active daemon connection and the monitor actions it can send. */
 export interface ActingSession {
   /** Completes when the held socket ends, including daemon shutdown or a transport failure. */
   readonly closed: Effect.Effect<void>;
   /**
-   * Sends one answer or defer and returns the outcome line the monitor shows.
+   * Sends one action and returns the outcome line the monitor shows.
    *
-   * @throws {RunConflict} When the question was already resolved (an answer uses `expectOpen`).
-   * @throws {RunNotFound} When the run or question no longer exists.
-   * @throws {DaemonUnavailable} When the daemon closed or refused the request.
+   * @throws {AppError} When the daemon rejects the action or its connection fails.
    */
   readonly send: (
     intent: SendableIntent,
   ) => Effect.Effect<string, AppError, FileSystem.FileSystem | Path.Path | DaemonSockets>;
 }
 
+const requestFor = (intent: SendableIntent): DaemonRequestBody => {
+  const name = intent.name;
+  if (intent.kind === "answer")
+    return {
+      _tag: "Answer",
+      name,
+      question: intent.question,
+      text: intent.text,
+      expectOpen: true,
+      source: "monitor",
+    };
+  if (intent.kind === "defer")
+    return { _tag: "Defer", name, question: intent.question, source: "monitor" };
+  if (intent.kind === "steer") return { _tag: "Steer", name, message: intent.text };
+  if (intent.kind === "followup") return { _tag: "Followup", name, message: intent.text };
+  if (intent.kind === "interrupt") return { _tag: "Interrupt", name, source: "monitor" };
+  return { _tag: "Archive", name, keepWorktree: intent.keepWorktree };
+};
+
+const outcome = (intent: SendableIntent, reply: DaemonResult): string => {
+  if (intent.kind === "answer")
+    return `answered ${intent.name} ${intent.question} · ${new TextEncoder().encode(intent.text).length} bytes`;
+  if (intent.kind === "defer") return `deferred ${intent.name} ${intent.question}`;
+  if (intent.kind === "steer")
+    return `steered ${intent.name} · ${new TextEncoder().encode(intent.text).length} bytes`;
+  if (intent.kind === "followup")
+    return `followed up ${intent.name}${"turn" in reply && typeof reply.turn === "number" ? ` · turn ${reply.turn}` : ""}`;
+  if (intent.kind === "interrupt") return `interrupted ${intent.name}`;
+  return `archived ${intent.name}${intent.keepWorktree ? " · worktree kept" : ""}`;
+};
+
 /**
  * Opens the acting connection for the enclosing scope.
  *
  * @throws {DaemonUnavailable} When no daemon is running or its build differs from this CLI's.
+ * @throws {AppError} When the daemon connection cannot be opened or validated.
  */
 export const openActing = (
   home: string,
@@ -46,22 +77,10 @@ export const openActing = (
     const host = yield* Host;
     const connection = yield* openActive(home);
     const send = Effect.fn("monitor.acting.send")(function* (intent: SendableIntent) {
-      if (intent.kind !== "answer" && intent.kind !== "defer") throw new Error("not implemented");
-      yield* activeRequest(
-        home,
-        intent.kind === "answer"
-          ? {
-              _tag: "Answer",
-              name: intent.name,
-              question: intent.question,
-              text: intent.text,
-              expectOpen: true,
-            }
-          : { _tag: "Defer", name: intent.name, question: intent.question },
-      ).pipe(Effect.provideService(Host, host));
-      return intent.kind === "answer"
-        ? `answered ${intent.name} ${intent.question} · ${new TextEncoder().encode(intent.text).length} bytes`
-        : `deferred ${intent.name} ${intent.question}`;
+      const reply = yield* activeRequest(home, requestFor(intent)).pipe(
+        Effect.provideService(Host, host),
+      );
+      return outcome(intent, reply);
     });
     return { ...connection, send };
   });
