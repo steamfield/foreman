@@ -14,7 +14,10 @@ afterEach(() => cleanup());
 const model = (feed: MonitorFeed | null, columns: number, key?: string, rows = 40) => {
   let state = initialState({ group: "/repo", defaults, version: "0.1.3", now, columns, rows });
   if (feed) state = reduce(state, { type: "feed", value: feed });
-  if (key) state = reduce(state, { type: "key", key });
+  if (key === "!") {
+    state = { ...state, attentionOnly: true };
+    state = { ...state, selected: view(state).groups[0]?.rows[0]?.name ?? null };
+  } else if (key) state = reduce(state, { type: "key", key });
   return view(state);
 };
 const feeds: { name: string; feed: MonitorFeed | null; key?: string }[] = [

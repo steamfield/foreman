@@ -66,7 +66,7 @@ describe("monitor command", () => {
             await terminal.waitFor("Read the repo.");
             const beforeEsc = terminal.output().length;
             terminal.stdin.push("\u001b");
-            await terminal.waitFor("a attention", beforeEsc);
+            await terminal.waitFor("a answer", beforeEsc);
             terminal.stdin.push("q");
             expect(await pending).toEqual({ status: 0, stdout: "", stderr: "" });
             expect(terminal.output().split("\u001b[?1049l")).toHaveLength(2);
@@ -205,7 +205,7 @@ describe("monitor command", () => {
           yield* Effect.promise(async () => {
             const before = terminal.output().length;
             terminal.stdin.push("\u001b");
-            await terminal.waitFor("a attention", before);
+            await terminal.waitFor("a answer", before);
           });
           yield* Deferred.await(closed).pipe(Effect.timeout("3 seconds"));
           if (opened === 0)
