@@ -127,6 +127,19 @@ async function frame(feed: MonitorFeed | null, columns: number, key?: string, co
   }
 }
 describe("monitor frames", () => {
+  it.each([70, 80, 100, 140])(
+    "keeps long state words and ages visible at %i columns",
+    (columns) => {
+      const output = renderToString(
+        createElement(Screen, {
+          model: model(live([run("long-state", { state: "interrupted" })]), columns),
+          colors: theme(0),
+        }),
+        { columns },
+      ).replace(new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g"), "");
+      expect(output).toMatch(/interrupted +12m/);
+    },
+  );
   it("renders the open command age in muted color", async () => {
     expect(await frame(live([run()]), 100, undefined, true)).toMatch(/38;2;154;162;148m · 20s/);
   });

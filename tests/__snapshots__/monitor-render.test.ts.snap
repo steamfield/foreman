@@ -3,21 +3,21 @@
 exports[`monitor frames > all states at 70 columns 1`] = `
 "››› foreman 0.1.3   ◇ watching
 ── repo  1 failed · 1 idle · 1 interrupted · 1 lost · 1 running · 1 s…
- × failed                    failed        12m                        
+ × failed          failed        12m                                  
     … bun run check · 20s                                             
- ✓ idle                      idle          12m
+ ✓ idle            idle          12m
     … bun run check · 20s
- ■ interrupted               interrupted   12m
+ ■ interrupted     interrupted   12m
     … bun run check · 20s
- ◌ lost                      lost          12m
+ ◌ lost            lost          12m
     … bun run check · 20s
- ⣾ running                   running       12m
+ ⣾ running         running       12m
     … bun run check · 20s
- ◐ starting                  starting      12m
+ ◐ starting        starting      12m
     … bun run check · 20s
- ◐ unknown                   unknown       12m
+ ◐ unknown         unknown       12m
     … bun run check · 20s
- ■ waiting                   waiting       12m
+ ■ waiting         waiting       12m
     … bun run check · 20s
 
 
@@ -46,21 +46,21 @@ exports[`monitor frames > all states at 70 columns 1`] = `
 exports[`monitor frames > all states at 100 columns 1`] = `
 "››› foreman 0.1.3   ◇ watching
 ── repo  1 failed · 1 idle · 1 interrupted · 1 lost · 1 running · 1 starting · 1 unknown · 1 waitin…
- × failed                failed        12m  t2                                                      
+ × failed           failed        12m                                                               
     … bun run check · 20s                                                                           
- ✓ idle                  idle          12m  t2
+ ✓ idle             idle          12m
     … bun run check · 20s
- ■ interrupted           interrupted   12m  t2
+ ■ interrupted      interrupted   12m
     … bun run check · 20s
- ◌ lost                  lost          12m  t2
+ ◌ lost             lost          12m
     … bun run check · 20s
- ⣾ running               running       12m  t2    ━─────  12/60m
+ ⣾ running          running       12m ━─────  12/60m
     … bun run check · 20s
- ◐ starting              starting      12m  t2    ━─────  12/60m
+ ◐ starting         starting      12m ━─────  12/60m
     … bun run check · 20s
- ◐ unknown               unknown       12m  t2    ━─────  12/60m
+ ◐ unknown          unknown       12m ━─────  12/60m
     … bun run check · 20s
- ■ waiting               waiting       12m  t2    ━─────  12/60m
+ ■ waiting          waiting       12m ━─────  12/60m
     … bun run check · 20s
 
 
@@ -89,21 +89,21 @@ exports[`monitor frames > all states at 100 columns 1`] = `
 exports[`monitor frames > all states at 140 columns 1`] = `
 "››› foreman 0.1.3   ◇ watching          ■ 1 starting  ■ 1 running  ■ 1 waiting  ■ 1 unknown  ■ 1 idle  ■ 1 failed  ■ 1 interrupted  ■ 1 lost
 ── repo ───────────────────────────────────── 1 failed · 1 idle · 1 interrupted · 1 lost · 1 running · 1 starting · 1 unknown · 1 waiting ──
- × failed                failed        12m  t2 followup                                                                                     
+ × failed               failed        12m                                                                                                   
     … bun run check · 20s                                                                                                                   
- ✓ idle                  idle          12m  t2 followup
+ ✓ idle                 idle          12m
     … bun run check · 20s
- ■ interrupted           interrupted   12m  t2 followup
+ ■ interrupted          interrupted   12m
     … bun run check · 20s
- ◌ lost                  lost          12m  t2 followup
+ ◌ lost                 lost          12m
     … bun run check · 20s
- ⣾ running               running       12m  t2 followup   ━━────────  12/60m
+ ⣾ running              running       12m ━━────────  12/60m
     … bun run check · 20s
- ◐ starting              starting      12m  t2 followup   ━━────────  12/60m
+ ◐ starting             starting      12m ━━────────  12/60m
     … bun run check · 20s
- ◐ unknown               unknown       12m  t2 followup   ━━────────  12/60m
+ ◐ unknown              unknown       12m ━━────────  12/60m
     … bun run check · 20s
- ■ waiting               waiting       12m  t2 followup   ━━────────  12/60m
+ ■ waiting              waiting       12m ━━────────  12/60m
     … bun run check · 20s
 
 
@@ -132,21 +132,21 @@ exports[`monitor frames > all states at 140 columns 1`] = `
 exports[`monitor frames > all states colors 1`] = `
 "[48;2;27;30;26m[38;2;228;232;224m››[38;2;255;91;20m›[39m [1m[38;2;228;232;224mforeman[39m[22m [38;2;154;162;148m0.1.3[39m   [38;2;154;162;148m◇ watching[39m          [38;2;154;162;148m■[38;2;228;232;224m 1 starting[39m  [38;2;111;168;255m■[38;2;228;232;224m 1 running[39m  [38;2;255;91;20m■[38;2;228;232;224m 1 waiting[39m  [38;2;226;192;79m■[38;2;228;232;224m 1 unknown[39m  [38;2;92;201;138m■[38;2;228;232;224m 1 idle[39m  [38;2;255;122;112m■[38;2;228;232;224m 1 failed[39m  [38;2;226;192;79m■[38;2;228;232;224m 1 interrupted[39m  [38;2;154;162;148m■[38;2;228;232;224m 1 lost[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m── [1m[38;2;228;232;224mrepo [22m[38;2;45;50;43m─────────────────────────────────────[38;2;154;162;148m 1 failed · 1 idle · 1 interrupted · 1 lost · 1 running · 1 starting · 1 unknown · 1 waiting [38;2;45;50;43m──[39m[49m
-[48;2;27;30;26m [38;2;255;122;112m×[39m [1m[38;2;228;232;224mfailed              [39m[22m  [38;2;255;122;112mfailed     [39m [38;2;154;162;148m  12m  t2 followup [39m                                                                                    [49m
+[48;2;27;30;26m [38;2;255;122;112m×[39m [1m[38;2;228;232;224mfailed               [22m[38;2;255;122;112mfailed        12m [39m                                                                                                  [49m
 [48;2;27;30;26m    [38;2;111;168;255m…[38;2;228;232;224m bun run check[38;2;154;162;148m · 20s[39m                                                                                                                   [49m
-[48;2;18;20;18m [38;2;92;201;138m✓[39m [1m[38;2;228;232;224midle                [39m[22m  [38;2;92;201;138midle       [39m [38;2;154;162;148m  12m  t2 followup [39m                                                                                    [49m
+[48;2;18;20;18m [38;2;92;201;138m✓[39m [1m[38;2;228;232;224midle                 [22m[38;2;92;201;138midle          12m [39m                                                                                                  [49m
 [48;2;18;20;18m    [38;2;111;168;255m…[38;2;228;232;224m bun run check[38;2;154;162;148m · 20s[39m                                                                                                                   [49m
-[48;2;18;20;18m [38;2;226;192;79m■[39m [1m[38;2;228;232;224minterrupted         [39m[22m  [38;2;226;192;79minterrupted[39m [38;2;154;162;148m  12m  t2 followup [39m                                                                                    [49m
+[48;2;18;20;18m [38;2;226;192;79m■[39m [1m[38;2;228;232;224minterrupted          [22m[38;2;226;192;79minterrupted   12m [39m                                                                                                  [49m
 [48;2;18;20;18m    [38;2;111;168;255m…[38;2;228;232;224m bun run check[38;2;154;162;148m · 20s[39m                                                                                                                   [49m
-[48;2;18;20;18m [38;2;154;162;148m◌[39m [1m[38;2;228;232;224mlost                [39m[22m  [38;2;154;162;148mlost       [39m [38;2;154;162;148m  12m  t2 followup [39m                                                                                    [49m
+[48;2;18;20;18m [38;2;154;162;148m◌[39m [1m[38;2;228;232;224mlost                 [22m[38;2;154;162;148mlost          12m [39m                                                                                                  [49m
 [48;2;18;20;18m    [38;2;111;168;255m…[38;2;228;232;224m bun run check[38;2;154;162;148m · 20s[39m                                                                                                                   [49m
-[48;2;18;20;18m [38;2;111;168;255m⣾[39m [1m[38;2;228;232;224mrunning             [39m[22m  [38;2;111;168;255mrunning    [39m [38;2;154;162;148m  12m  t2 followup [39m  [38;2;111;168;255m━━[38;2;45;50;43m────────[39m [38;2;154;162;148m 12/60m[39m                                                                [49m
+[48;2;18;20;18m [38;2;111;168;255m⣾[39m [1m[38;2;228;232;224mrunning              [22m[38;2;111;168;255mrunning       12m ━━[38;2;45;50;43m────────[38;2;154;162;148m  12/60m[39m                                                                                [49m
 [48;2;18;20;18m    [38;2;111;168;255m…[38;2;228;232;224m bun run check[38;2;154;162;148m · 20s[39m                                                                                                                   [49m
-[48;2;18;20;18m [38;2;154;162;148m◐[39m [1m[38;2;228;232;224mstarting            [39m[22m  [38;2;154;162;148mstarting   [39m [38;2;154;162;148m  12m  t2 followup [39m  [38;2;111;168;255m━━[38;2;45;50;43m────────[39m [38;2;154;162;148m 12/60m[39m                                                                [49m
+[48;2;18;20;18m [38;2;154;162;148m◐[39m [1m[38;2;228;232;224mstarting             [22m[38;2;154;162;148mstarting      12m [38;2;111;168;255m━━[38;2;45;50;43m────────[38;2;154;162;148m  12/60m[39m                                                                                [49m
 [48;2;18;20;18m    [38;2;111;168;255m…[38;2;228;232;224m bun run check[38;2;154;162;148m · 20s[39m                                                                                                                   [49m
-[48;2;18;20;18m [38;2;226;192;79m◐[39m [1m[38;2;228;232;224munknown             [39m[22m  [38;2;226;192;79munknown    [39m [38;2;154;162;148m  12m  t2 followup [39m  [38;2;111;168;255m━━[38;2;45;50;43m────────[39m [38;2;154;162;148m 12/60m[39m                                                                [49m
+[48;2;18;20;18m [38;2;226;192;79m◐[39m [1m[38;2;228;232;224munknown              [22m[38;2;226;192;79munknown       12m [38;2;111;168;255m━━[38;2;45;50;43m────────[38;2;154;162;148m  12/60m[39m                                                                                [49m
 [48;2;18;20;18m    [38;2;111;168;255m…[38;2;228;232;224m bun run check[38;2;154;162;148m · 20s[39m                                                                                                                   [49m
-[48;2;18;20;18m [38;2;255;91;20m■[39m [1m[38;2;228;232;224mwaiting             [39m[22m  [38;2;255;91;20mwaiting    [39m [38;2;154;162;148m  12m  t2 followup [39m  [38;2;111;168;255m━━[38;2;45;50;43m────────[39m [38;2;154;162;148m 12/60m[39m                                                                [49m
+[48;2;18;20;18m [38;2;255;91;20m■[39m [1m[38;2;228;232;224mwaiting              [22m[38;2;255;91;20mwaiting       12m [38;2;111;168;255m━━[38;2;45;50;43m────────[38;2;154;162;148m  12/60m[39m                                                                                [49m
 [48;2;18;20;18m    [38;2;111;168;255m…[38;2;228;232;224m bun run check[38;2;154;162;148m · 20s[39m                                                                                                                   [49m
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
@@ -183,14 +183,14 @@ exports[`monitor frames > attention at 100 columns 1`] = `
 │ other repo: its own session supervises it                                                        │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ── repo ─────────────────────────────────────────────────────────────────── 1 waiting · 1 running ──
- ■ fix-hooks             waiting       12m  t2    ━─────  12/60m · q2 pending 3m                    
+ ■ fix-hooks        waiting   12m ━─────  12/60m q2 pending 3m                                      
     … bun run check · 20s                                                                           
     ├─ ⠿ /root/acceptance_tests  working · 20s ago · gpt-6-sol · medium                             
     └─ · /root/review  idle · 2m ago                                                                
- ⣾ parser                running       12m  t2    ━─────  12/60m · 2 deferred · quiet 6m · retrying…
+ ⣾ parser           running   12m ━─────  12/60m 2 deferred · quiet 6m · retrying (usage limit) · 3…
     “Checking the parser boundaries”
 ── other ────────────────────────────────────────────────────────────────────────────── 1 waiting ──
- ■ other                 waiting       12m  t2    ━─────  12/60m · q2 pending 3m
+ ■ other            waiting   12m ━─────  12/60m q2 pending 3m
     … bun run check · 20s
 
 
@@ -398,15 +398,15 @@ exports[`monitor frames > list at 70 columns 1`] = `
 │ other repo: its own session supervises it                          │
 ╰────────────────────────────────────────────────────────────────────╯
 ── repo ──────────────────────────── 2 idle · 1 waiting · 1 running ──
- ✓ finished                  idle          12m                        
+ ✓ finished        idle      12m                                      
     done: All checks passed.                                          
- ■ fix-hooks                 waiting       12m
+ ■ fix-hooks       waiting   12m q2 pending 3m
     … bun run check · 20s · q2 pending 3m · 2 subagents
- ⣾ parser                    running       12m
+ ⣾ parser          running   12m 3 hooks blocked
     “Checking the parser boundaries” · 3 hooks blocked
 · 1 idle run older than 24h
 ── other ──────────────────────────────────────────────── 1 waiting ──
- ■ other                     waiting       12m
+ ■ other           waiting   12m q2 pending 3m
     … bun run check · 20s · q2 pending 3m
 
 
@@ -441,17 +441,17 @@ exports[`monitor frames > list at 100 columns 1`] = `
 │ other repo: its own session supervises it                                                        │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ── repo ────────────────────────────────────────────────────────── 2 idle · 1 waiting · 1 running ──
- ✓ finished              idle          12m  t2                                                      
+ ✓ finished         idle      12m                                                                   
     done: All checks passed.                                                                        
- ■ fix-hooks             waiting       12m  t2    ━─────  12/60m · q2 pending 3m
+ ■ fix-hooks        waiting   12m ━─────  12/60m q2 pending 3m
     … bun run check · 20s
     ├─ ⠿ /root/acceptance_tests  working · 20s ago · gpt-6-sol · medium
     └─ · /root/review  idle · 2m ago
- ⣾ parser                running       12m  t2    ━─────  12/60m · 2 deferred · quiet 6m · retrying…
+ ⣾ parser           running   12m ━─────  12/60m 2 deferred · quiet 6m · retrying (usage limit) · 3…
     “Checking the parser boundaries”
 · 1 idle run older than 24h
 ── other ────────────────────────────────────────────────────────────────────────────── 1 waiting ──
- ■ other                 waiting       12m  t2    ━─────  12/60m · q2 pending 3m
+ ■ other            waiting   12m ━─────  12/60m q2 pending 3m
     … bun run check · 20s
 
 
@@ -484,17 +484,17 @@ exports[`monitor frames > list at 140 columns 1`] = `
 │ other repo: its own session supervises it                                                                                                │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 ── repo ────────────────────────────────────────────────────────────────────────────────────────────────── 2 idle · 1 waiting · 1 running ──
- ✓ finished              idle          12m  t2 followup                                                                                     
+ ✓ finished             idle       12m                                                                                                      
     done: All checks passed.                                                                                                                
- ■ fix-hooks             waiting       12m  t2 followup   ━━────────  12/60m · q2 pending 3m
+ ■ fix-hooks            waiting    12m ━━────────  12/60m q2 pending 3m
     … bun run check · 20s
     ├─ ⠿ /root/acceptance_tests  working · 20s ago · gpt-6-sol · medium
     └─ · /root/review  idle · 2m ago
- ⣾ parser                running       12m  t2 followup   ━━────────  12/60m · 2 deferred · quiet 6m · retrying (usage limit) · 3 hooks blo…
+ ⣾ parser               running    12m ━━────────  12/60m 2 deferred · quiet 6m · retrying (usage limit) · 3 hooks blocked · 2 outside scop…
     “Checking the parser boundaries”
 · 1 idle run older than 24h
 ── other ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 1 waiting ──
- ■ other                 waiting       12m  t2 followup   ━━────────  12/60m · q2 pending 3m
+ ■ other                waiting    12m ━━────────  12/60m q2 pending 3m
     … bun run check · 20s
 
 
@@ -530,17 +530,17 @@ exports[`monitor frames > outdated active at 100 columns 1`] = `
 │ other repo: its own session supervises it                                                        │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ── repo ────────────────────────────────────────────────────────── 2 idle · 1 waiting · 1 running ──
- ✓ finished              idle          12m  t2                                                      
+ ✓ finished         idle      12m                                                                   
     done: All checks passed.                                                                        
- ■ fix-hooks             waiting       12m  t2    ━─────  12/60m · q2 pending 3m
+ ■ fix-hooks        waiting   12m ━─────  12/60m q2 pending 3m
     … bun run check · 20s
     ├─ ⠿ /root/acceptance_tests  working · 20s ago · gpt-6-sol · medium
     └─ · /root/review  idle · 2m ago
- ⣾ parser                running       12m  t2    ━─────  12/60m · 2 deferred · quiet 6m · retrying…
+ ⣾ parser           running   12m ━─────  12/60m 2 deferred · quiet 6m · retrying (usage limit) · 3…
     “Checking the parser boundaries”
 · 1 idle run older than 24h
 ── other ────────────────────────────────────────────────────────────────────────────── 1 waiting ──
- ■ other                 waiting       12m  t2    ━─────  12/60m · q2 pending 3m
+ ■ other            waiting   12m ━─────  12/60m q2 pending 3m
     … bun run check · 20s
 
 
@@ -573,17 +573,17 @@ exports[`monitor frames > outdated active colors 1`] = `
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mother repo: its own session supervises it                                                                                               [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m── [1m[38;2;228;232;224mrepo [22m[38;2;45;50;43m──────────────────────────────────────────────────────────────────────────────────────────────────[38;2;154;162;148m 2 idle · 1 waiting · 1 running [38;2;45;50;43m──[39m[49m
-[48;2;27;30;26m [38;2;92;201;138m✓[39m [1m[38;2;228;232;224mfinished            [39m[22m  [38;2;92;201;138midle       [39m [38;2;154;162;148m  12m  t2 followup [39m                                                                                    [49m
+[48;2;27;30;26m [38;2;92;201;138m✓[39m [1m[38;2;228;232;224mfinished             [22m[38;2;92;201;138midle       12m [39m                                                                                                     [49m
 [48;2;27;30;26m[38;2;154;162;148m    done: All checks passed.[39m                                                                                                                [49m
-[48;2;18;20;18m [38;2;255;91;20m■[39m [1m[38;2;228;232;224mfix-hooks           [39m[22m  [38;2;255;91;20mwaiting    [39m [38;2;154;162;148m  12m  t2 followup [39m  [38;2;111;168;255m━━[38;2;45;50;43m────────[39m [38;2;154;162;148m 12/60m[38;2;255;91;20m · q2 pending 3m[39m                                                [49m
+[48;2;18;20;18m [38;2;255;91;20m■[39m [1m[38;2;228;232;224mfix-hooks            [22m[38;2;255;91;20mwaiting    12m [38;2;111;168;255m━━[38;2;45;50;43m────────[38;2;154;162;148m  12/60m[39m [38;2;255;91;20mq2 pending 3m[39m                                                                     [49m
 [48;2;18;20;18m    [38;2;111;168;255m…[38;2;228;232;224m bun run check[38;2;154;162;148m · 20s[39m                                                                                                                   [49m
 [48;2;18;20;18m[38;2;45;50;43m    ├─ [38;2;111;168;255m⠿[38;2;228;232;224m /root/acceptance_tests[38;2;154;162;148m  working · 20s ago · gpt-6-sol · medium[39m                                                                     [49m
 [48;2;18;20;18m[38;2;45;50;43m    └─ [38;2;154;162;148m·[38;2;228;232;224m /root/review[38;2;154;162;148m  idle · 2m ago[39m                                                                                                        [49m
-[48;2;18;20;18m [38;2;111;168;255m⣾[39m [1m[38;2;228;232;224mparser              [39m[22m  [38;2;111;168;255mrunning    [39m [38;2;154;162;148m  12m  t2 followup [39m  [38;2;111;168;255m━━[38;2;45;50;43m────────[39m [38;2;154;162;148m 12/60m[38;2;226;192;79m · 2 deferred · quiet 6m · retrying (usage limit)[38;2;255;122;112m · 3 hooks blo…[39m[49m
+[48;2;18;20;18m [38;2;111;168;255m⣾[39m [1m[38;2;228;232;224mparser               [22m[38;2;111;168;255mrunning    12m ━━[38;2;45;50;43m────────[38;2;154;162;148m  12/60m[39m [38;2;226;192;79m2 deferred[38;2;154;162;148m · [38;2;226;192;79mquiet 6m[38;2;154;162;148m · [38;2;226;192;79mretrying (usage limit)[38;2;154;162;148m · [38;2;255;122;112m3 hooks blocked[38;2;154;162;148m · [38;2;226;192;79m2 outside scop…[39m[49m
 [48;2;18;20;18m[38;2;154;162;148m    “Checking the parser boundaries”[39m                                                                                                        [49m
 [48;2;18;20;18m[38;2;154;162;148m· 1 idle run older than 24h[39m                                                                                                                 [49m
 [48;2;18;20;18m[38;2;45;50;43m── [1m[38;2;228;232;224mother [22m[38;2;45;50;43m──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[38;2;154;162;148m 1 waiting [38;2;45;50;43m──[39m[49m
-[48;2;18;20;18m [38;2;255;91;20m■[39m [1m[38;2;228;232;224mother               [39m[22m  [38;2;255;91;20mwaiting    [39m [38;2;154;162;148m  12m  t2 followup [39m  [38;2;111;168;255m━━[38;2;45;50;43m────────[39m [38;2;154;162;148m 12/60m[38;2;255;91;20m · q2 pending 3m[39m                                                [49m
+[48;2;18;20;18m [38;2;255;91;20m■[39m [1m[38;2;228;232;224mother                [22m[38;2;255;91;20mwaiting    12m [38;2;111;168;255m━━[38;2;45;50;43m────────[38;2;154;162;148m  12/60m[39m [38;2;255;91;20mq2 pending 3m[39m                                                                     [49m
 [48;2;18;20;18m    [38;2;111;168;255m…[38;2;228;232;224m bun run check[38;2;154;162;148m · 20s[39m                                                                                                                   [49m
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
@@ -745,17 +745,17 @@ exports[`monitor frames > reconnecting at 100 columns 1`] = `
 │ other repo: its own session supervises it                                                        │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ── repo ────────────────────────────────────────────────────────── 2 idle · 1 waiting · 1 running ──
- ✓ finished              idle          12m  t2                                                      
+ ✓ finished         idle      12m                                                                   
     done: All checks passed.                                                                        
- ■ fix-hooks             waiting       12m  t2    ━─────  12/60m · q2 pending 3m
+ ■ fix-hooks        waiting   12m ━─────  12/60m q2 pending 3m
     … bun run check · 20s
     ├─ ⠿ /root/acceptance_tests  working · 20s ago · gpt-6-sol · medium
     └─ · /root/review  idle · 2m ago
- ⣾ parser                running       12m  t2    ━─────  12/60m · 2 deferred · quiet 6m · retrying…
+ ⣾ parser           running   12m ━─────  12/60m 2 deferred · quiet 6m · retrying (usage limit) · 3…
     “Checking the parser boundaries”
 · 1 idle run older than 24h
 ── other ────────────────────────────────────────────────────────────────────────────── 1 waiting ──
- ■ other                 waiting       12m  t2    ━─────  12/60m · q2 pending 3m
+ ■ other            waiting   12m ━─────  12/60m q2 pending 3m
     … bun run check · 20s
 
 
@@ -788,17 +788,17 @@ exports[`monitor frames > reconnecting colors 1`] = `
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148mother repo: its own session supervises it                                                                                               [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m── [1m[38;2;154;162;148mrepo [22m[38;2;45;50;43m──────────────────────────────────────────────────────────────────────────────────────────────────[38;2;154;162;148m 2 idle · 1 waiting · 1 running [38;2;45;50;43m──[39m[49m
-[48;2;27;30;26m [38;2;154;162;148m✓[39m [1m[38;2;154;162;148mfinished            [39m[22m  [38;2;154;162;148midle       [39m [38;2;154;162;148m  12m  t2 followup [39m                                                                                    [49m
+[48;2;27;30;26m [38;2;154;162;148m✓[39m [1m[38;2;154;162;148mfinished             [22midle       12m [39m                                                                                                     [49m
 [48;2;27;30;26m[38;2;154;162;148m    done: All checks passed.[39m                                                                                                                [49m
-[48;2;18;20;18m [38;2;154;162;148m■[39m [1m[38;2;154;162;148mfix-hooks           [39m[22m  [38;2;154;162;148mwaiting    [39m [38;2;154;162;148m  12m  t2 followup [39m  [38;2;154;162;148m━━[38;2;45;50;43m────────[39m [38;2;154;162;148m 12/60m · q2 pending 3m[39m                                                [49m
+[48;2;18;20;18m [38;2;154;162;148m■[39m [1m[38;2;154;162;148mfix-hooks            [22mwaiting    12m ━━[38;2;45;50;43m────────[38;2;154;162;148m  12/60m[39m [38;2;154;162;148mq2 pending 3m[39m                                                                     [49m
 [48;2;18;20;18m    [38;2;154;162;148m… bun run check · 20s[39m                                                                                                                   [49m
 [48;2;18;20;18m[38;2;45;50;43m    ├─ [38;2;154;162;148m⠿ /root/acceptance_tests  working · 20s ago · gpt-6-sol · medium[39m                                                                     [49m
 [48;2;18;20;18m[38;2;45;50;43m    └─ [38;2;154;162;148m· /root/review  idle · 2m ago[39m                                                                                                        [49m
-[48;2;18;20;18m [38;2;154;162;148m⣾[39m [1m[38;2;154;162;148mparser              [39m[22m  [38;2;154;162;148mrunning    [39m [38;2;154;162;148m  12m  t2 followup [39m  [38;2;154;162;148m━━[38;2;45;50;43m────────[39m [38;2;154;162;148m 12/60m · 2 deferred · quiet 6m · retrying (usage limit) · 3 hooks blo…[39m[49m
+[48;2;18;20;18m [38;2;154;162;148m⣾[39m [1m[38;2;154;162;148mparser               [22mrunning    12m ━━[38;2;45;50;43m────────[38;2;154;162;148m  12/60m[39m [38;2;154;162;148m2 deferred · quiet 6m · retrying (usage limit) · 3 hooks blocked · 2 outside scop…[39m[49m
 [48;2;18;20;18m[38;2;154;162;148m    “Checking the parser boundaries”[39m                                                                                                        [49m
 [48;2;18;20;18m[38;2;154;162;148m· 1 idle run older than 24h[39m                                                                                                                 [49m
 [48;2;18;20;18m[38;2;45;50;43m── [1m[38;2;154;162;148mother [22m[38;2;45;50;43m──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[38;2;154;162;148m 1 waiting [38;2;45;50;43m──[39m[49m
-[48;2;18;20;18m [38;2;154;162;148m■[39m [1m[38;2;154;162;148mother               [39m[22m  [38;2;154;162;148mwaiting    [39m [38;2;154;162;148m  12m  t2 followup [39m  [38;2;154;162;148m━━[38;2;45;50;43m────────[39m [38;2;154;162;148m 12/60m · q2 pending 3m[39m                                                [49m
+[48;2;18;20;18m [38;2;154;162;148m■[39m [1m[38;2;154;162;148mother                [22mwaiting    12m ━━[38;2;45;50;43m────────[38;2;154;162;148m  12/60m[39m [38;2;154;162;148mq2 pending 3m[39m                                                                     [49m
 [48;2;18;20;18m    [38;2;154;162;148m… bun run check · 20s[39m                                                                                                                   [49m
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
@@ -874,17 +874,17 @@ exports[`monitor frames > saved at 100 columns 1`] = `
 │ other repo: its own session supervises it                                                        │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ── repo ────────────────────────────────────────────────────────── 2 idle · 1 waiting · 1 running ──
- ✓ finished              idle          12m  t2                                                      
+ ✓ finished         idle                       12m                                                  
     done: All checks passed.                                                                        
- ◌ fix-hooks             waiting · not supervised   12m  t2   · q2 pending 3m
+ ◌ fix-hooks        waiting · not supervised   12m                q2 pending 3m
     … bun run check · 20s
     ├─ · /root/acceptance_tests  working · 20s ago · gpt-6-sol · medium
     └─ · /root/review  idle · 2m ago
- ◌ parser                running · not supervised   12m  t2   · 2 deferred · retrying (usage limit)…
+ ◌ parser           running · not supervised   12m                2 deferred · retrying (usage limi…
     “Checking the parser boundaries”
 · 1 idle run older than 24h
 ── other ────────────────────────────────────────────────────────────────────────────── 1 waiting ──
- ◌ other                 waiting · not supervised   12m  t2   · q2 pending 3m
+ ◌ other            waiting · not supervised   12m                q2 pending 3m
     … bun run check · 20s
 
 
@@ -917,17 +917,17 @@ exports[`monitor frames > saved colors 1`] = `
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mother repo: its own session supervises it                                                                                               [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m── [1m[38;2;228;232;224mrepo [22m[38;2;45;50;43m──────────────────────────────────────────────────────────────────────────────────────────────────[38;2;154;162;148m 2 idle · 1 waiting · 1 running [38;2;45;50;43m──[39m[49m
-[48;2;27;30;26m [38;2;92;201;138m✓[39m [1m[38;2;228;232;224mfinished            [39m[22m  [38;2;92;201;138midle       [39m [38;2;154;162;148m  12m  t2 followup [39m                                                                                    [49m
+[48;2;27;30;26m [38;2;92;201;138m✓[39m [1m[38;2;228;232;224mfinished             [22m[38;2;92;201;138midle                       12m [39m                                                                                     [49m
 [48;2;27;30;26m[38;2;154;162;148m    done: All checks passed.[39m                                                                                                                [49m
-[48;2;18;20;18m [38;2;154;162;148m◌[39m [1m[38;2;228;232;224mfix-hooks           [39m[22m  [38;2;154;162;148mwaiting · not supervised[39m [38;2;154;162;148m  12m  t2 followup [38;2;255;91;20m · q2 pending 3m[39m                                                       [49m
+[48;2;18;20;18m [38;2;154;162;148m◌[39m [1m[38;2;228;232;224mfix-hooks            [22m[38;2;154;162;148mwaiting · not supervised   12m [39m                   [38;2;255;91;20mq2 pending 3m[39m                                                     [49m
 [48;2;18;20;18m    [38;2;111;168;255m…[38;2;228;232;224m bun run check[38;2;154;162;148m · 20s[39m                                                                                                                   [49m
 [48;2;18;20;18m[38;2;45;50;43m    ├─ [38;2;154;162;148m·[38;2;228;232;224m /root/acceptance_tests[38;2;154;162;148m  working · 20s ago · gpt-6-sol · medium[39m                                                                     [49m
 [48;2;18;20;18m[38;2;45;50;43m    └─ [38;2;154;162;148m·[38;2;228;232;224m /root/review[38;2;154;162;148m  idle · 2m ago[39m                                                                                                        [49m
-[48;2;18;20;18m [38;2;154;162;148m◌[39m [1m[38;2;228;232;224mparser              [39m[22m  [38;2;154;162;148mrunning · not supervised[39m [38;2;154;162;148m  12m  t2 followup [38;2;226;192;79m · 2 deferred · retrying (usage limit)[38;2;255;122;112m · 3 hooks blocked[38;2;226;192;79m · 2 outside s…[39m[49m
+[48;2;18;20;18m [38;2;154;162;148m◌[39m [1m[38;2;228;232;224mparser               [22m[38;2;154;162;148mrunning · not supervised   12m [39m                   [38;2;226;192;79m2 deferred[38;2;154;162;148m · [38;2;226;192;79mretrying (usage limit)[38;2;154;162;148m · [38;2;255;122;112m3 hooks blocked[38;2;154;162;148m · [38;2;226;192;79m2 outside…[39m[49m
 [48;2;18;20;18m[38;2;154;162;148m    “Checking the parser boundaries”[39m                                                                                                        [49m
 [48;2;18;20;18m[38;2;154;162;148m· 1 idle run older than 24h[39m                                                                                                                 [49m
 [48;2;18;20;18m[38;2;45;50;43m── [1m[38;2;228;232;224mother [22m[38;2;45;50;43m──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[38;2;154;162;148m 1 waiting [38;2;45;50;43m──[39m[49m
-[48;2;18;20;18m [38;2;154;162;148m◌[39m [1m[38;2;228;232;224mother               [39m[22m  [38;2;154;162;148mwaiting · not supervised[39m [38;2;154;162;148m  12m  t2 followup [38;2;255;91;20m · q2 pending 3m[39m                                                       [49m
+[48;2;18;20;18m [38;2;154;162;148m◌[39m [1m[38;2;228;232;224mother                [22m[38;2;154;162;148mwaiting · not supervised   12m [39m                   [38;2;255;91;20mq2 pending 3m[39m                                                     [49m
 [48;2;18;20;18m    [38;2;111;168;255m…[38;2;228;232;224m bun run check[38;2;154;162;148m · 20s[39m                                                                                                                   [49m
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
@@ -995,7 +995,7 @@ exports[`monitor frames > saved starting at 100 columns 1`] = `
               The monitor checks again automatically; start work in another terminal.
                                         foreman status --all
 ── repo ────────────────────────────────────────────────────────────────────────────── 1 starting ──
- ◌ starting              starting · not supervised   12m  t2                                        
+ ◌ starting         starting · not supervised   12m                                                 
     … bun run check · 20s                                                                           
 
 
