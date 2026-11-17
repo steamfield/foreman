@@ -11,7 +11,7 @@ exports[`monitor list model > collapses older idle runs, expands on Enter, and f
 │ other repo: its own session supervises it                                                                                                │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
  ▲ parser quiet 6m · Checking the parser boundaries                                                                     s steer  i interrupt
-── repo ─────────────────────────────────────────────────────────────────────────────────────────────────────────── 1 waiting · 1 running ──
+── repo ──────────────────────────────────────────────────────────────────────────────────────────────────── 2 shown · 2 hidden by filter ──
    RUN                  MODEL · EFFORT  STATUS         TASK                      PACE         PROGRESS       BUDGET             FLAGS
  ■ fix-hooks            sol · high      waiting    12m Fix hooks                 ·                           ━━────────  12/60m q2 pending …
     … bun run check · 20s

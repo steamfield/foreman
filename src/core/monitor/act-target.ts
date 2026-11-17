@@ -60,7 +60,7 @@ export function isPending(state: State, target: AnswerTarget): boolean {
 export function answerTarget(state: State): AnswerTarget | null {
   const selected = findRun(state, state.detail?.name ?? state.selected);
   let run = selected;
-  if (!state.detail && (selected?.state !== "waiting" || !selected.questions.length))
+  if (!state.detail && !selected?.questions.length)
     run =
       grouped(state)
         .flatMap((group) => group.runs)

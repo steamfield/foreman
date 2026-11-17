@@ -7,8 +7,13 @@ import { actView } from "./act-view";
 import { firstProseLine, shellCommand } from "./attention";
 import type { DetailFeed } from "./detail-feed";
 import type { MonitorFeed } from "./feed";
+import { filterBar } from "./filter";
+import { findHelpKeys, reduceFind } from "./find";
+import { historyView } from "./history";
 import { listColumns } from "./list-columns";
-import { pinnedKinds, pinnedRows } from "./pinned";
+import { listGroups } from "./list-groups";
+import { paletteView } from "./palette";
+import { pinnedRows } from "./pinned";
 import { previewFeed, previewView, syncPreview } from "./preview";
 import { duration, rowFacts } from "./row";
 
@@ -198,6 +203,8 @@ export type ViewModel = {
   readonly palette: PaletteView | null;
   readonly history: HistoryView | null;
   readonly grouping: "repo" | "state" | "recent";
+  /** Find commands for the help overlay. */
+  readonly helpKeys: readonly { readonly key: string; readonly label: string }[];
 };
 export type State = {
   readonly group: string;
@@ -236,6 +243,8 @@ export type State = {
     readonly selected: number;
   } | null;
   readonly nextHistoryId: number;
+  /** A uniquely numbered clipboard request for the terminal executor. */
+  readonly clipboard: { readonly id: number; readonly text: string } | null;
   /** The selected run's detail feed while the list is showing, for the preview strip. */
   readonly preview: {
     readonly name: RunName;
@@ -251,6 +260,7 @@ export type Message =
   | { readonly type: "resize"; readonly columns: number; readonly rows: number }
   | ActMessage
   | { readonly type: "preview-feed"; readonly name: RunName; readonly value: DetailFeed }
+  | { readonly type: "filter-text"; readonly text: string }
   | {
       readonly type: "history-result";
       readonly id: number;
@@ -276,6 +286,7 @@ export const initialState = (
   grouping: "repo",
   history: null,
   nextHistoryId: 1,
+  clipboard: null,
   detail: options.name === undefined ? null : openDetail(options.name),
 });
 function openDetail(name: RunName): NonNullable<State["detail"]> {
@@ -358,41 +369,14 @@ function flags(run: RunView, state: State): FlagView[] {
   if (run.sandbox === "read-only") result.push({ text: "read-only", tone: "muted" });
   return result;
 }
-const activityTime = (run: RunView) => epoch(run.lastActivityAt ?? run.stateSince);
 const isOlder = (run: RunView, now: number) =>
   run.state === "idle" && now - epoch(run.stateSince) > OLDER_IDLE_MS;
-function needsAttention(run: RunView, state: State) {
-  return (
-    run.questions.length > 0 || pinnedKinds(run, state.now, !unsupervised(state.feed)).length > 0
-  );
-}
-/** Orders visible groups and runs for both the list and attention targeting. */
+/** Orders all groups and runs for attention notes and action targeting, regardless of the filter. */
 export function grouped(state: State) {
-  const feed = state.feed;
-  const overview = feed?._tag === "Reconnecting" ? feed.last : feed?.overview;
-  const groups = new Map<string, RunView[]>();
-  for (const run of overview?.runs ?? []) {
-    if (state.attentionOnly && !needsAttention(run, state)) continue;
-    const entries = groups.get(run.group) ?? [];
-    entries.push(run);
-    groups.set(run.group, entries);
-  }
-  return [...groups]
-    .sort(([a, left], [b, right]) => {
-      if (a === state.group) return -1;
-      if (b === state.group) return 1;
-      return (
-        Math.max(...right.map(activityTime)) - Math.max(...left.map(activityTime)) ||
-        a.localeCompare(b)
-      );
-    })
-    .map(([id, runs]) => ({
-      id,
-      runs: runs.sort((a, b) => activityTime(b) - activityTime(a) || a.name.localeCompare(b.name)),
-    }));
+  return listGroups(state, false);
 }
 function selectable(state: State) {
-  return grouped(state).flatMap(({ id, runs }) => [
+  return listGroups(state).flatMap(({ id, runs }) => [
     ...runs
       .filter((run) => !isOlder(run, state.now) || state.expanded.has(id))
       .map((run) => run.name),
@@ -403,13 +387,27 @@ function selectable(state: State) {
 }
 /** Reduces monitor input and keeps the selected list preview in sync. */
 export function reduce(state: State, msg: Message): State {
-  const next = reduceState(state, msg);
-  const selected = grouped(next)
+  let next = reduceState(state, msg);
+  const keys = selectable(next);
+  if (
+    !next.history &&
+    !next.detail &&
+    !keys.includes(next.selected ?? "") &&
+    (next.selected !== null || keys.length > 0)
+  )
+    next = { ...next, selected: keys[0] ?? null, scroll: null };
+  const selected = listGroups(next)
     .flatMap((group) => group.runs)
     .find((run) => run.name === next.selected);
   return syncPreview(next, selected);
 }
 function reduceState(state: State, msg: Message): State {
+  if (msg.type === "key" && state.act.notice !== null)
+    state = { ...state, act: { ...state.act, notice: null } };
+  const found = reduceFind(state, msg);
+  if (typeof found === "string")
+    return reduceState({ ...state, palette: null }, { type: "key", key: found });
+  if (found !== null) return found;
   if (msg.type === "preview-feed") {
     if (!state.preview || state.preview.name !== msg.name) return state;
     return {
@@ -429,8 +427,6 @@ function reduceState(state: State, msg: Message): State {
     const acted = reduceAct(state, msg);
     if (acted !== null) return acted;
   }
-  if (msg.type === "key" && state.act.notice !== null)
-    state = { ...state, act: { ...state.act, notice: null } };
   let next: State;
   if (msg.type === "detail-feed") {
     let detail = state.detail;
@@ -541,12 +537,17 @@ function reduceState(state: State, msg: Message): State {
           0,
           model.offset +
             (msg.key === "page-up" ? -1 : 1) *
-              Math.max(1, state.rows - 2 - (model.preview ? PREVIEW_ROWS : 0)),
+              Math.max(
+                1,
+                state.rows -
+                  2 -
+                  Number(model.filterBar !== null) -
+                  (model.preview ? PREVIEW_ROWS : 0),
+              ),
         ),
       };
     }
-    if (msg.key === "!") next = { ...state, attentionOnly: !state.attentionOnly };
-    else if (msg.key === "enter" && state.selected?.startsWith("older:"))
+    if (msg.key === "enter" && state.selected?.startsWith("older:"))
       next = { ...state, expanded: new Set([...state.expanded, state.selected.slice(6)]) };
     else if (msg.key === "enter" && state.selected) {
       const run = grouped(state)
@@ -566,6 +567,15 @@ function reduceState(state: State, msg: Message): State {
     }
   }
   const keys = selectable(next);
+  const previousRun = grouped(state)
+    .flatMap((group) => group.runs)
+    .find((run) => run.name === state.selected);
+  if (
+    next.filter.text.trim() &&
+    previousRun &&
+    !listGroups(next).some((group) => group.runs.some((run) => run.name === previousRun.name))
+  )
+    return { ...next, selected: keys[0] ?? null, scroll: null };
   if (next.selected !== null && keys.includes(next.selected)) return next;
   const collapsed = grouped(next).find((group) =>
     group.runs.some((run) => run.name === next.selected),
@@ -646,14 +656,17 @@ export function view(state: State, previous?: ViewModel): ViewModel {
   const oldRows = new Map(
     previous?.groups.flatMap((group) => group.rows.map((entry) => [entry.name, entry] as const)),
   );
-  const groups = grouped(state).map(({ id, runs: entries }): GroupView => {
+  const groups = listGroups(state).map(({ id, runs: entries, hidden, title }): GroupView => {
     const older = entries.filter((run) => isOlder(run, state.now));
     const counts = new Map<string, number>();
     for (const run of entries) counts.set(run.state, (counts.get(run.state) ?? 0) + 1);
     return {
       id,
-      title: oneLine(entries[0]?.repo.split("/").filter(Boolean).at(-1) ?? id),
-      summary: [...counts].map(([name, count]) => `${count} ${name}`).join(" · "),
+      title: oneLine(title),
+      summary:
+        hidden > 0
+          ? `${entries.length} shown · ${hidden} hidden by filter`
+          : [...counts].map(([name, count]) => `${count} ${name}`).join(" · "),
       rows: entries
         .filter((run) => !isOlder(run, state.now) || state.expanded.has(id))
         .map((run) => {
@@ -728,7 +741,11 @@ export function view(state: State, previous?: ViewModel): ViewModel {
     state,
     groups.flatMap((group) => group.rows).find((row) => row.name === state.selected),
   );
-  const available = Math.max(1, state.rows - 2 - (preview ? PREVIEW_ROWS : 0));
+  const filter = filterBar(state, runs);
+  const available = Math.max(
+    1,
+    state.rows - 2 - Number(filter !== null) - (preview ? PREVIEW_ROWS : 0),
+  );
   let position =
     message.length +
     visibleNotes.length * 4 +
@@ -822,10 +839,11 @@ export function view(state: State, previous?: ViewModel): ViewModel {
     listColumns: optionalColumns,
     ...pinned,
     preview,
-    filterBar: null,
-    palette: null,
-    history: null,
+    filterBar: filter,
+    palette: paletteView(state),
+    history: historyView(state),
     grouping: state.grouping,
+    helpKeys: findHelpKeys,
     animating:
       !state.help &&
       (state.detail
