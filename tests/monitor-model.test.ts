@@ -128,7 +128,7 @@ describe("monitor list model", () => {
     current = reduce(current, { type: "key", key: "k" });
     current = reduce(current, { type: "key", key: "enter" });
     expect(plain(frame(current))).toMatch(/older\s+idle/);
-    current = reduce(current, { type: "key", key: "a" });
+    current = reduce(current, { type: "key", key: "!" });
     expect(plain(frame(current))).toMatchSnapshot();
   });
   it("reports pending, deferred, quiet, retries, hooks, scope and settings flags", () => {

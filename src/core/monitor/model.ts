@@ -2,7 +2,8 @@ import { DateTime } from "effect";
 import { activeStates, type RunEvent, type RunName } from "../../schemas/daemon";
 import type { Detail, RunView } from "../../schemas/monitor";
 import { tokenCount } from "../runs/digest";
-import { type ActMessage, type ActState, type ActView, initialAct, watchingView } from "./act";
+import { type ActMessage, type ActState, type ActView, initialAct, reduceAct } from "./act";
+import { actView } from "./act-view";
 import { firstProseLine, shellCommand } from "./attention";
 import type { DetailFeed } from "./detail-feed";
 import type { MonitorFeed } from "./feed";
@@ -256,7 +257,8 @@ function needsAttention(run: RunView, state: State) {
       state.now - epoch(run.turnStartedAt) >= run.turnBudgetMs)
   );
 }
-function grouped(state: State) {
+/** Orders visible groups and runs for both the list and attention targeting. */
+export function grouped(state: State) {
   const feed = state.feed;
   const overview = feed?._tag === "Reconnecting" ? feed.last : feed?.overview;
   const groups = new Map<string, RunView[]>();
@@ -291,6 +293,17 @@ function selectable(state: State) {
   ]);
 }
 export function reduce(state: State, msg: Message): State {
+  if (
+    msg.type === "key" ||
+    msg.type === "draft" ||
+    msg.type === "act-outcome" ||
+    msg.type === "acting-lost"
+  ) {
+    const acted = reduceAct(state, msg);
+    if (acted !== null) return acted;
+  }
+  if (msg.type === "key" && state.act.notice !== null)
+    state = { ...state, act: { ...state.act, notice: null } };
   let next: State;
   if (msg.type === "detail-feed") {
     let detail = state.detail;
@@ -401,7 +414,7 @@ export function reduce(state: State, msg: Message): State {
           view(state).offset + (msg.key === "page-up" ? -1 : 1) * Math.max(1, state.rows - 2),
         ),
       };
-    if (msg.key === "a") next = { ...state, attentionOnly: !state.attentionOnly };
+    if (msg.key === "!") next = { ...state, attentionOnly: !state.attentionOnly };
     else if (msg.key === "enter" && state.selected?.startsWith("older:"))
       next = { ...state, expanded: new Set([...state.expanded, state.selected.slice(6)]) };
     else if (msg.key === "enter" && state.selected) {
@@ -563,7 +576,7 @@ export function view(state: State, previous?: ViewModel): ViewModel {
     screen = "empty";
     message = [
       state.attentionOnly ? "No runs need attention" : "No runs.",
-      state.attentionOnly ? "Press a to show every run." : "Start one with",
+      state.attentionOnly ? "Press ! to show every run." : "Start one with",
       state.attentionOnly ? "foreman start --help" : "foreman start",
     ];
   }
@@ -661,7 +674,7 @@ export function view(state: State, previous?: ViewModel): ViewModel {
     overlay: state.help,
     offset,
     detail,
-    act: watchingView,
+    act: actView(state),
     animating:
       !state.help &&
       (state.detail
