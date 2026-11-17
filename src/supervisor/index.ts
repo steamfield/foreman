@@ -210,6 +210,7 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
     resolution: "late" | "correction",
     continuation?: string,
     expectOpen?: true,
+    source?: "monitor",
   ) {
     while (true) {
       const changed = yield* registry.change;
@@ -234,6 +235,7 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
             text,
             "followup",
             continuation === undefined ? undefined : { id: continuation, turn: run.record.turns },
+            source,
           );
           return { ...result, delivery: "followup" as const };
         }),
@@ -258,7 +260,16 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
           });
         if (question.open) {
           const accepted = yield* acceptedCursor(run);
-          yield* questions.resolve(run, yield* servers.get, body.question, body.text, "answered");
+          yield* questions.resolve(
+            run,
+            yield* servers.get,
+            body.question,
+            body.text,
+            "answered",
+            "orchestrator",
+            undefined,
+            body.source,
+          );
           return { _tag: "Accepted" as const, ...accepted, delivery: "response" as const };
         }
         const resolution: "correction" | "late" = question.correction ? "correction" : "late";
@@ -272,12 +283,27 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
         ) {
           const continuation = crypto.randomUUID();
           const queued = yield* acceptedCursor(run, continuation);
-          yield* questions.record(run, body.question, resolution, body.text, "queued");
+          yield* questions.record(
+            run,
+            body.question,
+            resolution,
+            body.text,
+            "queued",
+            undefined,
+            body.source,
+          );
           yield* registry.enqueueAnswer(
             run,
-            followupAnswer(run, body.question, body.text, message, resolution, continuation).pipe(
-              Effect.asVoid,
-            ),
+            followupAnswer(
+              run,
+              body.question,
+              body.text,
+              message,
+              resolution,
+              continuation,
+              undefined,
+              body.source,
+            ).pipe(Effect.asVoid),
           );
           return { _tag: "Accepted" as const, ...queued, delivery: "queued" as const };
         }
@@ -285,7 +311,15 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
           const accepted = yield* acceptedCursor(run);
           const result = yield* turns.steer(run, message).pipe(Effect.result);
           if (result._tag === "Success") {
-            yield* questions.record(run, body.question, resolution, body.text, "steer");
+            yield* questions.record(
+              run,
+              body.question,
+              resolution,
+              body.text,
+              "steer",
+              undefined,
+              body.source,
+            );
             return { _tag: "Accepted" as const, ...accepted, delivery: "steer" as const };
           }
           if (
@@ -309,6 +343,7 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
       prepared.resolution,
       undefined,
       body.expectOpen,
+      body.source,
     );
   });
   const dispatch = Effect.fnUntraced(function* (
@@ -430,7 +465,7 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
                 yield* questions.supersede(run);
                 break;
               case "Interrupt":
-                yield* turns.interrupt(run, yield* servers.get, "orchestrator");
+                yield* turns.interrupt(run, yield* servers.get, body.source ?? "orchestrator");
                 break;
               case "Defer": {
                 const question = yield* questions.inspect(run, body.question);
@@ -446,6 +481,7 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
                   "deferred",
                   "orchestrator",
                   body.note,
+                  body.source,
                 );
                 break;
               }

@@ -153,6 +153,7 @@ export function renderStatus(digest: Digest): string {
     `turn ${digest.turn}${digest.turnKind === null ? "" : ` (${digest.turnKind})`}`,
     duration(digest.elapsedMs),
     ...(digest.interruptedBy === "budget" ? ["budget expired"] : []),
+    ...(digest.interruptedBy === "monitor" ? [interruptions.monitor] : []),
     ...digest.questions.map(({ id }) => `${id} pending`),
     ...(digest.unansweredQuestions ?? []).map(({ id }) => `${id} deferred, unanswered`),
     ...(digest.warnings.some((warning) => warning.startsWith("worktree removed: "))
