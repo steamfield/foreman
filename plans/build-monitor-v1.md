@@ -1,5 +1,7 @@
 # Build: monitor-v1
 
+Status: done (2026-11-17), released in 0.3.0.
+
 Started: 2026-11-16 22:11 (epoch 1794888674). Timebox: none. Landing branch: feat/monitor-v1 (integration worktree `.claude/worktrees/monitor-v1`).
 Gate: `rr run --local "bun run check"` (160s). Filtered tests: `bun run test:unit <path or name>`. Typecheck: `bun run typecheck`.
 Worktree setup: `bun install --frozen-lockfile`.
@@ -126,7 +128,8 @@ First-run/no-daemon screen that doubles as the legend, `foreman monitor --line` 
 - Phase 6 tagged `phase-6`: first-run legend, NO_COLOR treatment, 80-column layout (lane fallbacks) and `--line` (lane line-mode). Correction at integration: the lane had dropped bold under NO_COLOR and weakened two tests to match a contract line of mine; spec 3.7 makes weight carry meaning, so bold is restored and the tests reverted.
 - Final review (opus, whole branch): 10 findings, all fixed by fix-inspect, fix-act and fix-model with regression tests. Files/Review failed on first open (changes requested before detail data loaded; also on `foreman monitor <name>` start); readChanges failed on vanishing untracked files and spawned two processes per file (now FileSystem.stat, capped at 200 counted files, bounded concurrency, unknown counts shown as `?`); list viewport ignored the notice and hidden-waiting rows; cancelling enter-acting in flight still switched; in-flight swallow blocked list keys; acting-lost dropped $EDITOR drafts and in-flight outcomes; defer offered on deferred questions; `?`/`w` dead in the diff view; history hid unreadable runs and read whole journals; model.ts split from 1,346 to 163 lines plus model-types.ts and focused modules, with key routing as one ordered handler list.
 - Final gate on a quiet machine: 2,055 unit tests plus e2e, stress test included. Stress/lifecycle timeouts seen in lanes were load from parallel runs.
-- Open: docs (README, docs/design/monitor.md, AGENTS.md "read-only" wording, the monitor command description's action list) wait on the user's uncommitted README/AGENTS.md edits on main. `status --all` has no interruption attribution.
+- Docs: the user's README/AGENTS.md edits were committed on main and merged in; the mv1-docs run revised README, AGENTS.md, docs/design/monitor.md, docs/architecture.md and the monitor help text on top of them. Its notes surfaced that archive was offered for `unknown` runs, which the daemon treats as active; fixed with regression tests in monitor-act2-model and monitor-find-model.
+- Open: `status --all` has no interruption attribution.
 - Local setup: codex runs only under mise Node 24 while the repo pins Node 26; delegated reviews use `MISE_NODE_VERSION=24.21.0` on the one command.
 
 - DA (sonnet): applied deferred-is-answerable for expectOpen, acting-lost message, resolved-while-typing flag, key-routing and confirm-after-w cases. Dropped the package.json ownership finding (dependency is in the scaffold commit) and the snapshot overlap (footer hints live in screen.tsx, lane c only).
