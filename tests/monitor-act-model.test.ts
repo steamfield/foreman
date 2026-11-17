@@ -284,6 +284,7 @@ describe("monitor acting model", () => {
     expect(confirm.confirm?.title).toBe("Switch to acting?");
     expect(confirm.confirm?.lines.join(" ")).toMatch(/keeps the daemon running.*monitor is open/);
     expect(confirm.confirm?.lines.join(" ")).toContain("w");
+    expect(confirm.confirm?.keys).toEqual(confirm.hints);
     expect(confirm.hints).toEqual([
       { key: "y", label: "confirm" },
       { key: "n", label: "cancel" },
@@ -315,6 +316,7 @@ describe("monitor acting model", () => {
     expect(view(state).act.hints).toEqual([
       { key: "enter", label: "send" },
       { key: "ctrl-d", label: "defer" },
+      { key: "ctrl-e", label: "$EDITOR" },
       { key: "esc", label: "cancel" },
     ]);
     const noDeadline = outcome(

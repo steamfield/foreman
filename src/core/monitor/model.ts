@@ -297,6 +297,7 @@ export function reduce(state: State, msg: Message): State {
     msg.type === "key" ||
     msg.type === "draft" ||
     msg.type === "act-outcome" ||
+    msg.type === "editor-result" ||
     msg.type === "acting-lost"
   ) {
     const acted = reduceAct(state, msg);
@@ -780,11 +781,13 @@ function feedLines(events: readonly RunEvent[], data: Detail): DetailLine[] {
           `turn ${event.turn} ${event.status}${event.failure ? `: ${event.failure.message}` : ""}`,
         );
       case "QuestionResolved":
-        return line(`${event.id} ${event.resolution}`);
+        return line(questionResolution(event));
       case "Resumed":
         return line(`resumed ${event.model} · ${event.sandbox}`);
       case "Interrupted":
-        return line(`interrupted by ${event.by}`);
+        return line(
+          event.by === "monitor" ? "interrupted from monitor" : `interrupted by ${event.by}`,
+        );
       case "Retrying":
         return line(`retrying: ${event.message}`);
       case "McpStartupFailed":
@@ -804,6 +807,12 @@ const questionTones = {
   resolved: "muted",
   cancelled: "muted",
 } as const;
+
+function questionResolution(
+  event: Extract<RunEvent["event"], { _tag: "QuestionResolved" }>,
+): string {
+  return `${event.id} ${event.resolution}${event.source === "monitor" ? " from monitor" : ""}`;
+}
 function detailView(state: State): DetailView | null {
   const detail = state.detail;
   if (!detail) return null;
@@ -879,6 +888,13 @@ function detailView(state: State): DetailView | null {
             tone: questionTones[q.status],
           },
           ...textLines(q.text),
+          ...detail.events
+            .flatMap(({ event }): DetailLine[] =>
+              event._tag === "QuestionResolved" && event.id === q.id && event.source === "monitor"
+                ? [{ text: questionResolution(event), tone: "muted" }]
+                : [],
+            )
+            .slice(-1),
         ])
       : textLines("No questions.", "muted"),
     subagents: run.subagents.length
