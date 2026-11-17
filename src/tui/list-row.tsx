@@ -40,10 +40,15 @@ function widths(model: ListModel) {
   };
   const fixed =
     3 + sizes.name + sizes.model + sizes.status + sizes.pace + sizes.progress + sizes.budget;
-  if (sizes.task) sizes.task = Math.max(6, Math.min(sizes.task, model.columns - fixed - 12));
+  if (sizes.task) {
+    const available = Math.min(sizes.task, model.columns - fixed - 12);
+    if (available < 7 && sizes.budget && !model.listColumns.budgetLabel) sizes.budget--;
+    sizes.task = Math.max(7, available);
+  }
   return sizes;
 }
 const cell = (text: string, width: number) => pad(truncate(text, width), width);
+const taskCell = (text: string, width: number) => (width > 0 ? `${cell(text, width - 1)} ` : "");
 
 /** Renders the enabled column labels using the same widths as the run rows. */
 export function ListHeader({ model, colors }: { model: ListModel; colors: Theme }) {
@@ -60,7 +65,7 @@ export function ListHeader({ model, colors }: { model: ListModel; colors: Theme 
     cell("RUN", w.name) +
     cell("MODEL · EFFORT", w.model) +
     cell("STATUS", w.status) +
-    cell("TASK", w.task) +
+    taskCell("TASK", w.task) +
     cell("PACE", w.pace) +
     cell("PROGRESS", w.progress) +
     cell("BUDGET", w.budget) +
@@ -93,7 +98,7 @@ function rowContent(row: RowView, model: ListModel, colors: Theme) {
     colors.paint(cell(row.name, w.name), "fg", true) +
     colors.paint(cell(row.modelLabel, w.model), "muted") +
     colors.paint(cell(status, w.status), row.tone) +
-    colors.paint(cell(row.task ?? "", w.task)) +
+    colors.paint(taskCell(row.task ?? "", w.task)) +
     colors.paint(cell(row.pace ?? "·", w.pace), row.state === "idle" ? "muted" : row.tone) +
     cell(
       colors.paint(

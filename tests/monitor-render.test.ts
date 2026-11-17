@@ -127,6 +127,54 @@ async function frame(feed: MonitorFeed | null, columns: number, key?: string, co
   }
 }
 describe("monitor frames", () => {
+  it("keeps flag text visible alongside a stale run's task at 100 columns", () => {
+    const feed: MonitorFeed = {
+      _tag: "Saved",
+      reason: "no-daemon",
+      overview: { _tag: "Overview", daemon: null, runs: mixedRuns() },
+      receivedAt: now,
+      nextProbeAt: now + 10000,
+    };
+    const output = renderToString(
+      createElement(Screen, { model: model(feed, 100), colors: theme(0) }),
+      { columns: 100 },
+    );
+    const lines = output.split("\n");
+    expect(lines.find((line) => line.includes("TASK"))).toContain("FLA…");
+    expect(lines.find((line) => line.includes("parser"))).toContain("2 d…");
+  });
+  it.each([
+    { columns: 100, pace: [1, 2, 3], next: "t2", header: "PROGRESS" },
+    { columns: 140, pace: [1, 2, 3], next: "▁", header: "PACE" },
+    { columns: 140, pace: [], next: "·", header: "PACE" },
+  ])(
+    "separates a truncated task from $header at $columns columns",
+    ({ columns, pace, next, header }) => {
+      const output = renderToString(
+        createElement(Screen, {
+          model: model(
+            live([
+              run("long-task", {
+                title: "A very long task title that must be truncated before the next column",
+                pace,
+                commands: { total: 14, failed: 0 },
+              }),
+            ]),
+            columns,
+          ),
+          colors: theme(0),
+        }),
+        { columns },
+      );
+      const lines = output.split("\n");
+      const labels = lines.find((line) => line.includes("TASK") && line.includes(header)) ?? "";
+      const row = lines.find((line) => line.includes("long-task")) ?? "";
+      expect(row).toContain(`… ${next}`);
+      expect(stringWidth(row.slice(0, row.indexOf(next, row.indexOf("…"))))).toBe(
+        stringWidth(labels.slice(0, labels.indexOf(header))),
+      );
+    },
+  );
   it.each([70, 80, 100, 140])(
     "keeps long state words and ages visible at %i columns",
     (columns) => {
