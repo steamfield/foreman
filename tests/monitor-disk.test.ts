@@ -191,3 +191,43 @@ it.effect("an absent home stays absent", () =>
     assert.isFalse(yield* fs.exists(home));
   }).pipe(Effect.provide(NodeServices.layer)),
 );
+
+it.effect("saved state counts finished commands and distinct files with no pace motion", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const home = yield* fs.makeTempDirectoryScoped();
+    const dir = `${home}/runs/unit`;
+    yield* fs.makeDirectory(dir, { recursive: true });
+    yield* Store.writeRun(dir, record("unit", "idle"));
+    for (const exitCode of [0, 1, 0, null])
+      yield* Store.appendEvent(dir, {
+        _tag: "Command",
+        command: "check",
+        status: "completed",
+        exitCode,
+        outputTail: "",
+      });
+    for (const paths of [["a.ts"], ["a.ts", "b.ts"]])
+      yield* Store.appendEvent(dir, { _tag: "FileChange", paths });
+    const run = (yield* diskOverview(home)).runs[0];
+    assert.isDefined(run);
+    assert.deepStrictEqual(run.commands, { total: 3, failed: 1 });
+    assert.strictEqual(run.filesWritten, 2);
+    assert.deepStrictEqual(run.pace, []);
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("saved state with no journal has zero command and file figures", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const home = yield* fs.makeTempDirectoryScoped();
+    const dir = `${home}/runs/unit`;
+    yield* fs.makeDirectory(dir, { recursive: true });
+    yield* Store.writeRun(dir, record("unit", "idle"));
+    const run = (yield* diskOverview(home)).runs[0];
+    assert.isDefined(run);
+    assert.deepStrictEqual(run.commands, { total: 0, failed: 0 });
+    assert.strictEqual(run.filesWritten, 0);
+    assert.deepStrictEqual(run.pace, []);
+  }).pipe(Effect.provide(NodeServices.layer)),
+);

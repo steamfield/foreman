@@ -4,6 +4,7 @@ import { buildDigest } from "../core/runs/digest";
 import { redactDiagnosticText } from "../logging";
 import type { DaemonRequestBody } from "../schemas/daemon";
 import type { Overview, RunView } from "../schemas/monitor";
+import { advancePace } from "./pace";
 import type { Registry, Run } from "./registry";
 
 export const OVERVIEW_COALESCE_MS = 250;
@@ -71,9 +72,9 @@ export function projectRun(run: Run, repo: string, now: number): RunView {
       lastInteractionAt: DateTime.makeUnsafe(agent.lastInteractionAt),
     })),
     warnings: record.warnings,
-    commands: null,
-    filesWritten: null,
-    pace: [],
+    commands: run.commands === null ? null : { ...run.commands },
+    filesWritten: run.filesWritten?.size ?? null,
+    pace: advancePace(run.pace, now).buckets,
   };
 }
 
@@ -96,6 +97,7 @@ export const waitForVersion = Effect.fnUntraced(function* (
   }
 });
 
+/** Read the current live run projections after an optional version wait. */
 export const overview = Effect.fn("supervisor.overview")(function* (
   registry: Registry,
   daemon: Overview["daemon"],
