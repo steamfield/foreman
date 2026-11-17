@@ -60,13 +60,14 @@ describe("monitor command", () => {
         yield* Effect.promise(async () => {
           try {
             await terminal.waitFor("foreman answer unit q1 --file <path>");
-            await terminal.waitFor(/unit\s+waiting/);
+            await terminal.waitFor(/unit\s+(?:\S+ · \S+\s+)?waiting/);
             terminal.stdin.push("\r");
+            await terminal.waitFor("Esc list");
             await terminal.waitFor("Task");
             await terminal.waitFor("Read the repo.");
             const beforeEsc = terminal.output().length;
             terminal.stdin.push("\u001b");
-            await terminal.waitFor("a answer", beforeEsc);
+            await terminal.waitFor("Enter open", beforeEsc);
             terminal.stdin.push("q");
             expect(await pending).toEqual({ status: 0, stdout: "", stderr: "" });
             expect(terminal.output().split("\u001b[?1049l")).toHaveLength(2);

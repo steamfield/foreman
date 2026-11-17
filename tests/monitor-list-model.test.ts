@@ -157,14 +157,14 @@ describe("monitor pinned attention", () => {
       ]),
     );
     expect(model.pinned.map((p) => [p.kind, p.name, p.tone, p.text])).toEqual([
-      ["failed", "failed", "failed", "× failed failed 8m ago · lint  failed"],
+      ["failed", "failed", "failed", "failed 8m ago · lint  failed"],
       [
         "budget",
         "budget",
         "interrupted",
-        "▲ budget 90% of budget · 54/60m · moves to a read-only hand-off turn at 60m",
+        "90% of budget · 54/60m · moves to a read-only hand-off turn at 60m",
       ],
-      ["quiet", "quiet", "interrupted", "quiet quiet 6m · Checking"],
+      ["quiet", "quiet", "interrupted", "quiet 6m · Checking"],
     ]);
     expect(model.pinned.map((p) => p.keys.map((k) => `${k.key} ${k.label}`))).toEqual([
       ["⏎ open", "F follow up"],
@@ -219,7 +219,7 @@ describe("monitor pinned attention", () => {
     expect(
       view(state([run("quiet", { quiet: true, activity: null, lastActivityAt: at(-360000) })]))
         .pinned[0]?.text,
-    ).toBe("quiet quiet 6m · last activity 6m ago");
+    ).toBe("quiet 6m · last activity 6m ago");
   });
   it("attention-only includes question or pin candidates, including hidden pins, and excludes flags alone", () => {
     const q = detail().run.questions;

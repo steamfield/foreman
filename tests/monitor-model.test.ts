@@ -80,17 +80,19 @@ describe("monitor list model", () => {
     const bottom = reduce(current, { type: "key", key: "end" });
     const top = reduce(bottom, { type: "key", key: "home" });
     expect(frame(top)).toContain("■ waiting  first q2");
-    expect(selectedLine(top)).toMatch(/first\s+waiting/);
+    expect(selectedLine(top)).toMatch(/first\s+(?:\S+ · \S+\s+)?waiting/);
   });
   it("moves selection to the older-idle entry when a tick collapses the selected run", () => {
     const current = state([
       run("aging", { state: "idle", lastActivityAt: at(), stateSince: at(-OLDER_IDLE_MS + 500) }),
       run("active"),
     ]);
-    expect(selectedLine(current)).toMatch(/aging\s+idle/);
+    expect(selectedLine(current)).toMatch(/aging\s+(?:\S+ · \S+\s+)?idle/);
     const next = reduce(current, { type: "tick", now: now + 1000 });
     expect(selectedLine(next)).toBe("· 1 idle run older than 24h");
-    expect(plain(frame(reduce(next, { type: "key", key: "enter" })))).toMatch(/aging\s+idle/);
+    expect(plain(frame(reduce(next, { type: "key", key: "enter" })))).toMatch(
+      /aging\s+(?:\S+ · \S+\s+)?idle/,
+    );
   });
   it("keeps the selected run visible when new activity moves it below a screenful", () => {
     const current = state([run("selected")], 100, 12);
@@ -101,15 +103,15 @@ describe("monitor list model", () => {
         run("selected"),
       ]),
     });
-    expect(selectedLine(next)).toMatch(/selected\s+running/);
+    expect(selectedLine(next)).toMatch(/selected\s+(?:\S+ · \S+\s+)?running/);
   });
   it("keeps selection by run name through updates, then chooses its nearest neighbour", () => {
     let current = reduce(state([run("a"), run("b"), run("c")]), { type: "key", key: "j" });
-    expect(selectedLine(current)).toMatch(/b\s+running/);
+    expect(selectedLine(current)).toMatch(/b\s+(?:\S+ · \S+\s+)?running/);
     current = reduce(current, { type: "feed", value: live([run("c"), run("b"), run("a")]) });
-    expect(selectedLine(current)).toMatch(/b\s+running/);
+    expect(selectedLine(current)).toMatch(/b\s+(?:\S+ · \S+\s+)?running/);
     current = reduce(current, { type: "feed", value: live([run("a"), run("c")]) });
-    expect(selectedLine(current)).toMatch(/c\s+running/);
+    expect(selectedLine(current)).toMatch(/c\s+(?:\S+ · \S+\s+)?running/);
   });
   it("orders cwd first and groups and runs by recent activity", () => {
     const model = view(
@@ -127,7 +129,7 @@ describe("monitor list model", () => {
     current = reduce(current, { type: "key", key: "end" });
     current = reduce(current, { type: "key", key: "k" });
     current = reduce(current, { type: "key", key: "enter" });
-    expect(plain(frame(current))).toMatch(/older\s+idle/);
+    expect(plain(frame(current))).toMatch(/older\s+(?:\S+ · \S+\s+)?idle/);
     current = reduce(current, { type: "key", key: "!" });
     expect(plain(frame(current))).toMatchSnapshot();
   });

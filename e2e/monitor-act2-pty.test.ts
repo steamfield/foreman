@@ -10,7 +10,7 @@ import { Scenario } from "../tests/fixtures/fake-app-server/scenario";
 import { interruptedTurn } from "../tests/fixtures/fake-app-server/scenarios";
 
 const binary = resolve("dist/foreman");
-const interruptedRow = /\bunit\s+interrupted\b/;
+const interruptedRow = /\bunit\s+(?:\S+ · \S+\s+)?interrupted\b/;
 
 function monitor(repo: string, env: Record<string, string>) {
   let output = "";

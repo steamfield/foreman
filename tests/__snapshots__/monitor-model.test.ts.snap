@@ -10,15 +10,18 @@ exports[`monitor list model > collapses older idle runs, expands on Enter, and f
 │ Keep the existing hook API?                                                                                                              │
 │ other repo: its own session supervises it                                                                                                │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+ ▲ parser quiet 6m · Checking the parser boundaries                                                                     s steer  i interrupt
 ── repo ─────────────────────────────────────────────────────────────────────────────────────────────────────────── 1 waiting · 1 running ──
- ■ fix-hooks            waiting    12m ━━────────  12/60m q2 pending 3m
+   RUN                  MODEL · EFFORT  STATUS         TASK                      PACE         PROGRESS       BUDGET             FLAGS
+ ■ fix-hooks            sol · high      waiting    12m Fix hooks                 ·                           ━━────────  12/60m q2 pending …
     … bun run check · 20s
     ├─ ⠿ /root/acceptance_tests  working · 20s ago · gpt-6-sol · medium
     └─ · /root/review  idle · 2m ago
- ⣾ parser               running    12m ━━────────  12/60m 2 deferred · quiet 6m · retrying (usage limit) · 3 hooks blocked · 2 outside scop…
+ ⣾ parser               sol · med       running    12m Fix hooks                 ·                           ━━────────  12/60m 2 deferred …
     “Checking the parser boundaries”                                                                                                        
 ── other ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 1 waiting ──
- ■ other                waiting    12m ━━────────  12/60m q2 pending 3m
+   RUN                  MODEL · EFFORT  STATUS         TASK                      PACE         PROGRESS       BUDGET             FLAGS
+ ■ other                sol · high      waiting    12m Fix hooks                 ·                           ━━────────  12/60m q2 pending …
     … bun run check · 20s
 
 
@@ -32,13 +35,10 @@ exports[`monitor list model > collapses older idle runs, expands on Enter, and f
 
 
 
-
-
-
-
-
-
-
-
+╭─ parser · preview ────────────────────────────────────────────────────────────────────────────────────────────────────────────── ⏎ open ─╮
+│ Task   Fix hooks                                                                                                                         │
+│ Now    “Checking the parser boundaries”          Said   ·                                                                                │
+│ Files                                                                                                                    2 outside scope │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 ↑↓/jk select  Enter open  a answer  d defer  ! all runs  s steer  i interrupt  F follow up  x archive  ? help  q quit       updated 0.0s ago"
 `;

@@ -104,7 +104,12 @@ export const Screen = memo(function Screen({
       key: "pinned",
       height: model.pinned.length,
       content: (
-        <PinnedRows pinned={model.pinned} morePinned={0} width={width} colors={bodyColors} />
+        <PinnedRows
+          pinned={model.pinned}
+          morePinned={model.morePinned}
+          width={width}
+          colors={bodyColors}
+        />
       ),
     });
   blocks.push(...listGroups(model, bodyColors));

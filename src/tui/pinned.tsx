@@ -24,10 +24,7 @@ export function PinnedRows({
             ({ key, label }) => colors.paint(key, "fg", true) + colors.paint(` ${label}`, "muted"),
           )
           .join("  ");
-        const text = colors.paint(
-          ` ${row.kind === "failed" ? "×" : "▲"} ${row.name} ${row.text}`,
-          row.tone,
-        );
+        const text = `${colors.paint(` ${row.kind === "failed" ? "×" : "▲"} `, row.tone)}${colors.paint(row.name, "fg", true)} ${colors.paint(row.text, row.tone)}`;
         const left = truncate(
           text,
           Math.max(0, width - stringWidth(keys) - Number(keys.length > 0)),
