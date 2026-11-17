@@ -117,6 +117,10 @@ First-run/no-daemon screen that doubles as the legend, `foreman monitor --line` 
 
 ## Log
 
+- Phase 1 tagged `phase-1`. Lanes act-daemon, act-model, act-tui, act-e2e (Codex). Accepted choices: act-view.ts split; input.tsx, header.tsx, answer-input.tsx, act-frame.tsx splits; component-local remount counter for ink-text-input (it inserts ctrl-modified letters and moves its private cursor); long questions capped with … at 80x24; deferred questions stay answerable with expectOpen. Refactors: deduped pending lookup and conflict message, removed a manual child scope in openActive. Integration fixes: footer shows `! all runs` while filtering, PTY test keys. Review found and fixed a deferred-answer double follow-up race.
+- Phase 2 scaffold `fad75b4`. "Leading up to it" context moved to phase 5. Interrupt confirm omits the command count unless the run's detail is loaded. ctrl-e may reset the input cursor to the end.
+- Local setup: codex runs only under mise Node 24 while the repo pins Node 26; delegated reviews use `MISE_NODE_VERSION=24.21.0` on the one command.
+
 - DA (sonnet): applied deferred-is-answerable for expectOpen, acting-lost message, resolved-while-typing flag, key-routing and confirm-after-w cases. Dropped the package.json ownership finding (dependency is in the scaffold commit) and the snapshot overlap (footer hints live in screen.tsx, lane c only).
 
 - Grill: phase 1 = act mode + answer/defer; confirm once per session; ink-text-input; no timebox, feat/monitor-v1.
