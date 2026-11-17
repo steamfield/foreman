@@ -40,7 +40,7 @@ exports[`monitor detail frames > NO_COLOR keeps state and event glyphs readable 
 ╭─ Hand-off ───────────────────────────────────────────── turn 1 ─╮│                                                                       │
 │ Updated the hooks.                                              ││                                                                       │
 │ Checks passed.                                                  │╰───────────────────────────────────────────────────────────────────────╯
-Tab pane  jk scroll  f follow  Esc list  a answer  d defer  s steer  i interrupt  F follow up  x archive  ? help  q quit    updated 0.0s ago"
+Tab pane  jk move  d diff file  D all in $PAGER  1-5 feed filter  / search feed  s steer  i interrupt  Esc list  F follow up  x archive"
 `;
 
 exports[`monitor detail frames > Tab 0 focuses Task and shows its content 1`] = `
@@ -192,7 +192,7 @@ exports[`monitor detail frames > detail layout at 70 columns 1`] = `
 │ 2 subagents                                                        │
 │                                                                    │
 │                                                                    │
-Tab pane  jk scroll  f follow  Esc list  ? help  q quit"
+Tab pane  jk move  d diff file  Esc list  ? help  q quit"
 `;
 
 exports[`monitor detail frames > detail layout at 70 columns 2`] = `
@@ -235,7 +235,7 @@ exports[`monitor detail frames > detail layout at 70 columns 2`] = `
 │                                                                    │
 │                                                                    │
 ╰────────────────────────────────────────────────────────────────────╯
-Tab pane  jk scroll  f follow  Esc list  ? help  q quit"
+Tab pane  jk move  d diff file  Esc list  ? help  q quit"
 `;
 
 exports[`monitor detail frames > detail layout at 100 columns 1`] = `
@@ -278,7 +278,7 @@ exports[`monitor detail frames > detail layout at 100 columns 1`] = `
 ╭─ Hand-off ────────────────────────────────────────────────────────────────────────────── turn 1 ─╮
 │ Updated the hooks.                                                                               │
 │ Checks passed.                                                                                   │
-Tab pane  jk scroll  f follow  Esc list  a answer  d defer  s steer  i interrupt  ? help  q quit"
+Tab pane  jk move  d diff file  / search feed  s steer  i interrupt  Esc list  ? help  q quit"
 `;
 
 exports[`monitor detail frames > detail layout at 100 columns 2`] = `
@@ -321,7 +321,7 @@ exports[`monitor detail frames > detail layout at 100 columns 2`] = `
 │                                                                                                  │
 │                                                                                                  │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
-Tab pane  jk scroll  f follow  Esc list  a answer  d defer  s steer  i interrupt  ? help  q quit"
+Tab pane  jk move  d diff file  / search feed  s steer  i interrupt  Esc list  ? help  q quit"
 `;
 
 exports[`monitor detail frames > detail layout at 140 columns 1`] = `
@@ -364,7 +364,7 @@ exports[`monitor detail frames > detail layout at 140 columns 1`] = `
 ╭─ Hand-off ───────────────────────────────────────────── turn 1 ─╮│                                                                       │
 │ Updated the hooks.                                              ││                                                                       │
 │ Checks passed.                                                  │╰───────────────────────────────────────────────────────────────────────╯
-Tab pane  jk scroll  f follow  Esc list  a answer  d defer  s steer  i interrupt  F follow up  x archive  ? help  q quit    updated 0.0s ago"
+Tab pane  jk move  d diff file  D all in $PAGER  1-5 feed filter  / search feed  s steer  i interrupt  Esc list  F follow up  x archive"
 `;
 
 exports[`monitor detail frames > detail layout at 140 columns 2`] = `
@@ -407,7 +407,7 @@ exports[`monitor detail frames > detail layout at 140 columns 2`] = `
 ╭─ Hand-off ───────────────────────────────────────────── turn 1 ─╮│                                                                       │
 │ Updated the hooks.                                              ││                                                                       │
 │ Checks passed.                                                  │╰───────────────────────────────────────────────────────────────────────╯
-Tab pane  jk scroll  f follow  Esc list  a answer  d defer  s steer  i interrupt  F follow up  x archive  ? help  q quit    updated 0.0s ago"
+Tab pane  jk move  d diff file  D all in $PAGER  1-5 feed filter  / search feed  s steer  i interrupt  Esc list  F follow up  x archive"
 `;
 
 exports[`monitor detail frames > failed colors 1`] = `
@@ -450,7 +450,7 @@ exports[`monitor detail frames > failed colors 1`] = `
 [48;2;18;20;18m[38;2;45;50;43m╭─ [1mHand-off[22m ─────────────────────────────────────────────[39m [38;2;154;162;148mturn 1[39m [38;2;45;50;43m─╮│ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mUpdated the hooks.[39m                                             [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mChecks passed.[39m                                                 [38;2;45;50;43m │╰───────────────────────────────────────────────────────────────────────╯[39m[49m
-[48;2;27;30;26m[1m[38;2;228;232;224mTab[22m[38;2;154;162;148m pane[39m  [1m[38;2;228;232;224mjk[22m[38;2;154;162;148m scroll[39m  [1m[38;2;228;232;224mf[22m[38;2;154;162;148m follow[39m  [1m[38;2;228;232;224mEsc[22m[38;2;154;162;148m list[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m answer[39m  [1m[38;2;228;232;224md[22m[38;2;154;162;148m defer[39m  [1m[38;2;228;232;224ms[22m[38;2;154;162;148m steer[39m  [1m[38;2;228;232;224mi[22m[38;2;154;162;148m interrupt[39m  [1m[38;2;228;232;224mF[22m[38;2;154;162;148m follow up[39m  [1m[38;2;228;232;224mx[22m[38;2;154;162;148m archive[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m    [38;2;154;162;148mupdated 0.0s ago[39m[49m"
+[48;2;27;30;26m[1m[38;2;228;232;224mTab[22m[38;2;154;162;148m pane[39m  [1m[38;2;228;232;224mjk[22m[38;2;154;162;148m move[39m  [1m[38;2;228;232;224md[22m[38;2;154;162;148m diff file[39m  [1m[38;2;228;232;224mD[22m[38;2;154;162;148m all in $PAGER[39m  [1m[38;2;228;232;224m1-5[22m[38;2;154;162;148m feed filter[39m  [1m[38;2;228;232;224m/[22m[38;2;154;162;148m search feed[39m  [1m[38;2;228;232;224ms[22m[38;2;154;162;148m steer[39m  [1m[38;2;228;232;224mi[22m[38;2;154;162;148m interrupt[39m  [1m[38;2;228;232;224mEsc[22m[38;2;154;162;148m list[39m  [1m[38;2;228;232;224mF[22m[38;2;154;162;148m follow up[39m  [1m[38;2;228;232;224mx[22m[38;2;154;162;148m archive[39m     [49m"
 `;
 
 exports[`monitor detail frames > idle colors 1`] = `
@@ -493,7 +493,7 @@ exports[`monitor detail frames > idle colors 1`] = `
 [48;2;18;20;18m[38;2;45;50;43m╭─ [1mHand-off[22m ─────────────────────────────────────────────[39m [38;2;154;162;148mturn 1[39m [38;2;45;50;43m─╮│ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mUpdated the hooks.[39m                                             [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mChecks passed.[39m                                                 [38;2;45;50;43m │╰───────────────────────────────────────────────────────────────────────╯[39m[49m
-[48;2;27;30;26m[1m[38;2;228;232;224mTab[22m[38;2;154;162;148m pane[39m  [1m[38;2;228;232;224mjk[22m[38;2;154;162;148m scroll[39m  [1m[38;2;228;232;224mf[22m[38;2;154;162;148m follow[39m  [1m[38;2;228;232;224mEsc[22m[38;2;154;162;148m list[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m answer[39m  [1m[38;2;228;232;224md[22m[38;2;154;162;148m defer[39m  [1m[38;2;228;232;224ms[22m[38;2;154;162;148m steer[39m  [1m[38;2;228;232;224mi[22m[38;2;154;162;148m interrupt[39m  [1m[38;2;228;232;224mF[22m[38;2;154;162;148m follow up[39m  [1m[38;2;228;232;224mx[22m[38;2;154;162;148m archive[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m    [38;2;154;162;148mupdated 0.0s ago[39m[49m"
+[48;2;27;30;26m[1m[38;2;228;232;224mTab[22m[38;2;154;162;148m pane[39m  [1m[38;2;228;232;224mjk[22m[38;2;154;162;148m move[39m  [1m[38;2;228;232;224md[22m[38;2;154;162;148m diff file[39m  [1m[38;2;228;232;224mD[22m[38;2;154;162;148m all in $PAGER[39m  [1m[38;2;228;232;224m1-5[22m[38;2;154;162;148m feed filter[39m  [1m[38;2;228;232;224m/[22m[38;2;154;162;148m search feed[39m  [1m[38;2;228;232;224ms[22m[38;2;154;162;148m steer[39m  [1m[38;2;228;232;224mi[22m[38;2;154;162;148m interrupt[39m  [1m[38;2;228;232;224mEsc[22m[38;2;154;162;148m list[39m  [1m[38;2;228;232;224mF[22m[38;2;154;162;148m follow up[39m  [1m[38;2;228;232;224mx[22m[38;2;154;162;148m archive[39m     [49m"
 `;
 
 exports[`monitor detail frames > interrupted colors 1`] = `
@@ -536,7 +536,7 @@ exports[`monitor detail frames > interrupted colors 1`] = `
 [48;2;18;20;18m[38;2;45;50;43m╭─ [1mHand-off[22m ─────────────────────────────────────────────[39m [38;2;154;162;148mturn 1[39m [38;2;45;50;43m─╮│ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mUpdated the hooks.[39m                                             [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mChecks passed.[39m                                                 [38;2;45;50;43m │╰───────────────────────────────────────────────────────────────────────╯[39m[49m
-[48;2;27;30;26m[1m[38;2;228;232;224mTab[22m[38;2;154;162;148m pane[39m  [1m[38;2;228;232;224mjk[22m[38;2;154;162;148m scroll[39m  [1m[38;2;228;232;224mf[22m[38;2;154;162;148m follow[39m  [1m[38;2;228;232;224mEsc[22m[38;2;154;162;148m list[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m answer[39m  [1m[38;2;228;232;224md[22m[38;2;154;162;148m defer[39m  [1m[38;2;228;232;224ms[22m[38;2;154;162;148m steer[39m  [1m[38;2;228;232;224mi[22m[38;2;154;162;148m interrupt[39m  [1m[38;2;228;232;224mF[22m[38;2;154;162;148m follow up[39m  [1m[38;2;228;232;224mx[22m[38;2;154;162;148m archive[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m    [38;2;154;162;148mupdated 0.0s ago[39m[49m"
+[48;2;27;30;26m[1m[38;2;228;232;224mTab[22m[38;2;154;162;148m pane[39m  [1m[38;2;228;232;224mjk[22m[38;2;154;162;148m move[39m  [1m[38;2;228;232;224md[22m[38;2;154;162;148m diff file[39m  [1m[38;2;228;232;224mD[22m[38;2;154;162;148m all in $PAGER[39m  [1m[38;2;228;232;224m1-5[22m[38;2;154;162;148m feed filter[39m  [1m[38;2;228;232;224m/[22m[38;2;154;162;148m search feed[39m  [1m[38;2;228;232;224ms[22m[38;2;154;162;148m steer[39m  [1m[38;2;228;232;224mi[22m[38;2;154;162;148m interrupt[39m  [1m[38;2;228;232;224mEsc[22m[38;2;154;162;148m list[39m  [1m[38;2;228;232;224mF[22m[38;2;154;162;148m follow up[39m  [1m[38;2;228;232;224mx[22m[38;2;154;162;148m archive[39m     [49m"
 `;
 
 exports[`monitor detail frames > lost colors 1`] = `
@@ -579,7 +579,7 @@ exports[`monitor detail frames > lost colors 1`] = `
 [48;2;18;20;18m[38;2;45;50;43m╭─ [1mHand-off[22m ─────────────────────────────────────────────[39m [38;2;154;162;148mturn 1[39m [38;2;45;50;43m─╮│ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mUpdated the hooks.[39m                                             [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mChecks passed.[39m                                                 [38;2;45;50;43m │╰───────────────────────────────────────────────────────────────────────╯[39m[49m
-[48;2;27;30;26m[1m[38;2;228;232;224mTab[22m[38;2;154;162;148m pane[39m  [1m[38;2;228;232;224mjk[22m[38;2;154;162;148m scroll[39m  [1m[38;2;228;232;224mf[22m[38;2;154;162;148m follow[39m  [1m[38;2;228;232;224mEsc[22m[38;2;154;162;148m list[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m answer[39m  [1m[38;2;228;232;224md[22m[38;2;154;162;148m defer[39m  [1m[38;2;228;232;224ms[22m[38;2;154;162;148m steer[39m  [1m[38;2;228;232;224mi[22m[38;2;154;162;148m interrupt[39m  [1m[38;2;228;232;224mF[22m[38;2;154;162;148m follow up[39m  [1m[38;2;228;232;224mx[22m[38;2;154;162;148m archive[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m    [38;2;154;162;148mupdated 0.0s ago[39m[49m"
+[48;2;27;30;26m[1m[38;2;228;232;224mTab[22m[38;2;154;162;148m pane[39m  [1m[38;2;228;232;224mjk[22m[38;2;154;162;148m move[39m  [1m[38;2;228;232;224md[22m[38;2;154;162;148m diff file[39m  [1m[38;2;228;232;224mD[22m[38;2;154;162;148m all in $PAGER[39m  [1m[38;2;228;232;224m1-5[22m[38;2;154;162;148m feed filter[39m  [1m[38;2;228;232;224m/[22m[38;2;154;162;148m search feed[39m  [1m[38;2;228;232;224ms[22m[38;2;154;162;148m steer[39m  [1m[38;2;228;232;224mi[22m[38;2;154;162;148m interrupt[39m  [1m[38;2;228;232;224mEsc[22m[38;2;154;162;148m list[39m  [1m[38;2;228;232;224mF[22m[38;2;154;162;148m follow up[39m  [1m[38;2;228;232;224mx[22m[38;2;154;162;148m archive[39m     [49m"
 `;
 
 exports[`monitor detail frames > running colors 1`] = `
@@ -622,7 +622,7 @@ exports[`monitor detail frames > running colors 1`] = `
 [48;2;18;20;18m[38;2;45;50;43m╭─ [1mHand-off[22m ─────────────────────────────────────────────[39m [38;2;154;162;148mturn 1[39m [38;2;45;50;43m─╮│ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mUpdated the hooks.[39m                                             [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mChecks passed.[39m                                                 [38;2;45;50;43m │╰───────────────────────────────────────────────────────────────────────╯[39m[49m
-[48;2;27;30;26m[1m[38;2;228;232;224mTab[22m[38;2;154;162;148m pane[39m  [1m[38;2;228;232;224mjk[22m[38;2;154;162;148m scroll[39m  [1m[38;2;228;232;224mf[22m[38;2;154;162;148m follow[39m  [1m[38;2;228;232;224mEsc[22m[38;2;154;162;148m list[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m answer[39m  [1m[38;2;228;232;224md[22m[38;2;154;162;148m defer[39m  [1m[38;2;228;232;224ms[22m[38;2;154;162;148m steer[39m  [1m[38;2;228;232;224mi[22m[38;2;154;162;148m interrupt[39m  [1m[38;2;228;232;224mF[22m[38;2;154;162;148m follow up[39m  [1m[38;2;228;232;224mx[22m[38;2;154;162;148m archive[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m    [38;2;154;162;148mupdated 0.0s ago[39m[49m"
+[48;2;27;30;26m[1m[38;2;228;232;224mTab[22m[38;2;154;162;148m pane[39m  [1m[38;2;228;232;224mjk[22m[38;2;154;162;148m move[39m  [1m[38;2;228;232;224md[22m[38;2;154;162;148m diff file[39m  [1m[38;2;228;232;224mD[22m[38;2;154;162;148m all in $PAGER[39m  [1m[38;2;228;232;224m1-5[22m[38;2;154;162;148m feed filter[39m  [1m[38;2;228;232;224m/[22m[38;2;154;162;148m search feed[39m  [1m[38;2;228;232;224ms[22m[38;2;154;162;148m steer[39m  [1m[38;2;228;232;224mi[22m[38;2;154;162;148m interrupt[39m  [1m[38;2;228;232;224mEsc[22m[38;2;154;162;148m list[39m  [1m[38;2;228;232;224mF[22m[38;2;154;162;148m follow up[39m  [1m[38;2;228;232;224mx[22m[38;2;154;162;148m archive[39m     [49m"
 `;
 
 exports[`monitor detail frames > shows 30 feed entries and a paused header without losing its place 1`] = `
@@ -665,7 +665,7 @@ exports[`monitor detail frames > shows 30 feed entries and a paused header witho
 │ 12:00:00 event 999                                                                               │
 │ 12:00:00 event 1000                                                                              │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
-Tab pane  jk scroll  f follow  Esc list  a answer  d defer  s steer  i interrupt  ? help  q quit"
+Tab pane  jk move  d diff file  / search feed  s steer  i interrupt  Esc list  ? help  q quit"
 `;
 
 exports[`monitor detail frames > shows 30 feed entries and a paused header without losing its place 2`] = `
@@ -708,7 +708,7 @@ exports[`monitor detail frames > shows 30 feed entries and a paused header witho
 │ 12:00:00 event 999                                                                               │
 │ 12:00:00 event 1000                                                                              │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
-Tab pane  jk scroll  f follow  Esc list  a answer  d defer  s steer  i interrupt  ? help  q quit"
+Tab pane  jk move  d diff file  / search feed  s steer  i interrupt  Esc list  ? help  q quit"
 `;
 
 exports[`monitor detail frames > shows header warnings, new files and the successful last command after an earlier failure 1`] = `
@@ -751,7 +751,7 @@ exports[`monitor detail frames > shows header warnings, new files and the succes
 │                                                                                                  │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ Hand-off ────────────────────────────────────────────────────────────────────────────── turn 1 ─╮
-Tab pane  jk scroll  f follow  Esc list  a answer  d defer  s steer  i interrupt  ? help  q quit"
+Tab pane  jk move  d diff file  / search feed  s steer  i interrupt  Esc list  ? help  q quit"
 `;
 
 exports[`monitor detail frames > starting colors 1`] = `
@@ -794,7 +794,7 @@ exports[`monitor detail frames > starting colors 1`] = `
 [48;2;18;20;18m[38;2;45;50;43m╭─ [1mHand-off[22m ─────────────────────────────────────────────[39m [38;2;154;162;148mturn 1[39m [38;2;45;50;43m─╮│ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mUpdated the hooks.[39m                                             [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mChecks passed.[39m                                                 [38;2;45;50;43m │╰───────────────────────────────────────────────────────────────────────╯[39m[49m
-[48;2;27;30;26m[1m[38;2;228;232;224mTab[22m[38;2;154;162;148m pane[39m  [1m[38;2;228;232;224mjk[22m[38;2;154;162;148m scroll[39m  [1m[38;2;228;232;224mf[22m[38;2;154;162;148m follow[39m  [1m[38;2;228;232;224mEsc[22m[38;2;154;162;148m list[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m answer[39m  [1m[38;2;228;232;224md[22m[38;2;154;162;148m defer[39m  [1m[38;2;228;232;224ms[22m[38;2;154;162;148m steer[39m  [1m[38;2;228;232;224mi[22m[38;2;154;162;148m interrupt[39m  [1m[38;2;228;232;224mF[22m[38;2;154;162;148m follow up[39m  [1m[38;2;228;232;224mx[22m[38;2;154;162;148m archive[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m    [38;2;154;162;148mupdated 0.0s ago[39m[49m"
+[48;2;27;30;26m[1m[38;2;228;232;224mTab[22m[38;2;154;162;148m pane[39m  [1m[38;2;228;232;224mjk[22m[38;2;154;162;148m move[39m  [1m[38;2;228;232;224md[22m[38;2;154;162;148m diff file[39m  [1m[38;2;228;232;224mD[22m[38;2;154;162;148m all in $PAGER[39m  [1m[38;2;228;232;224m1-5[22m[38;2;154;162;148m feed filter[39m  [1m[38;2;228;232;224m/[22m[38;2;154;162;148m search feed[39m  [1m[38;2;228;232;224ms[22m[38;2;154;162;148m steer[39m  [1m[38;2;228;232;224mi[22m[38;2;154;162;148m interrupt[39m  [1m[38;2;228;232;224mEsc[22m[38;2;154;162;148m list[39m  [1m[38;2;228;232;224mF[22m[38;2;154;162;148m follow up[39m  [1m[38;2;228;232;224mx[22m[38;2;154;162;148m archive[39m     [49m"
 `;
 
 exports[`monitor detail frames > state block 0 at 100 columns 1`] = `
@@ -837,7 +837,7 @@ foreman status fix-hooks
 │ · /root/review · idle                                                                            │
 │ started 11:57:00 · 1 interaction · 2m ago                                                        │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
-Tab pane  jk scroll  f follow  Esc list  a answer  d defer  s steer  i interrupt  ? help  q quit"
+Tab pane  jk move  d diff file  / search feed  s steer  i interrupt  Esc list  ? help  q quit"
 `;
 
 exports[`monitor detail frames > state block 0 colors 1`] = `
@@ -880,7 +880,7 @@ exports[`monitor detail frames > state block 0 colors 1`] = `
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148m·[38;2;228;232;224m /root/review · idle                                          [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148mstarted 11:57:00 · 1 interaction · 2m ago[39m                      [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m╰─────────────────────────────────────────────────────────────────╯╰───────────────────────────────────────────────────────────────────────╯[39m[49m
-[48;2;27;30;26m[1m[38;2;228;232;224mTab[22m[38;2;154;162;148m pane[39m  [1m[38;2;228;232;224mjk[22m[38;2;154;162;148m scroll[39m  [1m[38;2;228;232;224mf[22m[38;2;154;162;148m follow[39m  [1m[38;2;228;232;224mEsc[22m[38;2;154;162;148m list[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m answer[39m  [1m[38;2;228;232;224md[22m[38;2;154;162;148m defer[39m  [1m[38;2;228;232;224ms[22m[38;2;154;162;148m steer[39m  [1m[38;2;228;232;224mi[22m[38;2;154;162;148m interrupt[39m  [1m[38;2;228;232;224mF[22m[38;2;154;162;148m follow up[39m  [1m[38;2;228;232;224mx[22m[38;2;154;162;148m archive[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                    [49m"
+[48;2;27;30;26m[1m[38;2;228;232;224mTab[22m[38;2;154;162;148m pane[39m  [1m[38;2;228;232;224mjk[22m[38;2;154;162;148m move[39m  [1m[38;2;228;232;224md[22m[38;2;154;162;148m diff file[39m  [1m[38;2;228;232;224mD[22m[38;2;154;162;148m all in $PAGER[39m  [1m[38;2;228;232;224m1-5[22m[38;2;154;162;148m feed filter[39m  [1m[38;2;228;232;224m/[22m[38;2;154;162;148m search feed[39m  [1m[38;2;228;232;224ms[22m[38;2;154;162;148m steer[39m  [1m[38;2;228;232;224mi[22m[38;2;154;162;148m interrupt[39m  [1m[38;2;228;232;224mEsc[22m[38;2;154;162;148m list[39m  [1m[38;2;228;232;224mF[22m[38;2;154;162;148m follow up[39m  [1m[38;2;228;232;224mx[22m[38;2;154;162;148m archive[39m     [49m"
 `;
 
 exports[`monitor detail frames > state block 1 at 100 columns 1`] = `
@@ -923,7 +923,7 @@ foreman status fix-hooks
 │ · /root/review · idle                                                                            │
 │ started 11:57:00 · 1 interaction · 2m ago                                                        │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
-Tab pane  jk scroll  f follow  Esc list  a answer  d defer  s steer  i interrupt  ? help  q quit"
+Tab pane  jk move  d diff file  / search feed  s steer  i interrupt  Esc list  ? help  q quit"
 `;
 
 exports[`monitor detail frames > state block 1 colors 1`] = `
@@ -966,7 +966,7 @@ exports[`monitor detail frames > state block 1 colors 1`] = `
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148m·[38;2;228;232;224m /root/review · idle                                          [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148mstarted 11:57:00 · 1 interaction · 2m ago[39m                      [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m╰─────────────────────────────────────────────────────────────────╯╰───────────────────────────────────────────────────────────────────────╯[39m[49m
-[48;2;27;30;26m[1m[38;2;228;232;224mTab[22m[38;2;154;162;148m pane[39m  [1m[38;2;228;232;224mjk[22m[38;2;154;162;148m scroll[39m  [1m[38;2;228;232;224mf[22m[38;2;154;162;148m follow[39m  [1m[38;2;228;232;224mEsc[22m[38;2;154;162;148m list[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m answer[39m  [1m[38;2;228;232;224md[22m[38;2;154;162;148m defer[39m  [1m[38;2;228;232;224ms[22m[38;2;154;162;148m steer[39m  [1m[38;2;228;232;224mi[22m[38;2;154;162;148m interrupt[39m  [1m[38;2;228;232;224mF[22m[38;2;154;162;148m follow up[39m  [1m[38;2;228;232;224mx[22m[38;2;154;162;148m archive[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m                    [49m"
+[48;2;27;30;26m[1m[38;2;228;232;224mTab[22m[38;2;154;162;148m pane[39m  [1m[38;2;228;232;224mjk[22m[38;2;154;162;148m move[39m  [1m[38;2;228;232;224md[22m[38;2;154;162;148m diff file[39m  [1m[38;2;228;232;224mD[22m[38;2;154;162;148m all in $PAGER[39m  [1m[38;2;228;232;224m1-5[22m[38;2;154;162;148m feed filter[39m  [1m[38;2;228;232;224m/[22m[38;2;154;162;148m search feed[39m  [1m[38;2;228;232;224ms[22m[38;2;154;162;148m steer[39m  [1m[38;2;228;232;224mi[22m[38;2;154;162;148m interrupt[39m  [1m[38;2;228;232;224mEsc[22m[38;2;154;162;148m list[39m  [1m[38;2;228;232;224mF[22m[38;2;154;162;148m follow up[39m  [1m[38;2;228;232;224mx[22m[38;2;154;162;148m archive[39m     [49m"
 `;
 
 exports[`monitor detail frames > state block 2 at 100 columns 1`] = `
@@ -1009,7 +1009,7 @@ foreman status fix-hooks
 │ · /root/review · idle                                                                            │
 │ started 11:57:00 · 1 interaction · 2m ago                                                        │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
-Tab pane  jk scroll  f follow  Esc list  a answer  d defer  s steer  i interrupt  ? help  q quit"
+Tab pane  jk move  d diff file  / search feed  s steer  i interrupt  Esc list  ? help  q quit"
 `;
 
 exports[`monitor detail frames > state block 2 colors 1`] = `
@@ -1052,7 +1052,7 @@ exports[`monitor detail frames > state block 2 colors 1`] = `
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148m· /root/review · idle                                          [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;154;162;148mstarted 11:57:00 · 1 interaction · 2m ago[39m                      [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m╰─────────────────────────────────────────────────────────────────╯╰───────────────────────────────────────────────────────────────────────╯[39m[49m
-[48;2;27;30;26m[1m[38;2;228;232;224mTab[22m[38;2;154;162;148m pane[39m  [1m[38;2;228;232;224mjk[22m[38;2;154;162;148m scroll[39m  [1m[38;2;228;232;224mf[22m[38;2;154;162;148m follow[39m  [1m[38;2;228;232;224mEsc[22m[38;2;154;162;148m list[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m answer[39m  [1m[38;2;228;232;224md[22m[38;2;154;162;148m defer[39m  [1m[38;2;228;232;224ms[22m[38;2;154;162;148m steer[39m  [1m[38;2;228;232;224mi[22m[38;2;154;162;148m interrupt[39m  [1m[38;2;228;232;224mF[22m[38;2;154;162;148m follow up[39m  [1m[38;2;228;232;224mx[22m[38;2;154;162;148m archive[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m  [38;2;226;192;79mreconnecting in 4s[39m[49m"
+[48;2;27;30;26m[1m[38;2;228;232;224mTab[22m[38;2;154;162;148m pane[39m  [1m[38;2;228;232;224mjk[22m[38;2;154;162;148m move[39m  [1m[38;2;228;232;224md[22m[38;2;154;162;148m diff file[39m  [1m[38;2;228;232;224mD[22m[38;2;154;162;148m all in $PAGER[39m  [1m[38;2;228;232;224m1-5[22m[38;2;154;162;148m feed filter[39m  [1m[38;2;228;232;224m/[22m[38;2;154;162;148m search feed[39m  [1m[38;2;228;232;224ms[22m[38;2;154;162;148m steer[39m  [1m[38;2;228;232;224mi[22m[38;2;154;162;148m interrupt[39m  [1m[38;2;228;232;224mEsc[22m[38;2;154;162;148m list[39m  [1m[38;2;228;232;224mF[22m[38;2;154;162;148m follow up[39m  [1m[38;2;228;232;224mx[22m[38;2;154;162;148m archive[39m     [49m"
 `;
 
 exports[`monitor detail frames > state block 3 at 100 columns 1`] = `
@@ -1095,7 +1095,7 @@ exports[`monitor detail frames > state block 3 at 100 columns 1`] = `
 
 
 
-Tab pane  jk scroll  f follow  Esc list  a answer  d defer  s steer  i interrupt  ? help  q quit"
+Tab pane  jk move  d diff file  / search feed  s steer  i interrupt  Esc list  ? help  q quit"
 `;
 
 exports[`monitor detail frames > state block 4 at 100 columns 1`] = `
@@ -1138,7 +1138,7 @@ exports[`monitor detail frames > state block 4 at 100 columns 1`] = `
 
 
 
-Tab pane  jk scroll  f follow  Esc list  a answer  d defer  s steer  i interrupt  ? help  q quit"
+Tab pane  jk move  d diff file  / search feed  s steer  i interrupt  Esc list  ? help  q quit"
 `;
 
 exports[`monitor detail frames > state block 4 colors 1`] = `
@@ -1181,7 +1181,7 @@ exports[`monitor detail frames > state block 4 colors 1`] = `
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                                                                                                                                            [49m
-[48;2;27;30;26m[1m[38;2;228;232;224mTab[22m[38;2;154;162;148m pane[39m  [1m[38;2;228;232;224mjk[22m[38;2;154;162;148m scroll[39m  [1m[38;2;228;232;224mf[22m[38;2;154;162;148m follow[39m  [1m[38;2;228;232;224mEsc[22m[38;2;154;162;148m list[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m answer[39m  [1m[38;2;228;232;224md[22m[38;2;154;162;148m defer[39m  [1m[38;2;228;232;224ms[22m[38;2;154;162;148m steer[39m  [1m[38;2;228;232;224mi[22m[38;2;154;162;148m interrupt[39m  [1m[38;2;228;232;224mF[22m[38;2;154;162;148m follow up[39m  [1m[38;2;228;232;224mx[22m[38;2;154;162;148m archive[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m    [38;2;154;162;148mupdated 0.0s ago[39m[49m"
+[48;2;27;30;26m[1m[38;2;228;232;224mTab[22m[38;2;154;162;148m pane[39m  [1m[38;2;228;232;224mjk[22m[38;2;154;162;148m move[39m  [1m[38;2;228;232;224md[22m[38;2;154;162;148m diff file[39m  [1m[38;2;228;232;224mD[22m[38;2;154;162;148m all in $PAGER[39m  [1m[38;2;228;232;224m1-5[22m[38;2;154;162;148m feed filter[39m  [1m[38;2;228;232;224m/[22m[38;2;154;162;148m search feed[39m  [1m[38;2;228;232;224ms[22m[38;2;154;162;148m steer[39m  [1m[38;2;228;232;224mi[22m[38;2;154;162;148m interrupt[39m  [1m[38;2;228;232;224mEsc[22m[38;2;154;162;148m list[39m  [1m[38;2;228;232;224mF[22m[38;2;154;162;148m follow up[39m  [1m[38;2;228;232;224mx[22m[38;2;154;162;148m archive[39m     [49m"
 `;
 
 exports[`monitor detail frames > state block 5 at 100 columns 1`] = `
@@ -1224,7 +1224,7 @@ foreman status fix-hooks
 │                                                                                                  │
 │                                                                                                  │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
-Tab pane  jk scroll  f follow  Esc list  a answer  d defer  s steer  i interrupt  ? help  q quit"
+Tab pane  jk move  d diff file  / search feed  s steer  i interrupt  Esc list  ? help  q quit"
 `;
 
 exports[`monitor detail frames > state block 6 at 100 columns 1`] = `
@@ -1267,7 +1267,7 @@ foreman status fix-hooks
 │                                                                                                  │
 │                                                                                                  │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
-Tab pane  jk scroll  f follow  Esc list  a answer  d defer  s steer  i interrupt  ? help  q quit"
+Tab pane  jk move  d diff file  / search feed  s steer  i interrupt  Esc list  ? help  q quit"
 `;
 
 exports[`monitor detail frames > unknown colors 1`] = `
@@ -1310,7 +1310,7 @@ exports[`monitor detail frames > unknown colors 1`] = `
 [48;2;18;20;18m[38;2;45;50;43m╭─ [1mHand-off[22m ─────────────────────────────────────────────[39m [38;2;154;162;148mturn 1[39m [38;2;45;50;43m─╮│ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mUpdated the hooks.[39m                                             [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mChecks passed.[39m                                                 [38;2;45;50;43m │╰───────────────────────────────────────────────────────────────────────╯[39m[49m
-[48;2;27;30;26m[1m[38;2;228;232;224mTab[22m[38;2;154;162;148m pane[39m  [1m[38;2;228;232;224mjk[22m[38;2;154;162;148m scroll[39m  [1m[38;2;228;232;224mf[22m[38;2;154;162;148m follow[39m  [1m[38;2;228;232;224mEsc[22m[38;2;154;162;148m list[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m answer[39m  [1m[38;2;228;232;224md[22m[38;2;154;162;148m defer[39m  [1m[38;2;228;232;224ms[22m[38;2;154;162;148m steer[39m  [1m[38;2;228;232;224mi[22m[38;2;154;162;148m interrupt[39m  [1m[38;2;228;232;224mF[22m[38;2;154;162;148m follow up[39m  [1m[38;2;228;232;224mx[22m[38;2;154;162;148m archive[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m    [38;2;154;162;148mupdated 0.0s ago[39m[49m"
+[48;2;27;30;26m[1m[38;2;228;232;224mTab[22m[38;2;154;162;148m pane[39m  [1m[38;2;228;232;224mjk[22m[38;2;154;162;148m move[39m  [1m[38;2;228;232;224md[22m[38;2;154;162;148m diff file[39m  [1m[38;2;228;232;224mD[22m[38;2;154;162;148m all in $PAGER[39m  [1m[38;2;228;232;224m1-5[22m[38;2;154;162;148m feed filter[39m  [1m[38;2;228;232;224m/[22m[38;2;154;162;148m search feed[39m  [1m[38;2;228;232;224ms[22m[38;2;154;162;148m steer[39m  [1m[38;2;228;232;224mi[22m[38;2;154;162;148m interrupt[39m  [1m[38;2;228;232;224mEsc[22m[38;2;154;162;148m list[39m  [1m[38;2;228;232;224mF[22m[38;2;154;162;148m follow up[39m  [1m[38;2;228;232;224mx[22m[38;2;154;162;148m archive[39m     [49m"
 `;
 
 exports[`monitor detail frames > waiting colors 1`] = `
@@ -1353,5 +1353,5 @@ exports[`monitor detail frames > waiting colors 1`] = `
 [48;2;18;20;18m[38;2;45;50;43m╭─ [1mHand-off[22m ─────────────────────────────────────────────[39m [38;2;154;162;148mturn 1[39m [38;2;45;50;43m─╮│ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mUpdated the hooks.[39m                                             [38;2;45;50;43m ││ [39m                                                                     [38;2;45;50;43m │[39m[49m
 [48;2;18;20;18m[38;2;45;50;43m│ [38;2;228;232;224mChecks passed.[39m                                                 [38;2;45;50;43m │╰───────────────────────────────────────────────────────────────────────╯[39m[49m
-[48;2;27;30;26m[1m[38;2;228;232;224mTab[22m[38;2;154;162;148m pane[39m  [1m[38;2;228;232;224mjk[22m[38;2;154;162;148m scroll[39m  [1m[38;2;228;232;224mf[22m[38;2;154;162;148m follow[39m  [1m[38;2;228;232;224mEsc[22m[38;2;154;162;148m list[39m  [1m[38;2;228;232;224ma[22m[38;2;154;162;148m answer[39m  [1m[38;2;228;232;224md[22m[38;2;154;162;148m defer[39m  [1m[38;2;228;232;224ms[22m[38;2;154;162;148m steer[39m  [1m[38;2;228;232;224mi[22m[38;2;154;162;148m interrupt[39m  [1m[38;2;228;232;224mF[22m[38;2;154;162;148m follow up[39m  [1m[38;2;228;232;224mx[22m[38;2;154;162;148m archive[39m  [1m[38;2;228;232;224m?[22m[38;2;154;162;148m help[39m  [1m[38;2;228;232;224mq[22m[38;2;154;162;148m quit[39m    [38;2;154;162;148mupdated 0.0s ago[39m[49m"
+[48;2;27;30;26m[1m[38;2;228;232;224mTab[22m[38;2;154;162;148m pane[39m  [1m[38;2;228;232;224mjk[22m[38;2;154;162;148m move[39m  [1m[38;2;228;232;224md[22m[38;2;154;162;148m diff file[39m  [1m[38;2;228;232;224mD[22m[38;2;154;162;148m all in $PAGER[39m  [1m[38;2;228;232;224m1-5[22m[38;2;154;162;148m feed filter[39m  [1m[38;2;228;232;224m/[22m[38;2;154;162;148m search feed[39m  [1m[38;2;228;232;224ms[22m[38;2;154;162;148m steer[39m  [1m[38;2;228;232;224mi[22m[38;2;154;162;148m interrupt[39m  [1m[38;2;228;232;224mEsc[22m[38;2;154;162;148m list[39m  [1m[38;2;228;232;224mF[22m[38;2;154;162;148m follow up[39m  [1m[38;2;228;232;224mx[22m[38;2;154;162;148m archive[39m     [49m"
 `;

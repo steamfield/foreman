@@ -6,6 +6,7 @@ import stringWidth from "string-width";
 import { afterEach, expect, it } from "vitest";
 import type { ActMessage, ActView } from "../src/core/monitor/act";
 import { initialState, reduce, type ViewModel, view } from "../src/core/monitor/model";
+import type { ContextAnswer } from "../src/tui/inspect-view";
 import { MonitorApp, Screen } from "../src/tui/screen";
 import { theme } from "../src/tui/theme";
 import { at, defaults, detailLive, live, now, run } from "./helpers/monitor";
@@ -77,6 +78,31 @@ function frame(value: ViewModel, noColor = false) {
   });
 }
 const plain = (text: string) => stripVTControlCharacters(text);
+
+it("shows the context leading up to an answer", () => {
+  const contextual: ContextAnswer = {
+    ...answer,
+    context: ["12:01 inspecting client", "12:02 retry count differs"],
+  };
+  const output = plain(frame(model({ ...answering, answer: contextual })));
+  for (const text of [
+    "Leading up to it",
+    "12:01 inspecting client",
+    "12:02 retry count differs",
+    "Your answer",
+  ])
+    expect(output).toContain(text);
+});
+it("keeps the answer input and send hints visible when context has no room on a short terminal", () => {
+  const contextual: ContextAnswer = {
+    ...answer,
+    context: Array.from({ length: 30 }, (_, index) => `context line ${index}`),
+  };
+  const output = plain(frame(model({ ...answering, answer: contextual }, 80, 20)));
+  expect(output).toContain("Your answer");
+  expect(output).toContain("enter send");
+  expect(output).not.toContain("context line 0");
+});
 
 it("places watching after the version", () => {
   expect(plain(frame(model())).split("\n")[0]).toMatch(/foreman test\s+◇ watching/);

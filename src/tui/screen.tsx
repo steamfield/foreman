@@ -6,15 +6,18 @@ import type { ViewModel } from "../core/monitor/model";
 import { ActNotice, ActOverlay } from "./act";
 import { Glyph, Help, Line, monitorFooter, NoteHeading, pad, Tick, truncate } from "./components";
 import { DetailScreen } from "./detail";
+import { DiffPane } from "./diff";
 import { FilterBar, HiddenWaiting } from "./filter-bar";
 import type { FindMessage } from "./find-input";
 import { monitorHeader } from "./header";
 import { History } from "./history";
 import { MonitorInput } from "./input";
+import type { InspectMessage, InspectViewModel } from "./inspect-view";
 import { listGroups } from "./list-row";
 import { Palette } from "./palette";
 import { PinnedRows } from "./pinned";
 import { Preview } from "./preview";
+import { ReviewScreen } from "./review";
 import { type Theme, theme } from "./theme";
 
 /** Renders a monitor frame exclusively from its view model. */
@@ -24,12 +27,14 @@ export const Screen = memo(function Screen({
   onAct = () => {},
   onKey = () => {},
   onFind = () => {},
+  onInspect = () => {},
 }: {
-  model: ViewModel;
+  model: InspectViewModel;
   colors: Theme;
   onAct?: (message: ActMessage) => void;
   onKey?: (key: string) => void;
   onFind?: (message: FindMessage) => void;
+  onInspect?: (message: InspectMessage) => void;
 }) {
   const width = model.columns;
   const bodyColors = useMemo(
@@ -157,8 +162,20 @@ export const Screen = memo(function Screen({
   if (model.overlay) body = <Help model={model} colors={colors} />;
   else if (model.history)
     body = <History history={model.history} width={width} height={available} colors={colors} />;
+  else if (model.diff)
+    body = <DiffPane diff={model.diff} width={width} height={available} colors={colors} />;
+  else if (model.review) body = <ReviewScreen model={model} colors={colors} height={available} />;
   else if (model.detail)
-    body = <DetailScreen detail={model.detail} model={model} colors={colors} />;
+    body = (
+      <DetailScreen
+        detail={model.detail}
+        model={model}
+        colors={colors}
+        onFind={onInspect}
+        onKey={onKey}
+        height={available}
+      />
+    );
   return (
     <Box
       width={width}
@@ -218,6 +235,7 @@ export function MonitorApp({
   onTick,
   onAct = () => {},
   onFind = () => {},
+  onInspect = () => {},
 }: {
   model: ViewModel;
   colors: Theme;
@@ -225,6 +243,7 @@ export function MonitorApp({
   onTick: (now: number) => void;
   onAct?: (message: ActMessage) => void;
   onFind?: (message: FindMessage) => void;
+  onInspect?: (message: InspectMessage) => void;
 }) {
   const [now, setNow] = useState(model.now);
   const blocked = useRef(false);
@@ -249,6 +268,9 @@ export function MonitorApp({
         }}
         onFind={(message) => {
           if (!blocked.current) onFind(message);
+        }}
+        onInspect={(message) => {
+          if (!blocked.current) onInspect(message);
         }}
       />
     </Tick>

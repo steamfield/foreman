@@ -12,6 +12,8 @@ import type { Terminal } from "../services/terminal";
 import { runActing } from "./acting";
 import { type EditorRunner, runEditors } from "./editor";
 import { type FindRequests, type HistoryReader, runFind } from "./find-executor";
+import { type InspectReaders, type InspectRequests, runInspect } from "./inspect-executor";
+import { type PagerRunner, runPagers } from "./pager";
 import { MonitorApp } from "./screen";
 import { theme } from "./theme";
 
@@ -68,7 +70,7 @@ function TerminalOwner({
 }
 
 /** Runs the interactive monitor and releases its terminal and acting session on exit. */
-export const runMonitor = Effect.fn("tui.runMonitor")(function* <R, R2 = never>(
+export const runMonitor = Effect.fn("tui.runMonitor")(function* <R, R2 = never, R3 = never>(
   terminal: Terminal["Service"],
   options: Parameters<typeof initialState>[0],
   feed: Stream.Stream<MonitorFeed, never, R>,
@@ -78,6 +80,11 @@ export const runMonitor = Effect.fn("tui.runMonitor")(function* <R, R2 = never>(
   App: typeof MonitorApp = MonitorApp,
   edit: EditorRunner = () => Effect.fail(new Error("No editor runner was provided.")),
   read: HistoryReader<R2> = () => Effect.die("No history reader was provided."),
+  inspect: InspectReaders<R3> = {
+    changes: () => Effect.fail(new Error("No changes reader was provided.")),
+    diff: () => Effect.fail(new Error("No diff reader was provided.")),
+  },
+  page: PagerRunner = () => Effect.fail(new Error("No pager runner was provided.")),
 ) {
   const { stdin, stdout, stderr } = terminal;
   if (stdin === null || stdout === null || stderr === null)
@@ -92,14 +99,19 @@ export const runMonitor = Effect.fn("tui.runMonitor")(function* <R, R2 = never>(
   const actions = yield* Queue.unbounded<ActRequest>();
   const editors = yield* Queue.unbounded<NonNullable<ActState["editor"]>>();
   const finds = yield* Queue.unbounded<FindRequests>();
+  const inspections = yield* Queue.unbounded<InspectRequests>();
+  const pagers = yield* Queue.unbounded<InspectRequests>();
   const editorTerminal = yield* Deferred.make<SuspendTerminal>();
   yield* Effect.addFinalizer(() => Queue.shutdown(opened));
   yield* Effect.addFinalizer(() => Queue.shutdown(selected));
   yield* Effect.addFinalizer(() => Queue.shutdown(actions));
   yield* Effect.addFinalizer(() => Queue.shutdown(editors));
   yield* Effect.addFinalizer(() => Queue.shutdown(finds));
+  yield* Effect.addFinalizer(() => Queue.shutdown(inspections));
+  yield* Effect.addFinalizer(() => Queue.shutdown(pagers));
   Queue.offerUnsafe(opened, state.detail?.name ?? null);
   Queue.offerUnsafe(selected, previewName(state));
+  Queue.offerUnsafe(inspections, state);
   const update = (message: Message) => {
     const next = reduce(state, message);
     if (next === state) return;
@@ -112,6 +124,12 @@ export const runMonitor = Effect.fn("tui.runMonitor")(function* <R, R2 = never>(
       Queue.offerUnsafe(editors, next.act.editor);
     if (next.history?.id !== state.history?.id || next.clipboard?.id !== state.clipboard?.id)
       Queue.offerUnsafe(finds, { history: next.history, clipboard: next.clipboard });
+    if (
+      next.detail?.changes?.id !== state.detail?.changes?.id ||
+      next.detail?.diff?.id !== state.detail?.diff?.id
+    )
+      Queue.offerUnsafe(inspections, next);
+    if (next.pager && next.pager.id !== state.pager?.id) Queue.offerUnsafe(pagers, next);
     state = next;
     model = view(state, model);
     instance?.rerender(frame());
@@ -124,6 +142,7 @@ export const runMonitor = Effect.fn("tui.runMonitor")(function* <R, R2 = never>(
         !model.act.confirm &&
         !model.act.compose &&
         !model.filterBar?.editing &&
+        !model.feedTabs?.editing &&
         !model.palette) ||
       key === "ctrl-c"
     )
@@ -139,6 +158,7 @@ export const runMonitor = Effect.fn("tui.runMonitor")(function* <R, R2 = never>(
         onTick={onTick}
         onAct={update}
         onFind={update}
+        onInspect={update}
       />
     </TerminalOwner>
   );
@@ -202,6 +222,12 @@ export const runMonitor = Effect.fn("tui.runMonitor")(function* <R, R2 = never>(
         input,
         runActing(open, Stream.fromQueue(actions), update),
         runFind(read, Stream.fromQueue(finds), update, stdout),
+        runInspect(inspect, Stream.fromQueue(inspections), update),
+        Deferred.await(editorTerminal).pipe(
+          Effect.flatMap((suspend) =>
+            runPagers(inspect.diff, page, suspend, Stream.fromQueue(pagers), update),
+          ),
+        ),
         Deferred.await(editorTerminal).pipe(
           Effect.flatMap((suspend) => runEditors(edit, suspend, Stream.fromQueue(editors), update)),
         ),
