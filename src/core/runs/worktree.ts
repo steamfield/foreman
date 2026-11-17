@@ -66,7 +66,8 @@ export function allowedPaths(contract: string): readonly string[] {
   return [...section.join("\n").matchAll(/`([^`]*)`/g)].map((match) => match[1] ?? "");
 }
 
-function covers(path: string, entry: string): boolean {
+/** Tests whether a path matches one May change entry. */
+export function covers(path: string, entry: string): boolean {
   if (entry.endsWith("/")) return path.startsWith(entry) || path.includes(`/${entry}`);
   if (entry.includes("*"))
     return Glob.match(Glob.make(`**/${entry.replace(/^(?:\.\/)+/, "")}`, { dot: true }), path);
