@@ -79,6 +79,8 @@ export const RunView = Schema.Struct({
   filesWritten: Schema.NullOr(Schema.Int),
   // Journal events per minute over the last PACE_MINUTES minutes, oldest first; empty when not supervised.
   pace: Schema.Array(Schema.Int),
+  // When a person marked the latest result reviewed in foreman monitor; null when not reviewed.
+  reviewedAt: Schema.NullOr(Timestamp),
 }).annotate({
   title: "RunView",
   description: "Cached live state and attention for a supervised run",

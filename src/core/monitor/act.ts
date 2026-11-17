@@ -27,7 +27,8 @@ export type ActIntent =
   | { readonly kind: "steer"; readonly name: RunName; readonly text: string }
   | { readonly kind: "followup"; readonly name: RunName; readonly text: string }
   | { readonly kind: "interrupt"; readonly name: RunName }
-  | { readonly kind: "archive"; readonly name: RunName; readonly keepWorktree: boolean };
+  | { readonly kind: "archive"; readonly name: RunName; readonly keepWorktree: boolean }
+  | { readonly kind: "review"; readonly name: RunName };
 
 /** The action keys that need acting; confirm-acting resumes the one that asked. */
 export type ActAction = "answer" | "defer" | "steer" | "followup" | "interrupt" | "archive";

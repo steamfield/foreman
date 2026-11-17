@@ -1,6 +1,7 @@
 import { DateTime } from "effect";
 import { activeStates, type RunEvent, type RunName } from "../../schemas/daemon";
 import type { Detail, HistoryEntry, RunView } from "../../schemas/monitor";
+import type { ChangedFile, DiffText } from "../runs/changes";
 import { tokenCount } from "../runs/digest";
 import { type ActMessage, type ActState, type ActView, initialAct, reduceAct } from "./act";
 import { actView } from "./act-view";
@@ -33,6 +34,51 @@ export const DETAIL_PANES = [
   "feed",
 ] as const;
 export type PaneId = (typeof DETAIL_PANES)[number];
+/** Feed filters on the detail Feed title, keys 1 to 5. */
+export type FeedFilter = "all" | "commands" | "files" | "messages" | "questions";
+/** The detail timeline strip: one row of cells across the run's life. */
+export type TimelineView = {
+  readonly label: string;
+  readonly cells: readonly { readonly glyph: string; readonly tone: Tone }[];
+  readonly subagentCells: readonly { readonly glyph: string; readonly tone: Tone }[] | null;
+  readonly ticks: string;
+  readonly legend: string;
+};
+/** The full-screen diff view. */
+export type DiffView = {
+  readonly title: string;
+  readonly position: string;
+  readonly status: "loading" | "ready" | "failed";
+  readonly message: string | null;
+  readonly lines: readonly {
+    readonly text: string;
+    readonly kind: "hunk" | "add" | "remove" | "context" | "meta";
+    readonly oldLine: number | null;
+    readonly newLine: number | null;
+  }[];
+  readonly offset: number;
+  readonly truncated: boolean;
+};
+/** The review screen for a finished run. */
+export type ReviewView = {
+  readonly summary: string;
+  readonly reviewed: boolean;
+  readonly handoff: { readonly title: string; readonly lines: readonly string[] } | null;
+  readonly decided: readonly {
+    readonly question: string;
+    readonly asked: string;
+    readonly outcome: string;
+  }[];
+  readonly files: readonly {
+    readonly path: string;
+    readonly status: string;
+    readonly added: string;
+    readonly removed: string;
+    readonly outside: boolean;
+    readonly selected: boolean;
+  }[];
+  readonly filesNote: string;
+};
 export type DetailLine = {
   readonly text: string;
   readonly tone: Tone;
@@ -195,6 +241,14 @@ export type ViewModel = {
   readonly detail: DetailView | null;
   readonly act: ActView;
   readonly listColumns: ListColumns;
+  readonly timeline: TimelineView | null;
+  readonly diff: DiffView | null;
+  readonly review: ReviewView | null;
+  readonly feedTabs: {
+    readonly filter: FeedFilter;
+    readonly search: string;
+    readonly editing: boolean;
+  } | null;
   readonly pinned: readonly PinnedRowView[];
   /** Number of attention rows hidden by the three-row cap. */
   readonly morePinned: number;
@@ -228,7 +282,29 @@ export type State = {
     readonly focus: PaneId;
     readonly offsets: Readonly<Record<PaneId, number>>;
     readonly follow: boolean;
+    /** The worktree change list, requested on demand; `id` pairs it with `changes-result`. */
+    readonly changes: {
+      readonly id: number;
+      readonly files: readonly ChangedFile[] | null;
+      readonly error: string | null;
+      readonly selected: number;
+    } | null;
+    /** The diff view, open over the detail or review screen. */
+    readonly diff: {
+      readonly id: number;
+      readonly path: string | null;
+      readonly text: DiffText | null;
+      readonly error: string | null;
+      readonly offset: number;
+    } | null;
+    readonly feedFilter: FeedFilter;
+    readonly feedSearch: { readonly text: string; readonly editing: boolean };
+    /** True when the run opened in the review screen instead of plain detail. */
+    readonly review: boolean;
   } | null;
+  /** A pending `$PAGER` hand-off for the whole diff; the executor replies with `pager-result`. */
+  readonly pager: { readonly id: number; readonly name: RunName } | null;
+  readonly nextInspectId: number;
   readonly act: ActState;
   /** The `/` filter text and whether its input is open. */
   readonly filter: { readonly text: string; readonly editing: boolean };
@@ -262,6 +338,20 @@ export type Message =
   | { readonly type: "preview-feed"; readonly name: RunName; readonly value: DetailFeed }
   | { readonly type: "filter-text"; readonly text: string }
   | { readonly type: "palette-query"; readonly text: string }
+  | { readonly type: "feed-search-text"; readonly text: string }
+  | {
+      readonly type: "changes-result";
+      readonly id: number;
+      readonly files: readonly ChangedFile[] | null;
+      readonly error: string | null;
+    }
+  | {
+      readonly type: "diff-result";
+      readonly id: number;
+      readonly text: DiffText | null;
+      readonly error: string | null;
+    }
+  | { readonly type: "pager-result"; readonly id: number; readonly error: string | null }
   | {
       readonly type: "history-result";
       readonly id: number;
@@ -288,6 +378,8 @@ export const initialState = (
   history: null,
   nextHistoryId: 1,
   clipboard: null,
+  pager: null,
+  nextInspectId: 1,
   detail: options.name === undefined ? null : openDetail(options.name),
 });
 function openDetail(name: RunName): NonNullable<State["detail"]> {
@@ -299,7 +391,20 @@ function openDetail(name: RunName): NonNullable<State["detail"]> {
     dropped: 0,
     focus: "task",
     follow: true,
-    offsets: { task: 0, digest: 0, questions: 0, subagents: 0, handoff: 0, commands: 0, feed: 0 },
+    offsets: {
+      task: 0,
+      digest: 0,
+      questions: 0,
+      subagents: 0,
+      handoff: 0,
+      commands: 0,
+      feed: 0,
+    },
+    changes: null,
+    diff: null,
+    feedFilter: "all",
+    feedSearch: { text: "", editing: false },
+    review: false,
   };
 }
 const epoch = DateTime.toEpochMillis;
@@ -844,6 +949,10 @@ export function view(state: State, previous?: ViewModel): ViewModel {
     palette: paletteView(state),
     history: historyView(state),
     grouping: state.grouping,
+    timeline: null,
+    diff: null,
+    review: null,
+    feedTabs: null,
     helpKeys: findHelpKeys,
     animating:
       !state.help &&

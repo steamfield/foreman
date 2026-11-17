@@ -75,6 +75,7 @@ export function projectRun(run: Run, repo: string, now: number): RunView {
     commands: run.commands === null ? null : { ...run.commands },
     filesWritten: run.filesWritten?.size ?? null,
     pace: advancePace(run.pace, now).buckets,
+    reviewedAt: null,
   };
 }
 

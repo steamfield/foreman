@@ -125,6 +125,8 @@ export const RunRecord = Schema.Struct({
   warnings: Schema.Array(Schema.String),
   createdAt: Schema.DateTimeUtcFromString,
   updatedAt: Schema.DateTimeUtcFromString,
+  // Set by a Review request; cleared when a new turn starts.
+  reviewedAt: Schema.optionalKey(Schema.NullOr(Schema.DateTimeUtcFromString)),
   pendingStateEvent: Schema.optionalKey(
     Schema.NullOr(
       Schema.Struct({
@@ -324,6 +326,8 @@ export const DaemonRequestBody = Schema.TaggedUnion({
     effort: Schema.optionalKey(Schema.String),
   },
   Interrupt: { name: RunName, source: Schema.optionalKey(Schema.Literal("monitor")) },
+  // A person marked the run's result reviewed in foreman monitor.
+  Review: { name: RunName },
   Answer: {
     name: RunName,
     question: QuestionId,
