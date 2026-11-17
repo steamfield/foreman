@@ -53,9 +53,22 @@ function actKey(state: State, key: string): State | null {
   if (state.act.editor) return state;
   if (
     state.act.inFlight &&
-    ["a", "d", "s", "F", "i", "x", "w", "y", "k", "enter", "ctrl-s", "ctrl-d", "ctrl-e"].includes(
-      key,
-    )
+    [
+      "a",
+      "d",
+      "s",
+      "F",
+      "i",
+      "x",
+      "r",
+      "w",
+      "y",
+      "k",
+      "enter",
+      "ctrl-s",
+      "ctrl-d",
+      "ctrl-e",
+    ].includes(key)
   )
     return state;
   const overlay = state.act.overlay;
@@ -78,6 +91,7 @@ function actKey(state: State, key: string): State | null {
     return textKey(state, key);
   }
   if (state.help) return null;
+  if (key === "r" && state.detail?.review) return open(state, "review");
   const action = {
     a: "answer",
     d: "defer",
@@ -145,6 +159,7 @@ function open(state: State, resume: ActAction, name?: RunName): State {
       ? send(state, answer, "defer")
       : { ...state, act: { ...state.act, overlay: { kind: "answer", target: answer } } };
   if (!run) return state;
+  if (resume === "review") return request(state, { kind: "review", name: run.name });
   if (resume === "steer" || resume === "followup")
     return {
       ...state,

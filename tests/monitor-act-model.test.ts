@@ -304,6 +304,7 @@ describe("monitor acting model", () => {
       ),
     );
     expect(view(state).act.answer).toEqual({
+      context: [],
       title: "waiting q2",
       meta: `question · asked ${clockTime(q.askedAt)} · waited 3m · defers in 12m`,
       question: "First  line\nSecond line",

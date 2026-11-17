@@ -17,6 +17,7 @@ import { theme } from "../src/tui/theme";
 import { defaults, now } from "./helpers/monitor";
 
 const row: RowView = {
+  review: null,
   name: "add-retry",
   stale: false,
   state: "running",

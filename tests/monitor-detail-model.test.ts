@@ -3,6 +3,7 @@ import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 import type { DetailFeed } from "../src/core/monitor/detail-feed";
 import {
+  DETAIL_PANES,
   EVENT_BUFFER_LIMIT,
   initialState,
   type PaneId,
@@ -34,7 +35,7 @@ const start = (columns = 140, rows = 40) => {
 const pane = (state: State, id: PaneId) =>
   view(state).detail?.panes.find((entry) => entry.id === id);
 const focusFeed = (state: State) =>
-  Array.from({ length: 6 }).reduce<State>((s) => key(s, "tab"), state);
+  Array.from({ length: DETAIL_PANES.indexOf("feed") }).reduce<State>((s) => key(s, "tab"), state);
 const frame = (state: State) =>
   renderToString(createElement(Screen, { model: view(state), colors: theme(0) }), {
     columns: state.columns,
