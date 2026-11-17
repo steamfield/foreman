@@ -235,7 +235,7 @@ describe("finished run review", () => {
     let state = key(review(), "r");
     expect(state.act.overlay).toEqual({ kind: "confirm-acting", resume: "review" });
     state = key(state, "y");
-    expect(state.act.inFlight?.intent).toEqual({ kind: "enter-acting" });
+    expect(state.act.inFlight?.intent).toEqual({ kind: "enter-acting", resume: "review" });
     state = reduce(state, {
       type: "act-outcome",
       outcome: { id: state.act.inFlight?.id ?? -1, ok: true, text: "acting" },

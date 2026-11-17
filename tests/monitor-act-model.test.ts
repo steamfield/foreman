@@ -122,7 +122,10 @@ describe("monitor acting model", () => {
       let state = key(start(), "a");
       expect(state.act.overlay).toEqual({ kind: "confirm-acting", resume: "answer" });
       state = key(state, confirm);
-      expect(state.act.inFlight).toEqual({ id: 1, intent: { kind: "enter-acting" } });
+      expect(state.act.inFlight).toEqual({
+        id: 1,
+        intent: { kind: "enter-acting", resume: "answer" },
+      });
       state = reduce(state, {
         type: "feed",
         value: live([run("fresh", { state: "waiting", questions: [q] })]),
@@ -211,15 +214,19 @@ describe("monitor acting model", () => {
       key(draft(answer()), "enter"),
       key(key(answer(), "escape"), "d"),
     ]) {
-      for (const pressed of ["a", "d", "w", "y", "enter", "ctrl-s", "ctrl-d"])
-        expect(key(state, pressed)).toBe(state);
+      const blocked = state.act.overlay
+        ? ["a", "d", "w", "y", "enter", "ctrl-s", "ctrl-d"]
+        : ["a", "d", "s", "F", "i", "x", "w"];
+      for (const pressed of blocked) expect(key(state, pressed)).toBe(state);
       expect(
         reduce(state, { type: "act-outcome", outcome: { id: 999, ok: true, text: "Stale" } }),
       ).toBe(state);
       const escaped = key(state, "escape");
       expect(escaped.act.overlay).toBeNull();
       expect(escaped.act.inFlight).toEqual(state.act.inFlight);
-      expect(outcome(escaped).act.inFlight).toBeNull();
+      expect(outcome(escaped).act.inFlight?.intent ?? null).toEqual(
+        state.act.inFlight?.intent.kind === "enter-acting" ? { kind: "leave-acting" } : null,
+      );
     }
   });
   it("leaves acting immediately with w and confirms every return to acting", () => {
@@ -234,7 +241,7 @@ describe("monitor acting model", () => {
   it.each(["confirm", "answer"])(
     "drops to watching on acting-lost from %s and keeps drafts",
     (box) => {
-      const before = box === "answer" ? key(draft(answer()), "enter") : key(key(start(), "a"), "y");
+      const before = box === "answer" ? draft(answer()) : key(start(), "a");
       const state = reduce(before, { type: "acting-lost", text: "Socket closed" });
       expect(state.act).toMatchObject({
         mode: "watching",

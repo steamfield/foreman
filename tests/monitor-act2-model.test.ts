@@ -154,14 +154,16 @@ describe("monitor phase 2 acting model", () => {
       target: { name: "a", action: "steer" },
     });
   });
-  it("holds the editor's box until the hand-off completes and ignores results after connection loss", () => {
+  it("holds the editor's box until the hand-off completes and keeps results after connection loss", () => {
     const state = key(draft(box()), "ctrl-e");
     for (const shortcut of ["escape", "enter", "F", "ctrl-e", "j"])
       expect(key(state, shortcut)).toEqual(state);
     const lost = reduce(state, { type: "acting-lost", text: "Connection closed" });
-    expect(lost.act.editor).toBeNull();
+    expect(lost.act.editor).toEqual(state.act.editor);
     expect(lost.act.drafts["fix-hooks/steer"]).toBe("  Keep this.\nAnd this.  ");
-    expect(reduce(lost, { type: "editor-result", id: 1, text: "late", error: null })).toEqual(lost);
+    const result = reduce(lost, { type: "editor-result", id: 1, text: "late", error: null });
+    expect(result.act.editor).toBeNull();
+    expect(result.act.drafts["fix-hooks/steer"]).toBe("late");
   });
   it.each(["saved", "outdated", "reconnecting"])(
     "refuses actions from a %s detail even when the overview is live",
@@ -282,7 +284,7 @@ describe("monitor phase 2 acting model", () => {
       const draftKey = `fix-hooks/${kind === "answer" ? "q2" : kind}`;
       const id = state.act.nextId;
       state = key(state, "ctrl-e");
-      expect(state.act.editor).toEqual({ id, text: "  Keep this.\nAnd this.  " });
+      expect(state.act.editor).toEqual({ id, text: "  Keep this.\nAnd this.  ", draftKey });
       expect(state.act.nextId).toBe(id + 1);
       expect(key(state, "ctrl-e").act.editor).toEqual(state.act.editor);
       expect(

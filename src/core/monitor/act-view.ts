@@ -12,7 +12,7 @@ import {
   watchingView,
 } from "./act";
 import { confirmView } from "./act-confirm";
-import { findRun } from "./act-target";
+import { canDefer, findRun } from "./act-target";
 import { clockTime, duration, feedLines, type State } from "./model";
 
 /** Builds the acting portion of the screen without adding animation. */
@@ -24,7 +24,7 @@ export function actView(state: State): ActView {
   else if (overlay?.kind === "answer")
     hints = [
       { key: "enter", label: "send" },
-      { key: "ctrl-d", label: "defer" },
+      ...(canDefer(state, overlay.target) ? [{ key: "ctrl-d", label: "defer" }] : []),
       { key: "ctrl-e", label: "$EDITOR" },
       { key: "esc", label: "cancel" },
     ];

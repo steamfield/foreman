@@ -56,12 +56,12 @@ it.effect("opens each new enter intent once and reports acting", () =>
     const worker = yield* Effect.forkChild(
       runActing(f.opener, Stream.fromQueue(f.requests), f.dispatch),
     );
-    yield* Queue.offer(f.requests, { id: 1, intent: { kind: "enter-acting" } });
+    yield* Queue.offer(f.requests, { id: 1, intent: { kind: "enter-acting", resume: "answer" } });
     expect(yield* Queue.take(f.messages)).toEqual({
       type: "act-outcome",
       outcome: { id: 1, ok: true, text: "acting" },
     });
-    yield* Queue.offer(f.requests, { id: 1, intent: { kind: "enter-acting" } });
+    yield* Queue.offer(f.requests, { id: 1, intent: { kind: "enter-acting", resume: "answer" } });
     yield* Queue.offer(f.requests, { id: 2, intent: { kind: "leave-acting" } });
     expect(yield* Queue.take(f.messages)).toEqual({
       type: "act-outcome",
@@ -78,7 +78,7 @@ it.effect("leaving closes the session scope without reporting connection loss", 
     const worker = yield* Effect.forkChild(
       runActing(f.opener, Stream.fromQueue(f.requests), f.dispatch),
     );
-    yield* Queue.offer(f.requests, { id: 1, intent: { kind: "enter-acting" } });
+    yield* Queue.offer(f.requests, { id: 1, intent: { kind: "enter-acting", resume: "answer" } });
     yield* Queue.take(f.messages);
     yield* Queue.offer(f.requests, { id: 2, intent: { kind: "leave-acting" } });
     yield* Queue.take(f.messages);
@@ -95,7 +95,7 @@ it.effect("answer and defer send the exact intent and report the session's text"
     const worker = yield* Effect.forkChild(
       runActing(f.opener, Stream.fromQueue(f.requests), f.dispatch),
     );
-    yield* Queue.offer(f.requests, { id: 1, intent: { kind: "enter-acting" } });
+    yield* Queue.offer(f.requests, { id: 1, intent: { kind: "enter-acting", resume: "answer" } });
     yield* Queue.take(f.messages);
     const intents = [
       { kind: "answer", name, question, text: " Keep the API.\n" },
@@ -126,7 +126,7 @@ it.effect("failed sends preserve the error detail and the session stays usable",
     const worker = yield* Effect.forkChild(
       runActing(opener, Stream.fromQueue(f.requests), f.dispatch),
     );
-    yield* Queue.offer(f.requests, { id: 1, intent: { kind: "enter-acting" } });
+    yield* Queue.offer(f.requests, { id: 1, intent: { kind: "enter-acting", resume: "answer" } });
     yield* Queue.take(f.messages);
     yield* Queue.offer(f.requests, {
       id: 2,
@@ -154,7 +154,10 @@ it.effect("a failed opener reports its detail, or the safe table message when ab
       runActing(opener, Stream.fromQueue(f.requests), f.dispatch),
     );
     for (const [index, error] of failures.entries()) {
-      yield* Queue.offer(f.requests, { id: index + 1, intent: { kind: "enter-acting" } });
+      yield* Queue.offer(f.requests, {
+        id: index + 1,
+        intent: { kind: "enter-acting", resume: "answer" },
+      });
       expect(yield* Queue.take(f.messages)).toEqual({
         type: "act-outcome",
         outcome: {
@@ -174,7 +177,7 @@ it.effect("an unsolicited socket close reports acting-lost once and releases the
     const worker = yield* Effect.forkChild(
       runActing(f.opener, Stream.fromQueue(f.requests), f.dispatch),
     );
-    yield* Queue.offer(f.requests, { id: 1, intent: { kind: "enter-acting" } });
+    yield* Queue.offer(f.requests, { id: 1, intent: { kind: "enter-acting", resume: "answer" } });
     yield* Queue.take(f.messages);
     yield* Deferred.succeed(f.closed, undefined);
     expect(yield* Queue.take(f.messages)).toEqual({
@@ -193,7 +196,7 @@ it.effect("quitting the executor releases an open session", () =>
     const worker = yield* Effect.forkChild(
       runActing(f.opener, Stream.fromQueue(f.requests), f.dispatch),
     );
-    yield* Queue.offer(f.requests, { id: 1, intent: { kind: "enter-acting" } });
+    yield* Queue.offer(f.requests, { id: 1, intent: { kind: "enter-acting", resume: "answer" } });
     yield* Queue.take(f.messages);
     yield* Fiber.interrupt(worker);
     expect(yield* Deferred.isDone(f.finalized)).toBe(true);
