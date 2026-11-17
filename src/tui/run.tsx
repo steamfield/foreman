@@ -1,5 +1,6 @@
 import { Deferred, Effect, Fiber, FiberSet, Queue, Stream } from "effect";
-import { render } from "ink";
+import { render, type SuspendTerminal, useApp } from "ink";
+import { type ReactNode, useEffect } from "react";
 import type { ActMessage, ActState } from "../core/monitor/act";
 import type { ActingSession, openActing } from "../core/monitor/acting";
 import type { DetailFeed } from "../core/monitor/detail-feed";
@@ -8,11 +9,26 @@ import { initialState, type Message, reduce, type State, view } from "../core/mo
 import { type AppError, DaemonUnavailable, detailFor, errorTable } from "../errors";
 import type { RunName } from "../schemas/daemon";
 import type { Terminal } from "../services/terminal";
+import { type EditorRunner, runEditors } from "./editor";
 import { MonitorApp } from "./screen";
 import { theme } from "./theme";
 
 type ActingOpener = () => ReturnType<typeof openActing>;
 type ActRequest = NonNullable<ActState["inFlight"]>;
+
+function TerminalOwner({
+  ready,
+  children,
+}: {
+  ready: Deferred.Deferred<SuspendTerminal>;
+  children: ReactNode;
+}) {
+  const { suspendTerminal } = useApp();
+  useEffect(() => {
+    Deferred.doneUnsafe(ready, Effect.succeed(suspendTerminal));
+  }, [ready, suspendTerminal]);
+  return children;
+}
 
 /** Executes acting intents while owning and observing the session's scoped fiber. */
 export const runActing = Effect.fn("tui.runActing")(function* <R>(
@@ -91,6 +107,7 @@ export const runMonitor = Effect.fn("tui.runMonitor")(function* <R>(
   noColor: boolean,
   open: ActingOpener = () => Effect.fail(new DaemonUnavailable()),
   App: typeof MonitorApp = MonitorApp,
+  edit: EditorRunner = () => Effect.fail(new Error("No editor runner was provided.")),
 ) {
   const { stdin, stdout, stderr } = terminal;
   if (stdin === null || stdout === null || stderr === null)
@@ -102,8 +119,11 @@ export const runMonitor = Effect.fn("tui.runMonitor")(function* <R>(
   let instance: ReturnType<typeof render> | undefined;
   const opened = yield* Queue.unbounded<RunName | null>();
   const actions = yield* Queue.unbounded<ActRequest>();
+  const editors = yield* Queue.unbounded<NonNullable<ActState["editor"]>>();
+  const editorTerminal = yield* Deferred.make<SuspendTerminal>();
   yield* Effect.addFinalizer(() => Queue.shutdown(opened));
   yield* Effect.addFinalizer(() => Queue.shutdown(actions));
+  yield* Effect.addFinalizer(() => Queue.shutdown(editors));
   Queue.offerUnsafe(opened, state.detail?.name ?? null);
   const update = (message: Message) => {
     const next = reduce(state, message);
@@ -112,18 +132,25 @@ export const runMonitor = Effect.fn("tui.runMonitor")(function* <R>(
       Queue.offerUnsafe(opened, next.detail?.name ?? null);
     if (next.act.inFlight && next.act.inFlight.id !== state.act.inFlight?.id)
       Queue.offerUnsafe(actions, next.act.inFlight);
+    if (next.act.editor && next.act.editor.id !== state.act.editor?.id)
+      Queue.offerUnsafe(editors, next.act.editor);
     state = next;
     model = view(state, model);
     instance?.rerender(frame());
   };
   const onTick = (now: number) => update({ type: "tick", now });
   const onKey = (key: string) => {
-    if ((key === "q" && !model.act.answer && !model.act.confirm) || key === "ctrl-c")
+    if (
+      (key === "q" && !model.act.answer && !model.act.confirm && !model.act.compose) ||
+      key === "ctrl-c"
+    )
       Deferred.doneUnsafe(done, Effect.succeed(key === "q" ? "quit" : "interrupt"));
     else update({ type: "key", key });
   };
   const frame = () => (
-    <App model={model} colors={colors} onKey={onKey} onTick={onTick} onAct={update} />
+    <TerminalOwner ready={editorTerminal}>
+      <App model={model} colors={colors} onKey={onKey} onTick={onTick} onAct={update} />
+    </TerminalOwner>
   );
   const mounted = yield* Effect.acquireRelease(
     Effect.sync(() => {
@@ -177,7 +204,16 @@ export const runMonitor = Effect.fn("tui.runMonitor")(function* <R>(
   );
   const worker = yield* Effect.forkChild(
     Effect.all(
-      [updates, details, resizes, input, runActing(open, Stream.fromQueue(actions), update)],
+      [
+        updates,
+        details,
+        resizes,
+        input,
+        runActing(open, Stream.fromQueue(actions), update),
+        Deferred.await(editorTerminal).pipe(
+          Effect.flatMap((suspend) => runEditors(edit, suspend, Stream.fromQueue(editors), update)),
+        ),
+      ],
       { concurrency: "unbounded" },
     ),
   );

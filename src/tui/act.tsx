@@ -93,6 +93,46 @@ function AnswerBox({
   );
 }
 
+function ComposeBox({
+  compose,
+  width,
+  colors,
+  onAct,
+  onKey,
+}: {
+  compose: NonNullable<ActView["compose"]>;
+  width: number;
+  colors: Theme;
+  onAct: (message: ActMessage) => void;
+  onKey: (key: string) => void;
+}) {
+  const action = compose.sending
+    ? "sending…"
+    : [
+        ["enter", "send"],
+        ["ctrl-e", "$EDITOR"],
+        ["esc", "cancel"],
+      ]
+        .map(([key, label]) => `${colors.paint(key ?? "", "fg", true)} ${label}`)
+        .join("  ");
+  return (
+    <Box flexDirection="column" width={width}>
+      <Line width={width} colors={colors}>
+        {frameHeading(compose.title, compose.meta, width, colors, false)}
+      </Line>
+      <FramedText text="" width={width} colors={colors} />
+      <FrameRow width={width} colors={colors} height={3}>
+        <AnswerInput answer={compose} width={width} colors={colors} onAct={onAct} onKey={onKey} />
+      </FrameRow>
+      <FramedText text="" width={width} colors={colors} />
+      <FramedText text={action} width={width} colors={colors} muted={compose.sending} />
+      <Line width={width} colors={colors}>
+        {colors.paint(`╰${"─".repeat(width - 2)}╯`, "fg")}
+      </Line>
+    </Box>
+  );
+}
+
 /** Draws the acting overlay in the centre of the available list or detail area. */
 export function ActOverlay({
   act,
@@ -122,23 +162,35 @@ export function ActOverlay({
         onKey={onKey}
       />
     );
+  else if (act.compose)
+    box = (
+      <ComposeBox compose={act.compose} width={width} colors={colors} onAct={onAct} onKey={onKey} />
+    );
   else if (act.confirm)
     box = (
       <Box width={width} flexDirection="column">
         <Line width={width} colors={colors}>
-          {frameHeading(act.confirm.title, "", width, colors)}
+          {frameHeading(act.confirm.title, "", width, colors, false)}
         </Line>
         <FramedText text="" width={width} colors={colors} />
-        {act.confirm.lines.map((text) => (
-          <FramedParagraph key={text} text={text} width={width} colors={colors} />
-        ))}
+        {act.confirm.lines
+          .filter(
+            (text) =>
+              text.trim().replace(/\s+/g, " ") !==
+              act.confirm?.keys.map(({ key, label }) => `${key} ${label}`).join(" "),
+          )
+          .map((text) => (
+            <FramedParagraph key={text} text={text} width={width} colors={colors} />
+          ))}
         <FramedText text="" width={width} colors={colors} />
         <FramedText
-          text={
-            act.hints
-              ?.map(({ key, label }) => `${colors.paint(key, "fg", true)} ${label}`)
-              .join("  ") ?? ""
-          }
+          text={act.confirm.keys
+            .map(({ key, label }, index) =>
+              index === 0
+                ? colors.select(colors.paint(` ${key} ${label} `, "fg", true))
+                : `${colors.paint(key, "fg", true)} ${label}`,
+            )
+            .join("  ")}
           width={width}
           colors={colors}
         />

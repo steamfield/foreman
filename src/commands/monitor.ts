@@ -38,6 +38,7 @@ export const makeMonitorCommand = (source: typeof monitorFeed = monitorFeed) =>
         return;
       }
       const { runMonitor } = yield* Effect.promise(() => import("../tui/run"));
+      const { makeEditorRunner } = yield* Effect.promise(() => import("../tui/editor"));
       yield* runMonitor(
         terminal,
         {
@@ -65,6 +66,8 @@ export const makeMonitorCommand = (source: typeof monitorFeed = monitorFeed) =>
         (name) => detailFeed(config.home, name),
         config.inheritedEnvironment.NO_COLOR !== undefined,
         () => openActing(config.home),
+        undefined,
+        yield* makeEditorRunner(config.inheritedEnvironment),
       ).pipe(Effect.scoped);
     }),
   ).pipe(
