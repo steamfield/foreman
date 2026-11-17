@@ -1,8 +1,35 @@
 # foreman
 
-foreman lets Claude Code delegate coding tasks to OpenAI's Codex in git worktrees. Claude reads progress, answers questions and sends corrections, then reviews the diff before committing. A local daemon keeps runs alive between CLI calls.
+foreman lets Claude Code delegate coding tasks to OpenAI's Codex in git worktrees. Claude writes a contract, starts a run, answers Codex's questions and sends corrections, then reviews the diff before committing. A local daemon keeps runs alive between CLI calls, and `foreman monitor` gives you a live terminal view of every run on your machine.
 
 foreman drives `codex app-server` using your Codex ChatGPT login. It does not need an API key. The MCP wrapper is still pending.
+
+## How it works
+
+Claude Code is the orchestrator and Codex is the delegate. You ask Claude to hand a task to Codex; Claude does the rest through foreman commands, and you can watch.
+
+| Term | Meaning |
+| --- | --- |
+| Run | One delegated task with a short unique name, such as `fix-hooks`. It has its own git worktree and branch, so it never touches your checkout. |
+| Contract | The written task: the goal, the files the run may change and the files it must not. Scope is a review aid, not a sandbox. |
+| Turn | One round of work in a run. Turn 1 is the start; later turns come from follow-ups or the automatic hand-off. |
+| Question | Codex pausing to ask. It waits for an answer, and after a timeout (15 minutes by default) is deferred so Codex continues on its best guess. A late answer is still accepted. |
+| Budget | A time limit per working turn (60 minutes by default). At expiry foreman interrupts and asks for a read-only hand-off. |
+| Hand-off | The summary Codex writes when a turn ends. |
+| Daemon | A local process that owns run state and the Codex session, so a turn outlives the command that started it. |
+
+A run is in one of these states: `starting`, `running`, `waiting` (a question needs a person), `idle` (turn finished), `failed`, `interrupted`, `lost` (supervision was lost) or `unknown`.
+
+## Watch your runs
+
+`foreman monitor` opens a live, read-only terminal view of every run across repositories, grouped by repo and updated as work happens. Each run shows its state, how much of its budget is used, what it is doing right now, any attention flags and its subagents. Pending questions sit at the top with the command that answers them. Press Enter, or run `foreman monitor <name>`, for one run's detail: contract, digest, questions, subagents, hand-off and a live event feed.
+
+```sh
+foreman monitor              # every run on this machine
+foreman monitor fix-hooks    # one run's detail and live feed
+```
+
+The monitor never starts a daemon or keeps one alive. Without a running daemon it shows saved state from disk and says so. Without a terminal, or with `--json`, it prints a snapshot (`foreman status --all`) instead, which is what scripts and agents should use. Keys: `↑↓` or `j`/`k` select, Enter opens, Tab changes pane, `f` toggles follow, `a` shows attention only, `?` is help, `q` quits. [The design contract](docs/design/monitor.md) describes the screen in full.
 
 ## Install
 
@@ -73,7 +100,7 @@ All commands accept `--json` and `--help`. Commands below follow `foreman`; angl
 | `start <name> --new-worktree --contract <file>` | Create a worktree and start; accepts `--from`, `--setup`, `--write`, `--model`, `--effort`, `--tier`, `--budget`, `--question-timeout`, `--skip-deps-check` |
 | `start <name> --worktree <path> --contract <file>` | Use a prepared linked worktree inside the main checkout; foreman never removes it or its branch |
 | `status [<name>] [--all]` | Full digest for one run, or a line per run in the group (`Digests` in JSON). Use `--all` without a name for cached live activity across every repo (`Overview` in JSON); keep using `wait` for outcomes rather than polling |
-| `monitor [name]` | Live, read-only list across repositories for humans. Enter opens a run's detail or expands idle runs older than 24 hours; a name opens detail directly. Detail shows the contract, digest, questions, subagents, hand-off, copyable commands and a live feed. Tab selects a pane, j/k and PgUp/PgDn scroll it, Home/End jump, `f` toggles follow and Esc returns to the list. Use `a` for attention only in the list, `?` for help and `q` to quit. Requires interactive stdin and stdout; `--json`, redirected streams and delegated commands print `status <name>` for a named run or `status --all` otherwise. The snapshot uses the normal status path and may start the daemon; only the live view is read-only |
+| `monitor [name]` | Live, read-only terminal view of every run, or one run's detail; see [Watch your runs](#watch-your-runs). Needs interactive stdin and stdout; otherwise prints `status <name>` or `status --all`, which may start the daemon |
 | `events <name> [--after <n>] [--limit <n>] [--verbose] [--follow]` | Read up to 100 stored events per page by default. Text hides protocol chatter and token usage unless `--verbose` is set. JSON includes every event in the selected page. `--follow` streams text until the run becomes inactive and all events are printed, or Ctrl-C (exit 130); it cannot be combined with `--json`. Follow connects passively and never starts, replaces or keeps a daemon alive. Without a compatible daemon it prints saved events and one stderr note explaining why follow stopped, then exits 0; `foreman status <name>` starts supervision. |
 | `answer <name> <question-id> [<text>] [--file <path>]` | Answer now, send a late answer or correct a previous answer |
 | `defer <name> <question-id> [<note>]` | Release a pending question early |
