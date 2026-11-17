@@ -275,6 +275,7 @@ describe("monitor acting model", () => {
     expect(view(start()).act).toEqual({
       chip: { mode: "watching", text: "◇ watching" },
       confirm: null,
+      compose: null,
       answer: null,
       notice: null,
       hints: null,

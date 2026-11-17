@@ -12,7 +12,7 @@ import { Host } from "../../services/host";
 import type { ActIntent } from "./act";
 
 /** The answer and defer intents a session can send. */
-export type SendableIntent = Extract<ActIntent, { kind: "answer" | "defer" }>;
+export type SendableIntent = Exclude<ActIntent, { kind: "enter-acting" | "leave-acting" }>;
 
 /** An active daemon connection and the answer and defer requests it can send. */
 export interface ActingSession {
@@ -46,6 +46,7 @@ export const openActing = (
     const host = yield* Host;
     const connection = yield* openActive(home);
     const send = Effect.fn("monitor.acting.send")(function* (intent: SendableIntent) {
+      if (intent.kind !== "answer" && intent.kind !== "defer") throw new Error("not implemented");
       yield* activeRequest(
         home,
         intent.kind === "answer"

@@ -143,6 +143,7 @@ const interruptions: Record<NonNullable<Digest["interruptedBy"]>, string> = {
   budget: "turn budget expired; foreman result shows the hand-off",
   orchestrator: "by the orchestrator",
   "repo-hooks": "repo hooks did not run",
+  monitor: "from foreman monitor",
 };
 
 export function renderStatus(digest: Digest): string {

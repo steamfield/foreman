@@ -43,7 +43,7 @@ export const Sandbox = Schema.Literals(["read-only", "danger-full-access"]);
 export type Sandbox = typeof Sandbox.Type;
 
 export const TurnKind = Schema.Literals(["start", "followup", "handoff"]);
-export const InterruptedBy = Schema.Literals(["orchestrator", "budget", "repo-hooks"]);
+export const InterruptedBy = Schema.Literals(["orchestrator", "budget", "repo-hooks", "monitor"]);
 export type TurnKind = typeof TurnKind.Type;
 
 // Unversioned storage is version 1. Question/event writers use version 2.
@@ -170,6 +170,8 @@ export const RunEventBody = Schema.TaggedUnion({
       "correction",
       "superseded",
     ]),
+    // Present when a person answered or deferred from foreman monitor.
+    source: Schema.optionalKey(Schema.Literal("monitor")),
   },
   Steered: { message: Schema.String },
   Interrupted: { by: InterruptedBy },
@@ -321,15 +323,21 @@ export const DaemonRequestBody = Schema.TaggedUnion({
     budgetMs: Schema.optionalKey(Schema.Int),
     effort: Schema.optionalKey(Schema.String),
   },
-  Interrupt: { name: RunName },
+  Interrupt: { name: RunName, source: Schema.optionalKey(Schema.Literal("monitor")) },
   Answer: {
     name: RunName,
     question: QuestionId,
     text: Schema.String,
     // Set by the monitor: refuse with RunConflict instead of sending a late answer or correction.
     expectOpen: Schema.optionalKey(Schema.Literal(true)),
+    source: Schema.optionalKey(Schema.Literal("monitor")),
   },
-  Defer: { name: RunName, question: QuestionId, note: Schema.optionalKey(Schema.String) },
+  Defer: {
+    name: RunName,
+    question: QuestionId,
+    note: Schema.optionalKey(Schema.String),
+    source: Schema.optionalKey(Schema.Literal("monitor")),
+  },
   Result: { name: RunName },
   Archive: { name: RunName, keepWorktree: Schema.optionalKey(Schema.Boolean) },
   Wait: {

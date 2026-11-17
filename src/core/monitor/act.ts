@@ -22,7 +22,22 @@ export type ActIntent =
       readonly question: QuestionId;
       readonly text: string;
     }
-  | { readonly kind: "defer"; readonly name: RunName; readonly question: QuestionId };
+  | { readonly kind: "defer"; readonly name: RunName; readonly question: QuestionId }
+  | { readonly kind: "steer"; readonly name: RunName; readonly text: string }
+  | { readonly kind: "followup"; readonly name: RunName; readonly text: string }
+  | { readonly kind: "interrupt"; readonly name: RunName }
+  | { readonly kind: "archive"; readonly name: RunName; readonly keepWorktree: boolean };
+
+/** The action keys that need acting; confirm-acting resumes the one that asked. */
+export type ActAction = "answer" | "defer" | "steer" | "followup" | "interrupt" | "archive";
+
+/** The run a steer or follow-up box is open on, copied from the feed when it opened. */
+export type ComposeTarget = {
+  readonly action: "steer" | "followup";
+  readonly name: RunName;
+  readonly turn: number;
+  readonly state: string;
+};
 
 /** The question an answer box is open on, copied from the feed when the box opened. */
 export type AnswerTarget = {
@@ -36,8 +51,11 @@ export type AnswerTarget = {
 
 /** At most one overlay belongs to acting at a time. */
 export type ActOverlay =
-  | { readonly kind: "confirm-acting"; readonly resume: "answer" | "defer" }
+  | { readonly kind: "confirm-acting"; readonly resume: ActAction }
   | { readonly kind: "answer"; readonly target: AnswerTarget }
+  | { readonly kind: "compose"; readonly target: ComposeTarget }
+  | { readonly kind: "confirm-interrupt"; readonly name: RunName }
+  | { readonly kind: "confirm-archive"; readonly name: RunName }
   | null;
 
 /** The line shown after an action finishes, until the next key. */
@@ -52,6 +70,11 @@ export type ActState = {
   readonly inFlight: { readonly id: number; readonly intent: ActIntent } | null;
   readonly nextId: number;
   readonly notice: ActNotice | null;
+  /**
+   * A request to edit the open box's draft in $EDITOR. The executor suspends the screen,
+   * runs the editor and replies with `editor-result` carrying the same id.
+   */
+  readonly editor: { readonly id: number; readonly text: string } | null;
 };
 
 /** What the executor reports for one in-flight intent. */
@@ -64,12 +87,31 @@ export type ActMessage =
   | { readonly type: "act-outcome"; readonly outcome: ActOutcome }
   | { readonly type: "draft"; readonly text: string }
   /** The acting connection closed without being asked to; the monitor drops to watching. */
-  | { readonly type: "acting-lost"; readonly text: string };
+  | { readonly type: "acting-lost"; readonly text: string }
+  /** The $EDITOR hand-off finished: new text, or null when it failed or was abandoned. */
+  | {
+      readonly type: "editor-result";
+      readonly id: number;
+      readonly text: string | null;
+      readonly error: string | null;
+    };
 
 /** What the screen draws for acting. */
 export type ActView = {
   readonly chip: { readonly mode: ActMode; readonly text: string };
-  readonly confirm: { readonly title: string; readonly lines: readonly string[] } | null;
+  readonly confirm: {
+    readonly title: string;
+    readonly lines: readonly string[];
+    /** The confirm's own keys, primary first, for example y interrupt, s steer instead, n cancel. */
+    readonly keys: readonly { readonly key: string; readonly label: string }[];
+  } | null;
+  /** The steer or follow-up box. */
+  readonly compose: {
+    readonly title: string;
+    readonly meta: string;
+    readonly draft: string;
+    readonly sending: boolean;
+  } | null;
   readonly answer: {
     readonly title: string;
     readonly meta: string;
@@ -93,12 +135,14 @@ export const initialAct: ActState = {
   inFlight: null,
   nextId: 1,
   notice: null,
+  editor: null,
 };
 
 /** The acting view before any action: the watching chip and nothing else. */
 export const watchingView: ActView = {
   chip: { mode: "watching", text: "◇ watching" },
   confirm: null,
+  compose: null,
   answer: null,
   notice: null,
   hints: null,
@@ -131,6 +175,7 @@ export function reduceAct(
         }
       : state;
   }
+  if (msg.type === "editor-result") throw new Error("not implemented");
   if (state.act.notice) state = { ...state, act: { ...state.act, notice: null } };
   return actKey(state, msg.key);
 }
@@ -144,6 +189,7 @@ function actKey(state: State, key: string): State | null {
       return { ...state, act: { ...state.act, overlay: null } };
     if (overlay.kind === "confirm-acting")
       return ["y", "enter"].includes(key) ? request(state, { kind: "enter-acting" }) : state;
+    if (overlay.kind !== "answer") throw new Error("not implemented");
     if (key === "ctrl-d") return send(state, overlay.target, "defer");
     if (["enter", "ctrl-s"].includes(key)) {
       const text = state.act.drafts[targetKey(overlay.target)] ?? "";
@@ -231,7 +277,10 @@ function finish(state: State, outcome: ActOutcome): State {
       ...next,
       act: { ...next.act, mode: outcome.ok ? "acting" : "watching", overlay: null },
     };
-    return outcome.ok && overlay?.kind === "confirm-acting" ? open(next, overlay.resume) : next;
+    if (!outcome.ok || overlay?.kind !== "confirm-acting") return next;
+    if (overlay.resume !== "answer" && overlay.resume !== "defer")
+      throw new Error("not implemented");
+    return open(next, overlay.resume);
   }
   if (outcome.ok && (intent.kind === "answer" || intent.kind === "defer")) {
     const drafts = { ...next.act.drafts };

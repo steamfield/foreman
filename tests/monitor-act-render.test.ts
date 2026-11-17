@@ -14,6 +14,7 @@ afterEach(cleanup);
 const watching: ActView = {
   chip: { mode: "watching", text: "◇ watching" },
   confirm: null,
+  compose: null,
   answer: null,
   notice: null,
   hints: null,
@@ -45,6 +46,10 @@ const confirming: ActView = {
     lines: [
       "Acting keeps the running daemon alive while this monitor is open.",
       "Return to watching with w.",
+    ],
+    keys: [
+      { key: "y", label: "confirm" },
+      { key: "n", label: "cancel" },
     ],
   },
   hints: [

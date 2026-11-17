@@ -34,6 +34,10 @@ export function actView(state: State): ActView {
             "Press w to return to watching.",
             "y confirm  n cancel",
           ],
+          keys: [
+            { key: "y", label: "confirm" },
+            { key: "n", label: "cancel" },
+          ],
         }
       : null,
     answer: overlay?.kind === "answer" ? answerView(state, overlay.target) : null,

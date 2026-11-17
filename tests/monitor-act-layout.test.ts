@@ -13,6 +13,7 @@ afterEach(cleanup);
 const watching: ActView = {
   chip: { mode: "watching", text: "◇ watching" },
   confirm: null,
+  compose: null,
   answer: null,
   notice: null,
   hints: null,
