@@ -22,7 +22,7 @@ export const runActing = Effect.fn("tui.runActing")(function* <R>(
 ) {
   const fibers = yield* FiberSet.make<void, never>();
   let held: Fiber.Fiber<void, never> | undefined;
-  let session: (ActingSession & { readonly closed?: Effect.Effect<void> }) | undefined;
+  let session: ActingSession | undefined;
   let lastId = 0;
   const report = <R2,>(id: number, effect: Effect.Effect<string, AppError, R2>) =>
     effect.pipe(
@@ -45,7 +45,7 @@ export const runActing = Effect.fn("tui.runActing")(function* <R>(
         }
         session = opened.success;
         yield* report(id, Effect.succeed("acting"));
-        yield* session.closed ?? Effect.never;
+        yield* session.closed;
         dispatch({ type: "acting-lost", text: "The daemon connection closed; back to watching." });
       }),
     ).pipe(

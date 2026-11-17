@@ -322,7 +322,7 @@ export const Screen = memo(function Screen({
         ["Enter", "open"],
         ["a", "answer"],
         ["d", "defer"],
-        ["!", "needs me"],
+        ["!", model.footer.attentionOnly ? "all runs" : "needs me"],
         ["?", "help"],
         ["q", "quit"],
       ];

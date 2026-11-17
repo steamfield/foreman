@@ -19,7 +19,7 @@ const fixture = Effect.gen(function* () {
   const sends: unknown[] = [];
   const received: ActMessage[] = [];
   let opens = 0;
-  const session: ActingSession & { readonly closed: Effect.Effect<void> } = {
+  const session: ActingSession = {
     closed: Deferred.await(closed),
     send: (intent) =>
       Effect.sync(() => {

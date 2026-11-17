@@ -212,7 +212,7 @@ exports[`monitor frames > attention at 100 columns 1`] = `
 
 
 
-↑↓/jk select  Enter open  a answer  d defer  ! needs me  ? help  q quit             updated 0.0s ago"
+↑↓/jk select  Enter open  a answer  d defer  ! all runs  ? help  q quit             updated 0.0s ago"
 `;
 
 exports[`monitor frames > empty at 100 columns 1`] = `
