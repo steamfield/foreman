@@ -7,9 +7,17 @@ import { actView } from "./act-view";
 import { firstProseLine, shellCommand } from "./attention";
 import type { DetailFeed } from "./detail-feed";
 import type { MonitorFeed } from "./feed";
+import { listColumns } from "./list-columns";
+import { pinnedKinds, pinnedRows } from "./pinned";
+import { previewFeed, previewView, syncPreview } from "./preview";
+import { duration, rowFacts } from "./row";
+
+/** Formats elapsed time for monitor views. */
+export { duration } from "./row";
 
 export const OLDER_IDLE_MS = 24 * 60 * 60_000;
 export const EVENT_BUFFER_LIMIT = 1000;
+const PREVIEW_ROWS = 5;
 export const DETAIL_PANES = [
   "task",
   "digest",
@@ -143,6 +151,8 @@ export type ViewModel = {
   readonly act: ActView;
   readonly listColumns: ListColumns;
   readonly pinned: readonly PinnedRowView[];
+  /** Number of attention rows hidden by the three-row cap. */
+  readonly morePinned: number;
   readonly preview: PreviewView | null;
 };
 export type State = {
@@ -170,7 +180,11 @@ export type State = {
   } | null;
   readonly act: ActState;
   /** The selected run's detail feed while the list is showing, for the preview strip. */
-  readonly preview: { readonly name: RunName; readonly feed: DetailFeed | null } | null;
+  readonly preview: {
+    readonly name: RunName;
+    readonly feed: DetailFeed | null;
+    readonly commentary: RunEvent | null;
+  } | null;
 };
 export type Message =
   | { readonly type: "feed"; readonly value: MonitorFeed }
@@ -211,15 +225,6 @@ function openDetail(name: RunName): NonNullable<State["detail"]> {
 const epoch = DateTime.toEpochMillis;
 const cleanText = (text: string) => text.replace(/\p{Cc}/gu, " ");
 const oneLine = (text: string) => text.split(/\r?\n/, 1)[0]?.replace(/\p{Cc}/gu, " ") ?? "";
-export function duration(ms: number): string {
-  const seconds = Math.floor(Math.max(0, ms) / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
-  if (seconds >= 365 * 86400) return `${Math.min(9999, Math.floor(seconds / (365 * 86400)))}y`;
-  if (seconds >= 10 * 86400) return `${Math.floor(seconds / 86400)}d`;
-  if (seconds >= 10 * 3600) return `${Math.floor(seconds / 3600)}h`;
-  return `${Math.floor(seconds / 3600)}h${String(Math.floor((seconds % 3600) / 60)).padStart(2, "0")}m`;
-}
 const age = (at: DateTime.Utc, now: number) => duration(now - epoch(at));
 const two = (value: number) => String(value).padStart(2, "0");
 /** Local wall-clock time, HH:MM:SS. */
@@ -290,12 +295,7 @@ const isOlder = (run: RunView, now: number) =>
   run.state === "idle" && now - epoch(run.stateSince) > OLDER_IDLE_MS;
 function needsAttention(run: RunView, state: State) {
   return (
-    flags(run, state).some((flag) => flag.tone !== "muted") ||
-    ["waiting", "failed", "interrupted", "lost", "unknown"].includes(run.state) ||
-    (activeStates.has(run.state) &&
-      run.turnBudgetMs !== null &&
-      run.turnStartedAt !== null &&
-      state.now - epoch(run.turnStartedAt) >= run.turnBudgetMs)
+    run.questions.length > 0 || pinnedKinds(run, state.now, !unsupervised(state.feed)).length > 0
   );
 }
 /** Orders visible groups and runs for both the list and attention targeting. */
@@ -333,7 +333,24 @@ function selectable(state: State) {
       : []),
   ]);
 }
+/** Reduces monitor input and keeps the selected list preview in sync. */
 export function reduce(state: State, msg: Message): State {
+  const next = reduceState(state, msg);
+  const selected = grouped(next)
+    .flatMap((group) => group.runs)
+    .find((run) => run.name === next.selected);
+  return syncPreview(next, selected);
+}
+function reduceState(state: State, msg: Message): State {
+  if (msg.type === "preview-feed") {
+    if (!state.preview || state.preview.name !== msg.name) return state;
+    return {
+      ...state,
+      now:
+        msg.value._tag === "Reconnecting" ? state.now : Math.max(state.now, msg.value.receivedAt),
+      preview: previewFeed(state.preview, msg.value),
+    };
+  }
   if (
     msg.type === "key" ||
     msg.type === "draft" ||
@@ -448,14 +465,18 @@ export function reduce(state: State, msg: Message): State {
         },
       };
     }
-    if (msg.key === "page-up" || msg.key === "page-down")
+    if (msg.key === "page-up" || msg.key === "page-down") {
+      const model = view(state);
       return {
         ...state,
         scroll: Math.max(
           0,
-          view(state).offset + (msg.key === "page-up" ? -1 : 1) * Math.max(1, state.rows - 2),
+          model.offset +
+            (msg.key === "page-up" ? -1 : 1) *
+              Math.max(1, state.rows - 2 - (model.preview ? PREVIEW_ROWS : 0)),
         ),
       };
+    }
     if (msg.key === "!") next = { ...state, attentionOnly: !state.attentionOnly };
     else if (msg.key === "enter" && state.selected?.startsWith("older:"))
       next = { ...state, expanded: new Set([...state.expanded, state.selected.slice(6)]) };
@@ -532,16 +553,13 @@ function row(run: RunView, state: State, cells: number): RowView {
     activity: text,
     activityTone,
     budget,
-    flags: cells === 0 ? allFlags.filter((flag) => flag === urgent) : allFlags,
+    flags: state.columns <= 80 ? allFlags.filter((flag) => flag === urgent) : allFlags,
     subagents: run.subagents.map((agent) => ({
       path: oneLine(agent.path),
       working: !unsupervised(state.feed) && agent.state === "working",
       text: `${agent.state} · ${age(agent.lastInteractionAt, state.now)} ago${agent.model !== null && agent.model !== run.model ? ` · ${oneLine(agent.model)}` : ""}${agent.effort !== null && agent.effort !== run.effort ? ` · ${oneLine(agent.effort)}` : ""}`,
     })),
-    task: null,
-    modelLabel: "",
-    progress: null,
-    pace: null,
+    ...rowFacts(run, state.feed?._tag === "Live"),
   };
 }
 export function view(state: State, previous?: ViewModel): ViewModel {
@@ -636,8 +654,19 @@ export function view(state: State, previous?: ViewModel): ViewModel {
   if (screen === "outdated") daemon = "daemon outdated · saved state";
   const visibleNotes = notes.slice(0, limit);
   const moreNotes = Math.max(0, notes.length - limit);
-  const available = Math.max(1, state.rows - 2);
-  let position = message.length + visibleNotes.length * 4 + (moreNotes > 0 ? 1 : 0);
+  const optionalColumns = listColumns(state.columns);
+  const pinned = pinnedRows(runs, state.now, !unsupervised(feed));
+  const preview = previewView(
+    state,
+    groups.flatMap((group) => group.rows).find((row) => row.name === state.selected),
+  );
+  const available = Math.max(1, state.rows - 2 - (preview ? PREVIEW_ROWS : 0));
+  let position =
+    message.length +
+    visibleNotes.length * 4 +
+    (moreNotes > 0 ? 1 : 0) +
+    pinned.pinned.length +
+    Number(pinned.morePinned > 0);
   const spans: { start: number; end: number; id: string }[] = [];
   const animatedLines: number[] = unsupervised(feed)
     ? []
@@ -645,6 +674,7 @@ export function view(state: State, previous?: ViewModel): ViewModel {
   const boundaries = [0];
   for (const group of groups) {
     boundaries.push(++position);
+    if (Object.values(optionalColumns).some(Boolean)) boundaries.push(++position);
     for (const entry of group.rows) {
       const start = position;
       position += 2 + (layout === "narrow" ? 0 : entry.subagents.length);
@@ -721,9 +751,9 @@ export function view(state: State, previous?: ViewModel): ViewModel {
     offset,
     detail,
     act: actView(state),
-    listColumns: { task: false, model: false, progress: false, pace: false, budgetLabel: true },
-    pinned: [],
-    preview: null,
+    listColumns: optionalColumns,
+    ...pinned,
+    preview,
     animating:
       !state.help &&
       (state.detail
