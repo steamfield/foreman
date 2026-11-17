@@ -160,9 +160,9 @@ describe("monitor frames", () => {
           onTick: () => {},
         }),
       );
-      await vi.waitFor(() => expect(rendered.lastFrame()).toContain("■ waiting"));
+      await vi.waitFor(() => expect(rendered.lastFrame()).toContain("■ WAITING"));
       await vi.advanceTimersByTimeAsync(800);
-      expect(rendered.lastFrame()).toContain("□ waiting");
+      expect(rendered.lastFrame()).toContain("□ WAITING");
       rendered.unmount();
     } finally {
       vi.useRealTimers();
@@ -242,7 +242,7 @@ describe("monitor frames", () => {
       ]),
       70,
     );
-    expect(narrow).toContain("q2 pending");
+    expect(narrow).toMatch(/running +12m q2/);
     expect(narrow).toContain("2 subagents");
   });
   it("aligns durations and budgets", async () => {
@@ -253,19 +253,24 @@ describe("monitor frames", () => {
     expect(rows).toHaveLength(2);
     expect(rows[0]?.indexOf("12/60m")).toBe(rows[1]?.indexOf("12/60m"));
   });
-  it("shows the spec's empty state and start command with readable colors", async () => {
+  it("shows the first-run instructions and setup commands with readable colors", async () => {
     const result = await frame(live([]), 100, undefined, true);
     const lines = result
       .split("\n")
-      .filter((line) => /No runs\.|Start one with|foreman start/.test(line));
+      .filter((line) =>
+        /No runs on|Ask it to delegate|foreman doctor|foreman skill install/.test(line),
+      );
     expect(
       lines.map((line) =>
         line.replace(new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g"), "").trim(),
       ),
-    ).toEqual(["No runs.", "Start one with", "foreman start"]);
-    expect(lines[0]).toMatch(/38;2;228;232;224m[^\n]*No runs\./);
-    expect(lines[1]).toMatch(/38;2;154;162;148m[^\n]*Start one with/);
-    expect(lines[2]).toMatch(/38;2;228;232;224m[^\n]*foreman start/);
+    ).toEqual([
+      "No runs on this machine yet.",
+      "Runs are started by your coding agent. Ask it to delegate, for example:",
+      "Check this repo is ready     foreman doctor",
+      "Teach your agent foreman     foreman skill install",
+    ]);
+    for (const line of lines) expect(line).toContain("38;2;228;232;224m");
   });
   for (const fixture of feeds) {
     const widths = ["list", "all states"].includes(fixture.name) ? [70, 100, 140] : [100];

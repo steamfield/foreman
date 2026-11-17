@@ -73,7 +73,11 @@ export function ListHeader({ model, colors }: { model: ListModel; colors: Theme 
 }
 function rowContent(row: RowView, model: ListModel, colors: Theme) {
   const w = widths(model);
-  const state = row.stale ? `${row.state} · not supervised` : row.state;
+  const word =
+    colors.level === 0 && (row.state === "waiting" || row.state === "failed")
+      ? row.state.toUpperCase()
+      : row.state;
+  const state = row.stale ? `${word} · not supervised` : word;
   const status = `${state} ${row.age.padStart(Math.max(0, w.status - stringWidth(state) - 2))}`;
   const failures = row.progress?.failed ? colors.paint(` ×${row.progress.failed}`, "failed") : "";
   const budget =
@@ -115,13 +119,12 @@ export const RunRow = memo(
     colors: Theme;
     selected: boolean;
   }) {
-    const { columns: width, layout } = model;
+    const { columns: width } = model;
     let activity = colors.paint(`    ${row.activity}`, row.activityTone);
     if (row.activityAge !== null)
       activity = `    ${colors.paint("…", "running")}${colors.paint(row.activity.slice(1), "fg")}${colors.paint(` · ${row.activityAge}`, "muted")}`;
-    if (layout === "narrow") {
+    if (width < 100) {
       let suffix = "";
-      if (row.flags[0]) suffix += colors.paint(` · ${row.flags[0].text}`, row.flags[0].tone);
       if (row.subagents.length)
         suffix += colors.paint(` · ${row.subagents.length} subagents`, "muted");
       activity = truncate(activity, Math.max(4, width - stringWidth(suffix))) + suffix;
@@ -148,7 +151,7 @@ export const RunRow = memo(
         <Line width={width} colors={colors} selected={selected}>
           {activity}
         </Line>
-        {layout !== "narrow" &&
+        {width >= 100 &&
           row.subagents.map((agent, index) => {
             const tree = index === row.subagents.length - 1 ? "└─" : "├─";
             const text =
@@ -209,7 +212,7 @@ export function listGroups(model: ViewModel, colors: Theme) {
     for (const row of group.rows)
       blocks.push({
         key: row.name,
-        height: 2 + (model.layout === "narrow" ? 0 : row.subagents.length),
+        height: 2 + (model.columns < 100 ? 0 : row.subagents.length),
         content: (
           <RunRow row={row} model={model} colors={colors} selected={model.selected === row.name} />
         ),

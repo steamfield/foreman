@@ -37,6 +37,7 @@ function pinnedRow(run: RunView, kind: PinnedRowView["kind"], now: number): Pinn
       kind,
       name: run.name,
       tone: "failed",
+      compactText: `failed ${duration(now - epoch(run.stateSince))}`,
       text: `failed ${duration(now - epoch(run.stateSince))} ago · ${oneLine(run.failure?.message ?? run.activity?.text ?? "")}`,
       keys: [
         { key: "⏎", label: "open" },
@@ -52,6 +53,7 @@ function pinnedRow(run: RunView, kind: PinnedRowView["kind"], now: number): Pinn
       kind,
       name: run.name,
       tone: "interrupted",
+      compactText: `${Math.floor(budgetFraction(run, now) * 100)}% budget`,
       keys: steerKeys,
       text: `${Math.floor(budgetFraction(run, now) * 100)}% of budget · ${elapsed}/${limit} · moves to a read-only hand-off turn at ${limit}`,
     };
@@ -61,6 +63,7 @@ function pinnedRow(run: RunView, kind: PinnedRowView["kind"], now: number): Pinn
     kind,
     name: run.name,
     tone: "interrupted",
+    compactText: `quiet ${elapsed}`,
     keys: steerKeys,
     text: `quiet ${elapsed} · ${run.activity ? oneLine(run.activity.text) : `last activity ${elapsed} ago`}`,
   };

@@ -220,7 +220,7 @@ it.each(["filter", "palette"] as const)(
     expect(texts).toEqual(["q", "qj", "qja", "qjas"]);
   },
 );
-it("lists find keys in help and drops filter and palette hints before defer as width shrinks", () => {
+it("lists find keys in help and keeps the narrow board's filter and palette hints", () => {
   const base = fixture();
   const output = stripVTControlCharacters(frame({ ...base, rows: 40, overlay: true }));
   for (const text of ["/ filter", ": palette", "g group", "h history", "! needs me"])
@@ -232,6 +232,5 @@ it("lists find keys in help and drops filter and palette hints before defer as w
   const narrow = stripVTControlCharacters(frame({ ...base, columns: 80 }))
     .split("\n")
     .at(-1);
-  expect(narrow).toContain("d defer");
-  expect(narrow).not.toContain("/ filter");
+  expect(narrow).toContain("a answer  / filter  : palette");
 });

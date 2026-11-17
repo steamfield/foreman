@@ -58,7 +58,7 @@ describe("monitor list model", () => {
           expect(row.subagents.some((agent) => agent.working)).toBe(false);
         } else expect(row.budget).not.toBeNull();
       }
-      expect(model.header.daemon).toContain(reason === "outdated" ? "outdated" : "not running");
+      expect(model.header.daemon).toContain(reason === "outdated" ? "outdated" : "no daemon");
     },
   );
   it("returns to the attention notes with Home after navigating a tall first run", () => {
@@ -79,8 +79,8 @@ describe("monitor list model", () => {
     );
     const bottom = reduce(current, { type: "key", key: "end" });
     const top = reduce(bottom, { type: "key", key: "home" });
-    expect(frame(top)).toContain("■ waiting  first q2");
-    expect(selectedLine(top)).toMatch(/first\s+(?:\S+ · \S+\s+)?waiting/);
+    expect(frame(top)).toContain("■ WAITING  first q2");
+    expect(selectedLine(top)).toMatch(/first\s+(?:\S+ · \S+\s+)?WAITING/);
   });
   it("moves selection to the older-idle entry when a tick collapses the selected run", () => {
     const current = state([
@@ -227,7 +227,7 @@ describe("monitor list model", () => {
   it("reduces narrow flags to the most urgent one", () => {
     expect(
       view(state(undefined, 70)).groups[0]?.rows.find((row) => row.name === "parser")?.flags,
-    ).toEqual([{ text: "3 hooks blocked", tone: "failed" }]);
+    ).toEqual([{ text: "3 hooks", tone: "failed" }]);
   });
   it("treats settings, repository names and subagent metadata as terminal text", () => {
     const entry = run("metadata", {

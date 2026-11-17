@@ -1,8 +1,8 @@
 import cliTruncate from "cli-truncate";
-import { Box, Text } from "ink";
+import { Text } from "ink";
 import { createContext, memo, use } from "react";
 import stringWidth from "string-width";
-import type { Tone, ViewModel } from "../core/monitor/model";
+import type { Tone } from "../core/monitor/model";
 import type { Theme } from "./theme";
 
 /** Shares the animation timestamp with glyph cells. */
@@ -60,60 +60,6 @@ export function Line({
   return <Text wrap="truncate-end">{selected ? colors.select(text) : colors.fill(text, bar)}</Text>;
 }
 
-/** Renders the monitor keyboard and glyph reference. */
-export function Help({ model, colors }: { model: ViewModel; colors: Theme }) {
-  const width = Math.min(76, model.columns);
-  const lines = [
-    "Monitor help",
-    " ",
-    "↑/k previous       ↓/j next",
-    "Home first         End last",
-    "PgUp scroll up     PgDn scroll down",
-    model.detail ? "Tab next pane      j/k scroll pane" : "! needs me         Enter open / expand",
-    "a answer           d defer",
-    "s steer            F follow up",
-    "i interrupt        x archive",
-    "ctrl-e open $EDITOR in any text box",
-    "w watch only       ! needs me",
-    "/ filter           : palette",
-    "g group            h history",
-    ...(model.detail
-      ? ["PgUp/PgDn page      Home/End jump", "f follow feed      Esc return to list"]
-      : []),
-    "? close help       Esc close help",
-    "q quit             Ctrl-C interrupt",
-    "  ",
-    "⣾ running  ◐ starting  ■/□ waiting  ✓ idle",
-    "× failed  ■ interrupted  ◐ unknown  ◌ lost",
-    "⠿ working subagent  · idle subagent",
-    "   ",
-    "foreman status --all for scripts and agents",
-  ];
-  return (
-    <Box
-      width={model.columns}
-      height={Math.max(1, model.rows - 2)}
-      alignItems="center"
-      justifyContent="center"
-      flexDirection="column"
-    >
-      <Line width={width} colors={colors}>
-        {colors.paint(`╭${"─".repeat(Math.max(0, width - 2))}╮`, "line")}
-      </Line>
-      {lines.slice(0, Math.max(0, model.rows - 6)).map((text, index) => (
-        <Line key={text} width={width} colors={colors}>
-          {colors.paint("│ ", "line") +
-            colors.paint(pad(truncate(text, width - 4), width - 4), "fg", index === 0) +
-            colors.paint(" │", "line")}
-        </Line>
-      ))}
-      <Line width={width} colors={colors}>
-        {colors.paint(`╰${"─".repeat(Math.max(0, width - 2))}╯`, "line")}
-      </Line>
-    </Box>
-  );
-}
-
 /** Formats the footer hints and connection status within the terminal width. */
 export { monitorFooter } from "./footer";
 
@@ -129,10 +75,11 @@ export const NoteHeading = memo(function NoteHeading({
   colors: Theme;
   saved: boolean;
 }) {
-  const label = truncate(title, width - 6);
+  const heavy = colors.level === 0;
+  const label = truncate(heavy ? title.replace("waiting", "WAITING") : title, width - 6);
   return (
     <Text wrap="truncate-end">
-      {colors.fill(colors.paint("╭─ ", "line"))}
+      {colors.fill(colors.paint(heavy ? "┏━ " : "╭─ ", "line"))}
       {saved ? (
         colors.fill(colors.paint("■", "signal"))
       ) : (
@@ -140,7 +87,10 @@ export const NoteHeading = memo(function NoteHeading({
       )}
       {colors.fill(
         colors.paint(label.slice(1), "signal") +
-          colors.paint(` ${"─".repeat(Math.max(0, width - stringWidth(label) - 6))}─╮`, "line"),
+          colors.paint(
+            ` ${(heavy ? "━" : "─").repeat(Math.max(0, width - stringWidth(label) - 5))}${heavy ? "┓" : "╮"}`,
+            "line",
+          ),
       )}
     </Text>
   );

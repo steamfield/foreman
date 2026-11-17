@@ -104,12 +104,12 @@ describe("monitor list columns and row facts", () => {
   it("limits eighty-column flags to the most urgent one", () => {
     expect(
       rows(state([run("flags", { hooksBlocked: 1, unansweredCount: 2 })], 80))[0]?.flags,
-    ).toEqual([{ text: "1 hooks blocked", tone: "failed" }]);
+    ).toEqual([{ text: "1 hooks", tone: "failed" }]);
   });
   it.each([
     [140, 30, 24, 46, true],
     [140, 29, 20, 46, false],
-    [79, 30, 23, 45, true],
+    [79, 30, 21, 43, true],
   ] as const)(
     "keeps the last run visible with pins and optional frames at %ix%i",
     (columns, height, offset, end, hasPreview) => {

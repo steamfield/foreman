@@ -13,6 +13,7 @@ import { diffView } from "./diff";
 import type { MonitorFeed } from "./feed";
 import { filterBar } from "./filter";
 import { findHelpKeys, reduceFind } from "./find";
+import { firstRunLines } from "./first-run";
 import { historyView } from "./history";
 import { inspectKey } from "./inspect-input";
 import { inspectResult, openDetail } from "./inspect-state";
@@ -22,7 +23,7 @@ import { paletteView } from "./palette";
 import { pinnedRows } from "./pinned";
 import { previewFeed, previewView, syncPreview } from "./preview";
 import { reviewView } from "./review";
-import { duration, rowFacts } from "./row";
+import { compactFlags, duration, rowFacts } from "./row";
 import { timelineView } from "./timeline";
 
 /** Formats elapsed time for monitor views. */
@@ -178,6 +179,8 @@ export type PinnedRowView = {
   readonly kind: "failed" | "budget" | "quiet";
   readonly name: string;
   readonly text: string;
+  /** The attention reason without detail or action hints at narrow widths. */
+  readonly compactText?: string;
   readonly tone: Tone;
   readonly keys: readonly { readonly key: string; readonly label: string }[];
 };
@@ -246,6 +249,8 @@ export type ViewModel = {
   readonly budgetCells: number;
   readonly screen: "probing" | "list" | "empty" | "saved" | "outdated" | "reconnecting";
   readonly message: readonly string[];
+  /** True only when no live or saved runs exist and onboarding is appropriate. */
+  readonly firstRun: boolean;
   readonly header: {
     version: string;
     daemon: string;
@@ -725,6 +730,7 @@ function reduceState(state: State, msg: Message): State {
 function row(run: RunView, state: State, cells: number): RowView {
   const stale = unsupervised(state.feed) && activeStates.has(run.state);
   let budget: RowView["budget"] = null;
+  let percent = 0;
   if (
     !stale &&
     activeStates.has(run.state) &&
@@ -733,6 +739,7 @@ function row(run: RunView, state: State, cells: number): RowView {
   ) {
     const elapsed = Math.max(0, state.now - epoch(run.turnStartedAt));
     const fraction = run.turnBudgetMs === 0 ? 1 : elapsed / run.turnBudgetMs;
+    percent = Math.floor(fraction * 100);
     let tone: Tone = "running";
     if (fraction >= 1) tone = "failed";
     else if (fraction >= 0.8) tone = "interrupted";
@@ -752,10 +759,7 @@ function row(run: RunView, state: State, cells: number): RowView {
   else if (activity)
     text = `${activity.kind === "failure" ? "failed" : "done"}: ${oneLine(activity.text)}`;
   const allFlags = flags(run, state);
-  const urgent =
-    allFlags.find((flag) => flag.tone === "signal") ??
-    allFlags.find((flag) => flag.tone === "failed") ??
-    allFlags[0];
+  const facts = rowFacts(run, state.feed?._tag === "Live");
   return {
     name: run.name,
     stale,
@@ -768,13 +772,13 @@ function row(run: RunView, state: State, cells: number): RowView {
     activity: text,
     activityTone,
     budget,
-    flags: state.columns <= 80 ? allFlags.filter((flag) => flag === urgent) : allFlags,
+    flags: state.columns < 100 ? compactFlags(allFlags, facts.review, percent) : allFlags,
     subagents: run.subagents.map((agent) => ({
       path: oneLine(agent.path),
       working: !unsupervised(state.feed) && agent.state === "working",
       text: `${agent.state} · ${age(agent.lastInteractionAt, state.now)} ago${agent.model !== null && agent.model !== run.model ? ` · ${oneLine(agent.model)}` : ""}${agent.effort !== null && agent.effort !== run.effort ? ` · ${oneLine(agent.effort)}` : ""}`,
     })),
-    ...rowFacts(run, state.feed?._tag === "Live"),
+    ...facts,
   };
 }
 export function view(state: State, previous?: ViewModel): ViewModel {
@@ -837,6 +841,7 @@ export function view(state: State, previous?: ViewModel): ViewModel {
   );
   let screen: ViewModel["screen"] = "list";
   let message: readonly string[] = [];
+  const firstRun = runs.length === 0 && (feed?._tag === "Live" || unsupervised(feed));
   if (feed === null) {
     screen = "probing";
     message = ["Connecting to daemon", "Reading current runs", "foreman status --all"];
@@ -857,17 +862,19 @@ export function view(state: State, previous?: ViewModel): ViewModel {
   } else if (runs.length === 0 || groups.length === 0) {
     screen = "empty";
     message = [
-      state.attentionOnly ? "No runs need attention" : "No runs.",
-      state.attentionOnly ? "Press ! to show every run." : "Start one with",
-      state.attentionOnly ? "foreman start --help" : "foreman start",
+      state.attentionOnly ? "No runs need attention" : "No runs match this filter.",
+      state.attentionOnly ? "Press ! to show every run." : "Press / then Esc to clear the filter.",
+      "foreman status --all",
     ];
   }
+  if (firstRun)
+    message = firstRunLines(feed?._tag === "Saved" ? feed.nextProbeAt : null, state.now);
   const counts = new Map<RunView["state"], number>();
   for (const run of runs) counts.set(run.state, (counts.get(run.state) ?? 0) + 1);
   const limit = state.rows < 24 ? 1 : 3;
   const reconnecting = feed?._tag === "Reconnecting";
   let daemon = "connecting";
-  if (feed?._tag === "Saved") daemon = "daemon not running · saved state";
+  if (feed?._tag === "Saved") daemon = "no daemon · showing saved runs";
   else if (overview?.daemon) daemon = `daemon up ${age(overview.daemon.startedAt, state.now)}`;
   if (screen === "outdated") daemon = "daemon outdated · saved state";
   const visibleNotes = notes.slice(0, limit);
@@ -883,27 +890,28 @@ export function view(state: State, previous?: ViewModel): ViewModel {
     1,
     state.rows - 2 - Number(filter !== null) - (preview ? PREVIEW_ROWS : 0),
   );
+  const noteHeight = state.columns < 100 ? 3 : 4;
   let position =
     message.length +
-    visibleNotes.length * 4 +
+    visibleNotes.length * noteHeight +
     (moreNotes > 0 ? 1 : 0) +
-    pinned.pinned.length +
+    (state.columns < 100 ? Number(pinned.pinned.length > 0) : pinned.pinned.length) +
     Number(pinned.morePinned > 0);
   const spans: { start: number; end: number; id: string }[] = [];
   const animatedLines: number[] = unsupervised(feed)
     ? []
-    : visibleNotes.map((_, index) => message.length + index * 4);
+    : visibleNotes.map((_, index) => message.length + index * noteHeight);
   const boundaries = [0];
   for (const group of groups) {
     boundaries.push(++position);
     if (Object.values(optionalColumns).some(Boolean)) boundaries.push(++position);
     for (const entry of group.rows) {
       const start = position;
-      position += 2 + (layout === "narrow" ? 0 : entry.subagents.length);
+      position += 2 + (state.columns < 100 ? 0 : entry.subagents.length);
       spans.push({ start, end: position, id: entry.name });
       if (!entry.stale && ["running", "starting", "waiting"].includes(entry.state))
         animatedLines.push(start);
-      if (layout !== "narrow")
+      if (state.columns >= 100)
         for (const [index, agent] of entry.subagents.entries())
           if (agent.working) animatedLines.push(start + 2 + index);
       boundaries.push(position);
@@ -948,6 +956,7 @@ export function view(state: State, previous?: ViewModel): ViewModel {
     budgetCells: cells,
     screen,
     message,
+    firstRun,
     header: {
       version: state.version,
       daemon,
@@ -996,6 +1005,7 @@ export function view(state: State, previous?: ViewModel): ViewModel {
       (state.detail
         ? detailAnimating(state, detail)
         : feed === null ||
+          (feed?._tag === "Saved" && firstRun) ||
           (reconnecting && state.rows >= 24) ||
           animatedLines.some((line) => line >= offset && line < offset + available)),
   };

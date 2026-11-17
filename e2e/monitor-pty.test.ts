@@ -86,7 +86,7 @@ test("compiled monitor paints saved state in a PTY and quits without starting a 
       rows: 24,
       data(terminal, bytes) {
         output += decoder.decode(bytes, { stream: true });
-        if (!quitSent && output.includes("Saved state · daemon not running")) {
+        if (!quitSent && output.includes("No runs on this machine yet.")) {
           quitSent = true;
           terminal.write("q");
         }
