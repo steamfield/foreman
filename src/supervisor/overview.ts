@@ -71,6 +71,9 @@ export function projectRun(run: Run, repo: string, now: number): RunView {
       lastInteractionAt: DateTime.makeUnsafe(agent.lastInteractionAt),
     })),
     warnings: record.warnings,
+    commands: null,
+    filesWritten: null,
+    pace: [],
   };
 }
 

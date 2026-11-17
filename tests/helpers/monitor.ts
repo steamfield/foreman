@@ -41,6 +41,9 @@ export function run(name = "fix-hooks", overrides: Partial<RunView> = {}): RunVi
       lastActivityAt: "2026-11-16T11:59:40Z",
       subagents: [],
       warnings: [],
+      commands: null,
+      filesWritten: null,
+      pace: [],
     }),
     ...overrides,
   };

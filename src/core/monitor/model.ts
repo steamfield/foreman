@@ -74,6 +74,40 @@ export type RowView = {
   readonly flags: readonly FlagView[];
   readonly budget: { readonly filled: number; readonly label: string; readonly tone: Tone } | null;
   readonly subagents: readonly { path: string; working: boolean; text: string }[];
+  /** The contract's first heading, else null. */
+  readonly task: string | null;
+  /** Model and effort, short form such as `sol · high`. */
+  readonly modelLabel: string;
+  /** Turn, commands and failures such as `t2 · 14 cmds`; failures are counted separately. */
+  readonly progress: { readonly text: string; readonly failed: number } | null;
+  /** Sparkline cells for the pace column, or null when the run has no pace data. */
+  readonly pace: string | null;
+};
+/** Which optional list columns fit at the current width, in spec 15.7 drop order. */
+export type ListColumns = {
+  readonly task: boolean;
+  readonly model: boolean;
+  readonly progress: boolean;
+  readonly pace: boolean;
+  readonly budgetLabel: boolean;
+};
+/** A one-line attention row pinned above the groups for a non-question reason. */
+export type PinnedRowView = {
+  readonly kind: "failed" | "budget" | "quiet";
+  readonly name: string;
+  readonly text: string;
+  readonly tone: Tone;
+  readonly keys: readonly { readonly key: string; readonly label: string }[];
+};
+/** The selected run's preview strip at the bottom of the list. */
+export type PreviewView = {
+  readonly name: string;
+  readonly task: string | null;
+  readonly now: string | null;
+  readonly said: string | null;
+  readonly files: readonly { readonly path: string; readonly outside: boolean }[];
+  readonly moreFiles: number;
+  readonly outsideCount: number | null;
 };
 export type GroupView = {
   readonly id: string;
@@ -107,6 +141,9 @@ export type ViewModel = {
   readonly offset: number;
   readonly detail: DetailView | null;
   readonly act: ActView;
+  readonly listColumns: ListColumns;
+  readonly pinned: readonly PinnedRowView[];
+  readonly preview: PreviewView | null;
 };
 export type State = {
   readonly group: string;
@@ -132,6 +169,8 @@ export type State = {
     readonly follow: boolean;
   } | null;
   readonly act: ActState;
+  /** The selected run's detail feed while the list is showing, for the preview strip. */
+  readonly preview: { readonly name: RunName; readonly feed: DetailFeed | null } | null;
 };
 export type Message =
   | { readonly type: "feed"; readonly value: MonitorFeed }
@@ -139,7 +178,8 @@ export type Message =
   | { readonly type: "key"; readonly key: string }
   | { readonly type: "tick"; readonly now: number }
   | { readonly type: "resize"; readonly columns: number; readonly rows: number }
-  | ActMessage;
+  | ActMessage
+  | { readonly type: "preview-feed"; readonly name: RunName; readonly value: DetailFeed };
 export const initialState = (
   options: Pick<State, "group" | "defaults" | "version" | "now" | "columns" | "rows"> & {
     readonly name?: RunName;
@@ -153,6 +193,7 @@ export const initialState = (
   help: false,
   scroll: null,
   act: initialAct,
+  preview: null,
   detail: options.name === undefined ? null : openDetail(options.name),
 });
 function openDetail(name: RunName): NonNullable<State["detail"]> {
@@ -497,6 +538,10 @@ function row(run: RunView, state: State, cells: number): RowView {
       working: !unsupervised(state.feed) && agent.state === "working",
       text: `${agent.state} · ${age(agent.lastInteractionAt, state.now)} ago${agent.model !== null && agent.model !== run.model ? ` · ${oneLine(agent.model)}` : ""}${agent.effort !== null && agent.effort !== run.effort ? ` · ${oneLine(agent.effort)}` : ""}`,
     })),
+    task: null,
+    modelLabel: "",
+    progress: null,
+    pace: null,
   };
 }
 export function view(state: State, previous?: ViewModel): ViewModel {
@@ -676,6 +721,9 @@ export function view(state: State, previous?: ViewModel): ViewModel {
     offset,
     detail,
     act: actView(state),
+    listColumns: { task: false, model: false, progress: false, pace: false, budgetLabel: true },
+    pinned: [],
+    preview: null,
     animating:
       !state.help &&
       (state.detail

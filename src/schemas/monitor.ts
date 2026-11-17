@@ -14,6 +14,9 @@ export const SubAgentView = Schema.Struct({
 }).annotate({ title: "SubAgentView", description: "A supervised run's child agent" });
 export type SubAgentView = typeof SubAgentView.Type;
 
+/** Minutes covered by `RunView.pace`. */
+export const PACE_MINUTES = 12;
+
 export const RunView = Schema.Struct({
   name: Schema.String.check(Schema.isPattern(/^[a-z0-9][a-z0-9._-]{0,63}$/)).pipe(
     Schema.brand("RunName"),
@@ -70,6 +73,12 @@ export const RunView = Schema.Struct({
   lastActivityAt: Schema.NullOr(Timestamp),
   subagents: Schema.Array(SubAgentView),
   warnings: Schema.Array(Schema.String),
+  // Commands finished in this run so far, and how many exited non-zero; null when unknown.
+  commands: Schema.NullOr(Schema.Struct({ total: Schema.Int, failed: Schema.Int })),
+  // Distinct paths the run has written; null when unknown.
+  filesWritten: Schema.NullOr(Schema.Int),
+  // Journal events per minute over the last PACE_MINUTES minutes, oldest first; empty when not supervised.
+  pace: Schema.Array(Schema.Int),
 }).annotate({
   title: "RunView",
   description: "Cached live state and attention for a supervised run",

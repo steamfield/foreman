@@ -89,6 +89,9 @@ export const diskRunView = Effect.fn("runs.diskRunView")(function* (
     lastActivityAt: null,
     subagents: [],
     warnings: record.warnings,
+    commands: null,
+    filesWritten: null,
+    pace: [],
   };
   return view;
 });
