@@ -322,7 +322,13 @@ export const DaemonRequestBody = Schema.TaggedUnion({
     effort: Schema.optionalKey(Schema.String),
   },
   Interrupt: { name: RunName },
-  Answer: { name: RunName, question: QuestionId, text: Schema.String },
+  Answer: {
+    name: RunName,
+    question: QuestionId,
+    text: Schema.String,
+    // Set by the monitor: refuse with RunConflict instead of sending a late answer or correction.
+    expectOpen: Schema.optionalKey(Schema.Literal(true)),
+  },
   Defer: { name: RunName, question: QuestionId, note: Schema.optionalKey(Schema.String) },
   Result: { name: RunName },
   Archive: { name: RunName, keepWorktree: Schema.optionalKey(Schema.Boolean) },

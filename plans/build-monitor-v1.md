@@ -1,0 +1,115 @@
+# Build: monitor-v1
+
+Started: 2026-11-16 22:11 (epoch 1794888674). Timebox: none. Landing branch: feat/monitor-v1 (integration worktree `.claude/worktrees/monitor-v1`).
+Gate: `rr run --local "bun run check"` (160s). Filtered tests: `bun run test:unit <path or name>`. Typecheck: `bun run typecheck`.
+Worktree setup: `bun install --frozen-lockfile`.
+Lanes: Codex runs through foreman (`gpt-6.1-sol`, high effort, fast tier), one managed worktree each, `--from feat/monitor-v1`.
+Scaffold commits: phase 1 <filled at commit>.
+
+## Spec
+
+Source: `/Users/riley/Projects/claude-codex/docs/specs/2026-11-16-foreman-monitor-v1.md` (sections 8, 9, 15) and the design mocks at https://claude.ai/artifact/W9sRfcUjQHLrtfZWiifR26 (boards Main, Answer, Detail, Review, Palette, Interrupt, Narrow, States, NoColor). v1 turns `foreman monitor` from a read-only observer into the place a developer supervises and steers delegated runs, without losing the calm glance-and-leave quality.
+
+In scope (grill):
+- Phase 1 is act mode plus answer and defer.
+- D1 option (b): the monitor opens watching (passive, as 0.2.0). The first action key asks once to switch to acting; acting holds an active connection that keeps the daemon alive while the monitor is open; `w` returns to watching.
+- Text input uses `ink-text-input` 6.0.0 (Ink's author, `ink>=5` peer). Long answers wrap visually; multi-line answers go through ctrl-e `$EDITOR` (phase 2).
+- No timebox. Phases land on feat/monitor-v1; merge to main only when the user asks.
+
+Out of scope for v1 (spec 8.3): multi-machine, GUI, contract editing, starting runs, non-TTY live view. Also cut: notifications, mouse, light theme, config (spec 8.2 should-haves) unless time allows after phase 6.
+
+Assumptions (user can override):
+- D3, two actors: first answer wins. The monitor sends `Answer` with `expectOpen: true`; if the question was already resolved the daemon refuses with RunConflict and nothing is sent, the draft is kept and the box says so. The CLI's late-answer and correction behaviour is unchanged.
+- The 0.2.0 `a` (attention-only) key moves to `!` so `a` can mean answer (mocks: Palette board, "! needs me"). Phase 4 folds it into `/needs:me`.
+- `d` defers immediately once acting (defer is recoverable: a late answer is still accepted). Destructive actions (interrupt, archive) get a confirm box in phase 2.
+- Acting is unavailable without a live daemon of this build. The monitor never starts or replaces one; it shows a notice naming `foreman status <name>`.
+- Answer attribution ("resolved from the monitor") is phase 2: it needs a source field on question resolution events.
+- "Leading up to it" context in the answer box needs detail events for the run; phase 2.
+- Lanes write their own tests first from the case list below (no separate test-author runs); the orchestrator reviews tests before merge. Tests are locked against weakening after review.
+- Codex CLI is 0.169.0 while foreman's protocol is checked against 0.166.0 (`foreman doctor`: protocol matches false). Runs proceed; flagged to the user, no workaround.
+
+Error model: every action failure becomes an `ActOutcome { ok: false, text }` shown as a notice line, never a crash and never a silent drop. `openActing` fails with DaemonUnavailable (no daemon, outdated build, socket refused) and the monitor stays watching. `send` fails with RunConflict (already resolved, from `expectOpen`), RunNotFound, or DaemonUnavailable; the executor maps the error's `detail` (or its errorTable safe message) to the notice text. A failed answer keeps the draft and the box open. A daemon that dies mid-acting drops the monitor to watching with a notice; the feed's own reconnect logic is unchanged.
+
+## Contracts (scaffold commit)
+
+    src/schemas/daemon.ts          Answer gains optional expectOpen: true
+    src/core/monitor/act.ts        pure acting state, reducer and view (ActState, ActIntent, ActOverlay, ActView, reduceAct, actView)
+    src/core/monitor/acting.ts     the acting connection: openActing(home) -> ActingSession { send }; the only monitor module that sends active requests
+    src/core/monitor/model.ts      State.act, ViewModel.act, Message includes ActMessage; reduce/view delegate to act.ts
+    src/tui/act.tsx                (new, phase 1 lane c) mode chip, confirm box, answer box, notice line
+    src/tui/screen.tsx             places the act components; key routing while an overlay owns input
+    src/tui/run.tsx                executes ActState.inFlight through an injected acting opener
+    src/commands/monitor.ts        wiring only: passes openActing(config.home) to runMonitor
+
+## Phases
+
+### Phase 1: act mode, answer and defer (MVP)
+
+Demo: in this repo, start a fake or real run that asks a question, then `bun run dev monitor`; press `a`, confirm `y`, type an answer, Enter. The header chip reads `◆ acting`, the run resumes, the notice reads `✓ answered <run> <q>`. `w` returns to `◇ watching`.
+
+Test cases:
+- Daemon: Answer with expectOpen on an open question resolves it as today ("answered").
+- Daemon: Answer with expectOpen on a resolved or deferred question fails RunConflict, records no event and starts no follow-up turn.
+- Daemon: Answer without expectOpen on a resolved question still produces a late answer/correction (regression).
+- Acting: openActing with no daemon fails DaemonUnavailable and does not create a socket or start a daemon.
+- Acting: openActing against a daemon of another build fails DaemonUnavailable and does not stop or replace it.
+- Acting: while the session scope is open the daemon counts an active connection (does not idle-exit); closing the scope releases it.
+- Acting: send answer and send defer reach the daemon and return outcome text naming run, question and byte count for answers.
+- Model: `a` in watching with a waiting selected run opens confirm-acting; `y`/Enter sets inFlight enter-acting; ok outcome sets mode acting and opens the answer box on that question.
+- Model: `a` with no selected waiting run targets the first attention note's question; with no pending question anywhere, a notice says nothing is waiting and no overlay opens.
+- Model: `a` or `d` while the feed is Saved/Reconnecting/outdated shows the "acting needs a running daemon" notice with `foreman status <name>` and no confirm.
+- Model: confirm `n`/Escape closes the box, mode stays watching, nothing in flight.
+- Model: enter-acting failure outcome leaves mode watching, closes the box and shows the failure text.
+- Model: draft messages update drafts["<run>/<q>"]; Escape closes the answer box and keeps the draft; reopening restores it.
+- Model: Enter or ctrl-s with a blank (whitespace-only) draft sends nothing; with text sets inFlight answer with the untrimmed text.
+- Model: ok answer outcome closes the box, deletes the draft and shows the ok notice; failure keeps box and draft and shows the failure text.
+- Model: ctrl-d in the answer box sets inFlight defer for that question.
+- Model: `d` in acting with a target sets inFlight defer directly.
+- Model: keys other than the overlay's own are swallowed while an overlay is open; action keys are ignored while inFlight is set.
+- Model: `w` in acting with no overlay sets inFlight leave-acting and mode watching.
+- Model: `!` toggles attention-only (moved from `a`); the next handled key clears a notice.
+- Model: actView chip text `◇ watching` / `◆ acting`; answer view shows run, question id, kind, full question text (not truncated to one line), "waited Xm · defers in Ym", draft, sending flag.
+- TUI: header renders the chip; acting adds "daemon stays up while this monitor is open · w to watch only" when wide enough, dropped first as width shrinks.
+- TUI: confirm box and answer box render centred over the list at 140x40 and 80x24 without wrapping rows; NO_COLOR keeps them legible (glyphs and weight only).
+- TUI: while the answer box is open, typed characters go to the text input and not to list keys (typing `q` does not quit; `j` does not move selection).
+- TUI: footer shows the overlay's hints while open (`enter send  ctrl-d defer  esc cancel`), and `a answer  d defer  ! needs me` in the list.
+- TUI/run: an inFlight enter-acting calls the injected opener once and reports ok; leave-acting closes the session scope; answer/defer call session.send and report its text; a failure reports the error detail; quitting closes the session.
+- Help overlay lists `a`, `d`, `w`, `!`.
+
+| Lane | Size | Owns files | Reads | Tests | Done when |
+| --- | --- | --- | --- | --- | --- |
+| a | SM | src/supervisor/index.ts (answer path only), src/supervisor/questions.ts if needed, src/daemon/client.ts (new exports only), src/core/monitor/acting.ts | contracts, tests/monitor-detail-daemon.test.ts | tests/monitor-acting.test.ts, tests/supervisor-answer-expect-open.test.ts | daemon and acting cases pass |
+| b | SM | src/core/monitor/act.ts, src/core/monitor/model.ts | contracts, tests/monitor-model.test.ts | tests/monitor-act-model.test.ts, tests/monitor-model.test.ts (`a`→`!` only) | model cases pass |
+| c | SM | src/tui/act.tsx, src/tui/screen.tsx, src/tui/run.tsx, src/commands/monitor.ts, src/tui/detail.tsx (footer hints only) | contracts, tests/monitor-render.test.ts, tests/monitor-run.test.ts | tests/monitor-act-render.test.ts, tests/monitor-act-run.test.ts, snapshot updates for footer/header | TUI and run cases pass |
+
+Lane c renders from hand-built ViewModels and a fake opener, so it does not wait on lanes a and b. Full contracts are in the scratchpad (`contract-<lane>.md`) and quoted into each run.
+
+### Phase 2: the rest of acting
+
+Steer (`s`), follow up (`F`), interrupt (`i`, confirm box per Interrupt board), archive (`x`, confirm), ctrl-e `$EDITOR` for long answers and steers, answer box "Leading up to it" context, answer/defer attribution recorded on QuestionResolved (`source: "monitor"`) and shown in detail and to `foreman wait`.
+
+| Lane | Size | Owns files |
+| --- | --- | --- |
+| a | SM | supervisor attribution, acting.ts send for steer/followup/interrupt/archive |
+| b | SM | act.ts reducer and view for the new actions and confirm boxes |
+| c | SM | tui act components, $EDITOR hand-off |
+
+### Phase 3: list refresh
+
+Task column (contract first heading), model column, progress cluster (turn, cmds, failures), pace sparkline (events per minute over 12 minutes, from the daemon overview), pinned attention rows for failed, over-80%-budget and quiet runs, preview strip for the selected run with file numstat on selection. Column drop order per spec 15.7.
+
+### Phase 4: find things
+
+`/` filter (state:, repo:, model:, text), `:` palette listing every action with its key, `h` history of archived and older runs.
+
+### Phase 5: inspect and review
+
+Detail Files pane (numstat, outside-scope marks), diff view (`d` file, `D` all in `$PAGER`), timeline strip, feed filters 1-5 and feed search, Review screen for finished runs (hand-off, "decided without you", files, diff, mark reviewed, archive).
+
+### Phase 6: first run, narrow and fallbacks
+
+First-run/no-daemon screen that doubles as the legend, `foreman monitor --line` one-line mode, NO_COLOR treatment per NoColor board, 80-column layout per Narrow board, docs (README, docs/design/monitor.md, AGENTS.md "read-only" wording).
+
+## Log
+
+- Grill: phase 1 = act mode + answer/defer; confirm once per session; ink-text-input; no timebox, feat/monitor-v1.

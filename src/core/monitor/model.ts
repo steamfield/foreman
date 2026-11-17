@@ -2,6 +2,7 @@ import { DateTime } from "effect";
 import { activeStates, type RunEvent, type RunName } from "../../schemas/daemon";
 import type { Detail, RunView } from "../../schemas/monitor";
 import { tokenCount } from "../runs/digest";
+import { type ActMessage, type ActState, type ActView, initialAct, watchingView } from "./act";
 import { firstProseLine, shellCommand } from "./attention";
 import type { DetailFeed } from "./detail-feed";
 import type { MonitorFeed } from "./feed";
@@ -104,6 +105,7 @@ export type ViewModel = {
   readonly animating: boolean;
   readonly offset: number;
   readonly detail: DetailView | null;
+  readonly act: ActView;
 };
 export type State = {
   readonly group: string;
@@ -128,13 +130,15 @@ export type State = {
     readonly offsets: Readonly<Record<PaneId, number>>;
     readonly follow: boolean;
   } | null;
+  readonly act: ActState;
 };
 export type Message =
   | { readonly type: "feed"; readonly value: MonitorFeed }
   | { readonly type: "detail-feed"; readonly name: RunName; readonly value: DetailFeed }
   | { readonly type: "key"; readonly key: string }
   | { readonly type: "tick"; readonly now: number }
-  | { readonly type: "resize"; readonly columns: number; readonly rows: number };
+  | { readonly type: "resize"; readonly columns: number; readonly rows: number }
+  | ActMessage;
 export const initialState = (
   options: Pick<State, "group" | "defaults" | "version" | "now" | "columns" | "rows"> & {
     readonly name?: RunName;
@@ -147,6 +151,7 @@ export const initialState = (
   attentionOnly: false,
   help: false,
   scroll: null,
+  act: initialAct,
   detail: options.name === undefined ? null : openDetail(options.name),
 });
 function openDetail(name: RunName): NonNullable<State["detail"]> {
@@ -339,6 +344,7 @@ export function reduce(state: State, msg: Message): State {
     };
   else if (msg.type === "resize")
     next = { ...state, columns: Math.max(1, msg.columns), rows: Math.max(3, msg.rows) };
+  else if (msg.type !== "key") return state;
   else {
     if (msg.key === "?" || (state.help && msg.key === "escape"))
       return { ...state, help: !state.help };
@@ -655,6 +661,7 @@ export function view(state: State, previous?: ViewModel): ViewModel {
     overlay: state.help,
     offset,
     detail,
+    act: watchingView,
     animating:
       !state.help &&
       (state.detail
