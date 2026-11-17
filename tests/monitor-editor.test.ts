@@ -71,7 +71,7 @@ it.effect(
       const worker = yield* Effect.forkChild(
         runEditors(runner, f.app.suspendTerminal, Stream.fromQueue(f.requests), f.dispatch),
       );
-      yield* Queue.offer(f.requests, { id: 1, text: "draft" });
+      yield* Queue.offer(f.requests, { id: 1, text: "draft", draftKey: "fix-hooks/steer" });
       expect(yield* Queue.take(f.messages)).toEqual({
         type: "editor-result",
         id: 1,
@@ -83,8 +83,8 @@ it.effect(
       expect(resumed).toHaveLength(3);
       expect(resumed.at(-1)).toContain("editor fixture");
       expect(yield* fs.exists(files[0] ?? "missing")).toBe(false);
-      yield* Queue.offer(f.requests, { id: 1, text: "draft" });
-      yield* Queue.offer(f.requests, { id: 2, text: "draft" });
+      yield* Queue.offer(f.requests, { id: 1, text: "draft", draftKey: "fix-hooks/steer" });
+      yield* Queue.offer(f.requests, { id: 2, text: "draft", draftKey: "fix-hooks/steer" });
       expect(yield* Queue.take(f.messages)).toMatchObject({ id: 2, text: "edited\n" });
       yield* Fiber.interrupt(worker);
       expect(files).toHaveLength(2);
@@ -110,7 +110,7 @@ it.effect.each(["nonzero", "empty", "spawn", "read"] as const)(
       const worker = yield* Effect.forkChild(
         runEditors(runner, f.app.suspendTerminal, Stream.fromQueue(f.requests), f.dispatch),
       );
-      yield* Queue.offer(f.requests, { id: 1, text: "draft" });
+      yield* Queue.offer(f.requests, { id: 1, text: "draft", draftKey: "fix-hooks/steer" });
       const message = yield* Queue.take(f.messages);
       expect(message).toEqual({
         type: "editor-result",
@@ -142,7 +142,7 @@ it.effect("cancelling an editor restores the terminal and removes its draft", ()
         f.dispatch,
       ),
     );
-    yield* Queue.offer(f.requests, { id: 1, text: "draft" });
+    yield* Queue.offer(f.requests, { id: 1, text: "draft", draftKey: "fix-hooks/steer" });
     const file = yield* Deferred.await(started);
     yield* Fiber.interrupt(worker);
     expect(yield* fs.exists(file)).toBe(false);
@@ -177,7 +177,7 @@ it.effect("reports a configured executable that cannot be spawned and restores t
     const worker = yield* Effect.forkChild(
       runEditors(runner, f.app.suspendTerminal, Stream.fromQueue(f.requests), f.dispatch),
     );
-    yield* Queue.offer(f.requests, { id: 1, text: "draft" });
+    yield* Queue.offer(f.requests, { id: 1, text: "draft", draftKey: "fix-hooks/steer" });
     expect(yield* Queue.take(f.messages)).toEqual({
       type: "editor-result",
       id: 1,

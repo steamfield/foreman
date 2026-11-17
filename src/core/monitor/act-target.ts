@@ -62,6 +62,15 @@ export function isPending(state: State, target: AnswerTarget): boolean {
   );
 }
 
+/** Whether the latest feed still accepts deferring this answer target. */
+export function canDefer(state: State, target: AnswerTarget): boolean {
+  return (
+    !target.deferred &&
+    (findRun(state, target.name)?.questions.some((q) => q.id === target.question) ?? false) &&
+    !(state.detail?.name === target.name && deferredQuestion(state, target.question) !== null)
+  );
+}
+
 /** Finds the selected question, falling back to the first attention note in the list. */
 export function answerTarget(state: State): AnswerTarget | null {
   const selected = findRun(state, state.detail?.name ?? state.selected);
@@ -79,6 +88,7 @@ export function answerTarget(state: State): AnswerTarget | null {
         kind: q.kind,
         text: q.text,
         askedAt: DateTime.toEpochMillis(q.askedAt),
+        deferred: "status" in q && q.status === "deferred",
         defersAt:
           "defersAt" in q && q.defersAt !== null ? DateTime.toEpochMillis(q.defersAt) : null,
       }

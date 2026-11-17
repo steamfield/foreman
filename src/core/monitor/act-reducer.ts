@@ -3,6 +3,7 @@ import type { RunName } from "../../schemas/daemon";
 import type { ActAction, ActIntent, ActMessage, ActOutcome, AnswerTarget } from "./act";
 import {
   answerTarget,
+  canDefer,
   eligible,
   ineligible,
   isPending,
@@ -18,15 +19,19 @@ export function reduceActMessage(
   msg: ActMessage | { readonly type: "key"; readonly key: string },
 ): State | null {
   if (msg.type === "act-outcome") return finish(state, msg.outcome);
-  if (msg.type === "acting-lost")
+  if (msg.type === "acting-lost") {
+    const intent = state.act.inFlight?.intent;
     return notice(
       {
         ...state,
-        act: { ...state.act, mode: "watching", overlay: null, inFlight: null, editor: null },
+        act: { ...state.act, mode: "watching", overlay: null },
       },
       false,
-      msg.text,
+      intent && "name" in intent
+        ? `connection closed; outcome unknown · foreman status ${intent.name}`
+        : msg.text,
     );
+  }
   if (msg.type === "draft") return updateDraft(state, msg.text);
   if (msg.type === "editor-result") return editorResult(state, msg);
   if (state.act.notice) state = { ...state, act: { ...state.act, notice: null } };
@@ -43,54 +48,26 @@ function updateDraft(state: State, text: string): State {
 }
 
 function editorResult(state: State, msg: Extract<ActMessage, { type: "editor-result" }>): State {
-  if (state.act.editor?.id !== msg.id) return state;
+  const editor = state.act.editor;
+  if (editor?.id !== msg.id) return state;
   const next = { ...state, act: { ...state.act, editor: null } };
-  if (msg.text !== null) return updateDraft(next, msg.text);
+  if (msg.text !== null)
+    return {
+      ...next,
+      act: { ...next.act, drafts: { ...next.act.drafts, [editor.draftKey]: msg.text } },
+    };
   return msg.error === null ? next : notice(next, false, msg.error);
 }
 
 function actKey(state: State, key: string): State | null {
   if (state.act.editor) return state;
+  if (state.act.overlay) return overlayKey(state, key);
+  if (state.help) return null;
   if (
     state.act.inFlight &&
-    [
-      "a",
-      "d",
-      "s",
-      "F",
-      "i",
-      "x",
-      "r",
-      "w",
-      "y",
-      "k",
-      "enter",
-      "ctrl-s",
-      "ctrl-d",
-      "ctrl-e",
-    ].includes(key)
+    (["a", "d", "s", "F", "i", "x", "w"].includes(key) || (key === "r" && state.detail?.review))
   )
     return state;
-  const overlay = state.act.overlay;
-  if (overlay) {
-    if (key === "escape" || (key === "n" && overlay.kind.startsWith("confirm-")))
-      return { ...state, act: { ...state.act, overlay: null } };
-    if (overlay.kind === "confirm-acting")
-      return ["y", "enter"].includes(key) ? request(state, { kind: "enter-acting" }) : state;
-    if (overlay.kind === "confirm-interrupt") {
-      if (key === "y") return request(state, { kind: "interrupt", name: overlay.name });
-      const run = selectedRun(state, overlay.name);
-      return key === "s" && run && eligible("steer", run)
-        ? open(state, "steer", overlay.name)
-        : state;
-    }
-    if (overlay.kind === "confirm-archive")
-      return ["y", "k"].includes(key)
-        ? request(state, { kind: "archive", name: overlay.name, keepWorktree: key === "k" })
-        : state;
-    return textKey(state, key);
-  }
-  if (state.help) return null;
   if (key === "r" && state.detail?.review) return open(state, "review");
   const action = {
     a: "answer",
@@ -107,6 +84,30 @@ function actKey(state: State, key: string): State | null {
   return null;
 }
 
+function overlayKey(state: State, key: string): State {
+  const overlay = state.act.overlay;
+  if (!overlay) return state;
+  if (key === "escape" || (key === "n" && overlay.kind.startsWith("confirm-")))
+    return { ...state, act: { ...state.act, overlay: null } };
+  if (state.act.inFlight) return state;
+  if (overlay.kind === "confirm-acting")
+    return ["y", "enter"].includes(key)
+      ? request(state, { kind: "enter-acting", resume: overlay.resume })
+      : state;
+  if (overlay.kind === "confirm-interrupt") {
+    if (key === "y") return request(state, { kind: "interrupt", name: overlay.name });
+    const run = selectedRun(state, overlay.name);
+    return key === "s" && run && eligible("steer", run)
+      ? open(state, "steer", overlay.name)
+      : state;
+  }
+  if (overlay.kind === "confirm-archive")
+    return ["y", "k"].includes(key)
+      ? request(state, { kind: "archive", name: overlay.name, keepWorktree: key === "k" })
+      : state;
+  return textKey(state, key);
+}
+
 function textKey(state: State, key: string): State {
   const overlay = state.act.overlay;
   if (overlay?.kind !== "answer" && overlay?.kind !== "compose") return state;
@@ -114,9 +115,14 @@ function textKey(state: State, key: string): State {
   if (key === "ctrl-e")
     return {
       ...state,
-      act: { ...state.act, editor: { id: state.act.nextId, text }, nextId: state.act.nextId + 1 },
+      act: {
+        ...state.act,
+        editor: { id: state.act.nextId, text, draftKey: targetKey(overlay.target) },
+        nextId: state.act.nextId + 1,
+      },
     };
-  if (overlay.kind === "answer" && key === "ctrl-d") return send(state, overlay.target, "defer");
+  if (overlay.kind === "answer" && key === "ctrl-d")
+    return canDefer(state, overlay.target) ? send(state, overlay.target, "defer") : state;
   if (!["enter", "ctrl-s"].includes(key) || !text.trim()) return state;
   if (overlay.kind === "compose")
     return request(state, { kind: overlay.target.action, name: overlay.target.name, text });
@@ -147,7 +153,8 @@ function open(state: State, resume: ActAction, name?: RunName): State {
   const answer = resume === "answer" || resume === "defer" ? answerTarget(state) : null;
   const run = selectedRun(state, name);
   if (resume === "answer" || resume === "defer") {
-    if (!answer) return notice(state, false, "Nothing is waiting for an answer.");
+    if (!answer || (resume === "defer" && !canDefer(state, answer)))
+      return notice(state, false, "Nothing is waiting for an answer.");
   } else {
     if (!run) return notice(state, false, "Select a run first.");
     if (!eligible(resume, run)) return notice(state, false, ineligible(resume, run));
@@ -191,11 +198,13 @@ function finish(state: State, outcome: ActOutcome): State {
   const overlay = state.act.overlay;
   let next = notice({ ...state, act: { ...state.act, inFlight: null } }, outcome.ok, outcome.text);
   if (intent.kind === "enter-acting") {
+    if (overlay?.kind !== "confirm-acting")
+      return outcome.ok ? request(next, { kind: "leave-acting" }) : next;
     next = {
       ...next,
       act: { ...next.act, mode: outcome.ok ? "acting" : "watching", overlay: null },
     };
-    return outcome.ok && overlay?.kind === "confirm-acting" ? open(next, overlay.resume) : next;
+    return outcome.ok ? open(next, intent.resume) : next;
   }
   if (outcome.ok && intent.kind !== "leave-acting") {
     const drafts = { ...next.act.drafts };

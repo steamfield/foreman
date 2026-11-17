@@ -15,7 +15,7 @@ export type ActMode = "watching" | "acting";
 
 /** One request the monitor wants the daemon to carry out. */
 export type ActIntent =
-  | { readonly kind: "enter-acting" }
+  | { readonly kind: "enter-acting"; readonly resume: ActAction }
   | { readonly kind: "leave-acting" }
   | {
       readonly kind: "answer";
@@ -57,6 +57,7 @@ export type AnswerTarget = {
   readonly text: string;
   readonly askedAt: number;
   readonly defersAt: number | null;
+  readonly deferred: boolean;
 };
 
 /** At most one overlay belongs to acting at a time. */
@@ -84,7 +85,7 @@ export type ActState = {
    * A request to edit the open box's draft in $EDITOR. The executor suspends the screen,
    * runs the editor and replies with `editor-result` carrying the same id.
    */
-  readonly editor: { readonly id: number; readonly text: string } | null;
+  readonly editor: { readonly id: number; readonly text: string; readonly draftKey: string } | null;
 };
 
 /** What the executor reports for one in-flight intent. */
