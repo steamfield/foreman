@@ -100,6 +100,12 @@ const rejectRequest = Effect.fnUntraced(function* (
   );
 });
 
+/** The monitor's refusal when another actor already answered or ended a question. */
+const alreadyResolved = (name: string, id: string, state: string | undefined) =>
+  new RunConflict({
+    detail: `Question ${id} in run ${name} was resolved as ${state}; nothing was sent. Use foreman answer ${name} ${id} "<text>" to send a late answer or correction.`,
+  });
+
 const buildSupervisor = Effect.fn("supervisor.build")(function* () {
   const config = yield* AppConfig;
   const host = yield* Host;
@@ -203,12 +209,18 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
     message: string,
     resolution: "late" | "correction",
     continuation?: string,
+    expectOpen?: true,
   ) {
     while (true) {
       const changed = yield* registry.change;
       const accepted = yield* run.lock.withPermits(1)(
         Effect.gen(function* () {
           yield* registry.requireCurrent(run);
+          if (expectOpen) {
+            const question = yield* questions.inspect(run, id);
+            if (!question.open && question.state !== "deferred")
+              return yield* alreadyResolved(run.record.name, id, question.state);
+          }
           if (activeStates.has(run.record.state)) return null;
           const result = yield* followupLocked(
             run,
@@ -238,6 +250,8 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
       Effect.gen(function* () {
         yield* registry.requireCurrent(run);
         const question = yield* questions.inspect(run, body.question);
+        if (body.expectOpen && !question.open && question.state !== "deferred")
+          return yield* alreadyResolved(body.name, body.question, question.state);
         if (!question.open && question.pending[0])
           return yield* new RunConflict({
             detail: `Cannot answer ${body.question} in run ${body.name} while ${question.pending[0].id} is pending. Use foreman answer ${body.name} ${question.pending[0].id} "<answer>"; it can include this change.`,
@@ -293,6 +307,8 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
       body.text,
       prepared.message,
       prepared.resolution,
+      undefined,
+      body.expectOpen,
     );
   });
   const dispatch = Effect.fnUntraced(function* (

@@ -1,4 +1,14 @@
-import { Effect, FileSystem, Option, Path, PlatformError, Predicate, Schema, Stream } from "effect";
+import {
+  Effect,
+  Fiber,
+  FileSystem,
+  Option,
+  Path,
+  PlatformError,
+  Predicate,
+  Schema,
+  Stream,
+} from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import type { Socket } from "effect/socket";
 import { type AppError, DaemonUnavailable, PermissionDenied } from "../errors";
@@ -428,6 +438,58 @@ export const outdated = (
   (options.codexHome !== undefined &&
     pong.codexHome !== undefined &&
     options.codexHome !== pong.codexHome);
+
+const actingRequirement =
+  "Acting needs a running foreman daemon of this build; foreman status <name> starts supervision.";
+
+const activeConnection = Effect.fn("daemon.activeConnection")(function* (home: string) {
+  const path = yield* Path.Path;
+  const host = yield* Host;
+  const socketPath = path.join(home, "foreman.sock");
+  yield* validateSocketPath(socketPath);
+  const connection = yield* open(socketPath).pipe(
+    Effect.mapError(
+      (error) =>
+        new DaemonUnavailable({
+          detail: `${socketFailure(socketPath, error).detail} ${actingRequirement}`,
+        }),
+    ),
+  );
+  const pong = yield* exchange({ _tag: "Ping" }, connection.socket, connection.reader);
+  if (pong._tag !== "Pong" || outdated(pong, host.build, { dataDir: home }))
+    return yield* new DaemonUnavailable({ detail: actingRequirement });
+  return connection;
+});
+
+/**
+ * Holds an active connection to a running daemon of this build until the scope closes.
+ *
+ * @throws {DaemonUnavailable} When connecting or checking the daemon build fails.
+ */
+export const openActive = Effect.fn("daemon.openActive")(function* (home: string) {
+  const { reader } = yield* activeConnection(home);
+  const reading = yield* lines(reader).pipe(
+    Stream.runDrain,
+    // A transport failure ends the held connection just like EOF.
+    Effect.catchTag("SocketError", () => Effect.void),
+    Effect.forkScoped,
+  );
+  return { closed: Fiber.join(reading) };
+});
+
+/**
+ * Sends an active request to a running daemon of this build without starting or replacing it.
+ *
+ * @throws {DaemonUnavailable} When the daemon cannot accept the request or its build differs.
+ * @throws {AppError} When the daemon rejects the request with a tagged application error.
+ */
+export const activeRequest = Effect.fn("daemon.activeRequest")(function* (
+  home: string,
+  body: DaemonRequestBody,
+) {
+  const { socket, reader } = yield* activeConnection(home);
+  return yield* exchange(body, socket, reader);
+}, Effect.scoped);
 
 export const call = Effect.fn("daemon.call")(function* (
   body: DaemonRequestBody,
