@@ -4,6 +4,7 @@ import stringWidth from "string-width";
 import type { RowView, ViewModel } from "../core/monitor/model";
 import { PACE_MINUTES } from "../schemas/monitor";
 import { Glyph, Line, pad, truncate } from "./components";
+import { GroupHeading } from "./group-heading";
 import type { Theme } from "./theme";
 
 type ListModel = Pick<ViewModel, "columns" | "layout" | "budgetCells" | "listColumns" | "groups">;
@@ -187,17 +188,19 @@ export function listGroups(model: ViewModel, colors: Theme) {
   const width = model.columns;
   const blocks: { key: string; height: number; content: React.ReactNode }[] = [];
   for (const group of model.groups) {
-    const title = colors.paint("── ", "line") + colors.paint(`${group.title} `, "fg", true);
-    const summary = colors.paint(` ${group.summary} `, "muted") + colors.paint("──", "line");
     blocks.push({
       key: `group:${group.id}`,
       height: 1,
       content: (
-        <Line width={width} colors={colors}>
-          {title +
-            colors.paint("─".repeat(Math.max(0, width - stringWidth(title + summary))), "line") +
-            summary}
-        </Line>
+        <GroupHeading
+          title={group.title}
+          summary={group.summary}
+          shown={group.rows.length}
+          // The model lane supplies the group's hidden count.
+          hidden={0}
+          width={width}
+          colors={colors}
+        />
       ),
     });
     if (

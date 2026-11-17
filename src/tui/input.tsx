@@ -13,6 +13,14 @@ export function MonitorInput({
 }) {
   useInput((input, key) => {
     blocked.current = key.escape || key.ctrl;
+    if ((model.filterBar?.editing || model.palette) && !model.overlay) {
+      blocked.current ||= key.upArrow || key.downArrow;
+      if (key.ctrl && input === "c") onKey("ctrl-c");
+      else if (key.escape) onKey("escape");
+      else if (model.palette && key.upArrow) onKey("up");
+      else if (model.palette && key.downArrow) onKey("down");
+      return;
+    }
     if (model.act.answer || model.act.compose) {
       if (key.ctrl && input === "c") onKey("ctrl-c");
       else if (key.escape) onKey("escape");

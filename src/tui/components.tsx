@@ -75,6 +75,8 @@ export function Help({ model, colors }: { model: ViewModel; colors: Theme }) {
     "i interrupt        x archive",
     "ctrl-e open $EDITOR in any text box",
     "w watch only       ! needs me",
+    "/ filter           : palette",
+    "g group            h history",
     ...(model.detail
       ? ["PgUp/PgDn page      Home/End jump", "f follow feed      Esc return to list"]
       : []),
@@ -113,84 +115,7 @@ export function Help({ model, colors }: { model: ViewModel; colors: Theme }) {
 }
 
 /** Formats the footer hints and connection status within the terminal width. */
-export function monitorFooter(model: ViewModel, colors: Theme): string {
-  const width = model.columns;
-  const hints = model.footer.compact
-    ? [
-        ["?", "help"],
-        ["q", "quit"],
-      ]
-    : [
-        ["↑↓/jk", "select"],
-        ["Enter", "open"],
-        ["a", "answer"],
-        ["d", "defer"],
-        ["!", model.footer.attentionOnly ? "all runs" : "needs me"],
-        ...(width >= 100
-          ? [
-              ["s", "steer"],
-              ["i", "interrupt"],
-            ]
-          : []),
-        ...(width >= 140
-          ? [
-              ["F", "follow up"],
-              ["x", "archive"],
-            ]
-          : []),
-        ["?", "help"],
-        ["q", "quit"],
-      ];
-  const detailHints =
-    model.detail && !model.footer.compact
-      ? [
-          ["Tab", "pane"],
-          ["jk", "scroll"],
-          ["f", "follow"],
-          ["Esc", "list"],
-          ...(width >= 80
-            ? [
-                ["a", "answer"],
-                ["d", "defer"],
-              ]
-            : []),
-          ...(width >= 100
-            ? [
-                ["s", "steer"],
-                ["i", "interrupt"],
-              ]
-            : []),
-          ...(width >= 140
-            ? [
-                ["F", "follow up"],
-                ["x", "archive"],
-              ]
-            : []),
-          ["?", "help"],
-          ["q", "quit"],
-        ]
-      : hints;
-  const footerHints =
-    model.act.hints?.map(({ key, label }) => [key, label]) ??
-    (model.layout === "narrow" && !model.footer.compact
-      ? detailHints.filter(([key]) => key !== "Enter")
-      : detailHints);
-  const footerLeft = footerHints
-    .map(
-      ([key, label]) =>
-        colors.paint(key ?? "", "fg", true) + colors.paint(` ${label ?? ""}`, "muted"),
-    )
-    .join("  ");
-  const footerRight =
-    model.footer.compact || stringWidth(footerLeft + model.footer.status) + 1 > width
-      ? ""
-      : colors.paint(model.footer.status, model.footer.caution ? "interrupted" : "muted");
-  return (
-    footerLeft +
-    " ".repeat(Math.max(1, width - stringWidth(footerLeft + footerRight))) +
-    footerRight
-  );
-}
+export { monitorFooter } from "./footer";
 
 /** Renders a waiting note heading and its shared-clock glyph. */
 export const NoteHeading = memo(function NoteHeading({
