@@ -4,7 +4,7 @@ Started: 2026-11-16 22:11 (epoch 1794888674). Timebox: none. Landing branch: fea
 Gate: `rr run --local "bun run check"` (160s). Filtered tests: `bun run test:unit <path or name>`. Typecheck: `bun run typecheck`.
 Worktree setup: `bun install --frozen-lockfile`.
 Lanes: Codex runs through foreman (`gpt-6.1-sol`, high effort, fast tier), one managed worktree each, `--from feat/monitor-v1`.
-Scaffold commits: phase 1 <filled at commit>.
+Scaffold commits: phase 1 c886efe, DA fixes on top.
 
 ## Spec
 
@@ -49,7 +49,8 @@ Demo: in this repo, start a fake or real run that asks a question, then `bun run
 
 Test cases:
 - Daemon: Answer with expectOpen on an open question resolves it as today ("answered").
-- Daemon: Answer with expectOpen on a resolved or deferred question fails RunConflict, records no event and starts no follow-up turn.
+- Daemon: Answer with expectOpen on an answered, auto-answered, late-answered, corrected, cancelled or superseded question fails RunConflict, records no event and starts no follow-up turn.
+- Daemon: Answer with expectOpen on a deferred question is accepted as a late answer (Review board: answer late starts a follow-up turn).
 - Daemon: Answer without expectOpen on a resolved question still produces a late answer/correction (regression).
 - Acting: openActing with no daemon fails DaemonUnavailable and does not create a socket or start a daemon.
 - Acting: openActing against a daemon of another build fails DaemonUnavailable and does not stop or replace it.
@@ -75,6 +76,10 @@ Test cases:
 - TUI: footer shows the overlay's hints while open (`enter send  ctrl-d defer  esc cancel`), and `a answer  d defer  ! needs me` in the list.
 - TUI/run: an inFlight enter-acting calls the injected opener once and reports ok; leave-acting closes the session scope; answer/defer call session.send and report its text; a failure reports the error detail; quitting closes the session.
 - Help overlay lists `a`, `d`, `w`, `!`.
+- Acting lost: when the acting session's socket closes unasked, the executor sends `acting-lost`; the model returns to watching, closes any confirm box, keeps an answer draft and shows the failure notice.
+- Model: a feed update showing the answer box's question no longer pending marks the view `resolved` and Enter sends nothing; drafts survive feed refreshes.
+- TUI: with the answer box open, ctrl-d, ctrl-s and Escape reach the reducer and are not inserted as text; ctrl-c quits.
+- Every switch from watching to acting is confirmed, including after `w`.
 
 | Lane | Size | Owns files | Reads | Tests | Done when |
 | --- | --- | --- | --- | --- | --- |
@@ -111,5 +116,7 @@ Detail Files pane (numstat, outside-scope marks), diff view (`d` file, `D` all i
 First-run/no-daemon screen that doubles as the legend, `foreman monitor --line` one-line mode, NO_COLOR treatment per NoColor board, 80-column layout per Narrow board, docs (README, docs/design/monitor.md, AGENTS.md "read-only" wording).
 
 ## Log
+
+- DA (sonnet): applied deferred-is-answerable for expectOpen, acting-lost message, resolved-while-typing flag, key-routing and confirm-after-w cases. Dropped the package.json ownership finding (dependency is in the scaffold commit) and the snapshot overlap (footer hints live in screen.tsx, lane c only).
 
 - Grill: phase 1 = act mode + answer/defer; confirm once per session; ink-text-input; no timebox, feat/monitor-v1.

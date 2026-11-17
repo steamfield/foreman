@@ -59,7 +59,9 @@ export type ActOutcome =
 
 export type ActMessage =
   | { readonly type: "act-outcome"; readonly outcome: ActOutcome }
-  | { readonly type: "draft"; readonly text: string };
+  | { readonly type: "draft"; readonly text: string }
+  /** The acting connection closed without being asked to; the monitor drops to watching. */
+  | { readonly type: "acting-lost"; readonly text: string };
 
 /** What the screen draws for acting. */
 export type ActView = {
@@ -71,6 +73,8 @@ export type ActView = {
     readonly question: string;
     readonly draft: string;
     readonly sending: boolean;
+    /** The feed shows the question resolved while the box was open; sending is refused. */
+    readonly resolved: boolean;
     readonly alsoWaiting: string;
   } | null;
   readonly notice: ActNotice | null;
