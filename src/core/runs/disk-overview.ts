@@ -100,7 +100,7 @@ export const diskRunView = Effect.fn("runs.diskRunView")(function* (
     },
     filesWritten: filesWritten.size,
     pace: [],
-    reviewedAt: null,
+    reviewedAt: record.reviewedAt ?? null,
   };
   return view;
 });

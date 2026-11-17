@@ -45,7 +45,7 @@ const requestFor = (intent: SendableIntent): DaemonRequestBody => {
   if (intent.kind === "steer") return { _tag: "Steer", name, message: intent.text };
   if (intent.kind === "followup") return { _tag: "Followup", name, message: intent.text };
   if (intent.kind === "interrupt") return { _tag: "Interrupt", name, source: "monitor" };
-  if (intent.kind === "review") throw new Error("not implemented");
+  if (intent.kind === "review") return { _tag: "Review", name };
   return { _tag: "Archive", name, keepWorktree: intent.keepWorktree };
 };
 
@@ -58,7 +58,7 @@ const outcome = (intent: SendableIntent, reply: DaemonResult): string => {
   if (intent.kind === "followup")
     return `followed up ${intent.name}${"turn" in reply && typeof reply.turn === "number" ? ` · turn ${reply.turn}` : ""}`;
   if (intent.kind === "interrupt") return `interrupted ${intent.name}`;
-  if (intent.kind === "review") throw new Error("not implemented");
+  if (intent.kind === "review") return `marked ${intent.name} reviewed`;
   return `archived ${intent.name}${intent.keepWorktree ? " · worktree kept" : ""}`;
 };
 

@@ -139,6 +139,7 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
       turnStartedAt: now,
       failure: null,
       restoreSandbox: kind === "handoff",
+      reviewedAt: null,
     });
     yield* registry.state(run, "starting");
     const response = yield* server.connection.request(

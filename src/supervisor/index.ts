@@ -458,6 +458,16 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
                   !activeStates.has(run.record.state) && handoff.latestTurnWithoutHandoff,
               };
             }
+            if (body._tag === "Review") {
+              if (["starting", "running", "waiting"].includes(run.record.state))
+                return yield* new RunConflict({
+                  detail: `${body.name} is ${run.record.state}; wait until the run is inactive before marking it reviewed.`,
+                });
+              yield* registry.save(run, {
+                reviewedAt: DateTime.makeUnsafe(yield* Clock.currentTimeMillis),
+              });
+              return { _tag: "Ok" };
+            }
             const accepted = yield* acceptedCursor(run);
             switch (body._tag) {
               case "Steer":

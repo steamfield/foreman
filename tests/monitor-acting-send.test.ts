@@ -92,6 +92,16 @@ it.live("followup starts the next turn and reports success without an absent rep
   }).pipe(Effect.provide(platform)),
 );
 
+it.live("review marks the run reviewed and returns the outcome line", () =>
+  Effect.gen(function* () {
+    const f = yield* fixture();
+    expect(yield* f.session.send({ kind: "review", name: f.name })).toBe("marked unit reviewed");
+    const live = yield* f.request({ _tag: "Overview" });
+    assert(live._tag === "Overview");
+    expect(live.runs[0]?.reviewedAt).not.toBeNull();
+  }).pipe(Effect.provide(platform)),
+);
+
 it.live("interrupt ends the active turn and attributes the event to the monitor", () =>
   Effect.gen(function* () {
     const f = yield* fixture(true);
