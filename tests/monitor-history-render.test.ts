@@ -21,6 +21,23 @@ const row: HistoryView["rows"][number] = {
   tokens: "23k",
   archived: true,
 };
+it.each([true, false])(
+  "renders unreadable-run notice alongside healthy rows (rows=%s)",
+  (hasRows) => {
+    const output = stripVTControlCharacters(
+      frame(100, {
+        status: "ready",
+        message: "2 runs unreadable · see logs",
+        rows: hasRows ? [row] : [],
+        selected: 0,
+        offset: 0,
+      }),
+    );
+    expect(output).toContain("2 runs unreadable · see logs");
+    if (hasRows) expect(output).toContain("fix-hooks");
+    expect(output.split("\n")).toHaveLength(30);
+  },
+);
 function frame(columns: number, history: HistoryView) {
   const previous = chalk.level;
   chalk.level = 3;

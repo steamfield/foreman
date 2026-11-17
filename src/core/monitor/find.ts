@@ -31,7 +31,7 @@ export function reduceFind(state: State, msg: Message): State | string | null {
   if (msg.key === "h")
     return {
       ...state,
-      history: { id: state.nextHistoryId, entries: null, error: null, selected: 0 },
+      history: { id: state.nextHistoryId, entries: null, error: null, selected: 0, skipped: 0 },
       nextHistoryId: state.nextHistoryId + 1,
     };
   if (msg.key === "!") return setFilter(state, toggleNeedsMe(state.filter.text), false);

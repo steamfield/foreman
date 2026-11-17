@@ -8,15 +8,16 @@ export function changedRows(changes: NonNullable<State["detail"]>["changes"]): R
   return (changes?.files ?? []).map((file, index) => ({
     path: file.path.replace(/\p{Cc}/gu, " "),
     status: statuses[file.status],
-    added: stat(file.added, "+"),
-    removed: stat(file.removed, "−"),
+    added: stat(file.added, "+", file.status),
+    removed: stat(file.removed, "−", file.status),
     outside: file.outside,
     selected: changes?.selected === index,
   }));
 }
 
-function stat(value: ChangedFile["added"], sign: string): string {
-  return value === null ? "binary" : `${sign}${value}`;
+function stat(value: ChangedFile["added"], sign: string, status: ChangedFile["status"]): string {
+  if (value !== null) return `${sign}${value}`;
+  return status === "untracked" ? "?" : "binary";
 }
 
 /** Reports a pending or failed change read without disguising it as an empty result. */

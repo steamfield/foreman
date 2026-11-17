@@ -5,8 +5,16 @@
 import { DateTime, Effect, FileSystem, Path, type PlatformError, type Schema } from "effect";
 import type { RunEvent, RunRecord } from "../../schemas/daemon";
 import type { HistoryEntry } from "../../schemas/monitor";
+import { readHistoryEvents } from "./history-events";
 import { contractTitle } from "./normalize";
 import * as Store from "./store";
+
+/** History entries and the number of directories that could not be read or decoded. */
+export type HistoryResult = {
+  /** Counts are lower bounds when the journal exceeds the retained event window. */
+  readonly entries: readonly (HistoryEntry & { readonly countsAtLeast?: true })[];
+  readonly skipped: number;
+};
 
 type Candidate = {
   readonly dir: string;
@@ -16,13 +24,16 @@ type Candidate = {
 };
 
 const logSkip = (path: string, error: PlatformError.PlatformError | Schema.SchemaError) =>
-  Effect.logDebug("history.skip").pipe(Effect.annotateLogs({ path, errorTag: error._tag }));
+  Effect.logWarning("history.skip").pipe(Effect.annotateLogs({ path, errorTag: error._tag }));
 
 const directories = Effect.fnUntraced(function* (root: string) {
   const fs = yield* FileSystem.FileSystem;
   return yield* fs.readDirectory(root).pipe(
-    Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed([])),
-    Effect.catch((error) => logSkip(root, error).pipe(Effect.as([]))),
+    Effect.map((names) => ({ names, skipped: 0 })),
+    Effect.catchReason("PlatformError", "NotFound", () =>
+      Effect.succeed({ names: [], skipped: 0 }),
+    ),
+    Effect.catch((error) => logSkip(root, error).pipe(Effect.as({ names: [], skipped: 1 }))),
   );
 });
 
@@ -30,7 +41,9 @@ const candidates = Effect.fnUntraced(function* (root: string, archived: boolean)
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const found: Candidate[] = [];
-  for (const name of yield* directories(root)) {
+  const listing = yield* directories(root);
+  let skipped = listing.skipped;
+  for (const name of listing.names) {
     if (name === ".archive" || name.startsWith(".tmp-")) continue;
     const dir = path.join(root, name);
     const loaded = yield* Effect.gen(function* () {
@@ -40,10 +53,15 @@ const candidates = Effect.fnUntraced(function* (root: string, archived: boolean)
       if (!archived && ["starting", "running", "waiting"].includes(record.state)) return null;
       const mtime = info.mtime._tag === "Some" ? info.mtime.value.getTime() : -Infinity;
       return { dir, archived, record, mtime };
-    }).pipe(Effect.catch((error) => logSkip(dir, error).pipe(Effect.as(null))));
+    }).pipe(
+      Effect.catch((error) => {
+        skipped++;
+        return logSkip(dir, error).pipe(Effect.as(null));
+      }),
+    );
     if (loaded !== null) found.push(loaded);
   }
-  return found;
+  return { found, skipped };
 });
 
 const entry = (
@@ -86,8 +104,11 @@ const readEntry = Effect.fnUntraced(function* (candidate: Candidate) {
   const contract = yield* fs
     .readFileString(path.join(candidate.dir, "contract.md"))
     .pipe(Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed("")));
-  const { events } = yield* Store.readEvents(candidate.dir, 0, Number.MAX_SAFE_INTEGER);
-  return entry(candidate, path.basename(candidate.record.group), contract, events);
+  const { events, countsAtLeast } = yield* readHistoryEvents(candidate.dir);
+  return {
+    ...entry(candidate, path.basename(candidate.record.group), contract, events),
+    ...(countsAtLeast ? { countsAtLeast: true as const } : {}),
+  };
 });
 
 const newestEnded = (a: HistoryEntry, b: HistoryEntry) => {
@@ -100,25 +121,29 @@ const newestEnded = (a: HistoryEntry, b: HistoryEntry) => {
   return time || a.name.localeCompare(b.name);
 };
 
-/** Archived runs plus inactive current runs, newest ended first, at most `limit` entries. */
+/** Reads archived and inactive runs, reporting unreadable directories alongside the entries. */
 export const readHistory = (
   dataDir: string,
   limit: number,
-): Effect.Effect<readonly HistoryEntry[], never, FileSystem.FileSystem | Path.Path> =>
+): Effect.Effect<HistoryResult, never, FileSystem.FileSystem | Path.Path> =>
   Effect.gen(function* () {
-    if (limit <= 0) return [];
+    if (limit <= 0) return { entries: [], skipped: 0 };
     const path = yield* Path.Path;
     const current = yield* candidates(path.join(dataDir, "runs"), false);
     const archived = yield* candidates(path.join(dataDir, "runs", ".archive"), true);
-    const window = [...current, ...archived]
+    const window = [...current.found, ...archived.found]
       .sort((a, b) => b.mtime - a.mtime || a.record.name.localeCompare(b.record.name))
       .slice(0, limit);
-    const entries: HistoryEntry[] = [];
+    const entries: (HistoryEntry & { readonly countsAtLeast?: true })[] = [];
+    let skipped = current.skipped + archived.skipped;
     for (const candidate of window) {
       const loaded = yield* readEntry(candidate).pipe(
-        Effect.catch((error) => logSkip(candidate.dir, error).pipe(Effect.as(null))),
+        Effect.catch((error) => {
+          skipped++;
+          return logSkip(candidate.dir, error).pipe(Effect.as(null));
+        }),
       );
       if (loaded !== null) entries.push(loaded);
     }
-    return entries.sort(newestEnded);
+    return { entries: entries.sort(newestEnded), skipped };
   });

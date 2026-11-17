@@ -67,7 +67,8 @@ export function History({
   let message: string | null = null;
   if (history.status === "loading") message = "Loading history…";
   else if (history.status === "failed") message = history.message ?? "History could not be loaded.";
-  else if (history.rows.length === 0) message = "No history runs.";
+  else if (history.rows.length === 0) message = history.message ?? "No history runs.";
+  const notice = history.status === "ready" && history.rows.length > 0 ? history.message : null;
   return (
     <Box height={height} width={width} flexDirection="column">
       <Line width={width} colors={colors}>
@@ -76,6 +77,11 @@ export function History({
           "muted",
         )}
       </Line>
+      {notice && (
+        <Line width={width} colors={colors}>
+          {colors.paint(notice, "muted")}
+        </Line>
+      )}
       {message ? (
         <Box height={Math.max(0, height - 1)} justifyContent="center" flexDirection="column">
           <Line width={width} colors={colors}>
@@ -87,7 +93,7 @@ export function History({
         </Box>
       ) : (
         history.rows
-          .slice(history.offset, history.offset + Math.max(0, height - 1))
+          .slice(history.offset, history.offset + Math.max(0, height - 1 - Number(notice !== null)))
           .map((row, index) => (
             <Line
               key={row.name}

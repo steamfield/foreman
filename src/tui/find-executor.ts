@@ -1,7 +1,7 @@
 import { Effect, FiberSet, Stream } from "effect";
 import type { Message } from "../core/monitor/model";
+import type { HistoryResult } from "../core/runs/history";
 import { defectTrace } from "../logging";
-import type { HistoryEntry } from "../schemas/monitor";
 
 /** Pending read and clipboard requests projected from monitor state. */
 export type FindRequests = {
@@ -9,7 +9,7 @@ export type FindRequests = {
   readonly clipboard: { readonly id: number; readonly text: string } | null;
 };
 /** Reads the history entries without a typed failure. */
-export type HistoryReader<R = never> = () => Effect.Effect<readonly HistoryEntry[], never, R>;
+export type HistoryReader<R = never> = () => Effect.Effect<HistoryResult, never, R>;
 /** Executes history and clipboard requests while preserving request identities. */
 export const runFind = Effect.fn("tui.runFind")(function* <R, R2>(
   read: HistoryReader<R>,
@@ -31,7 +31,7 @@ export const runFind = Effect.fn("tui.runFind")(function* <R, R2>(
       historyId = id;
       const load = Effect.suspend(read).pipe(
         Effect.map(
-          (entries) => ({ type: "history-result", id, entries, error: null }) satisfies Message,
+          (result) => ({ type: "history-result", id, ...result, error: null }) satisfies Message,
         ),
         Effect.catchDefect((cause) =>
           Effect.logError("monitor.history.failed").pipe(
@@ -40,6 +40,7 @@ export const runFind = Effect.fn("tui.runFind")(function* <R, R2>(
               type: "history-result",
               id,
               entries: null,
+              skipped: 0,
               error: `History read failed: ${cause instanceof Error ? cause.message : String(cause)}`,
             } satisfies Message),
           ),

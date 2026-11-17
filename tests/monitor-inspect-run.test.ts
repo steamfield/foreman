@@ -10,8 +10,96 @@ import { initialState } from "../src/core/monitor/model";
 import { WorktreeInvalid } from "../src/errors";
 import { type InspectRequests, runInspect } from "../src/tui/inspect-executor";
 import { makePagerRunner, runPagers } from "../src/tui/pager";
-import { defaults, detail, detailLive, now } from "./helpers/monitor";
+import { runMonitor } from "../src/tui/run";
+import type { MonitorApp } from "../src/tui/screen";
+import { eventsPlatform } from "./helpers/events";
+import { defaults, detail, detailLive, live, now, run } from "./helpers/monitor";
 import { monitorTerminal } from "./helpers/monitor-terminal";
+
+const InspectionApp: typeof MonitorApp = (props) => {
+  useInput((input, key) => props.onKey(key.return ? "enter" : input));
+  const files = props.model.detail?.panes.find((pane) => pane.id === "files");
+  return createElement(
+    Text,
+    {},
+    props.model.detail
+      ? `Opened detail\n${JSON.stringify(files)}\n${JSON.stringify(props.model.review?.files)}`
+      : `Selected ${props.model.selected}`,
+  );
+};
+
+it.live.each([
+  { state: "running", named: false },
+  { state: "idle", named: false },
+  { state: "running", named: true },
+] as const)(
+  "loads files once after the first detail feed ($state, named=$named)",
+  ({ state, named }) =>
+    Effect.gen(function* () {
+      const terminal = monitorTerminal(140, 40);
+      const data = detail(run("inspect-first", { state }));
+      const feeds = yield* Queue.unbounded<ReturnType<typeof detailLive>>();
+      const calls: unknown[] = [];
+      const worker = yield* Effect.forkChild(
+        runMonitor(
+          {
+            stdin: terminal.stdin,
+            stdout: terminal.stdout,
+            stderr: terminal.stdout,
+            stdinIsTTY: true,
+            stdoutIsTTY: true,
+            columns: 140,
+            rows: 40,
+            resize: Stream.empty,
+          },
+          {
+            group: "/repo",
+            defaults,
+            version: "test",
+            now,
+            columns: 140,
+            rows: 40,
+            ...(named ? { name: data.run.name } : {}),
+          },
+          Stream.make(live([data.run])),
+          () => Stream.fromQueue(feeds),
+          true,
+          undefined,
+          InspectionApp,
+          undefined,
+          undefined,
+          {
+            changes: (...args) =>
+              Effect.sync(() => {
+                calls.push(args);
+                return [
+                  {
+                    path: "loaded-once.ts",
+                    status: "modified",
+                    added: 1,
+                    removed: 0,
+                    outside: false,
+                  },
+                ];
+              }),
+            diff: () => Effect.die("unexpected diff"),
+          },
+        ).pipe(Effect.scoped),
+      );
+      if (!named) {
+        yield* Effect.promise(() => terminal.waitFor("inspect-first"));
+        terminal.stdin.push(state === "idle" ? "r" : "\r");
+      }
+      yield* Effect.promise(() => terminal.waitFor("Opened detail"));
+      expect(calls).toEqual([]);
+      yield* Queue.offer(feeds, detailLive(data));
+      yield* Effect.promise(() => terminal.waitFor("loaded-once.ts"));
+      yield* Queue.offer(feeds, detailLive(data));
+      terminal.stdin.push("q");
+      yield* Fiber.join(worker);
+      expect(calls).toEqual([[data.record.worktree, data.record.baseCommit, data.contract]]);
+    }).pipe(Effect.provide(eventsPlatform)),
+);
 
 function request(id = 1): InspectRequests {
   const data = detail();
