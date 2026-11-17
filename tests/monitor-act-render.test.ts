@@ -241,7 +241,7 @@ it("types q, j and a into the controlled draft and submits Enter without list ke
     { type: "draft", text: "qja" },
   ]);
 });
-it("routes ctrl-d, ctrl-s, Escape and ctrl-c without inserting them into a draft", async () => {
+it("routes ctrl-d, ctrl-s, ctrl-e, Escape and ctrl-c without inserting them into a draft", async () => {
   const keys: string[] = [];
   const messages: ActMessage[] = [];
   const app = render(
@@ -254,11 +254,11 @@ it("routes ctrl-d, ctrl-s, Escape and ctrl-c without inserting them into a draft
     }),
   );
   await expect.poll(() => app.lastFrame()).toContain("Your answer");
-  for (const [index, key] of ["\u0004", "\u0013", "\u001b", "\u0003"].entries()) {
+  for (const [index, key] of ["\u0004", "\u0013", "\u0005", "\u001b", "\u0003"].entries()) {
     app.stdin.write(key);
     await expect.poll(() => keys.length).toBe(index + 1);
   }
-  await expect.poll(() => keys).toEqual(["ctrl-d", "ctrl-s", "escape", "ctrl-c"]);
+  await expect.poll(() => keys).toEqual(["ctrl-d", "ctrl-s", "ctrl-e", "escape", "ctrl-c"]);
   expect(messages).toEqual([]);
 });
 it.each(["sending", "resolved"] as const)(

@@ -100,13 +100,19 @@ export function FramedParagraph({
 }
 
 /** Fits the overlay title and metadata between both frame corners. */
-export function frameHeading(title: string, meta: string, width: number, colors: Theme) {
+export function frameHeading(
+  title: string,
+  meta: string,
+  width: number,
+  colors: Theme,
+  attention = true,
+) {
   const label = truncate(title, width - 7);
   const tail = truncate(meta, Math.max(0, width - stringWidth(label) - 8));
   const gap = Math.max(0, width - stringWidth(label + tail) - 7);
   return (
     colors.paint("╭─ ", "fg") +
-    colors.paint(label, title.startsWith("■") ? "signal" : "fg", true) +
+    colors.paint(label, attention && title.startsWith("■") ? "signal" : "fg", true) +
     colors.paint(` ${"─".repeat(gap)}${tail ? ` ${tail}` : " "}─╮`, "fg")
   );
 }

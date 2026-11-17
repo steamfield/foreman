@@ -137,6 +137,9 @@ function Help({ model, colors }: { model: ViewModel; colors: Theme }) {
     "PgUp scroll up     PgDn scroll down",
     model.detail ? "Tab next pane      j/k scroll pane" : "! needs me         Enter open / expand",
     "a answer           d defer",
+    "s steer            F follow up",
+    "i interrupt        x archive",
+    "ctrl-e open $EDITOR in any text box",
     "w watch only       ! needs me",
     ...(model.detail
       ? ["PgUp/PgDn page      Home/End jump", "f follow feed      Esc return to list"]
@@ -323,6 +326,18 @@ export const Screen = memo(function Screen({
         ["a", "answer"],
         ["d", "defer"],
         ["!", model.footer.attentionOnly ? "all runs" : "needs me"],
+        ...(width >= 100
+          ? [
+              ["s", "steer"],
+              ["i", "interrupt"],
+            ]
+          : []),
+        ...(width >= 140
+          ? [
+              ["F", "follow up"],
+              ["x", "archive"],
+            ]
+          : []),
         ["?", "help"],
         ["q", "quit"],
       ];
@@ -337,6 +352,18 @@ export const Screen = memo(function Screen({
             ? [
                 ["a", "answer"],
                 ["d", "defer"],
+              ]
+            : []),
+          ...(width >= 100
+            ? [
+                ["s", "steer"],
+                ["i", "interrupt"],
+              ]
+            : []),
+          ...(width >= 140
+            ? [
+                ["F", "follow up"],
+                ["x", "archive"],
               ]
             : []),
           ["?", "help"],
@@ -391,7 +418,7 @@ export const Screen = memo(function Screen({
       </Line>
       <Box height={available} flexDirection="column">
         {body}
-        {(model.act.confirm || model.act.answer) && (
+        {(model.act.confirm || model.act.answer || model.act.compose) && (
           <ActOverlay
             act={model.act}
             columns={width}

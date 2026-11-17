@@ -13,11 +13,12 @@ export function MonitorInput({
 }) {
   useInput((input, key) => {
     blocked.current = key.escape || key.ctrl;
-    if (model.act.answer) {
+    if (model.act.answer || model.act.compose) {
       if (key.ctrl && input === "c") onKey("ctrl-c");
       else if (key.escape) onKey("escape");
       else if (key.ctrl && input === "s") onKey("ctrl-s");
       else if (key.ctrl && input === "d") onKey("ctrl-d");
+      else if (key.ctrl && input === "e") onKey("ctrl-e");
       return;
     }
     if (key.ctrl && input === "c") onKey("ctrl-c");

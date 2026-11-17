@@ -13,7 +13,7 @@ export function AnswerInput({
   onAct,
   onKey,
 }: {
-  answer: NonNullable<ActView["answer"]>;
+  answer: NonNullable<ActView["compose"]> & { readonly resolved?: boolean };
   width: number;
   colors: Theme;
   onAct: (message: ActMessage) => void;
@@ -24,8 +24,8 @@ export function AnswerInput({
   const prefix = useRef<DOMElement | null>(null);
   const metrics = useBoxMetrics(prefix);
   useInput((input, key) => {
-    // ink-text-input advances its private cursor for Ctrl-S and Ctrl-D even if onChange is ignored.
-    if (key.escape || (key.ctrl && ["s", "d", "c"].includes(input))) {
+    // ink-text-input advances its private cursor for controls even if onChange is ignored.
+    if (key.escape || (key.ctrl && ["s", "d", "e", "c"].includes(input))) {
       setRevision((value) => value + 1);
       setCaret(answer.draft.length);
     } else if (key.leftArrow || key.rightArrow)
