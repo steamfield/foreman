@@ -4,13 +4,8 @@ import { renderToString } from "ink";
 import { createElement } from "react";
 import stringWidth from "string-width";
 import { expect, it } from "vitest";
-import {
-  initialState,
-  type PreviewView,
-  type RowView,
-  type ViewModel,
-  view,
-} from "../src/core/monitor/model";
+import { initialState, view } from "../src/core/monitor/model";
+import type { PreviewView, RowView, ViewModel } from "../src/core/monitor/model-types";
 import { PinnedRows } from "../src/tui/pinned";
 import { Screen } from "../src/tui/screen";
 import { theme } from "../src/tui/theme";

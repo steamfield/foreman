@@ -1,6 +1,6 @@
 import { Box, Text } from "ink";
 import stringWidth from "string-width";
-import type { PaletteView } from "../core/monitor/model";
+import type { PaletteView } from "../core/monitor/model-types";
 import { FrameContent, FrameRow } from "./act-frame";
 import { Line, pad, truncate } from "./components";
 import { FindInput, type FindMessage } from "./find-input";

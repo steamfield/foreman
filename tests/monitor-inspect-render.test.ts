@@ -4,13 +4,8 @@ import { cleanup, render } from "ink-testing-library";
 import { createElement } from "react";
 import stringWidth from "string-width";
 import { afterEach, expect, it } from "vitest";
-import {
-  type DiffView,
-  initialState,
-  reduce,
-  type ViewModel,
-  view,
-} from "../src/core/monitor/model";
+import { initialState, reduce, view } from "../src/core/monitor/model";
+import type { DiffView, ViewModel } from "../src/core/monitor/model-types";
 import { MonitorApp, Screen } from "../src/tui/screen";
 import { theme } from "../src/tui/theme";
 import { defaults, live, now, run } from "./helpers/monitor";

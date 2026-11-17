@@ -1,7 +1,8 @@
 import { renderToString } from "ink";
 import { createElement } from "react";
 import { describe, expect, it } from "vitest";
-import { initialState, OLDER_IDLE_MS, reduce, view } from "../src/core/monitor/model";
+import { OLDER_IDLE_MS } from "../src/core/monitor/list-groups";
+import { initialState, reduce, view } from "../src/core/monitor/model";
 import { Screen } from "../src/tui/screen";
 import { theme } from "../src/tui/theme";
 import { at, defaults, live, mixedRuns, now, overview, run, subagents } from "./helpers/monitor";

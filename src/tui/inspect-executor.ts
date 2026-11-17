@@ -1,5 +1,5 @@
 import { Effect, Stream } from "effect";
-import type { Message, State } from "../core/monitor/model";
+import type { Message, State } from "../core/monitor/model-types";
 import type { ChangedFile, DiffText } from "../core/runs/changes";
 import type { Detail } from "../schemas/monitor";
 import { inspectError } from "./inspect-error";

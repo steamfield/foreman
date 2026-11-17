@@ -1,7 +1,8 @@
 import { Box } from "ink";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { ActMessage } from "../core/monitor/act";
-import type { Message, ViewModel } from "../core/monitor/model";
+import { listViewport } from "../core/monitor/list-view";
+import type { Message, ViewModel } from "../core/monitor/model-types";
 import { ActNotice, ActOverlay } from "./act";
 import { Line, monitorFooter, Tick } from "./components";
 import { DetailScreen } from "./detail";
@@ -90,12 +91,13 @@ export const Screen = memo(function Screen({
   const hiddenWaiting =
     !model.detail && !model.history && !model.overlay ? (model.filterBar?.hiddenWaiting ?? 0) : 0;
   const filterVisible = model.filterBar !== null && !model.overlay;
-  const available = Math.max(
-    1,
-    model.rows - 2 - Number(model.act.notice !== null) - Number(filterVisible),
-  );
   const preview = !model.detail && !model.overlay && !model.history ? model.preview : null;
-  const listHeight = Math.max(0, available - (preview ? 5 : 0) - Number(hiddenWaiting > 0));
+  const { available, height: listHeight } = listViewport(model.rows, {
+    notice: model.act.notice !== null,
+    filter: filterVisible,
+    hiddenWaiting: hiddenWaiting > 0,
+    preview: preview !== null,
+  });
   const offset = model.offset;
   let skipped = 0;
   const visible = blocks.flatMap((block) => {

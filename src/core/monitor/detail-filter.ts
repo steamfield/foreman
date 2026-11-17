@@ -1,5 +1,5 @@
 import type { RunEvent } from "../../schemas/daemon";
-import type { FeedFilter, Message, State } from "./model";
+import type { FeedFilter, Message, State } from "./model-types";
 
 const tags: Readonly<Record<FeedFilter, readonly RunEvent["event"]["_tag"][]>> = {
   all: [],

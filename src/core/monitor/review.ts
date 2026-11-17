@@ -1,6 +1,7 @@
 import type { Detail } from "../../schemas/monitor";
 import { changedRows, changesMessage } from "./changed-files";
-import { clockTime, duration, type ReviewView, type State } from "./model";
+import { clockTime, duration } from "./format";
+import type { ReviewView, State } from "./model-types";
 
 /** Builds the finished run's hand-off, deferred decisions and scope summary. */
 export function reviewView(state: State, data: Detail | null): ReviewView | null {

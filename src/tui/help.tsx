@@ -1,6 +1,6 @@
 import { Box } from "ink";
 import { legendLines } from "../core/monitor/legend";
-import type { ViewModel } from "../core/monitor/model";
+import type { ViewModel } from "../core/monitor/model-types";
 import { Line, pad, truncate } from "./components";
 import type { Theme } from "./theme";
 

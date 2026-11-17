@@ -1,4 +1,4 @@
-import type { TimelineView } from "../core/monitor/model";
+import type { TimelineView } from "../core/monitor/model-types";
 import { InspectFrame, InspectRow } from "./inspect-frame";
 import type { Theme } from "./theme";
 

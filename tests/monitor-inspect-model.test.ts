@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DETAIL_PANES, initialState, reduce, view } from "../src/core/monitor/model";
+import { initialState, reduce, view } from "../src/core/monitor/model";
+import { DETAIL_PANES } from "../src/core/monitor/model-types";
 import type { ChangedFile } from "../src/core/runs/changes";
 import {
   at,

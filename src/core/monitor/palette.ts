@@ -1,7 +1,7 @@
 import type { ActAction } from "./act";
 import { eligible, selectedRun } from "./act-target";
 import { nextGrouping } from "./list-groups";
-import type { PaletteView, State } from "./model";
+import type { PaletteView, State } from "./model-types";
 
 type Item = { readonly label: string; readonly key: string | null; readonly command?: string };
 const actions: readonly { action: ActAction; label: string; key: string }[] = [

@@ -1,7 +1,7 @@
 import { Effect, FileSystem, Path, Result, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner, CommandLine } from "effect/process";
 import type { TerminalSuspension } from "ink";
-import type { Message } from "../core/monitor/model";
+import type { Message } from "../core/monitor/model-types";
 import { inspectError } from "./inspect-error";
 import { type DiffReader, type InspectRequests, inspectDetail } from "./inspect-executor";
 

@@ -13,7 +13,9 @@ import {
 } from "./act";
 import { confirmView } from "./act-confirm";
 import { findRun } from "./act-target";
-import { clockTime, duration, feedLines, type State } from "./model";
+import { feedLines } from "./detail-view";
+import { clockTime, duration } from "./format";
+import type { State } from "./model-types";
 
 /** Builds the acting portion of the screen without adding animation. */
 export function actView(state: State): ActView {

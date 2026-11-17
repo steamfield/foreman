@@ -5,7 +5,7 @@ import { createElement } from "react";
 import { expect } from "vitest";
 import type { DetailFeed } from "../src/core/monitor/detail-feed";
 import type { MonitorFeed } from "../src/core/monitor/feed";
-import type { Message } from "../src/core/monitor/model";
+import type { Message } from "../src/core/monitor/model-types";
 import { RunName } from "../src/schemas/daemon";
 import { Terminal } from "../src/services/terminal";
 import { runMonitor, runPreview } from "../src/tui/run";

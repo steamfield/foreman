@@ -1,4 +1,4 @@
-import type { ListColumns } from "./model";
+import type { ListColumns } from "./model-types";
 
 const MIN_WIDTH: Readonly<Record<keyof ListColumns, number>> = {
   task: 80,

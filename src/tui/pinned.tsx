@@ -1,6 +1,6 @@
 import { Box } from "ink";
 import stringWidth from "string-width";
-import type { PinnedRowView } from "../core/monitor/model";
+import type { PinnedRowView } from "../core/monitor/model-types";
 import { Line, truncate } from "./components";
 import type { Theme } from "./theme";
 

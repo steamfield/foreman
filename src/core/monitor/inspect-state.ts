@@ -1,5 +1,5 @@
 import type { RunName } from "../../schemas/daemon";
-import type { Message, State } from "./model";
+import type { Message, State } from "./model-types";
 
 /** Opens a fresh run detail with a uniquely identified change request. */
 export function openDetail(

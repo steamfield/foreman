@@ -1,7 +1,8 @@
 import { DateTime } from "effect";
 import type { ActView } from "./act";
 import { eligible, findRun } from "./act-target";
-import { duration, type State } from "./model";
+import { duration } from "./format";
+import type { State } from "./model-types";
 
 /** Builds the open confirm's facts and keys from the latest available run data. */
 export function confirmView(state: State): ActView["confirm"] {

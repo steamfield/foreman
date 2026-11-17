@@ -1,5 +1,5 @@
 import stringWidth from "string-width";
-import type { ReviewView } from "../core/monitor/model";
+import type { ReviewView } from "../core/monitor/model-types";
 import { pad, truncate } from "./components";
 import { InspectFrame, InspectRow } from "./inspect-frame";
 import type { Theme } from "./theme";

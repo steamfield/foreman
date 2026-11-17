@@ -2,16 +2,14 @@ import { renderToString } from "ink";
 import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 import type { DetailFeed } from "../src/core/monitor/detail-feed";
+import { stateTone } from "../src/core/monitor/format";
+import { initialState, reduce, view } from "../src/core/monitor/model";
 import {
   DETAIL_PANES,
   EVENT_BUFFER_LIMIT,
-  initialState,
   type PaneId,
-  reduce,
   type State,
-  stateTone,
-  view,
-} from "../src/core/monitor/model";
+} from "../src/core/monitor/model-types";
 import { Screen } from "../src/tui/screen";
 import { theme } from "../src/tui/theme";
 import { at, defaults, detail, detailLive, live, messageEvents, now, run } from "./helpers/monitor";

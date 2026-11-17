@@ -2,8 +2,8 @@ import { DateTime } from "effect";
 import { activeStates } from "../../schemas/daemon";
 import type { RunView } from "../../schemas/monitor";
 import type { MonitorFeed } from "./feed";
-import type { Tone } from "./model";
-import { duration } from "./row";
+import { duration } from "./format";
+import type { Tone } from "./model-types";
 
 type Segment = { readonly text: string; readonly tone: Tone };
 const segment = (text: string, tone: Tone = "fg"): Segment => ({ text, tone });

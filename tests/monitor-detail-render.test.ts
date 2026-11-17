@@ -5,7 +5,8 @@ import { createElement } from "react";
 import stringWidth from "string-width";
 import { afterEach, describe, expect, it } from "vitest";
 import type { DetailFeed } from "../src/core/monitor/detail-feed";
-import { EVENT_BUFFER_LIMIT, initialState, reduce, view } from "../src/core/monitor/model";
+import { initialState, reduce, view } from "../src/core/monitor/model";
+import { EVENT_BUFFER_LIMIT } from "../src/core/monitor/model-types";
 import { Screen } from "../src/tui/screen";
 import { theme } from "../src/tui/theme";
 import {

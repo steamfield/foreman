@@ -1,6 +1,10 @@
 import type { DiffText } from "../runs/changes";
+import { currentDetail } from "./detail-view";
+import { filterBar } from "./filter";
 import { openFileDiff } from "./inspect-state";
-import { type DiffView, type ReviewView, type State, view } from "./model";
+import { listViewport } from "./list-view";
+import type { DiffView, ReviewView, State } from "./model-types";
+import { reviewView } from "./review";
 
 /** Computes review pane dimensions for rendering and diff navigation. */
 export function reviewLayout(review: ReviewView, width: number, height: number) {
@@ -91,10 +95,10 @@ export function diffView(state: State): DiffView | null {
 }
 
 /** Handles navigation while the diff owns the terminal's keys. */
-export function diffKey(state: State, key: string): State {
+export function diffKey(state: State, key: string): State | null {
   const detail = state.detail;
   const diff = detail?.diff;
-  if (!detail || !diff) return state;
+  if (!detail || !diff) return null;
   if (key === "escape")
     return {
       ...state,
@@ -106,6 +110,8 @@ export function diffKey(state: State, key: string): State {
     const next = index + (key === "]" ? 1 : -1);
     return index < 0 || next < 0 || next >= files.length ? state : openFileDiff(state, next);
   }
+  if (!["j", "down", "k", "up", "page-up", "page-down", "home", "end", "n", "p"].includes(key))
+    return null;
   const model = diffView(state);
   if (!model) return state;
   const page = key.startsWith("page-") ? diffPage(state, model) : 1;
@@ -114,17 +120,14 @@ export function diffKey(state: State, key: string): State {
 }
 
 function diffPage(state: State, diff: DiffView): number {
-  const model = view(state);
-  const height = Math.max(
-    1,
-    model.rows -
-      2 -
-      Number(model.act.notice !== null) -
-      Number(model.filterBar !== null && !model.overlay),
-  );
-  const viewport = model.review
-    ? reviewLayout(model.review, model.columns, height).diffHeight
-    : height;
+  const { available: height } = listViewport(state.rows, {
+    notice: state.act.notice !== null,
+    filter: filterBar(state, []) !== null && !state.help,
+    hiddenWaiting: false,
+    preview: false,
+  });
+  const review = reviewView(state, currentDetail(state));
+  const viewport = review ? reviewLayout(review, state.columns, height).diffHeight : height;
   return Math.max(1, viewport - 2 - Number(diff.truncated));
 }
 

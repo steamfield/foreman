@@ -1,5 +1,5 @@
 import type { ChangedFile } from "../runs/changes";
-import type { DetailLine, ReviewView, State } from "./model";
+import type { DetailLine, ReviewView, State } from "./model-types";
 
 const statuses = { added: "A", modified: "M", deleted: "D", renamed: "R", untracked: "?" } as const;
 

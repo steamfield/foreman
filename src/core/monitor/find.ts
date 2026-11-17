@@ -1,7 +1,7 @@
 import { needsMeFilter, toggleNeedsMe } from "./filter";
 import { historyKey, historyResult } from "./history";
 import { listGroups, nextGrouping } from "./list-groups";
-import type { Message, State } from "./model";
+import type { Message, State } from "./model-types";
 import { paletteKey } from "./palette";
 
 /** The find commands available to the help overlay. */

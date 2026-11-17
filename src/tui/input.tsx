@@ -1,5 +1,5 @@
 import { useInput } from "ink";
-import type { ViewModel } from "../core/monitor/model";
+import type { ViewModel } from "../core/monitor/model-types";
 
 /** Routes monitor shortcuts before the answer widget receives text input. */
 export function MonitorInput({

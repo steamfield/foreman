@@ -10,7 +10,7 @@ import {
   selectedRun,
   targetKey,
 } from "./act-target";
-import type { State } from "./model";
+import type { State } from "./model-types";
 
 /** Reduces acting input to pure state changes and executor requests. */
 export function reduceActMessage(

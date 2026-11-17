@@ -6,6 +6,9 @@ import {
   type RunEventBody,
   type RunState,
 } from "../../schemas/daemon";
+import { age, duration, oneLine } from "./format";
+import { grouped } from "./list-groups";
+import type { State } from "./model-types";
 
 export const QUIET_AFTER_MS = 5 * 60_000;
 
@@ -115,3 +118,20 @@ export function updateTurnAttention(cache: TurnAttention, event: RunEventBody, a
 
 export const questionTime = (entry: QuestionCacheEntry, timeoutMs: number) =>
   defersAt(DateTime.toEpochMillis(entry.asked.at), timeoutMs, entry.deferred);
+
+/** Builds question notices in the unfiltered run order. */
+export function listNotes(state: State) {
+  return grouped(state).flatMap(({ runs: entries }) =>
+    entries.flatMap((run) =>
+      run.questions.map((q) => ({
+        id: `${run.name}:${q.id}`,
+        title: `■ waiting  ${run.name} ${q.id} · ${age(q.askedAt, state.now)}${q.defersAt === null ? "" : ` · defers in ${duration(DateTime.toEpochMillis(q.defersAt) - state.now)}`}`,
+        text: oneLine(q.text),
+        command:
+          run.group === state.group
+            ? `foreman answer ${run.name} ${q.id} --file <path>`
+            : "other repo: its own session supervises it",
+      })),
+    ),
+  );
+}

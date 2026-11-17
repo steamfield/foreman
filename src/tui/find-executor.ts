@@ -1,5 +1,5 @@
 import { Effect, FiberSet, Stream } from "effect";
-import type { Message } from "../core/monitor/model";
+import type { Message } from "../core/monitor/model-types";
 import { defectTrace } from "../logging";
 import type { HistoryEntry } from "../schemas/monitor";
 

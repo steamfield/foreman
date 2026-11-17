@@ -2,7 +2,7 @@ import { Writable } from "node:stream";
 import { it } from "@effect/vitest";
 import { Deferred, Effect, Fiber, Queue, Stream } from "effect";
 import { expect } from "vitest";
-import type { Message } from "../src/core/monitor/model";
+import type { Message } from "../src/core/monitor/model-types";
 import { type FindRequests, runFind } from "../src/tui/find-executor";
 import { ndjson, runCli, tempDir } from "./helpers/cli";
 
