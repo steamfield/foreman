@@ -6,16 +6,17 @@
  * messages, adopt the turn of a run in unknown state, drop events of a stale turn, arm the
  * budget, journal the events, then update run state. No wire decoding happens here.
  */
-import { Clock, Effect, FileSystem } from "effect";
+import { Clock, Effect } from "effect";
 import { QUIET_AFTER_MS } from "../core/monitor/attention";
 import * as Store from "../core/runs/store";
 import type { Inbound, ProviderConnection, ProviderEvent, TurnId } from "../providers/contract";
 import { activeStates, providerOf } from "../schemas/daemon";
 import * as LiveState from "./live-state";
+import { checkReadOnlyTurn } from "./read-only-check";
 import type { Registry, Run } from "./registry";
 import { toRunEvents } from "./run-events";
 import { isStaleMessage } from "./stale";
-import { changedSince, readSnapshot, type Turns } from "./turns";
+import type { Turns } from "./turns";
 
 /** What the supervisor knows about the provider that sent the message. */
 export interface ProviderFacts {
@@ -141,25 +142,6 @@ function completedState(run: Run, event: EventOf<"TurnCompleted">) {
   if (run.record.turnKind === "handoff" || event.status === "interrupted") return "interrupted";
   return "idle";
 }
-
-/**
- * Compares the worktree with the snapshot taken when a checked read-only turn began; returns
- * the run failure when the turn changed files. Turns without a snapshot aren't checked.
- */
-const checkReadOnlyTurn = Effect.fnUntraced(function* (registry: Registry, run: Run) {
-  const before = run.turnSnapshot;
-  run.turnSnapshot = null;
-  if (before === null) return null;
-  const fs = yield* FileSystem.FileSystem;
-  // A removed worktree has nothing left to check; the digest reports the removal.
-  if (!(yield* fs.exists(run.record.worktree))) return null;
-  const changed = changedSince(before, yield* readSnapshot(run.record.worktree));
-  if (changed.length === 0) return null;
-  const message = `read-only ${providerOf(run.record)} run changed files: ${changed.join(", ")}`;
-  if (!run.record.warnings.includes(message))
-    yield* registry.save(run, { warnings: [...run.record.warnings, message] });
-  return { message, codexErrorInfo: null };
-});
 
 const turnCompleted = Effect.fnUntraced(function* (
   registry: Registry,

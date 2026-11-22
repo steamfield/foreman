@@ -11,7 +11,7 @@ import {
   readSnapshot,
   snapshotOf,
   statusPath,
-} from "../src/supervisor/turns";
+} from "../src/supervisor/read-only-check";
 import { command, message, permission, prompt } from "./fixtures/fake-acp-agent/scenarios";
 import { agyFixture, agyPlatform as platform } from "./helpers/agy";
 
