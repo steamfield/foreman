@@ -139,14 +139,14 @@ describe("installed guidance", () => {
       loads: "Codex loads AGENTS.md",
       review: 'codex exec --ephemeral --sandbox read-only -m "{REVIEW MODEL}"',
       config: "`~/.codex`",
-      other: /\bagy\b|GEMINI\.md|~\/\.gemini/,
+      other: /\bagy\b|GEMINI\.md|~\/\.gemini|REVIEW EFFORT/,
     },
     {
       topic: "contract tests",
       loads: "Codex loads AGENTS.md",
       review: 'codex exec --ephemeral --sandbox read-only -m "{REVIEW MODEL}"',
       config: "`~/.codex`",
-      other: /\bagy\b|GEMINI\.md|~\/\.gemini/,
+      other: /\bagy\b|GEMINI\.md|~\/\.gemini|REVIEW EFFORT/,
     },
     {
       topic: "contract agy",
@@ -175,12 +175,22 @@ describe("installed guidance", () => {
     },
   );
 
+  it("names the agy contract topics in guide help", () => {
+    const help = helps.get("guide") ?? "";
+    expect(help).toContain("contract tests agy");
+    expect(help).toContain("foreman guide contract agy");
+  });
+
   it("has the agy review run without shell commands and report an empty review", () => {
     for (const topic of ["contract agy", "contract tests agy"] as const) {
       const text = guideTopics[topic];
       expect(text).toContain('git diff HEAD --output="{REVIEW DIR}/changes.diff"');
       expect(text).toContain("Make no edits and run no shell commands");
-      expect(text).toContain('--output-format text > "{REVIEW DIR}/review.md"');
+      expect(text).toContain(
+        '--model "{REVIEW MODEL}" --effort "{REVIEW EFFORT}" --output-format text > "{REVIEW DIR}/review.md"',
+      );
+      expect(text).toContain("When the effort is none");
+      expect(text).toContain("the family,\nwithout any agy: prefix or effort suffix");
       expect(text).toContain("If\n`review.md` is empty, read that file and ask the orchestrator");
     }
   });

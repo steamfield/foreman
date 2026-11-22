@@ -27,7 +27,7 @@ A run is in one of these states: `starting`, `running`, `waiting` (a question ne
 
 | Provider | Models | Sign-in | With no `--model` |
 | --- | --- | --- | --- |
-| `codex` | GPT models from Codex's catalog | `codex login` (ChatGPT) | The newest visible `gpt-*-sol`, `high` effort, `priority` tier |
+| `codex` | GPT models from Codex's catalog | `codex login` (ChatGPT) | `defaultModel` from config, else the newest visible `gpt-*-sol`; `high` effort, `priority` tier |
 | `agy` | Gemini models, plus the other models agy lists for your account | Run `agy` once and sign in | Not used: name an agy model |
 
 An agy id with an effort suffix, such as `gemini-4-neon-high`, means the family plus that effort, so `--model gemini-4-neon --effort high` is the same run. `--tier` applies only to Codex. When both catalogs list a model, pass `codex:<model>` or `agy:<model>`. An unknown model fails before a worktree or the daemon is touched, with exit 2, a near-miss suggestion when there is one, and with `--json` a `candidates` list.

@@ -12,8 +12,8 @@ export const contractTestsText = (provider: ProviderId): string => {
 
 <!-- Claude: copy outside the worktree, fill task placeholders and remove this comment.
 Leave REVIEW DIR for the delegate's mktemp output.
-Fill REVIEW MODEL with the literal model from foreman models passed to foreman start --model and
-confirm it in the digest's run: header. Use foreman start <name> --worktree <path> --contract
+Choose a model from foreman models and pass it to foreman start --model. ${agent.reviewFill}
+Use foreman start <name> --worktree <path> --contract
 <this-file> --write --model <model>, then background the printed next: wait command and follow
 each next:.
 ${agent.loadsItself}

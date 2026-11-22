@@ -10,7 +10,7 @@ export const guideCommand = Command.make(
   {
     topic: Argument.String("topic").pipe(
       Argument.withDescription(
-        "Workflow topic: core (default), contract, contract tests, supervise, review or recover. Separate contract and tests with a space.",
+        "Workflow topic: core (default), contract, contract agy, contract tests, contract tests agy, supervise, review or recover. Separate the words with spaces; add agy for a contract run on agy.",
       ),
       Argument.variadic(),
     ),
@@ -31,6 +31,11 @@ export const guideCommand = Command.make(
     {
       command: "foreman guide contract tests",
       description: "Print the contract for an independent test author",
+    },
+    {
+      command: "foreman guide contract agy",
+      description:
+        "Print the implementation contract for an agy run (contract tests agy for a test author)",
     },
     {
       command: "foreman guide supervise --json",
