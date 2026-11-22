@@ -181,3 +181,4 @@ Depends on: phase 2
 - Lane 0/b accepted choices: inProgress turn completion maps to completed; completed tool items map to other; the first completed item before any turn/started sets the session's turn (resumed sessions). events.ts is 276 lines, accepted.
 - Lane 0/c accepted choices: AGY_BIN passed to a spawned daemon; agyBin/defaultModel decoded independently.
 - Contract: ItemStarted.turn nullable so the Codex hook rule fails closed on a partly decoded commandExecution (lane 0/b review, finding beyond the brief).
+- Phase 0 gate: five tests used formatVersion 3 as their unknown future version; 3 is now the agy run.json version, so they use 4. tests/supervisor-stress.test.ts failed once under full-suite load (daemon stop saw active runs), passed 4/4 alone on the branch and 3/3 on main, and the gate rerun passed: treated as a load flake.

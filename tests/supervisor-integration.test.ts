@@ -3696,7 +3696,7 @@ exec '${realGit}' "$@"
       const stored = Schema.decodeUnknownSync(
         Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)),
       )(yield* f.fs.readFileString(file));
-      const future = JSON.stringify({ ...stored, formatVersion: 3 });
+      const future = JSON.stringify({ ...stored, formatVersion: 4 });
       yield* f.fs.writeFileString(file, future);
       expect(yield* f.request({ _tag: "Archive", name }).pipe(Effect.flip)).toMatchObject({
         _tag: "RunConflict",

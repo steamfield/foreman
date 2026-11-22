@@ -406,7 +406,7 @@ it.effect.each<"run.json" | "events.jsonl" | "questions.jsonl" | "codex.jsonl">(
       "codex.jsonl": { method: "future" },
     };
     const value = values[file];
-    const bytes = `${JSON.stringify({ ...value, formatVersion: 3 })}\n`;
+    const bytes = `${JSON.stringify({ ...value, formatVersion: 4 })}\n`;
     yield* fs.writeFileString(`${dir}/${file}`, bytes);
     const attempts = [
       Store.writeRun(dir, { ...run, state: "lost" }),
