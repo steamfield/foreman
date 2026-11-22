@@ -27,6 +27,7 @@ import { validateWorktree } from "../core/preflight/worktree";
 import * as Store from "../core/runs/store";
 import { validateStartMode } from "../core/start-mode";
 import { detailFor, errorClasses, errorTable, PermissionDenied, RunConflict } from "../errors";
+import { causeFields } from "../logging";
 import {
   isProviderUnavailable,
   type ProviderConnection,
@@ -62,6 +63,15 @@ function startWarnings(
     ...diagnostics,
     ...(readOnly === undefined ? [] : [readOnly]),
   ];
+}
+
+/** Why an interrupt went unconfirmed, in the provider's own words where it gave any. */
+function unconfirmedReason(failure: unknown): string {
+  if (failure instanceof RpcError) return failure.message;
+  if (failure instanceof RpcRequestTimeout)
+    return `${failure.method} timed out after ${failure.timeoutMs} ms`;
+  if (isProviderUnavailable(failure)) return failure.detail ?? failure._tag;
+  return "no reason given";
 }
 
 /** The settings a run's session and turns use, from its record. */
@@ -126,7 +136,7 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
       .pipe(Effect.result);
     if (interrupted._tag === "Failure") {
       if (!isUnconfirmed(interrupted.failure)) return yield* Effect.fail(interrupted.failure);
-      yield* markUnconfirmed(run, by);
+      yield* markUnconfirmed(run, by, interrupted.failure);
       return "unconfirmed" as const;
     }
     if (!cancelFirst) yield* registry.cancelQuestions(run);
@@ -137,18 +147,24 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
   const isUnconfirmed = (error: unknown) =>
     error instanceof RpcError || isProviderUnavailable(error) || error instanceof RpcRequestTimeout;
   /** Parks the run in `unknown` until the provider reports the turn ended or recovery gives up. */
-  const markUnconfirmed = Effect.fnUntraced(function* (run: Run, by: string) {
+  const markUnconfirmed = Effect.fnUntraced(function* (run: Run, by: string, failure: unknown) {
     const provider = yield* connections.describe(providerOf(run.record));
+    const reason = unconfirmedReason(failure);
     yield* Effect.logWarning("supervisor.interrupt.unconfirmed").pipe(
-      Effect.annotateLogs({ name: run.record.name }),
+      Effect.annotateLogs({
+        name: run.record.name,
+        by,
+        detail: reason,
+        ...causeFields(Cause.fail(failure)),
+      }),
     );
     yield* registry.markUnknown(run);
     yield* registry.save(run, {
       warnings: [
         ...run.record.warnings,
         by === "budget"
-          ? `Budget expired for run ${run.record.name}, but ${provider.displayName} did not confirm the interrupt. Run foreman wait ${run.record.name}; execution remains unconfirmed until the run becomes inactive.`
-          : `Interrupt of run ${run.record.name} was not confirmed by ${provider.displayName}. Run foreman wait ${run.record.name}; execution remains unconfirmed until the run becomes inactive.`,
+          ? `Budget expired for run ${run.record.name}, but ${provider.displayName} did not confirm the interrupt (${reason}). Run foreman wait ${run.record.name}; execution remains unconfirmed until the run becomes inactive.`
+          : `Interrupt of run ${run.record.name} was not confirmed by ${provider.displayName} (${reason}). Run foreman wait ${run.record.name}; execution remains unconfirmed until the run becomes inactive.`,
       ],
     });
   });

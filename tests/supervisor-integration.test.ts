@@ -6410,6 +6410,24 @@ else { require("node:child_process").spawn(process.execPath, [${JSON.stringify(f
     }).pipe(Effect.provide(platform)),
   );
 
+  it.live("an unconfirmed interrupt's warning carries the provider's reason", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(
+        scenario(turnRule(), {
+          method: Codex.Method.turnInterrupt,
+          respond: { error: { code: -1, message: "already completed" } },
+        }),
+      );
+      yield* f.launch();
+      yield* f.start();
+      yield* f.untilState("running");
+      yield* f.request({ _tag: "Interrupt", name });
+      const digest = yield* f.status();
+      expect(digest.state).toBe("unknown");
+      expect(digest.warnings.join(" ")).toContain("already completed");
+    }).pipe(Effect.provide(platform)),
+  );
+
   it.effect("review: handoff rejection does not lose another active run", () =>
     Effect.gen(function* () {
       const otherName = Schema.decodeUnknownSync(D.RunName)("other");
