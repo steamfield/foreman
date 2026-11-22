@@ -6,10 +6,13 @@
  * ACP has no turn messages: a turn starts when foreman sends `session/prompt` and ends when
  * the last outstanding prompt replies.
  */
-import type { PromptUsage } from "../../schemas/acp";
+import { Schema } from "effect";
+import * as Acp from "../../schemas/acp";
 import type { TokenTotals, TurnKind } from "../../schemas/daemon";
 import type { Access } from "../../schemas/provider";
 import type { ProviderEvent, TurnId, TurnRequest } from "../contract";
+import type { RpcError } from "../jsonrpc";
+import { mentionsAuth, mismatchDetail, SIGNED_OUT } from "./launch";
 
 /** The agent message text of the current turn. */
 export interface TurnMessages {
@@ -103,6 +106,14 @@ export function recordRefusal(state: AgyTurnState, message: string): AgyTurnStat
   return { ...state, refusal: message };
 }
 
+/**
+ * Forgets the session's outstanding prompts after agy failed to answer a cancel, so the next
+ * prompt's reply completes its turn.
+ */
+export function abandonPrompts(state: AgyTurnState): AgyTurnState {
+  return { ...state, outstanding: 0 };
+}
+
 /** The hand-off: the text after the turn's last tool call, else all of it; null when silent. */
 export function handoffText(messages: TurnMessages): string | null {
   if (messages.sinceToolCall !== "") return messages.sinceToolCall;
@@ -170,11 +181,29 @@ export function finishPrompt(
 }
 
 /** Converts a reply's ACP usage into foreman's token totals. */
-export function tokensOf(usage: PromptUsage): TokenTotals {
+export function tokensOf(usage: Acp.PromptUsage): TokenTotals {
   return {
     input: usage.inputTokens,
     cachedInput: usage.cachedReadTokens ?? 0,
     output: usage.outputTokens,
     reasoningOutput: usage.thoughtTokens ?? 0,
   };
+}
+
+/**
+ * Reads a `session/prompt` reply into the outcome that ends the turn: agy's stop reason and
+ * usage, or the failure for an error reply or one that doesn't decode.
+ */
+export function promptOutcome(result: unknown, error: RpcError | null): PromptOutcome {
+  if (error !== null) {
+    const message = mentionsAuth(error.message)
+      ? SIGNED_OUT
+      : `agy refused the turn: ${error.message}`;
+    return { _tag: "Failed", message };
+  }
+  const decoded = Schema.decodeUnknownOption(Acp.PromptResult)(result);
+  if (decoded._tag === "None")
+    return { _tag: "Failed", message: mismatchDetail(Acp.Method.prompt) };
+  const { stopReason, usage } = decoded.value;
+  return { _tag: "Replied", stopReason, usage: usage === undefined ? null : tokensOf(usage) };
 }

@@ -16,9 +16,11 @@ import {
   AcpScenario as AcpScenarioSchema,
 } from "../fixtures/fake-acp-agent/scenario";
 import {
+  allowAlwaysOnly,
   cancellableTurn,
   command,
   edit,
+  longHandoff,
   message,
   prompt,
   refusedEdit,
@@ -362,6 +364,64 @@ it.effect("a read-only run refuses agy's edit and the turn fails with the refusa
   ),
 );
 
+it.effect("a reply written right after thousands of updates ends the turn after all of them", () =>
+  provide(
+    Effect.gen(function* () {
+      const chunks = 3000;
+      const agy = yield* fakeAgy(longHandoff(chunks));
+      const { session } = yield* agy.connection.open("unit", settings(agy.worktree));
+      yield* agy.connection.startTurn(session, turnOne(agy.worktree));
+      const inbounds = yield* untilCompleted(agy.connection);
+      const text = Array.from({ length: chunks }, (_, index) => `w${index} `).join("");
+
+      const messageChunks = inbounds.filter((inbound) =>
+        JSON.stringify(inbound.raw).includes("agent_message_chunk"),
+      );
+      expect(messageChunks).toHaveLength(chunks);
+      expect(inbounds.at(-1)?.events).toEqual([
+        { _tag: "AgentMessage", turn: "t1", text, phase: "final_answer" },
+        { _tag: "TokenUsage", turn: "t1", totals: usageTotals },
+        { _tag: "TurnCompleted", turn: "t1", status: "completed", failure: null, handoff: text },
+      ]);
+    }),
+  ),
+);
+
+it.effect("a write run refuses an edit when agy offers no one-time allow", () =>
+  provide(
+    Effect.gen(function* () {
+      const agy = yield* fakeAgy(allowAlwaysOnly());
+      const { session } = yield* agy.connection.open("unit", settings(agy.worktree));
+      yield* agy.connection.startTurn(session, turnOne(agy.worktree));
+      const events = eventsOf(yield* untilCompleted(agy.connection));
+
+      expect(events).toContainEqual({
+        _tag: "Permission",
+        turn: "t1",
+        kind: "edit",
+        title: "File result.txt",
+        decision: "rejected",
+      });
+      expect(events.at(-1)).toMatchObject({
+        _tag: "TurnCompleted",
+        status: "failed",
+        failure: {
+          message:
+            "agy offered no allow_once option for File result.txt (edit), so foreman refused it; check the agy version with foreman doctor.",
+        },
+      });
+      const answers = (yield* agy.received).filter((line) => methodOf(line) === undefined);
+      expect(answers).toEqual([
+        {
+          jsonrpc: "2.0",
+          id: "r0",
+          result: { outcome: { outcome: "selected", optionId: "deny" } },
+        },
+      ]);
+    }),
+  ),
+);
+
 it.effect("a stop reason other than end_turn fails the turn naming it", () =>
   provide(
     Effect.gen(function* () {
@@ -430,24 +490,45 @@ it.effect("interrupt cancels the session and the turn ends interrupted", () =>
   ),
 );
 
-it.effect("interrupt fails after 30 seconds when agy never answers the cancel", () =>
-  provide(
-    Effect.gen(function* () {
-      const agy = yield* fakeAgy({ rules: [{ method: "session/prompt", respond: "none" }] });
-      const { session } = yield* agy.connection.open("unit", settings(agy.worktree));
-      yield* agy.connection.startTurn(session, turnOne(agy.worktree));
-      const interrupt = yield* agy.connection
-        .interrupt(session, "t1")
-        .pipe(Effect.flip, Effect.forkChild);
-      while (!(yield* agy.received).map(methodOf).includes("session/cancel"))
-        yield* Effect.yieldNow;
-      yield* TestClock.adjust("30 seconds");
+it.effect(
+  "interrupt fails after 30 seconds when agy never answers the cancel, and a followup still ends",
+  () =>
+    provide(
+      Effect.gen(function* () {
+        const agy = yield* fakeAgy({
+          rules: [
+            { method: "session/prompt", respond: "none" },
+            prompt([message("Follow-up done.")]),
+          ],
+        });
+        const { session } = yield* agy.connection.open("unit", settings(agy.worktree));
+        yield* agy.connection.startTurn(session, turnOne(agy.worktree));
+        const interrupt = yield* agy.connection
+          .interrupt(session, "t1")
+          .pipe(Effect.flip, Effect.forkChild);
+        while (!(yield* agy.received).map(methodOf).includes("session/cancel"))
+          yield* Effect.yieldNow;
+        yield* TestClock.adjust("30 seconds");
 
-      expect(yield* Fiber.join(interrupt)).toEqual(
-        new RpcRequestTimeout({ method: "session/cancel", timeoutMs: 30_000 }),
-      );
-    }),
-  ),
+        expect(yield* Fiber.join(interrupt)).toEqual(
+          new RpcRequestTimeout({ method: "session/cancel", timeoutMs: 30_000 }),
+        );
+
+        yield* agy.connection.startTurn(session, {
+          ...turnOne(agy.worktree),
+          turn: 2,
+          kind: "followup",
+        });
+        const events = eventsOf(yield* untilCompleted(agy.connection));
+        expect(events.at(-1)).toEqual({
+          _tag: "TurnCompleted",
+          turn: "t2",
+          status: "completed",
+          failure: null,
+          handoff: "Follow-up done.",
+        });
+      }),
+    ),
 );
 
 it.effect("an update with no prompt outstanding carries no events", () =>
@@ -496,8 +577,16 @@ it.effect("agy's fs and terminal requests get method not found", () =>
       });
       const { session } = yield* agy.connection.open("unit", settings(agy.worktree));
       yield* agy.connection.startTurn(session, turnOne(agy.worktree));
-      yield* untilCompleted(agy.connection);
+      const inbounds = yield* untilCompleted(agy.connection);
 
+      expect(inbounds.filter((inbound) => inbound.method === "fs/read_text_file")).toEqual([
+        {
+          session,
+          method: "fs/read_text_file",
+          raw: expect.objectContaining({ id: "r0", method: "fs/read_text_file" }),
+          events: [],
+        },
+      ]);
       expect((yield* agy.received).filter((line) => methodOf(line) === undefined)).toEqual([
         { jsonrpc: "2.0", id: "r0", error: { code: -32601, message: "unsupported method" } },
       ]);
