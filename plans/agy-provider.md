@@ -270,6 +270,7 @@ Depends on: phase 2
 | d | S | src/core/monitor/row.ts, src/core/monitor/detail-facts.ts, src/core/monitor/format.ts, src/tui/list-row.tsx, src/schemas/monitor.ts, src/supervisor/overview.ts, src/core/runs/disk-overview.ts, tests/monitor-provider.test.ts | contracts | | sonnet | merged | deliver/agy-provider-5d | |
 
 Scaffold: dc8b733
+Tag: agy-phase-5
 
 Phase 5 runs alongside phases 3 and 4 on its own phase branch, `deliver/agy-provider-p5`; its lanes branch from and merge into that branch, which merges into the landing branch when green. Scaffold contents: `ModelUnresolved` in src/errors.ts (exit 2, not retryable, optional `candidates: [{provider, model, efforts}]` carried into the `--json` error envelope), the `models` command registered in src/cli.ts calling a stub in src/core/models.ts, stub `routingError`/`nearMisses` in src/providers/routing-errors.ts, and the phase test tests/agent-experience.test.ts through tests/helpers/cli.ts with fixture catalogs (a Codex models_cache.json and a seeded agy models.json cache): `start --model gemini-4-neo` fails exit 2 with the near-miss text and candidates in `--json`, with no daemon contacted; each RFC routing error row's text; `models --json` lists both providers with efforts and defaults, and an unavailable agy with its reason; `doctor --json` reports codex and agy separately, and "agy: not installed" leaves the exit code 0.
 
