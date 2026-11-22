@@ -1,26 +1,15 @@
-/** The caller probes SSH and supplies the launchd socket; this function performs no I/O. */
+import { providerEnvironment, type SshProbe } from "../environment";
+
+const CODEX_CREDENTIALS: ReadonlySet<string> = new Set([
+  "OPENAI_API_KEY",
+  "OPENAI_API_BASE",
+  "CODEX_API_KEY",
+]);
+
+/** The Codex app server's environment; it signs in with the Codex CLI's own login. */
 export function appServerEnvironment(
   inherited: Readonly<Record<string, string | undefined>>,
-  ssh: { alive: boolean; launchdSocket: string | undefined },
+  ssh: SshProbe,
 ): Record<string, string> {
-  const env: Record<string, string> = {};
-  for (const [key, value] of Object.entries(inherited)) {
-    if (
-      value === undefined ||
-      key.startsWith("CLAUDE_") ||
-      key.startsWith("FOREMAN_") ||
-      key === "LOG_LEVEL" ||
-      key === "OPENAI_API_KEY" ||
-      key === "OPENAI_API_BASE" ||
-      key === "CODEX_API_KEY"
-    )
-      continue;
-    env[key] = value;
-  }
-  env.CODEX_DELEGATE = "1";
-  env.STACKS_DELEGATE = "1";
-  if ((!env.SSH_AUTH_SOCK || !ssh.alive) && ssh.launchdSocket !== undefined) {
-    env.SSH_AUTH_SOCK = ssh.launchdSocket;
-  }
-  return env;
+  return providerEnvironment(inherited, ssh, CODEX_CREDENTIALS, { CODEX_DELEGATE: "1" });
 }

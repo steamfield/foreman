@@ -304,6 +304,8 @@ export const DaemonRequestBody = Schema.TaggedUnion({
     setup: Schema.optionalKey(Schema.String),
     contract: Schema.String,
     write: Schema.Boolean,
+    // Omitted for Codex, so a 0.3 daemon still accepts every Codex start.
+    provider: Schema.optionalKey(ProviderId),
     model: Schema.optionalKey(Schema.String),
     effort: Schema.optionalKey(Schema.String),
     tier: Schema.optionalKey(Schema.String),

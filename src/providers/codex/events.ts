@@ -12,7 +12,8 @@ import type { Inbound, ProviderEvent, SessionId, TurnId } from "../contract";
 import type { RpcNotification } from "../jsonrpc";
 import { completedItemEvent, pickHandoff, startedItemKind } from "./events-items";
 
-export { outputTail, pickHandoff } from "./events-items";
+export { outputTail } from "../output-tail";
+export { pickHandoff } from "./events-items";
 
 /** The items a session's current turn has completed so far, oldest first. */
 export interface CodexTurnItems {
