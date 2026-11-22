@@ -47,6 +47,10 @@ async function decide(root: string, tool: string, stdin: unknown): Promise<AgyDe
       out += chunk;
     });
     child.on("error", reject);
+    // A hook may decide and exit before reading its input (the missing-script case does).
+    child.stdin.on("error", (error: NodeJS.ErrnoException) => {
+      if (error.code !== "EPIPE") reject(error);
+    });
     child.on("close", () => resolve(out));
     child.stdin.end(typeof stdin === "string" ? stdin : JSON.stringify(stdin));
   });
