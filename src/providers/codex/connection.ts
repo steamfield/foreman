@@ -12,6 +12,7 @@ import { CodexUnavailable, RepoHooksUntrusted } from "../../errors";
 import * as Codex from "../../schemas/codex";
 import {
   type ProviderConnection,
+  QuestionRefused,
   type SessionId,
   type SessionSettings,
   SteerRefused,
@@ -186,6 +187,9 @@ export const connectCodex = Effect.fn("codex.connect")(function* (options: Conne
       request(Codex.Method.turnInterrupt, { threadId: session, turnId: turn }, Schema.Unknown).pipe(
         Effect.asVoid,
       ),
+    // Codex questions are dynamic tool calls on its own wire; nothing outside asks them.
+    ask: () =>
+      Effect.fail(new QuestionRefused({ reason: "Codex questions arrive from the app server" })),
     hookTrust: (mainCheckout, worktree) =>
       checkTrust(request, mainCheckout, worktree).pipe(Effect.provide(context)),
   };

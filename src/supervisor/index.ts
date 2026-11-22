@@ -21,9 +21,15 @@ import type { ChildProcessSpawner } from "effect/process";
 import { AppConfig } from "../config";
 import { orphanWorktrees } from "../core/managed-worktree";
 import * as Store from "../core/runs/store";
-import { CodexUnavailable, failure, PermissionDenied, RunConflict } from "../errors";
+import { failure, PermissionDenied, RunConflict } from "../errors";
 import { defectTrace } from "../logging";
-import type { Inbound, QuestionCall } from "../providers/contract";
+import {
+  type Inbound,
+  isProviderUnavailable,
+  type ProviderDescriptor,
+  type ProviderId,
+  type QuestionCall,
+} from "../providers/contract";
 import { RpcError, RpcRequestTimeout } from "../providers/jsonrpc";
 import {
   activeStates,
@@ -32,7 +38,7 @@ import {
   providerOf,
 } from "../schemas/daemon";
 import { Host } from "../services/host";
-import { type LiveConnection, makeConnections } from "./connections";
+import { type LiveConnection, makeConnections, makeProviders, type Providers } from "./connections";
 import { detail } from "./detail";
 import { handleNotification } from "./notifications";
 import { overview } from "./overview";
@@ -42,29 +48,33 @@ import { makeRegistry, type Run } from "./registry";
 import { makeTurns } from "./turns";
 import { acceptedCursor, groupFor, wait } from "./wait";
 
+/**
+ * Maps a request's failure to a public error. Provider failures are worded and tagged for
+ * `provider`, the provider of the run the request names.
+ */
 const requestFailure = (
   error: unknown,
   body: DaemonRequestBody,
   home: string,
-  codexBin: string,
+  provider: ProviderDescriptor,
 ) => {
   const run =
     "name" in body && body.name !== undefined
       ? `run data for ${body.name} in ${home}/runs/${body.name}`
       : `run data in ${home}/runs`;
-  if (error instanceof CodexUnavailable && "name" in body && body.name !== undefined) {
-    const detail = error.detail ?? "Codex is unavailable";
-    return new CodexUnavailable({
-      detail: `Run ${body.name}, Codex ${JSON.stringify(codexBin)}: ${detail}${detail.includes("foreman doctor") ? "" : ". Run foreman doctor and inspect the app-server log before retrying."}`,
-    });
+  if (isProviderUnavailable(error) && "name" in body && body.name !== undefined) {
+    const detail = error.detail ?? `${provider.displayName} is unavailable`;
+    return provider.unavailable(
+      `Run ${body.name}, ${provider.displayName} ${JSON.stringify(provider.binary)}: ${detail}${detail.includes("foreman doctor") ? "" : ". Run foreman doctor and inspect the app-server log before retrying."}`,
+    );
   }
   if (error instanceof RpcRequestTimeout)
-    return new CodexUnavailable({
-      detail: `${error.method} timed out after ${error.timeoutMs} ms${"name" in body && body.name !== undefined ? ` for run ${body.name}` : ""}. Run foreman status and foreman doctor before retrying.`,
-    });
+    return provider.unavailable(
+      `${error.method} timed out after ${error.timeoutMs} ms${"name" in body && body.name !== undefined ? ` for run ${body.name}` : ""}. Run foreman status and foreman doctor before retrying.`,
+    );
   if (error instanceof RpcError)
     return new RunConflict({
-      detail: `Codex refused ${body._tag}${"name" in body && body.name !== undefined ? ` for run ${body.name}` : ""}; check the requested model and settings, then run foreman status before retrying.`,
+      detail: `${provider.displayName} refused ${body._tag}${"name" in body && body.name !== undefined ? ` for run ${body.name}` : ""}; check the requested model and settings, then run foreman status before retrying.`,
     });
   if (PlatformError.isPlatformError(error) && error.reason._tag === "PermissionDenied")
     return new PermissionDenied({
@@ -82,23 +92,23 @@ const requestFailure = (
 };
 
 // Transport errors are logged under the provider's own tags, which operators search for.
-// Codex is the only provider whose requests reach this point.
-const TRANSPORT_LOG_TAGS: Readonly<Record<string, string>> = {
-  RpcError: "CodexRpcError",
-  RpcRequestTimeout: "CodexRequestTimeout",
+const TRANSPORT_LOG_TAGS: Readonly<Record<ProviderId, Readonly<Record<string, string>>>> = {
+  codex: { RpcError: "CodexRpcError", RpcRequestTimeout: "CodexRequestTimeout" },
+  agy: { RpcError: "AgyRpcError", RpcRequestTimeout: "AgyRequestTimeout" },
 };
 
-function reasonTagOf(cause: Cause.Cause<unknown>, error: unknown): string {
+function reasonTagOf(cause: Cause.Cause<unknown>, error: unknown, provider: ProviderId): string {
   if (Cause.hasDies(cause)) return "Defect";
   if (!Predicate.hasProperty(error, "_tag") || typeof error._tag !== "string") return "Unknown";
-  return TRANSPORT_LOG_TAGS[error._tag] ?? error._tag;
+  return TRANSPORT_LOG_TAGS[provider][error._tag] ?? error._tag;
 }
 
+/** Logs a failed request once and fails with its public error. */
 const rejectRequest = Effect.fnUntraced(function* (
   body: DaemonRequestBody,
   cause: Cause.Cause<unknown>,
   home: string,
-  codexBin: string,
+  provider: ProviderDescriptor,
 ) {
   if (Cause.hasInterruptsOnly(cause)) return yield* Effect.interrupt;
   const error = cause.reasons.find(Cause.isFailReason)?.error;
@@ -107,14 +117,14 @@ const rejectRequest = Effect.fnUntraced(function* (
     Effect.annotateLogs({
       request: body._tag,
       name: "name" in body ? body.name : null,
-      reasonTag: reasonTagOf(cause, error),
+      reasonTag: reasonTagOf(cause, error, provider.id),
       method: platform?.method ?? null,
       path: platform && "pathOrDescriptor" in platform ? (platform.pathOrDescriptor ?? null) : null,
       ...(Cause.hasDies(cause) ? { trace: defectTrace(Cause.squash(cause)) } : {}),
     }),
   );
   return yield* Effect.fail(
-    Cause.hasDies(cause) ? failure(cause) : requestFailure(error, body, home, codexBin),
+    Cause.hasDies(cause) ? failure(cause) : requestFailure(error, body, home, provider),
   );
 });
 
@@ -124,7 +134,7 @@ const alreadyResolved = (name: string, id: string, state: string | undefined) =>
     detail: `Question ${id} in run ${name} was resolved as ${state}; nothing was sent. Use foreman answer ${name} ${id} "<text>" to send a late answer or correction.`,
   });
 
-const buildSupervisor = Effect.fn("supervisor.build")(function* () {
+const buildSupervisor = Effect.fn("supervisor.build")(function* (providers: Providers) {
   const config = yield* AppConfig;
   const host = yield* Host;
   const context = yield* Effect.context<
@@ -161,9 +171,11 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
       return yield* Effect.logDebug("supervisor.thread.unknown").pipe(
         Effect.annotateLogs({ method: inbound.method }),
       );
+    const provider = yield* connections.describe(connection.provider);
     const facts = {
-      hookEvents: (yield* connections.capabilities(connection.provider)).hookEvents,
-      displayName: yield* connections.displayName(connection.provider),
+      hookEvents: provider.capabilities.hookEvents,
+      displayName: provider.displayName,
+      hookBypassMessage: provider.hookBypassMessage,
     };
     yield* registry.enqueue(
       run,
@@ -192,6 +204,7 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
     registry,
     notification,
     question,
+    providers,
   );
   const questions = yield* makeQuestions(registry);
   const turns = yield* makeTurns(registry, connections, config);
@@ -328,7 +341,7 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
         }
         if (run.record.state === "running") {
           const accepted = yield* acceptedCursor(run);
-          const result = yield* turns.steer(run, message).pipe(Effect.result);
+          const result = yield* turns.steerOrRefuse(run, message).pipe(Effect.result);
           if (result._tag === "Success") {
             yield* questions.record(
               run,
@@ -341,14 +354,8 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
             );
             return { _tag: "Accepted" as const, ...accepted, delivery: "steer" as const };
           }
-          if (
-            !(result.failure instanceof RunConflict) ||
-            !(
-              result.failure.detail?.startsWith("Codex refused the steer") ||
-              result.failure.detail?.startsWith("activeTurnNotSteerable")
-            )
-          )
-            return yield* Effect.fail(result.failure);
+          // A refused steer falls back to a follow-up after the turn.
+          if (result.failure._tag !== "SteerRefused") return yield* Effect.fail(result.failure);
         }
         return { _tag: "FollowupAnswer" as const, message, resolution };
       }),
@@ -525,11 +532,23 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
       }
     }
   });
+  // Start carries no provider until runs are routed by model, so a new run is a Codex run.
+  const requestProvider = (body: DaemonRequestBody): ProviderId => {
+    if (body._tag === "Start" || !("name" in body) || body.name === undefined) return "codex";
+    const run = registry.runs.get(body.name);
+    return run === undefined ? "codex" : providerOf(run.record);
+  };
   return {
     handler: (body: DaemonRequestBody) =>
       Effect.gen(function* () {
         const work = dispatch(body).pipe(
-          Effect.catchCause((cause) => rejectRequest(body, cause, config.home, config.codexBin)),
+          Effect.catchCause((cause) =>
+            providers
+              .describe(requestProvider(body))
+              .pipe(
+                Effect.flatMap((provider) => rejectRequest(body, cause, config.home, provider)),
+              ),
+          ),
           Effect.provide(context),
         );
         if (
@@ -557,9 +576,13 @@ export const makeSupervisor = Effect.fn("supervisor.make")(function* () {
   const context = yield* Effect.context<
     AppConfig | Host | FileSystem.FileSystem | Path.Path | ChildProcessSpawner.ChildProcessSpawner
   >();
+  const host = yield* Host;
+  const providers = yield* makeProviders(config, host.version);
+  // Failures before the supervisor exists can't name a run's provider.
+  const codex = yield* providers.describe("codex");
   const ready = yield* Deferred.make<Effect.Success<ReturnType<typeof buildSupervisor>>, unknown>();
   const initialize = yield* Effect.cached(
-    buildSupervisor().pipe(
+    buildSupervisor(providers).pipe(
       Scope.provide(scope),
       Effect.provide(context),
       Effect.tap((value) => Deferred.succeed(ready, value)),
@@ -570,7 +593,7 @@ export const makeSupervisor = Effect.fn("supervisor.make")(function* () {
     shutdown: Scope.close(scope, Exit.void),
     handler: (body: DaemonRequestBody) =>
       initialize.pipe(
-        Effect.catchCause((cause) => rejectRequest(body, cause, config.home, config.codexBin)),
+        Effect.catchCause((cause) => rejectRequest(body, cause, config.home, codex)),
         Effect.flatMap((value) => value.handler(body)),
       ),
     busy: initialize.pipe(

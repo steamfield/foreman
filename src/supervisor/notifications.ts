@@ -1,7 +1,7 @@
 /**
  * Applies one routed provider message to its run, under the run lock.
  *
- * In order: refresh the activity clock, append the raw message to the run's provider log,
+ * In order: refresh the activity clock, append the raw message (if any) to the run's provider log,
  * enforce the repo hook rule on command starts, record decode warnings and unrecognized
  * messages, adopt the turn of a run in unknown state, drop events of a stale turn, arm the
  * budget, journal the events, then update run state. No wire decoding happens here.
@@ -9,7 +9,6 @@
 import { Clock, Effect } from "effect";
 import { QUIET_AFTER_MS } from "../core/monitor/attention";
 import * as Store from "../core/runs/store";
-import { hookTrustFix } from "../providers/codex/hooks";
 import type { Inbound, ProviderConnection, ProviderEvent, TurnId } from "../providers/contract";
 import { activeStates, providerOf } from "../schemas/daemon";
 import * as LiveState from "./live-state";
@@ -24,6 +23,8 @@ export interface ProviderFacts {
   readonly hookEvents: boolean;
   /** The provider's name in run warnings ("Codex"). */
   readonly displayName: string;
+  /** The run failure when a command started before any project hook ran. */
+  readonly hookBypassMessage: (group: string, worktree: string) => string;
 }
 
 type EventOf<Tag extends ProviderEvent["_tag"]> = Extract<ProviderEvent, { _tag: Tag }>;
@@ -55,12 +56,13 @@ const enforceRepoHooks = Effect.fnUntraced(function* (
   turns: Turns,
   run: Run,
   connection: ProviderConnection,
+  facts: ProviderFacts,
 ) {
   if (!run.hooksRequired || run.projectHook || !activeStates.has(run.record.state)) return;
   yield* turns.interrupt(run, connection, "repo-hooks");
   yield* registry.save(run, {
     failure: {
-      message: `repo hooks did not run in ${run.record.worktree}. Inspect ${run.record.group}/.codex/hooks.json. ${hookTrustFix(run.record.group)}`,
+      message: facts.hookBypassMessage(run.record.group, run.record.worktree),
       codexErrorInfo: null,
     },
   });
@@ -78,7 +80,7 @@ const commandStarts = Effect.fnUntraced(function* (
   if (started.turn !== null)
     yield* adoptStartedTurn(registry, turns, run, connection, started.turn);
   if (started.kind === "command" && facts.hookEvents)
-    yield* enforceRepoHooks(registry, turns, run, connection);
+    yield* enforceRepoHooks(registry, turns, run, connection, facts);
 });
 
 const recordDecodeIssue = Effect.fnUntraced(function* (
@@ -215,7 +217,9 @@ export const handleNotification = Effect.fn("supervisor.notification")(function*
 ) {
   const now = yield* Clock.currentTimeMillis;
   yield* refreshActivity(registry, run, now);
-  yield* Store.appendProviderMessage(run.dir, providerOf(run.record), inbound.raw);
+  // A synthesized message (raw null) has nothing to log.
+  if (inbound.raw !== null)
+    yield* Store.appendProviderMessage(run.dir, providerOf(run.record), inbound.raw);
   const { events } = inbound;
   for (const event of events)
     if (event._tag === "ItemStarted")

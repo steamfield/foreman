@@ -6,10 +6,15 @@
  * (states, budgets, questions, hand-offs, hook enforcement); a provider owns decoding, its own
  * ids and its child process. docs/rfcs/0002-providers.md is the design.
  *
- * Types and one tagged error only: nothing here performs I/O.
+ * Types, internal tagged errors and one predicate only: nothing here performs I/O.
  */
 import { type Cause, Data, type Effect, type Scope, type Stream } from "effect";
-import type { AgyUnavailable, CodexUnavailable, RepoHooksUntrusted } from "../errors";
+import {
+  AgyUnavailable,
+  CodexUnavailable,
+  type PermissionDenied,
+  type RepoHooksUntrusted,
+} from "../errors";
 import type { RunFailure as RunFailureSchema, TokenTotals, TurnKind } from "../schemas/daemon";
 
 type RunFailure = typeof RunFailureSchema.Type;
@@ -26,6 +31,10 @@ export type TurnId = string;
 
 /** The public error a provider's failures surface as (exit code 5). */
 export type ProviderUnavailable = CodexUnavailable | AgyUnavailable;
+
+/** Reports whether an error is any provider's public unavailable error. */
+export const isProviderUnavailable = (error: unknown): error is ProviderUnavailable =>
+  error instanceof CodexUnavailable || error instanceof AgyUnavailable;
 
 /** Static facts about a provider that change what the supervisor and CLI offer. */
 export interface Capabilities {
@@ -83,8 +92,10 @@ export interface SubAgentActivity {
 }
 
 /**
- * What a provider reports. `turn` is the provider turn the event belongs to, or null when it
- * belongs to no turn (agy stamps null on updates that arrive with no prompt outstanding). The
+ * What a provider reports. `turn` is the provider turn the event belongs to. null means the
+ * wire did not name a turn, and the event applies to the run's active one: it is never stale.
+ * An adapter that knows a message belongs to no turn (agy updates that arrive with no prompt
+ * outstanding) emits an Inbound with no events instead, so only the raw log records it. The
  * supervisor drops events for a turn other than the run's active one, and adopts the turn of
  * the first event that names one while a run is `unknown`.
  */
@@ -159,8 +170,13 @@ export interface Inbound {
   readonly session: SessionId | null;
   /** The wire method, for logs. */
   readonly method: string;
-  /** The message as received, appended to the run's raw provider log. */
-  readonly raw: unknown;
+  /**
+   * The message as received, appended to the run's raw provider log. null means there is
+   * nothing to log: the events were synthesized, not received (agy reports TurnStarted this
+   * way, since ACP has no turn-start message).
+   */
+  readonly raw: unknown | null;
+  /** Empty when the message changes nothing beyond the raw log. */
   readonly events: readonly ProviderEvent[];
 }
 
@@ -168,6 +184,24 @@ export interface Inbound {
 export class SteerRefused extends Data.TaggedError("SteerRefused")<{
   readonly reason: string;
 }> {}
+
+/** The run refused a question asked through `ask`; the reason goes back to the agent. */
+export class QuestionRefused extends Data.TaggedError("QuestionRefused")<{
+  readonly reason: string;
+}> {}
+
+/** The supervisor cancelled a question asked through `ask` (interrupt, turn end, budget). */
+export class QuestionCancelled extends Data.TaggedError("QuestionCancelled") {}
+
+/** A question that arrived outside the provider's own wire (agy's MCP bridge). */
+export interface ExternalQuestion {
+  readonly question: string;
+  readonly kind: "question" | "blocked";
+  /** Unique per connection; matches QuestionAbandoned.callId. */
+  readonly callId: string;
+  /** The request as received, appended to the run's raw provider log. */
+  readonly raw: unknown;
+}
 
 /** A held ask_orchestrator call. Answering it releases the agent's tool call. */
 export interface QuestionCall {
@@ -259,6 +293,16 @@ export interface ProviderConnection {
     turn: TurnId,
   ) => Effect.Effect<void, ProviderUnavailable | RpcError | RpcRequestTimeout>;
   /**
+   * Asks the supervisor a question that arrived outside the wire, for the daemon's bridge
+   * handler. Emits a QuestionCall on `questions` and resolves with its outcome: `respond`
+   * succeeds with the answer, `reject` fails with QuestionRefused, `cancel` with
+   * QuestionCancelled. Providers whose questions arrive on their own wire refuse at once.
+   */
+  readonly ask: (
+    session: SessionId,
+    question: ExternalQuestion,
+  ) => Effect.Effect<string, ProviderUnavailable | QuestionRefused | QuestionCancelled>;
+  /**
    * Confirms the worktree's repo hooks will run.
    * @throws {RepoHooksUntrusted} When hooks exist but the provider won't run them.
    */
@@ -271,16 +315,43 @@ export interface ProviderConnection {
   >;
 }
 
-/** A provider: its static facts and how to start a connection. */
-export interface Provider<R = never> {
+/**
+ * What the supervisor knows about a provider without starting it: names, facts and the
+ * provider-specific checks and wording. Providers resolve their own services when built, so
+ * none of these require any.
+ */
+export interface ProviderDescriptor {
   readonly id: ProviderId;
+  /** The provider's name in messages ("Codex"). */
+  readonly displayName: string;
+  /** The configured executable, quoted in unavailable errors. */
+  readonly binary: string;
   readonly capabilities: Capabilities;
   /** The environment for the child and for setup commands, after filtering. */
-  readonly environment: Effect.Effect<Record<string, string>, never, R>;
+  readonly environment: Effect.Effect<Record<string, string>>;
   /** A warning to add to new runs when the installed agent's protocol is unverified. */
-  readonly compatibilityWarning: Effect.Effect<string | null, never, R>;
+  readonly compatibilityWarning: Effect.Effect<string | null>;
+  /** The model a run uses when the start names none. Never fails. */
+  readonly defaultModel: Effect.Effect<string>;
+  /** Builds this provider's public unavailable error (CodexUnavailable or AgyUnavailable). */
+  readonly unavailable: (detail: string) => ProviderUnavailable;
+  /**
+   * Reports whether the repo has hooks this provider loads, so they must be enforced.
+   * @throws {PermissionDenied} When the hooks file's directory can't be inspected.
+   * @throws {RepoHooksUntrusted} When inspecting the hooks file fails for another reason.
+   */
+  readonly hasRepoHooks: (
+    mainCheckout: string,
+    worktree: string,
+  ) => Effect.Effect<boolean, PermissionDenied | RepoHooksUntrusted>;
+  /** The run failure when a command started before any project hook ran. */
+  readonly hookBypassMessage: (group: string, worktree: string) => string;
+}
+
+/** A provider: its descriptor and how to start a connection. */
+export interface Provider extends ProviderDescriptor {
   /** Starts a child and its connection, owned by the given scope. */
   readonly connect: (
     stderr: (line: string) => Effect.Effect<void>,
-  ) => Effect.Effect<ProviderConnection, ProviderUnavailable, Scope.Scope | R>;
+  ) => Effect.Effect<ProviderConnection, ProviderUnavailable, Scope.Scope>;
 }
