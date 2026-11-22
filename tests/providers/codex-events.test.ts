@@ -40,7 +40,13 @@ const agentNotification = completedItems.find((message) =>
 );
 const agentMessage = Schema.decodeUnknownSync(Codex.AgentMessageItem)(agentNotification?.item);
 
-const empty: CodexTurnItems = { items: [] };
+const empty: CodexTurnItems = { turn: null, items: [] };
+
+/** What an undecodable notification of a recognized method yields. */
+const invalid = (method: string): ProviderEvent[] => [
+  { _tag: "DecodeIssue", turn: null, method, issue: "invalid" },
+  { _tag: "Unrecognized", turn: null, method },
+];
 
 function decode(message: RpcNotification, items: CodexTurnItems = empty) {
   return decodeNotification(message, items);
@@ -96,9 +102,9 @@ describe("Codex notification routing", () => {
     "item/commandExecution/outputDelta",
     "turn/moderationMetadata",
     "turn/diff/updated",
-  ])("treats %s as activity", (method) => {
+  ])("treats %s as activity that adopts no turn", (method) => {
     expect(eventsOf({ method, params: { threadId, turnId, delta: "x" } })).toEqual([
-      { _tag: "Activity", turn: turnId },
+      { _tag: "Activity", turn: null },
     ]);
   });
 
@@ -107,7 +113,7 @@ describe("Codex notification routing", () => {
       { _tag: "Unrecognized", turn: null, method: "thread/started" },
     ]);
     expect(eventsOf({ method: "item/deltas", params: { threadId, turnId } })).toEqual([
-      { _tag: "Unrecognized", turn: turnId, method: "item/deltas" },
+      { _tag: "Unrecognized", turn: null, method: "item/deltas" },
     ]);
   });
 });
@@ -154,15 +160,16 @@ describe("Codex turn notifications", () => {
     expect(status("inProgress")).toMatchObject({ status: "completed" });
   });
 
-  it("reports an undecodable turn notification as invalid only", () => {
-    expect(eventsOf({ method: "turn/completed", params: { threadId, turn: {} } })).toEqual([
-      { _tag: "DecodeIssue", turn: null, method: "turn/completed", issue: "invalid" },
-    ]);
+  it("reports an undecodable turn notification as invalid and unrecognized", () => {
+    expect(eventsOf({ method: "turn/completed", params: { threadId, turn: {} } })).toEqual(
+      invalid("turn/completed"),
+    );
   });
 
   it("collects completed items, resets them on turn start and hands off from them", () => {
-    let items = decode(first("turn/started"), { items: [message("stale", "final_answer")] }).items;
-    expect(items).toEqual({ items: [] });
+    const stale = { turn: "old-turn", items: [message("stale", "final_answer")] };
+    let items = decode(first("turn/started"), stale).items;
+    expect(items).toEqual({ turn: turnId, items: [] });
     items = decode(itemCompleted(message("answer", "final_answer")), items).items;
     items = decode(itemCompleted(message("later note", "commentary")), items).items;
     items = decode(itemCompleted({ type: "reasoning", id: "r" }), items).items;
@@ -180,8 +187,38 @@ describe("Codex turn notifications", () => {
     expect(completed.items).toBe(items);
   });
 
+  it("ignores a late item from an interrupted turn when choosing the next hand-off", () => {
+    const params = (id: string) => ({
+      threadId,
+      turn: { id, status: "inProgress", error: null, items: [] },
+    });
+    let items = decode({ method: "turn/started", params: params("turn-a") }).items;
+    items = decode(
+      {
+        method: "turn/completed",
+        params: { ...params("turn-a"), turn: { ...params("turn-a").turn, status: "interrupted" } },
+      },
+      items,
+    ).items;
+    items = decode({ method: "turn/started", params: params("turn-b") }, items).items;
+    const late = {
+      method: "item/completed",
+      params: { threadId, turnId: "turn-a", item: message("late", "final_answer") },
+    };
+    const afterLate = decode(late, items);
+    expect(afterLate.inbound.events).toMatchObject([{ _tag: "AgentMessage", turn: "turn-a" }]);
+    expect(afterLate.items).toEqual({ turn: "turn-b", items: [] });
+    const done = {
+      method: "turn/completed",
+      params: { ...params("turn-b"), turn: { ...params("turn-b").turn, status: "completed" } },
+    };
+    expect(decode(done, afterLate.items).inbound.events).toMatchObject([
+      { turn: "turn-b", handoff: null },
+    ]);
+  });
+
   it("includes the completed turn's own items in the hand-off", () => {
-    const items = { items: [message("earlier", "final_answer")] };
+    const items = { turn: turnId, items: [message("earlier", "final_answer")] };
     const done = turnCompleted({ status: "completed", items: [message("final", "final_answer")] });
     expect(decode(done, items).inbound.events).toMatchObject([{ handoff: "final" }]);
   });
@@ -208,7 +245,7 @@ describe("Codex item notifications", () => {
 
   it("still sees a command start whose item no longer decodes", () => {
     expect(eventsOf(itemStarted({ type: "commandExecution", id: "cmd" }))).toEqual([
-      { _tag: "DecodeIssue", turn: turnId, method: "item/started", issue: "invalid" },
+      ...invalid("item/started"),
       {
         _tag: "ItemStarted",
         turn: turnId,
@@ -220,13 +257,39 @@ describe("Codex item notifications", () => {
     ]);
   });
 
-  it("reports an item start without its envelope as invalid only", () => {
-    expect(
-      eventsOf({
-        method: "item/started",
-        params: { threadId, item: { type: "commandExecution" } },
-      }),
-    ).toEqual([{ _tag: "DecodeIssue", turn: null, method: "item/started", issue: "invalid" }]);
+  it("still sees a command start whose envelope no longer decodes", () => {
+    const withoutId = { threadId, turnId, item: { type: "commandExecution" } };
+    expect(eventsOf({ method: "item/started", params: withoutId })).toEqual([
+      ...invalid("item/started"),
+      {
+        _tag: "ItemStarted",
+        turn: turnId,
+        id: "",
+        kind: "command",
+        type: "commandExecution",
+        command: null,
+      },
+    ]);
+    const withoutTurn = { threadId, item: { type: "commandExecution", id: "cmd" } };
+    expect(eventsOf({ method: "item/started", params: withoutTurn })).toEqual([
+      ...invalid("item/started"),
+      {
+        _tag: "ItemStarted",
+        turn: null,
+        id: "cmd",
+        kind: "command",
+        type: "commandExecution",
+        command: null,
+      },
+    ]);
+  });
+
+  it("reports any other item start without its envelope as invalid only", () => {
+    const params = { threadId, turnId, item: { type: "fileChange" } };
+    expect(eventsOf({ method: "item/started", params })).toEqual(invalid("item/started"));
+    expect(eventsOf({ method: "item/started", params: { threadId } })).toEqual(
+      invalid("item/started"),
+    );
   });
 
   it("maps a recorded completed command", () => {
@@ -333,11 +396,9 @@ describe("Codex item notifications", () => {
   });
 
   it("reports an undecodable completed item as invalid and keeps the items", () => {
-    const items = { items: [message("kept", null)] };
+    const items = { turn: turnId, items: [message("kept", null)] };
     const decoded = decode(itemCompleted({ type: "commandExecution", id: "cmd" }), items);
-    expect(decoded.inbound.events).toEqual([
-      { _tag: "DecodeIssue", turn: turnId, method: "item/completed", issue: "invalid" },
-    ]);
+    expect(decoded.inbound.events).toEqual(invalid("item/completed"));
     expect(decoded.items).toBe(items);
   });
 });
@@ -375,9 +436,9 @@ describe("Codex hook, usage, error and MCP notifications", () => {
   });
 
   it("reports an undecodable hook as invalid", () => {
-    expect(eventsOf({ method: "hook/started", params: { threadId, turnId } })).toEqual([
-      { _tag: "DecodeIssue", turn: turnId, method: "hook/started", issue: "invalid" },
-    ]);
+    expect(eventsOf({ method: "hook/started", params: { threadId, turnId } })).toEqual(
+      invalid("hook/started"),
+    );
   });
 
   it("maps cumulative token totals from the recorded usage notification", () => {
