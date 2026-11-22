@@ -5,24 +5,29 @@
  * docs/rfcs/0002-providers.md "Questions on agy" is the design.
  */
 import { Result, Schema } from "effect";
-import { type AppError, errorTable } from "../errors";
-// The bridge must offer agy exactly the tool Codex gets, so it shares Codex's definition.
-// biome-ignore lint/plugin: the ask_orchestrator tool is shared by both providers, not a Codex wire type.
-import { AskOrchestratorArguments, askOrchestratorTool } from "../schemas/codex";
-import type { QuestionKind } from "../schemas/daemon";
+import { errorTable, RunConflict } from "../errors";
+import {
+  AskOrchestratorArguments,
+  askOrchestratorDefinition,
+  type QuestionKind,
+} from "../schemas/questions";
 
 /** The MCP protocol version the bridge offers when the client names none. */
 export const DEFAULT_MCP_PROTOCOL_VERSION = "2025-06-18";
 
-/** The tool result the model gets when the bridge can't reach the foreman daemon. */
+/** The tool result the model gets when the bridge can't reach or use the foreman daemon. */
 export const ORCHESTRATOR_UNAVAILABLE =
   "The foreman orchestrator is unavailable. Continue without the answer, list the question under Open in your hand-off, and take no irreversible step that depends on it.";
+
+/** The tool result for arguments that don't match the input schema, so the model can retry. */
+export const INVALID_ARGUMENTS = `${askOrchestratorDefinition.name} needs {question: string, kind?: "question" | "blocked"}.`;
 
 const METHOD_NOT_FOUND = -32601;
 const INVALID_PARAMS = -32602;
 
 const RequestId = Schema.Union([Schema.String, Schema.Number]);
-type RequestId = typeof RequestId.Type;
+/** A JSON-RPC request id as the client sent it. */
+export type RequestId = typeof RequestId.Type;
 
 const McpMessage = Schema.fromJsonString(
   Schema.Struct({
@@ -36,10 +41,12 @@ const ToolCallParams = Schema.Struct({
   name: Schema.String,
   arguments: Schema.optionalKey(Schema.Unknown),
 });
+const CancelledParams = Schema.Struct({ requestId: RequestId });
 
 const decodeMessage = Schema.decodeUnknownResult(McpMessage);
 const decodeInitialize = Schema.decodeUnknownResult(InitializeParams);
 const decodeToolCall = Schema.decodeUnknownResult(ToolCallParams);
+const decodeCancelled = Schema.decodeUnknownResult(CancelledParams);
 // Undeclared arguments, such as the `toolSummary` agy adds, are dropped rather than refused.
 const decodeArguments = Schema.decodeUnknownResult(AskOrchestratorArguments);
 
@@ -61,6 +68,7 @@ export type McpStep =
       readonly question: string;
       readonly kind: QuestionKind;
     }
+  | { readonly _tag: "Cancel"; readonly id: RequestId }
   | { readonly _tag: "Ignore" }
   | { readonly _tag: "Malformed"; readonly detail: string };
 
@@ -81,13 +89,8 @@ const failure = (id: RequestId, code: number, message: string): McpResponse => (
   error: { code, message },
 });
 const reply = (response: McpResponse): McpStep => ({ _tag: "Reply", response });
-
-/** The `tools/list` entry for `ask_orchestrator`, with Codex's description and input schema. */
-export const askOrchestratorDefinition = {
-  name: askOrchestratorTool.name,
-  description: askOrchestratorTool.description,
-  inputSchema: askOrchestratorTool.inputSchema,
-};
+const toolText = (id: RequestId, text: string, isError: boolean): McpResponse =>
+  result(id, { content: [{ type: "text", text }], ...(isError ? { isError } : {}) });
 
 function initializeResult(params: unknown, version: string) {
   const decoded = decodeInitialize(params ?? {});
@@ -103,23 +106,17 @@ function toolCallStep(id: RequestId, params: unknown): McpStep {
   const call = decodeToolCall(params);
   if (Result.isFailure(call))
     return reply(failure(id, INVALID_PARAMS, "tools/call needs params {name, arguments}."));
-  if (call.success.name !== askOrchestratorTool.name)
+  if (call.success.name !== askOrchestratorDefinition.name)
     return reply(
       failure(
         id,
         INVALID_PARAMS,
-        `Unknown tool "${call.success.name}"; this server has only ${askOrchestratorTool.name}.`,
+        `Unknown tool "${call.success.name}"; this server has only ${askOrchestratorDefinition.name}.`,
       ),
     );
   const args = decodeArguments(call.success.arguments ?? {});
-  if (Result.isFailure(args))
-    return reply(
-      failure(
-        id,
-        INVALID_PARAMS,
-        `${askOrchestratorTool.name} needs arguments {question: string, kind?: "question" | "blocked"}.`,
-      ),
-    );
+  // Tool input validation is a tool error, not a protocol error (MCP 2025-11-25).
+  if (Result.isFailure(args)) return reply(toolText(id, INVALID_ARGUMENTS, true));
   return {
     _tag: "Ask",
     id,
@@ -128,18 +125,27 @@ function toolCallStep(id: RequestId, params: unknown): McpStep {
   };
 }
 
+function notificationStep(method: string, params: unknown): McpStep {
+  if (method !== "notifications/cancelled") return { _tag: "Ignore" };
+  const cancelled = decodeCancelled(params);
+  return Result.isSuccess(cancelled)
+    ? { _tag: "Cancel", id: cancelled.success.requestId }
+    : { _tag: "Ignore" };
+}
+
 /**
  * Decides what to do with one stdin line: reply at once, forward an `ask_orchestrator` call to
- * the daemon, ignore a notification or response, or report a line that isn't a JSON-RPC message.
- * `version` is foreman's version for `serverInfo`.
+ * the daemon, cancel a held call, ignore a notification or response, or report a line that
+ * isn't a JSON-RPC message. `version` is foreman's version for `serverInfo`.
  */
 export function stepForLine(line: string, version: string): McpStep {
   const decoded = decodeMessage(line);
   if (Result.isFailure(decoded))
     return { _tag: "Malformed", detail: "the line is not a JSON-RPC 2.0 object" };
   const { id, method, params } = decoded.success;
-  // Notifications have no id and responses have no method; neither gets a reply.
-  if (id === undefined || id === null || method === undefined) return { _tag: "Ignore" };
+  // Responses have no method and get no reply.
+  if (method === undefined) return { _tag: "Ignore" };
+  if (id === undefined || id === null) return notificationStep(method, params);
   switch (method) {
     case "initialize":
       return reply(result(id, initializeResult(params, version)));
@@ -155,27 +161,22 @@ export function stepForLine(line: string, version: string): McpStep {
 }
 
 /**
- * Classifies a failed daemon `Ask`: a daemon that can't be reached or can't be used is
- * unavailable; any other tagged error is the run refusing the question, with its detail.
+ * Classifies a failed daemon `Ask`: a `RunConflict` is the run refusing the question, with its
+ * detail; anything else means the orchestrator can't be used for this question.
  */
-export function outcomeForError(error: AppError): AskOutcome {
-  if (error._tag === "DaemonUnavailable" || error._tag === "PermissionDenied")
-    return { _tag: "Unavailable" };
-  const detail = "detail" in error ? error.detail : undefined;
-  return { _tag: "Refused", reason: detail ?? errorTable[error._tag].message };
+export function outcomeForError(error: unknown): AskOutcome {
+  if (!(error instanceof RunConflict)) return { _tag: "Unavailable" };
+  return { _tag: "Refused", reason: error.detail ?? errorTable.RunConflict.message };
 }
 
 /** Builds the `tools/call` response for a settled `Ask`: text, or text flagged `isError`. */
 export function askReply(id: RequestId, outcome: AskOutcome): McpResponse {
   switch (outcome._tag) {
     case "Answered":
-      return result(id, { content: [{ type: "text", text: outcome.text }] });
+      return toolText(id, outcome.text, false);
     case "Refused":
-      return result(id, { content: [{ type: "text", text: outcome.reason }], isError: true });
+      return toolText(id, outcome.reason, true);
     case "Unavailable":
-      return result(id, {
-        content: [{ type: "text", text: ORCHESTRATOR_UNAVAILABLE }],
-        isError: true,
-      });
+      return toolText(id, ORCHESTRATOR_UNAVAILABLE, true);
   }
 }

@@ -2,9 +2,9 @@
  * The hidden `foreman mcp-question --run <name>` command: agy starts it as the session's MCP
  * server. Claude never runs it. It reads JSON-RPC lines from stdin, answers MCP requests on
  * stdout and holds each `ask_orchestrator` call on the daemon's `Ask` request. stdout carries
- * protocol only; diagnostics go through the logger.
+ * protocol only; diagnostics go through the logger and are flushed as they happen.
  */
-import { Effect, Stdio, Stream } from "effect";
+import { Effect, FiberMap, Stdio, Stream } from "effect";
 import { Command, Flag } from "effect/cli";
 import { AppConfig } from "../config";
 import {
@@ -13,10 +13,12 @@ import {
   type McpResponse,
   type McpStep,
   outcomeForError,
+  type RequestId,
   stepForLine,
 } from "../core/mcp-question";
 import { call } from "../daemon/client";
-import { type AppError, detailFor, errorClasses } from "../errors";
+import { detailFor, errorClasses } from "../errors";
+import { Logging } from "../logging";
 import { RunName } from "../schemas/daemon";
 import { Host } from "../services/host";
 import { Invocation } from "../services/invocation";
@@ -24,15 +26,24 @@ import { Output } from "../services/output";
 
 type AskStep = Extract<McpStep, { _tag: "Ask" }>;
 
-const isAppError = (error: unknown): error is AppError =>
-  errorClasses.some((Class) => error instanceof Class);
-
 /** The tag and detail of a failed `Ask`, for the log record. */
 const describeFailure = (error: unknown): string => {
-  if (!isAppError(error)) return String(error);
+  const known = errorClasses.find((Class) => error instanceof Class);
+  if (known === undefined || !(error instanceof known)) return String(error);
   const detail = detailFor(error);
   return detail === undefined ? error._tag : `${error._tag}: ${detail}`;
 };
+
+/**
+ * Logs a warning and writes it out at once: the bridge lives as long as agy's session and may be
+ * killed, so nothing waits for the end-of-command flush.
+ */
+const warnNow = Effect.fnUntraced(function* (message: string, annotations: Record<string, string>) {
+  yield* Effect.logWarning(message).pipe(Effect.annotateLogs(annotations));
+  const logging = yield* Logging;
+  const config = yield* AppConfig;
+  yield* logging.flush(yield* config.logging);
+});
 
 /**
  * Sends one question to the daemon and waits, with no timeout, until the run answers, defers or
@@ -51,61 +62,65 @@ const askDaemon = Effect.fnUntraced(function* (run: RunName, step: AskStep) {
   if (settled._tag === "Success") {
     if (settled.success._tag === "AskAnswer")
       return { _tag: "Answered", text: settled.success.text } satisfies AskOutcome;
-    yield* Effect.logWarning("mcp-question.unexpected-reply").pipe(
-      Effect.annotateLogs({ run, reply: settled.success._tag }),
-    );
+    yield* warnNow("mcp-question.unexpected-reply", { run, reply: settled.success._tag });
     return { _tag: "Unavailable" } satisfies AskOutcome;
   }
-  const error = settled.failure;
-  const outcome: AskOutcome = isAppError(error) ? outcomeForError(error) : { _tag: "Unavailable" };
+  const outcome = outcomeForError(settled.failure);
   if (outcome._tag === "Unavailable")
-    yield* Effect.logWarning("mcp-question.daemon-unavailable").pipe(
-      Effect.annotateLogs({ run, error: describeFailure(error) }),
-    );
+    yield* warnNow("mcp-question.daemon-unavailable", {
+      run,
+      error: describeFailure(settled.failure),
+    });
   return outcome;
 });
 
-/** Turns one stdin line into the response to write, or null when it gets none. */
-const respondTo = Effect.fnUntraced(function* (run: RunName, line: string) {
-  const host = yield* Host;
-  const step = stepForLine(line, host.version);
-  switch (step._tag) {
-    case "Reply":
-      return step.response;
-    case "Ask":
-      return askReply(step.id, yield* askDaemon(run, step));
-    case "Ignore":
-      return null;
-    case "Malformed":
-      yield* Effect.logWarning("mcp-question.malformed-line").pipe(
-        Effect.annotateLogs({ run, detail: step.detail }),
-      );
-      return null;
-  }
-});
-
 /**
- * Serves MCP over stdin and stdout for `run` until stdin closes, then finishes the calls still
- * held. Requests are handled concurrently, so a held question doesn't block a ping.
+ * Serves MCP over stdin and stdout for `run` until stdin closes. Each `ask_orchestrator` call is
+ * held in its own fiber, so a held question doesn't block a ping; `notifications/cancelled` and
+ * the end of stdin interrupt held calls, closing their sockets so the daemon records the
+ * abandon at once.
  */
 const serveQuestions = Effect.fn("mcpQuestion.serve")(function* (run: RunName) {
   const stdio = yield* Stdio.Stdio;
   const output = yield* Output;
-  const write = (response: McpResponse | null) =>
-    response === null ? Effect.void : output.line(JSON.stringify(response));
-  yield* stdio.stdin.pipe(
+  const host = yield* Host;
+  const asks = yield* FiberMap.make<
+    RequestId,
+    void,
+    Effect.Error<ReturnType<typeof output.line>>
+  >();
+  const write = (response: McpResponse) => output.line(JSON.stringify(response));
+  const handle = (line: string) => {
+    const step = stepForLine(line, host.version);
+    switch (step._tag) {
+      case "Reply":
+        return write(step.response);
+      case "Ask":
+        return FiberMap.run(
+          asks,
+          step.id,
+          Effect.flatMap(askDaemon(run, step), (outcome) => write(askReply(step.id, outcome))),
+        ).pipe(Effect.asVoid);
+      case "Cancel":
+        return FiberMap.remove(asks, step.id);
+      case "Ignore":
+        return Effect.void;
+      case "Malformed":
+        return warnNow("mcp-question.malformed-line", { run, detail: step.detail });
+    }
+  };
+  const readStdin = stdio.stdin.pipe(
     // A stdin read failure is unexpected for a pipe agy owns; it surfaces as a defect.
     Stream.orDie,
     Stream.decodeText(),
     Stream.splitLines,
     Stream.filter((line) => line.trim() !== ""),
-    Stream.mapEffect((line) => Effect.flatMap(respondTo(run, line), write), {
-      concurrency: "unbounded",
-      unordered: true,
-    }),
-    Stream.runDrain,
+    Stream.runForEach(handle),
   );
-});
+  // A held call that fails to write its reply ends the bridge with that failure.
+  yield* Effect.raceFirst(readStdin, FiberMap.join(asks));
+  yield* FiberMap.clear(asks);
+}, Effect.scoped);
 
 /** `foreman mcp-question --run <name>`: agy's `ask_orchestrator` MCP server for one run. */
 export const mcpQuestionCommand = Command.make(
