@@ -208,7 +208,7 @@ Depends on: phase 2
 | Lane | Size | Owns files | Reads | Tests | Model | Status | Branch | Done when |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | a | M | src/commands/mcp-question.ts, src/core/mcp-question.ts, src/daemon/client.ts, src/schemas/questions.ts, src/schemas/codex.ts, tests/mcp-question.test.ts | contracts | | opus | merged | deliver/agy-provider-3a | |
-| b | M | src/providers/agy/questions.ts, src/providers/agy/connection.ts, src/providers/agy/live.ts, src/supervisor/questions.ts, src/supervisor/notifications.ts, tests/agy-questions.test.ts, tests/agy-runs.test.ts | contracts | | opus | running | deliver/agy-provider-3b | |
+| b | M | src/providers/agy/questions.ts, src/providers/agy/connection.ts, src/providers/agy/live.ts, src/providers/agy/provider.ts, src/providers/contract.ts, src/supervisor/connections.ts, src/supervisor/index.ts, src/supervisor/turns.ts, src/supervisor/registry.ts, src/supervisor/abandoned-questions.ts, tests/providers/agy-connection.test.ts, src/supervisor/questions.ts, src/supervisor/notifications.ts, tests/agy-questions.test.ts, tests/agy-runs.test.ts | contracts | | opus | merged | deliver/agy-provider-3b | |
 
 Scaffold: 1d264ff
 
