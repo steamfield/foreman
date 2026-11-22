@@ -4,7 +4,8 @@
  * In order: refresh the activity clock, append the raw message (if any) to the run's provider log,
  * enforce the repo hook rule on command starts, record decode warnings and unrecognized
  * messages, adopt the turn of a run in unknown state, drop events of a stale turn, arm the
- * budget, journal the events, then update run state. No wire decoding happens here.
+ * budget, journal the events, then update run state (including cancelling a question whose
+ * call was abandoned). No wire decoding happens here.
  */
 import { Clock, Effect } from "effect";
 import { QUIET_AFTER_MS } from "../core/monitor/attention";
@@ -12,6 +13,7 @@ import * as Store from "../core/runs/store";
 import type { Inbound, ProviderConnection, ProviderEvent, TurnId } from "../providers/contract";
 import { activeStates, providerOf } from "../schemas/daemon";
 import * as LiveState from "./live-state";
+import { abandonQuestion } from "./questions";
 import { checkReadOnlyTurn } from "./read-only-check";
 import type { Registry, Run } from "./registry";
 import { toRunEvents } from "./run-events";
@@ -197,6 +199,8 @@ const applyEvent = Effect.fnUntraced(function* (
     return yield* turnStarted(registry, turns, run, connection, event);
   if (event._tag === "TurnCompleted")
     return yield* turnCompleted(registry, turns, run, connection, event);
+  if (event._tag === "QuestionAbandoned")
+    return yield* abandonQuestion(registry, run, connection.generation, event.callId);
   if (updateLiveState(run, event, now)) yield* registry.wake(run);
 });
 

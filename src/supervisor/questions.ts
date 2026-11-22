@@ -1,14 +1,105 @@
 /**
  * ask_orchestrator questions on a run: holding a provider's question call, answering or
- * deferring it on the connection that delivered it, and recording late answers.
+ * deferring it on the connection that delivered it, recording late answers, and cancelling a
+ * call whose transport ended before an answer.
  */
 import { Clock, DateTime, Effect, Schema } from "effect";
 import * as Store from "../core/runs/store";
 import { RunConflict, RunNotFound } from "../errors";
-import type { QuestionCall } from "../providers/contract";
-import { type AnswerDelivery, QuestionId } from "../schemas/daemon";
+import type { ProviderId, QuestionCall } from "../providers/contract";
+import { type AnswerDelivery, providerOf, QuestionId } from "../schemas/daemon";
 import { deferral } from "./prompts";
 import type { Registry, Run } from "./registry";
+
+/**
+ * How long agy 1.5.14 keeps an ask_orchestrator MCP call open: measured at 180 s, after which
+ * it cancels the call ("context deadline exceeded") and the model carries on.
+ */
+const AGY_HOLD_MS = 180_000;
+/** agy questions are deferred 80 seconds before the hold ends, so the deferral still lands. */
+const AGY_CAP_MS = AGY_HOLD_MS - 80_000;
+
+/**
+ * How long a provider keeps an ask_orchestrator call open, and the question timeout foreman
+ * caps it to, for providers whose hold is shorter than foreman's default timeout.
+ */
+const QUESTION_HOLD: Partial<Record<ProviderId, { holdMs: number; capMs: number }>> = {
+  agy: { holdMs: AGY_HOLD_MS, capMs: AGY_CAP_MS },
+};
+
+/** Why an abandoned question was cancelled, for the log. */
+const ABANDONED = "the agent's tool call ended before an answer";
+
+const seconds = (ms: number) => `${Math.round(ms / 1000)} seconds`;
+
+/**
+ * The question timeout a run's provider can honour, and the run warning when it is shorter than
+ * the requested one. Pure.
+ * @throws Never.
+ */
+export function questionTimeout(
+  provider: ProviderId,
+  requestedMs: number,
+): { readonly timeoutMs: number; readonly warning: string | null } {
+  const hold = QUESTION_HOLD[provider];
+  if (hold === undefined || requestedMs <= hold.capMs)
+    return { timeoutMs: requestedMs, warning: null };
+  return {
+    timeoutMs: hold.capMs,
+    warning: `${provider} holds a question for at most ${seconds(hold.holdMs)}; deferring after ${seconds(hold.capMs)}.`,
+  };
+}
+
+/** The run's question timeout, recording the provider's cap in its warnings once. */
+const effectiveTimeout = Effect.fnUntraced(function* (registry: Registry, run: Run) {
+  const { timeoutMs, warning } = questionTimeout(
+    providerOf(run.record),
+    run.record.questionTimeoutMs,
+  );
+  if (warning !== null && !run.record.warnings.includes(warning))
+    yield* registry.save(run, { warnings: [...run.record.warnings, warning] });
+  return timeoutMs;
+});
+
+/**
+ * Cancels the question whose provider call `callId` (from connection `generation`) ended
+ * before an answer, and moves a waiting run with no other held call back to running. A later
+ * answer to it takes the late-answer path. Called with the run lock held; a call the run no
+ * longer holds changes nothing.
+ * @throws Never beyond the run store's own failures.
+ */
+export const abandonQuestion = Effect.fnUntraced(function* (
+  registry: Registry,
+  run: Run,
+  generation: symbol,
+  callId: string,
+) {
+  const entry = [...run.calls].find(
+    ([, held]) => held.call.callId === callId && held.generation === generation,
+  );
+  if (entry === undefined) return;
+  const [id] = entry;
+  yield* Effect.gen(function* () {
+    run.calls.delete(id);
+    const at = DateTime.makeUnsafe(yield* Clock.currentTimeMillis);
+    yield* registry.question(run, {
+      _tag: "Resolved",
+      id,
+      resolution: "cancelled",
+      text: null,
+      at,
+    });
+    yield* registry.event(run, { _tag: "QuestionResolved", id, resolution: "cancelled" });
+    yield* Effect.logInfo("supervisor.question.abandoned").pipe(
+      Effect.annotateLogs({ name: run.record.name, question: id, reason: ABANDONED }),
+    );
+    if (run.calls.size === 0 && run.record.state === "waiting")
+      yield* registry.state(run, "running");
+  }).pipe(
+    Effect.tapCause((cause) => registry.recover(run, cause)),
+    Effect.uninterruptible,
+  );
+});
 
 /** Builds the question operations over the registry's runs. */
 export const makeQuestions = Effect.fn("supervisor.questions")(function* (registry: Registry) {
@@ -144,7 +235,7 @@ export const makeQuestions = Effect.fn("supervisor.questions")(function* (regist
       question: call.question,
     });
     yield* registry.state(run, "waiting");
-    yield* Effect.sleep(run.record.questionTimeoutMs).pipe(
+    yield* Effect.sleep(yield* effectiveTimeout(registry, run)).pipe(
       Effect.andThen(
         run.lock.withPermits(1)(
           Effect.gen(function* () {
