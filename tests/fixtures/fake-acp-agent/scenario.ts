@@ -12,6 +12,13 @@ import { Schema } from "effect";
 // For each request foreman sends, the fake picks the first unused rule whose `method` matches
 // and whose `when` is a subset of the params. Unlike Codex, an ACP prompt's reply ends the
 // turn, so a rule with `respondAfterSteps` plays its steps first and replies afterwards.
+// A `session/prompt` that arrives while an earlier prompt of the same session is still playing
+// its `respondAfterSteps` rule merges into that turn, as agy does with a prompt sent mid-turn:
+// the fake replies to the earlier prompt at once (before the new prompt's rule starts) with its
+// rule's result and stopReason `end_turn`, the earlier rule's remaining steps still play, and
+// its own reply is skipped. A rule that waits on `awaitRequest: session/prompt` holds the turn
+// open until foreman steers.
+//
 // Requests with no rule get a default: `session/new` and `session/load|resume` reply with a
 // session id, `session/set_config_option` and `session/set_mode` reply `{}`, and anything else
 // gets JSON-RPC error -32601.

@@ -33,6 +33,8 @@ const waits = new Set();
 let mcpServers = [];
 const mcpCalls = new Map();
 const mcpChildren = new Set();
+// session/prompt requests still playing their rule's steps, by request id: {session, rule}.
+const outstandingPrompts = new Map();
 
 function killMcpChildren() {
   for (const child of mcpChildren) child.kill("SIGKILL");
@@ -154,6 +156,17 @@ function defaultResult(method) {
   if (method === "session/set_config_option" || method === "session/set_mode" || method === "session/set_model") return {};
   return undefined;
 }
+// agy merges a prompt sent mid-turn into the turn: the earlier prompt replies end_turn at once,
+// and the later prompt's reply ends the real turn. The earlier rule's steps play on.
+function mergePrompts(session) {
+  for (const [id, prompt] of outstandingPrompts) {
+    if (prompt.session !== session) continue;
+    outstandingPrompts.delete(id);
+    const respond = prompt.rule.respond;
+    const result = typeof respond === "object" && "result" in respond ? substitute(respond.result) : {};
+    write({ id, result: { ...result, stopReason: "end_turn" } });
+  }
+}
 async function reply(message, rule) {
   if (rule.respond === "none") return;
   if (rule.delayMs !== undefined) await delay(rule.delayMs);
@@ -171,6 +184,8 @@ async function receive(line) {
     return;
   }
   if (!message.method || message.id === undefined) return;
+  const promptSession = message.method === "session/prompt" ? Schema.decodeUnknownSync(Params)(message.params ?? {}).sessionId : undefined;
+  if (promptSession !== undefined) mergePrompts(promptSession);
   remember(message.method, message.params);
   const index = scenario.rules.findIndex((rule, index) => (!used.has(index) || rule.repeat) && rule.method === message.method && (!rule.when || subset(rule.when, message.params)));
   const rule = scenario.rules[index];
@@ -182,7 +197,10 @@ async function receive(line) {
   }
   used.add(index);
   if (rule.respondAfterSteps) {
+    if (promptSession !== undefined) outstandingPrompts.set(message.id, { session: promptSession, rule });
     await steps(rule.steps ?? []);
+    // A later prompt merged this one and already replied for it.
+    if (promptSession !== undefined && !outstandingPrompts.delete(message.id)) return;
     await reply(message, rule);
     return;
   }
