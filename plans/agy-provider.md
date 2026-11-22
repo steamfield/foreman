@@ -260,9 +260,9 @@ Depends on: phase 2
 
 | Lane | Size | Owns files | Reads | Tests | Model | Status | Branch | Done when |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| a | M | src/providers/routing.ts, src/providers/routing-errors.ts, src/core/commands.ts, src/commands/models.ts, src/core/models.ts, src/schemas/models.ts, tests/model-routing.test.ts, tests/provider-routing.test.ts | contracts | | opus | running | deliver/agy-provider-5a | |
+| a | M | src/providers/routing.ts, src/providers/routing-errors.ts, src/providers/agy/models.ts, src/providers/agy/catalog.ts, src/providers/codex/catalog.ts, tests/providers/agy-catalog.test.ts, src/core/commands.ts, src/commands/models.ts, src/core/models.ts, src/schemas/models.ts, tests/model-routing.test.ts, tests/provider-routing.test.ts | contracts | | opus | merged | deliver/agy-provider-5a | |
 | b | M | src/core/doctor.ts, src/core/doctor-providers.ts, src/schemas/doctor.ts, src/commands/doctor.ts, src/providers/agy/launch.ts, tests/doctor-providers.test.ts | contracts | | sonnet | merged | deliver/agy-provider-5b | |
-| c | M | src/guide/, scripts/generate-skill.ts, .claude/skills/foreman/, docs/architecture.md, README.md, AGENTS.md, docs/harness.md, .claude/README.md | contracts | | opus | running | deliver/agy-provider-5c | |
+| c | M | src/guide/, src/commands/guide.ts, tests/self-documenting.test.ts, skills/foreman/, scripts/generate-skill.ts, .claude/skills/foreman/, docs/architecture.md, README.md, AGENTS.md, docs/harness.md, .claude/README.md | contracts | | opus | merged | deliver/agy-provider-5c | |
 | d | S | src/core/monitor/row.ts, src/core/monitor/detail-facts.ts, src/core/monitor/format.ts, src/tui/list-row.tsx, src/schemas/monitor.ts, src/supervisor/overview.ts, src/core/runs/disk-overview.ts, tests/monitor-provider.test.ts | contracts | | sonnet | merged | deliver/agy-provider-5d | |
 
 Scaffold: dc8b733
@@ -311,3 +311,4 @@ Phase 5 runs alongside phases 3 and 4 on its own phase branch, `deliver/agy-prov
 - Pre-existing, out of scope: src/core/runs/worktree.ts outsideMayChange parses git status paths without unquoting, so paths with spaces or non-ASCII characters are reported quoted (lane 2/c found it).
 - Phase 3 and 5 scaffolds (1d264ff on the landing branch; dc8b733 on deliver/agy-provider-p5) were drafted by a builder and read before landing. Ask's body uses `name`, not `run`. The bridge runs in tests as `bun tests/fixtures/foreman-cli/entry.ts`. Ownership notes: phase 3 lane b updates tests/agy-runs.test.ts's `mcpServers: []` assertion; phase 3 lane a owns src/daemon/client.ts because the connect-only client still stops a daemon whose build differs, which Ask must never do; phase 5 lane a owns tests/provider-routing.test.ts (its Usage assertions become ModelUnresolved) and src/core/commands.ts.
 - Phase 5 lane a, "listed by both": detect it by reading agy's cached catalog file when Codex lists the model (no agy process, no refresh, no version check); a missing or stale cache means no ambiguity check, so Codex starts never pay for an agy spawn.
+- Phase 3 lane b measured real agy's MCP question hold: after 180 s agy sends notifications/cancelled to the MCP server and continues without the answer. agy question timeouts are capped at 100 s at start, with a run warning.
