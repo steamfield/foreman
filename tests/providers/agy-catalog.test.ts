@@ -188,6 +188,19 @@ describe("readAgyCatalog", () => {
     ),
   );
 
+  it.effect("returns the fetched catalog when the cache can't be written", () =>
+    run(
+      Effect.gen(function* () {
+        const agy = yield* fakeAgy();
+        // The home's parent is a file, so the cache directory can't be created.
+        const unwritable = { ...agy.options(), home: `${agy.dir}/version/home` };
+        const catalog = yield* readAgyCatalog(unwritable);
+        expect(catalog.models).toHaveLength(16);
+        expect(yield* agy.calls()).toBe(1);
+      }),
+    ),
+  );
+
   it.effect("fails with the command and its stderr when agy models fails, caching nothing", () =>
     run(
       Effect.gen(function* () {

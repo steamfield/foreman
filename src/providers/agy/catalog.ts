@@ -180,8 +180,8 @@ const writeCache = Effect.fnUntraced(
 /**
  * Returns the cached catalog, refreshing it when it is missing, older than 24 hours, from
  * another agy version, or `refresh` is set. The cache is written atomically.
- * @throws {AgyUnavailable} When `agy --version` or `agy models` fails or times out, or the
- * cache can't be written.
+ * @throws {AgyUnavailable} When `agy --version` or `agy models` fails or times out. A cache
+ * that can't be written is logged as a warning and the fetched catalog is returned.
  */
 export const readAgyCatalog = Effect.fn("agy.readAgyCatalog")(function* (
   options: ReadAgyCatalogOptions,
@@ -204,7 +204,14 @@ export const readAgyCatalog = Effect.fn("agy.readAgyCatalog")(function* (
     agyVersion,
     models,
   };
-  yield* writeCache(cacheFile, catalog);
+  // The catalog is already in hand; an unwritable cache only costs the next read a refetch.
+  yield* writeCache(cacheFile, catalog).pipe(
+    Effect.catchTag("AgyUnavailable", (error) =>
+      Effect.logWarning("agy.catalog.cache.unwritable").pipe(
+        Effect.annotateLogs({ detail: error.detail ?? "no detail" }),
+      ),
+    ),
+  );
   return catalog;
 });
 
