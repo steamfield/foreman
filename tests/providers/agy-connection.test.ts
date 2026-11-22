@@ -11,7 +11,6 @@ import { AgyUnavailable } from "../../src/errors";
 import { connectAgy } from "../../src/providers/agy/connection";
 import { UNATTENDED_INSTRUCTIONS } from "../../src/providers/agy/launch";
 import type { Inbound, ProviderConnection, ProviderEvent } from "../../src/providers/contract";
-import { RpcRequestTimeout } from "../../src/providers/jsonrpc";
 import {
   type AcpScenario,
   AcpScenario as AcpScenarioSchema,
@@ -536,7 +535,7 @@ it.effect("interrupt cancels the session and the turn ends interrupted", () =>
 );
 
 it.effect(
-  "interrupt fails after 30 seconds when agy never answers the cancel, and a followup still ends",
+  "an interrupt agy never answers ends the turn interrupted after 30 seconds, and a followup still ends",
   () =>
     provide(
       Effect.gen(function* () {
@@ -548,16 +547,23 @@ it.effect(
         });
         const { session } = yield* agy.connection.open("unit", settings(agy.worktree));
         yield* agy.connection.startTurn(session, turnOne(agy.worktree));
-        const interrupt = yield* agy.connection
-          .interrupt(session, "t1")
-          .pipe(Effect.flip, Effect.forkChild);
+        const interrupt = yield* agy.connection.interrupt(session, "t1").pipe(Effect.forkChild);
         while (!(yield* agy.received).map(methodOf).includes("session/cancel"))
           yield* Effect.yieldNow;
         yield* TestClock.adjust("30 seconds");
 
-        expect(yield* Fiber.join(interrupt)).toEqual(
-          new RpcRequestTimeout({ method: "session/cancel", timeoutMs: 30_000 }),
-        );
+        // Abandoning the prompt is definite, so the interrupt succeeds and the turn ends.
+        yield* Fiber.join(interrupt);
+        expect(eventsOf(yield* untilCompleted(agy.connection)).at(-1)).toEqual({
+          _tag: "TurnCompleted",
+          turn: "t1",
+          status: "interrupted",
+          failure: {
+            message: "agy did not confirm the cancel within 30 seconds; its prompt was abandoned",
+            codexErrorInfo: null,
+          },
+          handoff: null,
+        });
 
         yield* agy.connection.startTurn(session, {
           ...turnOne(agy.worktree),
