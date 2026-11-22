@@ -108,6 +108,7 @@ Test cases (owned and written by the lanes, from the lists in each brief).
 Demo: `bun run check` passes with the behavior tests unchanged (RFC Testing section); `FOREMAN_SMOKE=1 bun run smoke` passes against real Codex.
 Depends on: phase 0
 Scaffold: 53eadd802dce5f0d9a12aa323f0a173623de7935
+Tag: agy-phase-1
 
 | Lane | Size | Owns files | Reads | Tests | Model | Status | Branch | Done when |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -230,3 +231,4 @@ Depends on: phase 2
 - Phase 1 real-Codex smoke: 19 pass, 2 fail, both from the installed Codex 0.171.0 against the 0.169.0 pin (version check, and the resume test's unverified-protocol warning). Resume, write access and hand-off behaved correctly. The pin bump runs as its own branch (deliver/agy-provider-codexpin) before the tag.
 - Phase 1 boundary review: 5 findings, all verified against the code and accepted: provider-neutral request failures and steer-fallback by tag, not text; hasRepoHooks/hook-bypass message/default model behind the provider plus a lint rule keeping supervisor off providers/codex; null turn means "unnamed, applies to active" and no-turn messages carry no events; a provider-neutral `ask` for bridge questions; Inbound.raw nullable. Fixed on deliver/agy-provider-1fix.
 - Codex pin 0.171.0 merged (c0cab8c): no used method or field changed incompatibly; the full real-Codex smoke suite passed on that branch (21 pass, 0 fail).
+- Phase 1 tagged agy-phase-1: a `phase-1` tag from an earlier, unrelated run already exists, so this plan's later tags carry the `agy-` prefix.
