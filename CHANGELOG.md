@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- foreman now checks the Codex protocol against Codex 0.171.0 instead of 0.169.0, so `doctor` and new runs stop warning about a protocol mismatch on 0.171.0. Install it with `npm i -g @openai/codex@0.171.0`; on 0.169.0 you now see that warning instead.
+
 ## [0.3.1] - 2026-11-17
 
 ### Changed
