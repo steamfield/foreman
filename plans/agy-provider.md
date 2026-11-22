@@ -263,7 +263,7 @@ Depends on: phase 2
 | a | M | src/providers/routing.ts, src/providers/routing-errors.ts, src/core/commands.ts, src/commands/models.ts, src/core/models.ts, src/schemas/models.ts, tests/model-routing.test.ts, tests/provider-routing.test.ts | contracts | | opus | running | deliver/agy-provider-5a | |
 | b | M | src/core/doctor.ts, src/core/doctor-providers.ts, src/schemas/doctor.ts, src/commands/doctor.ts, src/providers/agy/launch.ts, tests/doctor-providers.test.ts | contracts | | sonnet | merged | deliver/agy-provider-5b | |
 | c | M | src/guide/, scripts/generate-skill.ts, .claude/skills/foreman/, docs/architecture.md, README.md, AGENTS.md, docs/harness.md, .claude/README.md | contracts | | opus | running | deliver/agy-provider-5c | |
-| d | S | src/core/monitor/row.ts, src/core/monitor/detail-facts.ts, tests/monitor-provider.test.ts | contracts | | sonnet | running | deliver/agy-provider-5d | |
+| d | S | src/core/monitor/row.ts, src/core/monitor/detail-facts.ts, src/core/monitor/format.ts, src/tui/list-row.tsx, src/schemas/monitor.ts, src/supervisor/overview.ts, src/core/runs/disk-overview.ts, tests/monitor-provider.test.ts | contracts | | sonnet | merged | deliver/agy-provider-5d | |
 
 Scaffold: dc8b733
 
