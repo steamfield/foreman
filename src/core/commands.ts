@@ -26,6 +26,7 @@ const request = Effect.fn("commands.request")(function* (
   return yield* call(body, {
     dataDir: config.home,
     codexBin: config.codexBin,
+    agyBin: config.agyBin,
     codexHome: config.codexHome,
     logFile: (yield* config.logging).file,
     onOutdated:

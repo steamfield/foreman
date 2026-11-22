@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { InterruptedBy, makeDetailSchema, Overview } from "./monitor";
+import { ProviderId } from "./provider";
 
 // Shapes shared by the foreman CLI, the daemon and the run store: run state on disk, the
 // normalized event log, the digest, and the socket protocol. docs/rfcs/0001-foreman.md is the
@@ -46,10 +47,11 @@ export const TurnKind = Schema.Literals(["start", "followup", "handoff"]);
 export type TurnKind = typeof TurnKind.Type;
 export { InterruptedBy };
 
-// Unversioned storage is version 1. Question/event writers use version 2.
+// Unversioned storage is version 1. Question/event writers use version 2. A run.json for a
+// non-Codex provider is version 3, so binaries that predate providers refuse it.
 // Socket peers negotiate builds; incompatible busy daemons refuse new question commands.
 export const StorageHeader = Schema.Struct({
-  formatVersion: Schema.optionalKey(Schema.Literals([1, 2])),
+  formatVersion: Schema.optionalKey(Schema.Literals([1, 2, 3])),
 });
 
 export const QuestionResolution = Schema.Literals([
@@ -100,6 +102,8 @@ export const SkippedRun = Schema.Struct({
 export const RunRecord = Schema.Struct({
   name: RunName,
   threadId: Schema.NullOr(Schema.String),
+  // Absent means Codex: every run written before providers existed.
+  provider: Schema.optionalKey(ProviderId),
   // The main checkout of the worktree; status and wait --all cover one group.
   group: Schema.String,
   worktree: Schema.String,
@@ -139,9 +143,18 @@ export const RunRecord = Schema.Struct({
 });
 export type RunRecord = typeof RunRecord.Type;
 
+/** The provider that drives a run; a record without the field is a Codex run. */
+export const providerOf = (record: { readonly provider?: ProviderId }): ProviderId =>
+  record.provider ?? "codex";
+
 // runs/<name>/events.jsonl: one RunEvent per line.
 export const RunEventBody = Schema.TaggedUnion({
   Resumed: { sandbox: Schema.String, model: Schema.String },
+  Permission: {
+    kind: Schema.String,
+    title: Schema.String,
+    decision: Schema.Literals(["approved", "rejected"]),
+  },
   TurnStarted: { turn: Schema.Int, kind: TurnKind },
   TurnCompleted: {
     turn: Schema.Int,
@@ -228,6 +241,7 @@ export const PendingQuestion = Schema.Struct({
 
 export const Digest = Schema.Struct({
   name: RunName,
+  provider: Schema.optionalKey(ProviderId),
   state: RunState,
   elapsedMs: Schema.Int,
   model: Schema.String,
@@ -382,6 +396,7 @@ export const DaemonResult = Schema.TaggedUnion({
     pid: Schema.Int,
     build: Schema.optionalKey(Schema.String),
     codexBin: Schema.optionalKey(Schema.String),
+    agyBin: Schema.optionalKey(Schema.String),
     codexHome: Schema.optionalKey(Schema.String),
   },
   Started: {
