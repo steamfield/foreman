@@ -3,7 +3,7 @@
 // agy here is a shell wrapper that answers `--version` and `models` itself and hands `acp` to
 // the fake ACP agent, which answers initialize.
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { NodeServices, NodeSocket, NodeSocketServer } from "@effect/platform-node";
 import { describe, expect, it } from "@effect/vitest";
@@ -43,16 +43,16 @@ interface AgyFixture {
   readonly received: () => Promise<string>;
 }
 
-/** A home, a fake agy wrapper (signed in unless `signedIn` is false) and the env pointing at it. */
-async function agyFixture(options: { signedIn?: boolean; protocol?: number } = {}) {
+/** A home, a fake agy wrapper (`agy models` succeeds unless `modelsError` is set) and the env pointing at it. */
+async function agyFixture(options: { modelsError?: string; protocol?: number } = {}) {
   const root = await tempDir();
   await mkdir(join(root, "codex"), { recursive: true });
   const scenario = join(root, "scenario.json");
   await writeFile(scenario, JSON.stringify({ rules: [] }));
   const listing = MODELS.map((id) => `${id}\\t${id}`).join("\\n");
   const modelsCase =
-    options.signedIn === false
-      ? "  models) echo 'not signed in' >&2; exit 1 ;;"
+    options.modelsError !== undefined
+      ? `  models) echo '${options.modelsError}' >&2; exit 1 ;;`
       : `  models) printf '${listing}\\n' ;;`;
   const agy = join(root, "agy");
   await writeFile(
@@ -88,14 +88,16 @@ async function agyFixture(options: { signedIn?: boolean; protocol?: number } = {
 const doctorWith = (env: Record<string, string>, cwd: string) =>
   doctor(cwd).pipe(Effect.provide(AppConfig.layer(env).pipe(Layer.provideMerge(platform))));
 
-/** A git repo whose only committed hooks are Codex's. */
-const codexOnlyHooksRepo = Effect.fnUntraced(function* (root: string) {
+/** A git repo with `hookFiles` (paths relative to the root, each holding `{}`) committed. */
+const repoWithHooks = Effect.fnUntraced(function* (root: string, hookFiles: readonly string[]) {
   const repo = join(root, "repo");
-  yield* Effect.promise(() => mkdir(join(repo, ".codex"), { recursive: true }));
-  yield* Effect.promise(() => writeFile(join(repo, ".codex", "hooks.json"), '{"hooks":{}}\n'));
+  for (const file of hookFiles) {
+    yield* Effect.promise(() => mkdir(dirname(join(repo, file)), { recursive: true }));
+    yield* Effect.promise(() => writeFile(join(repo, file), "{}\n"));
+  }
   const git = (...args: string[]) => commandResult(ChildProcess.make("git", args, { cwd: repo }));
   yield* git("init", "-q");
-  yield* git("add", ".codex/hooks.json");
+  yield* git("add", ...hookFiles);
   yield* git("-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "-qm", "hooks");
   return repo;
 }, Effect.provide(NodeServices.layer));
@@ -140,7 +142,9 @@ describe("doctor: agy", () => {
 
   it.live("reports a signed-out agy and still checks the protocol", () =>
     Effect.gen(function* () {
-      const fixture = yield* Effect.promise(() => agyFixture({ signedIn: false }));
+      const fixture = yield* Effect.promise(() =>
+        agyFixture({ modelsError: "auth_required: sign in" }),
+      );
       const result = yield* doctorWith(fixture.env, fixture.root);
       expect(result.agy).toMatchObject({
         installed: true,
@@ -148,7 +152,7 @@ describe("doctor: agy", () => {
         protocolMatches: true,
         catalogSize: null,
       });
-      expect(result.agy.findings).toEqual([expect.stringContaining("Could not list agy models")]);
+      expect(result.agy.findings).toEqual([expect.stringContaining("agy isn't signed in")]);
     }),
   );
 
@@ -156,7 +160,7 @@ describe("doctor: agy", () => {
     Effect.gen(function* () {
       const fixture = yield* Effect.promise(() => agyFixture({ protocol: 2 }));
       const result = yield* doctorWith(fixture.env, fixture.root);
-      expect(result.agy.protocolMatches).toBeNull();
+      expect(result.agy.protocolMatches).toBe(false);
       expect(result.agy.findings).toEqual([expect.stringContaining("ACP protocol 2")]);
     }),
   );
@@ -164,10 +168,33 @@ describe("doctor: agy", () => {
   it.live("shows the Codex-only hooks refusal for the current repo", () =>
     Effect.gen(function* () {
       const fixture = yield* Effect.promise(() => agyFixture());
-      const repo = yield* codexOnlyHooksRepo(fixture.root);
+      const repo = yield* repoWithHooks(fixture.root, [".codex/hooks.json"]);
       const result = yield* doctorWith(fixture.env, repo);
       expect(result.agy.hookTrust).toBe("refused");
       expect(result.agy.findings).toEqual([expect.stringContaining(".agents/hooks.json")]);
+    }),
+  );
+
+  it.live("accepts hooks when doctor runs from a subdirectory of the repo", () =>
+    Effect.gen(function* () {
+      const fixture = yield* Effect.promise(() => agyFixture());
+      const repo = yield* repoWithHooks(fixture.root, [".codex/hooks.json", ".agents/hooks.json"]);
+      const subdirectory = join(repo, "packages", "app");
+      yield* Effect.promise(() => mkdir(subdirectory, { recursive: true }));
+      const result = yield* doctorWith(fixture.env, subdirectory);
+      expect(result.agy.hookTrust).toBe("accepted");
+      expect(result.agy.findings).toEqual([]);
+    }),
+  );
+
+  it.live("does not call agy signed out when `agy models` fails for another reason", () =>
+    Effect.gen(function* () {
+      const fixture = yield* Effect.promise(() => agyFixture({ modelsError: "network down" }));
+      const result = yield* doctorWith(fixture.env, fixture.root);
+      expect(result.agy).toMatchObject({ signedIn: null, catalogSize: null });
+      expect(result.agy.findings).toEqual([
+        expect.stringContaining("Could not confirm agy's sign-in"),
+      ]);
     }),
   );
 });

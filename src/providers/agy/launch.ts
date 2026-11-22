@@ -27,6 +27,17 @@ export const mismatchDetail = (method: string) =>
 export const replyMismatch = (method: string) =>
   new AgyUnavailable({ detail: mismatchDetail(method) });
 
+// The errors launchAgy raised for an agy speaking another ACP protocol. They stay plain
+// AgyUnavailable values (same shape and wording); this set is how callers tell them apart.
+const protocolMismatches = new WeakSet<AgyUnavailable>();
+
+/**
+ * Whether a launchAgy failure is an agy that answered initialize with another ACP protocol.
+ * @throws Never.
+ */
+export const isProtocolMismatch = (error: unknown): boolean =>
+  error instanceof AgyUnavailable && protocolMismatches.has(error);
+
 /** Settings for one `agy acp` child. */
 export interface AgyLaunchOptions {
   readonly agyBin: string;
@@ -79,9 +90,11 @@ const initialize = Effect.fnUntraced(function* (channel: AgyChannel, version: st
       ),
     );
   if (reply.protocolVersion !== ACP_PROTOCOL_VERSION) {
-    return yield* new AgyUnavailable({
+    const mismatch = new AgyUnavailable({
       detail: `agy speaks ACP protocol ${reply.protocolVersion}; foreman supports ${ACP_PROTOCOL_VERSION}. Install agy 1.5.14 or a compatible version, then run foreman doctor.`,
     });
+    protocolMismatches.add(mismatch);
+    return yield* mismatch;
   }
   return reply.agentInfo?.version ?? null;
 });

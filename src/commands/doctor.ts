@@ -80,9 +80,9 @@ export const doctorCommand = Command.make(
   }),
 ).pipe(
   Command.withDescription(
-    "Inspect config, executable identity, Codex login/protocol, repo hook trust, home permissions, orphan worktrees and daemon build. Works in any directory and run state, without starting a turn or starting or replacing a daemon. Read every probe even on exit 0; unavailable probes and invalid configuration are reported in the result. Never approves hooks or changes trust/auth. Exits 0 with the probe report, 2 for usage, 6 when output is refused, 130 when interrupted, 1 on an internal error.",
+    "Inspect config, executable identity, Codex login/protocol, agy install, sign-in, protocol, hook trust and model count (a missing agy is reported as `agy: not installed`, not a failure), repo hook trust, home permissions, orphan worktrees and daemon build. Works in any directory and run state, without starting a turn or starting or replacing a daemon. Read every probe even on exit 0; unavailable probes and invalid configuration are reported in the result. Never approves hooks or changes trust/auth. Exits 0 with the probe report, 2 for usage, 6 when output is refused, 130 when interrupted, 1 on an internal error.",
   ),
-  Command.withShortDescription("Inspect config, Codex, repo hook trust and daemon state."),
+  Command.withShortDescription("Inspect config, Codex, agy, repo hook trust and daemon state."),
   Command.withExamples([
     { command: "foreman doctor", description: "Check setup and hook trust from the main checkout" },
     {

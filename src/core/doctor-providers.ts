@@ -7,15 +7,14 @@
 import { Clock, Effect, FileSystem } from "effect";
 import { ChildProcess } from "effect/process";
 import type { AppConfig } from "../config";
-import { errorText } from "../errors";
+import { errorText, WorktreeInvalid } from "../errors";
 import { readAgyCatalog } from "../providers/agy/catalog";
 import { agyEnvironment } from "../providers/agy/environment";
 import { agyHookTrust } from "../providers/agy/hooks";
-import { launchAgy } from "../providers/agy/launch";
+import { isProtocolMismatch, launchAgy, mentionsAuth } from "../providers/agy/launch";
 import { supportedAgy, versionWarning } from "../providers/agy/provider";
 import type { AgyDoctor } from "../schemas/doctor";
 import { mainCheckout as discoverMainCheckout } from "./main-checkout";
-import { probeSsh } from "./preflight/ssh";
 import { commandResult } from "./process";
 
 // agy's first start can take a few seconds (keyring, network), so its probes get longer than
@@ -52,9 +51,21 @@ export function agyNotInstalled(agyBin: string): typeof AgyDoctor.Type {
   };
 }
 
+/** The result for an agy that is installed but didn't answer `agy --version` in time. */
+function agyUnresponsive(agyBin: string): typeof AgyDoctor.Type {
+  return {
+    ...agyNotInstalled(agyBin),
+    installed: true,
+    hookTrust: "unknown",
+    findings: [
+      `agy --version did not finish within 20 seconds, so no other agy check ran. Run \`${agyBin} --version\` yourself to see why, then run foreman doctor.`,
+    ],
+  };
+}
+
 /**
- * Runs `agy --version`. A spawn failure means agy is not installed; a timeout or non-zero
- * exit leaves agy installed with an unknown version.
+ * Runs `agy --version`. A spawn failure means agy is not installed; a timeout means it hangs;
+ * a non-zero exit leaves agy installed with an unknown version.
  */
 const probeExecutable = Effect.fnUntraced(function* (agyBin: string, env: AgyEnvironment) {
   return yield* commandResult(
@@ -62,14 +73,28 @@ const probeExecutable = Effect.fnUntraced(function* (agyBin: string, env: AgyEnv
   ).pipe(
     Effect.timeout(AGY_PROBE_TIMEOUT),
     Effect.map((result) => ({
-      installed: true,
+      state: "installed" as const,
       version: result.code === 0 ? result.stdout.trim() || null : null,
     })),
     Effect.catch((error) =>
-      Effect.succeed({ installed: error._tag === "TimeoutError", version: null }),
+      Effect.succeed({
+        state: error._tag === "TimeoutError" ? ("unresponsive" as const) : ("missing" as const),
+        version: null,
+      }),
     ),
   );
 });
+
+/** The finding and sign-in value for a failed `agy models`; only an auth failure is "signed out". */
+function signInFailure(detail: string): Checked<{ signedIn: false | null; catalogSize: null }> {
+  const signedOut = mentionsAuth(detail);
+  return {
+    value: { signedIn: signedOut ? false : null, catalogSize: null },
+    finding: signedOut
+      ? `agy isn't signed in. Run agy once and sign in, then run foreman doctor. (${detail})`
+      : `Could not confirm agy's sign-in because \`agy models\` failed. ${detail}`,
+  };
+}
 
 /** Sign-in and catalog size from `agy models`, which creates no conversation. */
 const probeSignIn = Effect.fnUntraced(function* (settings: Settings, env: AgyEnvironment) {
@@ -89,13 +114,13 @@ const probeSignIn = Effect.fnUntraced(function* (settings: Settings, env: AgyEnv
       }),
     ),
     Effect.catch((error) =>
-      Effect.succeed({
-        value: { signedIn: error._tag === "TimeoutError" ? null : false, catalogSize: null },
-        finding:
+      Effect.succeed(
+        signInFailure(
           error._tag === "TimeoutError"
-            ? "agy models did not finish within 20 seconds. Run `agy models` yourself to see why, then run foreman doctor."
-            : `Could not list agy models, so sign-in is unconfirmed. ${error.detail ?? errorText(error)}`,
-      }),
+            ? "`agy models` did not finish within 20 seconds. Run it yourself to see why."
+            : (error.detail ?? errorText(error)),
+        ),
+      ),
     ),
   );
 });
@@ -123,7 +148,10 @@ const probeProtocol = Effect.fnUntraced(function* (
     ),
     Effect.catch((error) =>
       Effect.succeed({
-        value: { matches: null, agentVersion: null },
+        value: {
+          matches: isProtocolMismatch(error) ? false : null,
+          agentVersion: null,
+        },
         finding:
           error._tag === "TimeoutError"
             ? `agy acp did not answer initialize within 20 seconds. Check the agy version (foreman supports ${supportedAgy.version}), then run foreman doctor.`
@@ -138,13 +166,25 @@ const hookCheck = (value: HookTrust, finding: string | null): Checked<HookTrust>
   finding,
 });
 
+/** The real path of the worktree root containing `cwd`, which is where agy loads hooks from. */
+const worktreeRoot = Effect.fnUntraced(function* (cwd: string) {
+  const fs = yield* FileSystem.FileSystem;
+  const result = yield* commandResult(
+    ChildProcess.make("git", ["rev-parse", "--show-toplevel"], { cwd, env: { LC_ALL: "C" } }),
+  );
+  if (result.code !== 0)
+    return yield* new WorktreeInvalid({
+      detail: `git rev-parse --show-toplevel exited ${result.code} in ${cwd}. Check Git and repository permissions, then run foreman doctor.`,
+    });
+  return yield* fs.realPath(result.stdout.trim());
+});
+
 /** Whether agy's hooks in the current repo would let a start proceed. */
 const probeHookTrust = Effect.fnUntraced(function* (cwd: string) {
-  const fs = yield* FileSystem.FileSystem;
   return yield* Effect.gen(function* () {
     const mainCheckout = yield* discoverMainCheckout(cwd);
     if (mainCheckout === null) return hookCheck("not applicable", null);
-    yield* agyHookTrust(mainCheckout, yield* fs.realPath(cwd));
+    yield* agyHookTrust(mainCheckout, yield* worktreeRoot(cwd));
     return hookCheck("accepted", null);
   }).pipe(
     Effect.timeout(AGY_PROBE_TIMEOUT),
@@ -170,15 +210,22 @@ export const agyDoctor = Effect.fn("doctor.agy")(function* (
   foremanVersion: string,
   cwd: string,
 ) {
-  const ssh = yield* probeSsh(settings.inheritedEnvironment).pipe(
-    Effect.orElseSucceed(() => ({ alive: false, launchdSocket: undefined })),
-  );
-  const env = agyEnvironment(settings.inheritedEnvironment, ssh);
+  // agy models and acp initialize need no SSH agent, so skip the probe, as Codex doctor does.
+  const env = agyEnvironment(settings.inheritedEnvironment, {
+    alive: true,
+    launchdSocket: undefined,
+  });
   const executable = yield* probeExecutable(settings.agyBin, env);
-  if (!executable.installed) return agyNotInstalled(settings.agyBin);
-  const signIn = yield* probeSignIn(settings, env);
-  const protocol = yield* probeProtocol(settings, env, foremanVersion);
-  const hooks = yield* probeHookTrust(cwd);
+  if (executable.state === "missing") return agyNotInstalled(settings.agyBin);
+  if (executable.state === "unresponsive") return agyUnresponsive(settings.agyBin);
+  const { signIn, protocol, hooks } = yield* Effect.all(
+    {
+      signIn: probeSignIn(settings, env),
+      protocol: probeProtocol(settings, env, foremanVersion),
+      hooks: probeHookTrust(cwd),
+    },
+    { concurrency: "unbounded" },
+  );
   return {
     installed: true,
     bin: settings.agyBin,
