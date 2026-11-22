@@ -1,5 +1,6 @@
-// Model routing (docs/rfcs/0002-providers.md "Model routing and its errors"): the rules against
-// fixture catalogs, the CLI sending the routed start, and the outdated-daemon refusal.
+// Model routing through the CLI (docs/rfcs/0002-providers.md "Model routing and its errors"):
+// the routed start sent to the daemon, refusals before it is contacted, and the outdated-daemon
+// refusal. The rules themselves are in tests/model-routing.test.ts.
 import { access, chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { NodeServices } from "@effect/platform-node";
@@ -8,308 +9,10 @@ import { Deferred, Effect, Fiber, Layer, ManagedRuntime, Schema } from "effect";
 import { onTestFinished } from "vitest";
 import { call } from "../src/daemon/client";
 import { daemon } from "../src/daemon/server";
-import { AgyUnavailable, errorEnvelope, RunConflict, Usage } from "../src/errors";
-import type { AgyCatalog } from "../src/providers/agy/catalog";
-import { type ModelCatalogs, type ModelRequest, resolveModel } from "../src/providers/routing";
+import { errorEnvelope, ModelUnresolved, RunConflict } from "../src/errors";
 import { type DaemonRequestBody, RunName } from "../src/schemas/daemon";
 import { Host } from "../src/services/host";
 import { listeningSockets, ndjson, runCli } from "./helpers/cli";
-
-const agyCatalog: AgyCatalog = {
-  fetchedAt: "2026-11-22T00:00:00.000Z",
-  agyVersion: "1.5.14",
-  models: [
-    {
-      id: "gemini-4-neon-low",
-      family: "gemini-4-neon",
-      effort: "low",
-      name: "Gemini 4 Neon (Low)",
-    },
-    {
-      id: "gemini-4-neon-high",
-      family: "gemini-4-neon",
-      effort: "high",
-      name: "Gemini 4 Neon (High)",
-    },
-    {
-      id: "gemini-4-neon-medium",
-      family: "gemini-4-neon",
-      effort: "medium",
-      name: "Gemini 4 Neon (Medium)",
-    },
-    {
-      id: "gemini-4-neon-xhigh",
-      family: "gemini-4-neon",
-      effort: "xhigh",
-      name: "Gemini 4 Neon (XHigh)",
-    },
-    {
-      id: "gemini-3.8-flash-low",
-      family: "gemini-3.8-flash",
-      effort: "low",
-      name: "Gemini 3.8 Flash (Low)",
-    },
-    {
-      id: "gemini-3.8-flash-medium",
-      family: "gemini-3.8-flash",
-      effort: "medium",
-      name: "Gemini 3.8 Flash (Medium)",
-    },
-    { id: "claude-opus-5-5", family: "claude-opus-5-5", effort: null, name: "Claude Opus 5.5" },
-    {
-      id: "gpt-oss-120b-medium",
-      family: "gpt-oss-120b-medium",
-      effort: "medium",
-      name: "GPT-OSS 120B (Medium)",
-    },
-  ],
-};
-const codexModels = ["gpt-6.1-sol", "gpt-6.1-sol-mini"];
-
-const unreadAgy = Effect.die(new Error("agy's catalog must not be read for this model"));
-const catalogs = (
-  listed: readonly string[] = codexModels,
-  agy: ModelCatalogs["agy"] = Effect.succeed(agyCatalog),
-  hidden: readonly string[] = ["gpt-x"],
-): ModelCatalogs => ({ codex: Effect.succeed({ listed, hidden }), agy });
-const agyBroken = Effect.fail(new AgyUnavailable({ detail: "`agy models` exited with code 1" }));
-const agyNotInstalled = Effect.succeed(null);
-
-describe("model routing", () => {
-  it.effect.each<[string, ModelRequest, ModelCatalogs, unknown]>([
-    [
-      "no model keeps the Codex default and passes effort and tier",
-      { effort: "low", tier: "flex" },
-      catalogs(codexModels, unreadAgy),
-      { provider: "codex", effort: "low", tier: "flex" },
-    ],
-    [
-      "a model Codex lists runs on Codex without reading agy's catalog",
-      { model: "gpt-6.1-sol", effort: "medium" },
-      catalogs(codexModels, unreadAgy),
-      { provider: "codex", model: "gpt-6.1-sol", effort: "medium" },
-    ],
-    [
-      "an agy family runs on agy at high effort",
-      { model: "gemini-4-neon" },
-      catalogs(),
-      { provider: "agy", model: "gemini-4-neon", effort: "high" },
-    ],
-    [
-      "an agy family takes a listed --effort",
-      { model: "gemini-4-neon", effort: "low" },
-      catalogs(),
-      { provider: "agy", model: "gemini-4-neon", effort: "low" },
-    ],
-    [
-      "an agy id with an effort suffix splits into family and effort",
-      { model: "gemini-4-neon-xhigh" },
-      catalogs(),
-      { provider: "agy", model: "gemini-4-neon", effort: "xhigh" },
-    ],
-    [
-      "a suffixed id and a matching --effort agree",
-      { model: "gemini-4-neon-low", effort: "low" },
-      catalogs(),
-      { provider: "agy", model: "gemini-4-neon", effort: "low" },
-    ],
-    [
-      "a family without high defaults to its highest effort",
-      { model: "gemini-3.8-flash" },
-      catalogs(),
-      { provider: "agy", model: "gemini-3.8-flash", effort: "medium" },
-    ],
-    [
-      "agy:model checks agy's catalog only",
-      { model: "agy:claude-opus-5-5" },
-      catalogs(["claude-opus-5-5"]),
-      { provider: "agy", model: "claude-opus-5-5", effort: "none" },
-    ],
-    [
-      "a fixed-effort agy model records effort none",
-      { model: "claude-opus-5-5" },
-      catalogs(),
-      { provider: "agy", model: "claude-opus-5-5", effort: "none" },
-    ],
-    [
-      "a fixed-effort agy model accepts --effort none",
-      { model: "claude-opus-5-5", effort: "none" },
-      catalogs(),
-      { provider: "agy", model: "claude-opus-5-5", effort: "none" },
-    ],
-    [
-      "codex:model runs on Codex without reading agy's catalog",
-      { model: "codex:gpt-6.1-sol-mini" },
-      catalogs(codexModels, unreadAgy),
-      { provider: "codex", model: "gpt-6.1-sol-mini" },
-    ],
-    [
-      "an unreadable Codex catalog passes an unknown model to Codex",
-      { model: "custom", effort: "high", tier: "priority" },
-      catalogs([]),
-      { provider: "codex", model: "custom", effort: "high", tier: "priority" },
-    ],
-    [
-      "an unreadable Codex catalog and missing agy pass the model to Codex",
-      { model: "custom" },
-      catalogs([], agyNotInstalled),
-      { provider: "codex", model: "custom" },
-    ],
-    [
-      "an unreadable Codex catalog and a failing agy pass the model to Codex",
-      { model: "custom" },
-      catalogs([], agyBroken),
-      { provider: "codex", model: "custom" },
-    ],
-    [
-      "a lone suffixed agy id keeps its fixed effort",
-      { model: "gpt-oss-120b-medium" },
-      catalogs(),
-      { provider: "agy", model: "gpt-oss-120b-medium", effort: "medium" },
-    ],
-    [
-      "an unreadable Codex catalog still routes an agy model to agy",
-      { model: "gemini-4-neon-low" },
-      catalogs([]),
-      { provider: "agy", model: "gemini-4-neon", effort: "low" },
-    ],
-  ])("%s", ([, request, given, expected]) =>
-    Effect.gen(function* () {
-      expect(yield* resolveModel(request, given)).toEqual(expected);
-    }),
-  );
-
-  it.effect.each<[string, ModelRequest, ModelCatalogs, unknown]>([
-    [
-      "an unknown model",
-      { model: "gemini-9-ultra" },
-      catalogs(),
-      new Usage({
-        detail:
-          'Unknown model "gemini-9-ultra": neither codex nor agy lists it. Run foreman models to see the available models.',
-      }),
-    ],
-    [
-      "an unknown provider prefix",
-      { model: "gemni:gemini-4-neon" },
-      catalogs(),
-      new Usage({
-        detail: 'Unknown provider "gemni" in --model gemni:gemini-4-neon. Use codex or agy.',
-      }),
-    ],
-    [
-      "an agy: model agy doesn't list",
-      { model: "agy:gpt-6.1-sol" },
-      catalogs(),
-      new Usage({
-        detail:
-          'Unknown model "gpt-6.1-sol": agy doesn\'t list it. Run foreman models to see the available models.',
-      }),
-    ],
-    [
-      "a codex: model Codex doesn't list",
-      { model: "codex:gemini-4-neon" },
-      catalogs(codexModels, unreadAgy),
-      new Usage({
-        detail:
-          'Unknown model "gemini-4-neon": codex doesn\'t list it. Run foreman models to see the available models.',
-      }),
-    ],
-    [
-      "an effort suffix that disagrees with --effort",
-      { model: "gemini-4-neon-high", effort: "low" },
-      catalogs(),
-      new Usage({
-        detail:
-          "--model gemini-4-neon-high sets effort high, but --effort is low. Use --model gemini-4-neon --effort low.",
-      }),
-    ],
-    [
-      "an effort the family doesn't offer",
-      { model: "gemini-4-neon", effort: "minimal" },
-      catalogs(),
-      new Usage({
-        detail:
-          "--effort minimal is not valid for gemini-4-neon (agy). Use one of: low, medium, high, xhigh.",
-      }),
-    ],
-    [
-      "an effort on a fixed-effort agy model",
-      { model: "claude-opus-5-5", effort: "low" },
-      catalogs(),
-      new Usage({
-        detail:
-          "--effort low is not valid for claude-opus-5-5 (agy), which has a fixed effort. Remove --effort.",
-      }),
-    ],
-    [
-      "--tier on an agy model",
-      { model: "gemini-4-neon", tier: "priority" },
-      catalogs(),
-      new Usage({
-        detail: "--tier only applies to Codex models; gemini-4-neon runs on agy. Remove --tier.",
-      }),
-    ],
-    [
-      "a lone suffixed agy id given another effort",
-      { model: "gpt-oss-120b-medium", effort: "high" },
-      catalogs(),
-      new Usage({
-        detail:
-          "--effort high is not valid for gpt-oss-120b-medium (agy), which has a fixed effort. Remove --effort.",
-      }),
-    ],
-    [
-      "a hidden Codex model, before agy is consulted",
-      { model: "gpt-x" },
-      catalogs(codexModels, unreadAgy),
-      new Usage({
-        detail:
-          'Model "gpt-x" is in Codex\'s catalog but hidden. Pick a visible model from foreman models.',
-      }),
-    ],
-    [
-      "a hidden Codex model named with codex:",
-      { model: "codex:gpt-x" },
-      catalogs(codexModels, unreadAgy),
-      new Usage({
-        detail:
-          'Model "gpt-x" is in Codex\'s catalog but hidden. Pick a visible model from foreman models.',
-      }),
-    ],
-    [
-      "an unknown model when agy isn't installed, without an install hint",
-      { model: "gemini-4-neon" },
-      catalogs(codexModels, agyNotInstalled),
-      new Usage({
-        detail:
-          "Unknown model \"gemini-4-neon\": codex doesn't list it and agy isn't installed. Run foreman models to see the available models.",
-      }),
-    ],
-    [
-      "an agy: model when agy isn't installed",
-      { model: "agy:gemini-4-neon" },
-      catalogs(codexModels, agyNotInstalled),
-      new AgyUnavailable({
-        detail:
-          "Can't check model \"gemini-4-neon\": agy isn't installed. Install agy or set AGY_BIN, then run foreman doctor.",
-      }),
-    ],
-    [
-      "an installed agy whose catalog fails, for a model Codex doesn't list",
-      { model: "gemini-4-neon" },
-      catalogs(codexModels, agyBroken),
-      new AgyUnavailable({
-        detail:
-          'Can\'t check model "gemini-4-neon": agy is unavailable (`agy models` exited with code 1). Install agy or set AGY_BIN, then run foreman doctor.',
-      }),
-    ],
-  ])("refuses %s", ([, request, given, expected]) =>
-    Effect.gen(function* () {
-      expect(yield* resolveModel(request, given).pipe(Effect.flip)).toEqual(expected);
-    }),
-  );
-});
 
 const name = Schema.decodeUnknownSync(RunName)("unit-a");
 
@@ -429,7 +132,7 @@ describe("start routing through the CLI", () => {
     // The envelope follows the command's error log record.
     expect(ndjson(result.stderr).at(-1)).toEqual(
       errorEnvelope(
-        new Usage({
+        new ModelUnresolved({
           detail:
             'Unknown model "gemini-9-ultra": neither codex nor agy lists it. Run foreman models to see the available models.',
         }),
@@ -446,9 +149,10 @@ describe("start routing through the CLI", () => {
     expect(result.stdout).toBe("");
     expect(ndjson(result.stderr).at(-1)).toEqual(
       errorEnvelope(
-        new Usage({
+        new ModelUnresolved({
           detail:
-            "Unknown model \"gpt-6.2-sol\": codex doesn't list it and agy isn't installed. Run foreman models to see the available models.",
+            'Unknown model "gpt-6.2-sol": no provider lists it. Did you mean gpt-6.1-sol (codex)? Run foreman models to see every model.',
+          candidates: [{ provider: "codex", model: "gpt-6.1-sol", efforts: [] }],
         }),
       ),
     );

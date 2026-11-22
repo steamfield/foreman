@@ -3,14 +3,17 @@
  * "Model routing and its errors" is the rule set and the error wording.
  *
  * Rules, in order: `provider:model` picks that provider; an exact id in Codex's catalog picks
- * Codex; otherwise agy's catalog is read and an exact id or family there picks agy, with an
- * effort suffix split off the id. No model keeps today's Codex default. The catalogs are passed
- * in, so the rules themselves do no I/O.
+ * Codex, unless agy's cached catalog lists it too; otherwise agy's catalog is read and an exact
+ * id or family there picks agy, with an effort suffix split off the id. A model in neither
+ * catalog refreshes agy's catalog once when it is more than an hour old. No model keeps today's
+ * Codex default. The catalogs are passed in, so the rules themselves do no I/O.
  */
-import { Effect } from "effect";
-import { AgyUnavailable, Usage } from "../errors";
+import { Clock, Effect } from "effect";
+import type { AgyUnavailable, ModelUnresolved } from "../errors";
+import type { ModelCandidate } from "../schemas/models";
 import type { ProviderId } from "../schemas/provider";
 import type { AgyCatalog } from "./agy/catalog";
+import { nearMisses, type RoutingFailure, routingError } from "./routing-errors";
 
 /** What the start asked for. */
 export interface ModelRequest {
@@ -27,19 +30,39 @@ export interface RoutedModel {
   readonly tier?: string;
 }
 
-/** The model ids in Codex's catalog, by visibility. */
+/** A model Codex lists, with the reasoning efforts its cache entry declares. */
+export interface CodexModel {
+  readonly model: string;
+  readonly efforts: readonly string[];
+  readonly defaultEffort: string | null;
+}
+
+/** The models in Codex's catalog, by visibility. */
 export interface CodexCatalog {
-  /** Ids Codex shows (`visibility: "list"`); empty when the catalog can't be read. */
-  readonly listed: readonly string[];
+  /** Models Codex shows (`visibility: "list"`); empty when the catalog can't be read. */
+  readonly listed: readonly CodexModel[];
   /** Ids present without `visibility: "list"`. */
   readonly hidden: readonly string[];
 }
 
-/** The catalogs routing consults, read lazily: agy's only when Codex's doesn't list the model. */
+/** The catalogs routing consults, read lazily: agy's only when a rule needs it. */
 export interface ModelCatalogs {
   readonly codex: Effect.Effect<CodexCatalog>;
-  /** agy's catalog; null when agy's executable isn't installed. */
-  readonly agy: Effect.Effect<AgyCatalog | null, AgyUnavailable>;
+  /** agy's cache file as last written, without running agy; null when missing or stale. */
+  readonly agyCached: Effect.Effect<AgyCatalog | null>;
+  /**
+   * agy's catalog, from its cache or `agy models`; `refresh` forces `agy models`. Fails with
+   * the reason agy is unavailable, including when it isn't installed.
+   */
+  readonly agy: (refresh: boolean) => Effect.Effect<AgyCatalog, AgyUnavailable>;
+}
+
+/** A family agy offers: its id, the efforts its ids add, and the effort a start defaults to. */
+export interface AgyFamily {
+  readonly model: string;
+  readonly efforts: readonly string[];
+  /** null when the model has a fixed effort. */
+  readonly defaultEffort: string | null;
 }
 
 const PROVIDERS: readonly ProviderId[] = ["codex", "agy"];
@@ -47,7 +70,7 @@ const EFFORT_ORDER = ["low", "medium", "high", "xhigh"];
 const AGY_DEFAULT_EFFORT = "high";
 // The effort recorded for an agy model with a fixed effort; the connection sends its id as is.
 const NO_EFFORT = "none";
-const MODELS_HINT = "Run foreman models to see the available models.";
+const AGY_REFRESH_AGE_MS = 60 * 60 * 1000;
 
 /** A model id matched in agy's catalog: the family agy runs and the effort its id fixes. */
 interface AgyMatch {
@@ -57,6 +80,8 @@ interface AgyMatch {
   readonly fixed: boolean;
 }
 
+const fail = (failure: RoutingFailure) => Effect.fail(routingError(failure));
+
 /** Codex keeps the request as given: Codex itself checks effort and tier. */
 function codexRoute(request: ModelRequest, model: string | undefined): RoutedModel {
   return {
@@ -65,26 +90,6 @@ function codexRoute(request: ModelRequest, model: string | undefined): RoutedMod
     ...(request.effort === undefined ? {} : { effort: request.effort }),
     ...(request.tier === undefined ? {} : { tier: request.tier }),
   };
-}
-
-/**
- * Splits `provider:model`. Returns null when the model names no provider.
- * @throws {Usage} When the prefix isn't a known provider.
- */
-function splitProvider(
-  model: string,
-): Effect.Effect<{ provider: ProviderId; id: string } | null, Usage> {
-  const colon = model.indexOf(":");
-  if (colon === -1) return Effect.succeed(null);
-  const prefix = model.slice(0, colon);
-  const provider = PROVIDERS.find((known) => known === prefix);
-  if (provider === undefined)
-    return Effect.fail(
-      new Usage({
-        detail: `Unknown provider ${JSON.stringify(prefix)} in --model ${model}. Use codex or agy.`,
-      }),
-    );
-  return Effect.succeed({ provider, id: model.slice(colon + 1) });
 }
 
 /** Finds `model` in agy's catalog as a full id (`gemini-4-neon-high`) or a family (`gemini-4-neon`). */
@@ -97,179 +102,229 @@ function matchAgyModel(model: string, catalog: AgyCatalog): AgyMatch | null {
   return null;
 }
 
-/** The efforts agy offers for a family, lowest first. */
+/** The efforts agy offers for a family, lowest first; none for a model with a fixed effort. */
 function familyEfforts(family: string, catalog: AgyCatalog): string[] {
   const efforts = new Set<string>();
   for (const entry of catalog.models)
-    if (entry.family === family && entry.effort !== null) efforts.add(entry.effort);
+    if (entry.family === family && entry.id !== family && entry.effort !== null)
+      efforts.add(entry.effort);
   return [...efforts].sort((a, b) => EFFORT_ORDER.indexOf(a) - EFFORT_ORDER.indexOf(b));
 }
 
-/**
- * "none" for a family with no efforts (agy then gets the id unchanged), "high" when the family
- * offers it, else its highest effort.
- */
-function defaultAgyEffort(efforts: readonly string[]): string {
-  if (efforts.length === 0) return NO_EFFORT;
+/** "high" when the family offers it, else its highest effort; null for a fixed effort. */
+function defaultAgyEffort(efforts: readonly string[]): string | null {
   if (efforts.includes(AGY_DEFAULT_EFFORT)) return AGY_DEFAULT_EFFORT;
-  return efforts.at(-1) ?? AGY_DEFAULT_EFFORT;
+  return efforts.at(-1) ?? null;
 }
 
-/** The Usage message when the requested effort doesn't fit the family, or null when it does. */
-function effortProblem(effort: string, family: string, efforts: readonly string[]): string | null {
-  if (efforts.length === 0)
-    return effort === NO_EFFORT
-      ? null
-      : `--effort ${effort} is not valid for ${family} (agy), which has a fixed effort. Remove --effort.`;
-  if (efforts.includes(effort)) return null;
-  return `--effort ${effort} is not valid for ${family} (agy). Use one of: ${efforts.join(", ")}.`;
+/**
+ * Each family in agy's catalog once, in catalog order, with its efforts and default effort.
+ * @throws Never; pure.
+ */
+export function agyFamilies(catalog: AgyCatalog): AgyFamily[] {
+  const families = [...new Set(catalog.models.map((entry) => entry.family))];
+  return families.map((model) => {
+    const efforts = familyEfforts(model, catalog);
+    return { model, efforts, defaultEffort: defaultAgyEffort(efforts) };
+  });
+}
+
+const agyCandidates = (catalog: AgyCatalog): ModelCandidate[] =>
+  agyFamilies(catalog).map(({ model, efforts }) => ({ provider: "agy", model, efforts }));
+
+const codexCandidates = (catalog: CodexCatalog): ModelCandidate[] =>
+  catalog.listed.map(({ model, efforts }) => ({ provider: "codex", model, efforts }));
+
+/** The failure for an effort that doesn't fit the family, or null when it does. */
+function effortFailure(
+  effort: string,
+  family: string,
+  efforts: readonly string[],
+): RoutingFailure | null {
+  const fits = efforts.length === 0 ? effort === NO_EFFORT : efforts.includes(effort);
+  return fits ? null : { _tag: "InvalidEffort", effort, model: family, provider: "agy", efforts };
 }
 
 /**
  * The agy settings for a matched model: family, effort and no tier.
- * @throws {Usage} When --tier is set, or the effort conflicts with the model or the family.
+ * @throws {ModelUnresolved} When --tier is set, or the effort conflicts with the model or the
+ * family.
  */
 function agyRoute(
   request: ModelRequest,
   model: string,
   match: AgyMatch,
   catalog: AgyCatalog,
-): Effect.Effect<RoutedModel, Usage> {
+): Effect.Effect<RoutedModel, ModelUnresolved> {
   const { family } = match;
-  const usage = (detail: string) => Effect.fail(new Usage({ detail }));
-  if (request.tier !== undefined)
-    return usage(`--tier only applies to Codex models; ${family} runs on agy. Remove --tier.`);
-  const conflicting =
-    match.effort !== null && request.effort !== undefined && request.effort !== match.effort;
-  if (conflicting && match.fixed)
-    return usage(
-      `--effort ${request.effort} is not valid for ${family} (agy), which has a fixed effort. Remove --effort.`,
-    );
-  if (conflicting)
-    return usage(
-      `--model ${model} sets effort ${match.effort}, but --effort is ${request.effort}. Use --model ${family} --effort ${request.effort}.`,
-    );
+  if (request.tier !== undefined) return fail({ _tag: "TierOnAgy", model: family });
   const efforts = familyEfforts(family, catalog);
-  const requested = match.effort ?? request.effort;
-  if (requested !== undefined && match.effort === null) {
-    const problem = effortProblem(requested, family, efforts);
-    if (problem !== null) return usage(problem);
+  if (match.effort !== null && request.effort !== undefined && request.effort !== match.effort)
+    return fail(
+      match.fixed
+        ? { _tag: "InvalidEffort", effort: request.effort, model: family, provider: "agy", efforts }
+        : {
+            _tag: "EffortConflict",
+            model,
+            family,
+            modelEffort: match.effort,
+            effort: request.effort,
+          },
+    );
+  if (match.effort === null && request.effort !== undefined) {
+    const failure = effortFailure(request.effort, family, efforts);
+    if (failure !== null) return fail(failure);
   }
-  return Effect.succeed({
-    provider: "agy",
-    model: family,
-    effort: requested ?? defaultAgyEffort(efforts),
-  });
+  const effort = match.effort ?? request.effort ?? defaultAgyEffort(efforts) ?? NO_EFFORT;
+  return Effect.succeed({ provider: "agy", model: family, effort });
 }
 
 /**
- * Reads agy's catalog for `model`, naming the model in the failure. Null when agy isn't
- * installed.
- * @throws {AgyUnavailable} When agy is installed and its catalog can't be read.
+ * Reads agy's catalog and matches `model` in it, refreshing once when the model isn't there
+ * and the catalog is more than an hour old.
+ * @throws {AgyUnavailable} When agy isn't installed or its catalog can't be read.
  */
-function readAgyCatalogFor(model: string, catalogs: ModelCatalogs) {
-  return catalogs.agy.pipe(
-    Effect.mapError(
-      (error) =>
-        new AgyUnavailable({
-          detail: `Can't check model ${JSON.stringify(model)}: agy is unavailable (${error.detail ?? "no detail"}). Install agy or set AGY_BIN, then run foreman doctor.`,
-        }),
-    ),
-  );
-}
+const findInAgy = Effect.fnUntraced(function* (model: string, catalogs: ModelCatalogs) {
+  const cached = yield* catalogs.agy(false);
+  const match = matchAgyModel(model, cached);
+  const now = yield* Clock.currentTimeMillis;
+  if (match !== null || now - Date.parse(cached.fetchedAt) <= AGY_REFRESH_AGE_MS)
+    return { catalog: cached, match };
+  const refreshed = yield* catalogs.agy(true);
+  return { catalog: refreshed, match: matchAgyModel(model, refreshed) };
+});
 
-/** The Usage error for a model Codex lists without `visibility: "list"`. */
-const hiddenCodexModel = (model: string) =>
-  new Usage({
-    detail: `Model ${JSON.stringify(model)} is in Codex's catalog but hidden. Pick a visible model from foreman models.`,
-  });
+/** The failure for a model that agy, the one catalog checked, couldn't vouch for. */
+const agyUnavailable = (model: string, error: AgyUnavailable): RoutingFailure => ({
+  _tag: "CatalogUnavailable",
+  model,
+  unavailable: [{ provider: "agy", reason: error.detail ?? "no detail" }],
+});
 
 /**
  * Routes `agy:model`, which only agy's catalog may resolve.
- * @throws {Usage} When agy doesn't list the model, or its settings don't apply.
- * @throws {AgyUnavailable} When agy isn't installed or its catalog can't be read.
+ * @throws {ModelUnresolved} When agy is unavailable, doesn't list the model, or its settings
+ * don't apply.
  */
 const routePrefixedAgy = Effect.fnUntraced(function* (
   request: ModelRequest,
   model: string,
   catalogs: ModelCatalogs,
 ) {
-  const catalog = yield* readAgyCatalogFor(model, catalogs);
-  if (catalog === null)
-    return yield* new AgyUnavailable({
-      detail: `Can't check model ${JSON.stringify(model)}: agy isn't installed. Install agy or set AGY_BIN, then run foreman doctor.`,
-    });
-  const match = matchAgyModel(model, catalog);
-  if (match === null)
-    return yield* new Usage({
-      detail: `Unknown model ${JSON.stringify(model)}: agy doesn't list it. ${MODELS_HINT}`,
-    });
-  return yield* agyRoute(request, model, match, catalog);
+  const found = yield* findInAgy(model, catalogs).pipe(
+    Effect.mapError((error) => routingError(agyUnavailable(model, error))),
+  );
+  if (found.match === null) {
+    const misses = nearMisses(model, agyCandidates(found.catalog));
+    return yield* fail({ _tag: "UnknownModel", input: model, nearMisses: misses, provider: "agy" });
+  }
+  return yield* agyRoute(request, model, found.match, found.catalog);
 });
 
 /**
  * Routes `codex:model`, which only Codex's catalog may resolve. An unreadable catalog passes
  * the model through, as foreman did before routing.
- * @throws {Usage} When Codex's catalog doesn't list the model, or hides it.
+ * @throws {ModelUnresolved} When Codex's catalog doesn't list the model, or hides it.
  */
 const routePrefixedCodex = Effect.fnUntraced(function* (
   request: ModelRequest,
   model: string,
   catalogs: ModelCatalogs,
 ) {
-  const { listed, hidden } = yield* catalogs.codex;
-  if (hidden.includes(model)) return yield* hiddenCodexModel(model);
-  if (listed.length > 0 && !listed.includes(model))
-    return yield* new Usage({
-      detail: `Unknown model ${JSON.stringify(model)}: codex doesn't list it. ${MODELS_HINT}`,
+  const codex = yield* catalogs.codex;
+  if (codex.hidden.includes(model)) return yield* fail({ _tag: "HiddenCodexModel", model });
+  const listed = codex.listed.some((entry) => entry.model === model);
+  if (codex.listed.length > 0 && !listed) {
+    const misses = nearMisses(model, codexCandidates(codex));
+    return yield* fail({
+      _tag: "UnknownModel",
+      input: model,
+      nearMisses: misses,
+      provider: "codex",
     });
+  }
   return codexRoute(request, model);
+});
+
+/**
+ * Routes a model Codex lists, unless agy's cache file lists it too. Only the cache is read, so
+ * a Codex start never runs agy; a missing or stale cache skips the check.
+ * @throws {ModelUnresolved} When agy's cached catalog lists the model too.
+ */
+const routeCodexListed = Effect.fnUntraced(function* (
+  request: ModelRequest,
+  codexModel: CodexModel,
+  catalogs: ModelCatalogs,
+) {
+  const cached = yield* catalogs.agyCached;
+  const match = cached === null ? null : matchAgyModel(codexModel.model, cached);
+  if (cached === null || match === null) return codexRoute(request, codexModel.model);
+  const agyEfforts = match.family === codexModel.model ? familyEfforts(match.family, cached) : [];
+  return yield* fail({
+    _tag: "Ambiguous",
+    model: codexModel.model,
+    candidates: [
+      { provider: "codex", model: codexModel.model, efforts: codexModel.efforts },
+      { provider: "agy", model: codexModel.model, efforts: agyEfforts },
+    ],
+  });
 });
 
 /**
  * Routes a bare model id: Codex's catalog first, then agy's. When Codex's catalog can't be
  * read, a model agy can't resolve goes to Codex unchecked, so Codex-only setups keep working.
- * @throws {Usage} When Codex hides the model, neither catalog lists it, or agy's settings
- * don't apply.
- * @throws {AgyUnavailable} When agy is installed, its catalog can't be read, and Codex's was read.
+ * A near miss in Codex's catalog wins over agy being unavailable, so a Codex typo never asks
+ * for agy.
+ * @throws {ModelUnresolved} When the model is ambiguous, hidden, in neither catalog, agy's
+ * catalog is needed and unavailable, or agy's settings don't apply.
  */
 const routeBare = Effect.fnUntraced(function* (
   request: ModelRequest,
   model: string,
   catalogs: ModelCatalogs,
 ) {
-  const { listed, hidden } = yield* catalogs.codex;
-  if (listed.includes(model)) return codexRoute(request, model);
-  if (hidden.includes(model)) return yield* hiddenCodexModel(model);
-  const codexUnchecked = listed.length === 0;
-  const agy = yield* readAgyCatalogFor(model, catalogs).pipe(Effect.result);
+  const codex = yield* catalogs.codex;
+  const codexModel = codex.listed.find((entry) => entry.model === model);
+  if (codexModel !== undefined) return yield* routeCodexListed(request, codexModel, catalogs);
+  if (codex.hidden.includes(model)) return yield* fail({ _tag: "HiddenCodexModel", model });
+  const agy = yield* findInAgy(model, catalogs).pipe(Effect.result);
+  if (agy._tag === "Success" && agy.success.match !== null)
+    return yield* agyRoute(request, model, agy.success.match, agy.success.catalog);
+  if (codex.listed.length === 0) return codexRoute(request, model);
+  const codexOptions = codexCandidates(codex);
   if (agy._tag === "Failure") {
-    if (codexUnchecked) return codexRoute(request, model);
-    return yield* agy.failure;
+    const misses = nearMisses(model, codexOptions);
+    if (misses.length === 0) return yield* fail(agyUnavailable(model, agy.failure));
+    return yield* fail({ _tag: "UnknownModel", input: model, nearMisses: misses });
   }
-  if (agy.success === null) {
-    if (codexUnchecked) return codexRoute(request, model);
-    return yield* new Usage({
-      detail: `Unknown model ${JSON.stringify(model)}: codex doesn't list it and agy isn't installed. ${MODELS_HINT}`,
-    });
-  }
-  const match = matchAgyModel(model, agy.success);
-  if (match !== null) return yield* agyRoute(request, model, match, agy.success);
-  if (codexUnchecked) return codexRoute(request, model);
-  return yield* new Usage({
-    detail: `Unknown model ${JSON.stringify(model)}: neither codex nor agy lists it. ${MODELS_HINT}`,
-  });
+  const both = [...codexOptions, ...agyCandidates(agy.success.catalog)];
+  return yield* fail({ _tag: "UnknownModel", input: model, nearMisses: nearMisses(model, both) });
 });
 
 /**
+ * Splits `provider:model`. Returns null when the model names no provider.
+ * @throws {ModelUnresolved} When the prefix isn't a known provider.
+ */
+function splitProvider(
+  model: string,
+): Effect.Effect<{ provider: ProviderId; id: string } | null, ModelUnresolved> {
+  const colon = model.indexOf(":");
+  if (colon === -1) return Effect.succeed(null);
+  const prefix = model.slice(0, colon);
+  const provider = PROVIDERS.find((known) => known === prefix);
+  if (provider === undefined) return fail({ _tag: "UnknownProvider", prefix, input: model });
+  return Effect.succeed({ provider, id: model.slice(colon + 1) });
+}
+
+/**
  * Resolves a start's model to a provider.
- * @throws {Usage} When the model is unknown, or the effort or tier don't apply.
- * @throws {AgyUnavailable} When agy's catalog is needed and can't be read.
+ * @throws {ModelUnresolved} When the model is unknown, ambiguous, hidden or can't be checked,
+ * or the effort or tier don't apply.
  */
 export const resolveModel = (
   request: ModelRequest,
   catalogs: ModelCatalogs,
-): Effect.Effect<RoutedModel, Usage | AgyUnavailable> =>
+): Effect.Effect<RoutedModel, ModelUnresolved> =>
   Effect.gen(function* () {
     if (request.model === undefined) return codexRoute(request, undefined);
     const prefixed = yield* splitProvider(request.model);
