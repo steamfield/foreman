@@ -1,14 +1,17 @@
 import { DateTime } from "effect";
 import { activeStates } from "../../schemas/daemon";
 import type { RunView } from "../../schemas/monitor";
-import { age, oneLine, stateTone, unsupervised } from "./format";
+import {
+  age,
+  effortLabel,
+  oneLine,
+  providerTag,
+  stateTone,
+  taggedModelLabel,
+  unsupervised,
+} from "./format";
 import type { FlagView, RowView, State, Tone } from "./model-types";
 import { pace } from "./pace";
-
-/** Names the provider ahead of the model for non-Codex runs; Codex runs get no tag. */
-export function providerTag(run: Pick<RunView, "provider">): string {
-  return run.provider === undefined || run.provider === "codex" ? "" : `${run.provider} `;
-}
 
 /** Builds the task, model, progress and pace facts shared by list layouts. */
 export function rowFacts(
@@ -16,11 +19,15 @@ export function rowFacts(
   live: boolean,
 ): Pick<RowView, "task" | "modelLabel" | "progress" | "pace" | "review"> {
   const model = run.model.replace(/^gpt-\d+(?:\.\d+)*-/, "");
-  const effort = run.effort === "medium" ? "med" : run.effort;
+  const effort = effortLabel(run.effort);
+  const tag = providerTag(run);
   return {
     review: reviewHint(run),
     task: run.title?.replace(/\p{Cc}/gu, " ") ?? null,
-    modelLabel: `${providerTag(run)}${model} · ${effort}`.replace(/\p{Cc}/gu, " "),
+    modelLabel: (tag === null
+      ? `${model} · ${effort}`
+      : taggedModelLabel(tag, model, effort)
+    ).replace(/\p{Cc}/gu, " "),
     progress:
       run.commands === null
         ? null

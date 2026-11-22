@@ -1,6 +1,10 @@
+import { stripVTControlCharacters } from "node:util";
 import { NodeServices } from "@effect/platform-node";
 import { describe, expect, it } from "@effect/vitest";
+import chalk from "chalk";
 import { DateTime, Effect, FileSystem, Schema } from "effect";
+import { renderToString } from "ink";
+import { createElement } from "react";
 import { detailHeader } from "../src/core/monitor/detail-facts";
 import { initialState, reduce, view } from "../src/core/monitor/model";
 import { diskRunView } from "../src/core/runs/disk-overview";
@@ -9,46 +13,60 @@ import { RunName, type RunRecord } from "../src/schemas/daemon";
 import type { RunView } from "../src/schemas/monitor";
 import { projectRun } from "../src/supervisor/overview";
 import { makeRegistry } from "../src/supervisor/registry";
+import { Screen } from "../src/tui/screen";
+import { theme } from "../src/tui/theme";
 import { defaults, detail, live, now, run } from "./helpers/monitor";
 
-const agyRun = (overrides: Partial<RunView> = {}) =>
-  run("agy-run", {
-    provider: "agy",
-    model: "gemini-3.8-flash-low",
-    effort: "medium",
-    ...overrides,
+const agy = (name: string, model: string, effort: string) =>
+  run(name, { provider: "agy", model, effort });
+const neon = agy("neon", "gemini-4-neon", "high");
+const flash = agy("flash", "gemini-3.8-flash", "low");
+const fixed = agy("fixed", "claude-opus-4-7", "none");
+const state = (runs: readonly RunView[], columns: number) =>
+  reduce(initialState({ group: "/repo", defaults, version: "test", now, columns, rows: 40 }), {
+    type: "feed",
+    value: live(runs),
   });
-const labels = (runs: readonly RunView[], columns: number) =>
-  view(
-    reduce(initialState({ group: "/repo", defaults, version: "test", now, columns, rows: 40 }), {
-      type: "feed",
-      value: live(runs),
-    }),
-  ).groups.flatMap((group) => group.rows.map((row) => row.modelLabel));
-const modelFact = (data: RunView, columns: number) => {
-  const state = initialState({ group: "/repo", defaults, version: "test", now, columns, rows: 40 });
-  return detailHeader(state, detail(data), "live").find(([label]) => label === "model")?.[1];
+const rendered = (runs: readonly RunView[], columns: number) => {
+  const previous = chalk.level;
+  chalk.level = 0;
+  try {
+    return stripVTControlCharacters(
+      renderToString(
+        createElement(Screen, { model: view(state(runs, columns)), colors: theme(3, true) }),
+        { columns },
+      ),
+    ).split("\n");
+  } finally {
+    chalk.level = previous;
+  }
 };
+const modelFact = (data: RunView) =>
+  detailHeader(state([data], 140), detail(data), "live").find(([label]) => label === "model")?.[1];
 
 describe("monitor provider tag", () => {
-  it.each([80, 100, 140])(
-    "leads an agy row's model label with the tag at %i columns",
+  it.each([90, 100, 140])(
+    "keeps the tag and effort visible in the rendered model cell at %i columns",
     (columns) => {
-      expect(labels([agyRun()], columns)).toEqual(["agy gemini-3.8-flash-low · med"]);
+      const lines = rendered([neon, flash, fixed, run("codex")], columns);
+      const row = (name: string) => lines.find((line) => line.includes(` ${name} `)) ?? "";
+      expect(row("neon")).toContain("agy 4-n… · high ");
+      expect(row("flash")).toContain("agy 3.8-… · low ");
+      expect(row("fixed")).toContain("agy claude-opu… ");
+      expect(row("fixed")).not.toContain("none");
+      expect(row("codex")).toContain("sol · high ");
     },
   );
 
-  it.each([80, 140])("leaves a Codex row's label unchanged at %i columns", (columns) => {
-    expect(labels([run("plain"), run("explicit", { provider: "codex" })], columns)).toEqual([
-      "sol · high",
-      "sol · high",
-    ]);
+  it("drops the model column, and the tag with it, below 90 columns", () => {
+    const lines = rendered([neon], 80);
+    expect(lines.join("\n")).not.toMatch(/agy|4-ne|MODEL/);
   });
 
-  it("names the provider on an agy detail model fact and keeps Codex facts as they were", () => {
-    expect(modelFact(agyRun(), 80)).toBe("agy · gemini-3.8-flash-low · medium");
-    expect(modelFact(agyRun(), 140)).toBe("agy · gemini-3.8-flash-low · medium");
-    expect(modelFact(run(), 140)).toBe("gpt-6.1-sol · high · priority");
+  it("names the provider first on the agy detail model fact and omits effort none", () => {
+    expect(modelFact(neon)).toBe("agy · gemini-4-neon · high");
+    expect(modelFact(fixed)).toBe("agy · claude-opus-4-7");
+    expect(modelFact(run())).toBe("gpt-6.1-sol · high · priority");
   });
 });
 

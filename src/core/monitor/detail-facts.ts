@@ -3,9 +3,17 @@ import type { Detail, RunView } from "../../schemas/monitor";
 import { tokenCount } from "../runs/digest";
 import { shellCommand } from "./attention";
 import type { DetailFeed } from "./detail-feed";
-import { age, cleanText, clockTime, oneLine, plural, stamp, unsupervised } from "./format";
+import {
+  age,
+  cleanText,
+  clockTime,
+  oneLine,
+  plural,
+  providerTag,
+  stamp,
+  unsupervised,
+} from "./format";
 import type { DetailLine, State, Tone } from "./model-types";
-import { providerTag } from "./row";
 
 /** Formats the run's command, file and token digest. */
 export function digestFacts(data: Detail): string[] {
@@ -71,8 +79,9 @@ export function detailConnection(detail: NonNullable<State["detail"]>) {
 /** Formats the model fact; non-Codex runs lead with their provider and have no tier. */
 function modelFact(run: RunView): string {
   const tag = providerTag(run);
-  if (tag === "") return `${run.model} · ${run.effort} · ${run.tier}`;
-  return `${tag}· ${run.model} · ${run.effort}`;
+  if (tag === null) return `${run.model} · ${run.effort} · ${run.tier}`;
+  const effort = run.effort === "none" ? null : run.effort;
+  return [tag, run.model, effort].filter(Boolean).join(" · ");
 }
 
 /** Formats the run's recorded worktree and execution metadata. */
