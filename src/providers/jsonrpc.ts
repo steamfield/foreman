@@ -72,10 +72,29 @@ export const RpcServerRequest = Schema.Struct({
 });
 export type RpcServerRequest = typeof RpcServerRequest.Type;
 
+/** One message on an ordered channel's `messages` stream, in the order the agent wrote it. */
+export type RpcMessage =
+  | { readonly _tag: "Notification"; readonly message: RpcNotification }
+  | { readonly _tag: "ServerRequest"; readonly message: RpcServerRequest }
+  /** The answer to a `requestOrdered` request: a result, or the agent's error. */
+  | {
+      readonly _tag: "Reply";
+      readonly id: RpcId;
+      readonly method: string;
+      readonly result: unknown;
+      readonly error: RpcError | null;
+    };
+
 /** How to start the child and how to turn a channel end into the caller's error. */
 export interface ChannelOptions<E> {
   readonly command: string;
   readonly args: readonly string[];
+  /**
+   * Delivers notifications and server requests on `messages`, together with the replies to
+   * `requestOrdered`, so one consumer sees them in wire order. `notifications` and
+   * `serverRequests` then stay empty.
+   */
+  readonly ordered?: boolean;
   /** The child's working directory; the caller's when omitted. */
   readonly cwd?: string;
   /** The complete child environment; nothing is inherited. */
@@ -121,10 +140,24 @@ export interface Channel<E> {
    * @throws E When the channel has ended.
    */
   readonly respondError: (id: RpcId, code: number, message: string) => Effect.Effect<void, E>;
+  /**
+   * Sends a request whose reply arrives on `messages` after everything the agent wrote before
+   * it, rather than to the caller. No timeout applies. Returns the request's id.
+   * @param register Called with the id before the request is written, so the caller knows the
+   * id before any reply can be read.
+   * @throws E When the channel has ended or the message can't be encoded.
+   */
+  readonly requestOrdered: (
+    method: string,
+    params: unknown,
+    register?: (id: RpcId) => void,
+  ) => Effect.Effect<RpcId, E>;
   /** Single-consumer; buffers messages that arrive before it is consumed. */
   readonly notifications: Stream.Stream<RpcNotification, E>;
   /** Single-consumer; buffers messages that arrive before it is consumed. */
   readonly serverRequests: Stream.Stream<RpcServerRequest, E>;
+  /** An ordered channel's single stream (see `ChannelOptions.ordered`); empty otherwise. */
+  readonly messages: Stream.Stream<RpcMessage, E>;
   /**
    * Waits for the child to exit and returns its code.
    * @throws E When the exit can't be observed, as when a signal killed the child.
@@ -155,13 +188,18 @@ interface ChannelState<E> {
   readonly outgoing: Queue.Queue<string, Cause.Done>;
   readonly notifications: Queue.Queue<RpcNotification, E | Cause.Done>;
   readonly serverRequests: Queue.Queue<RpcServerRequest, E | Cause.Done>;
+  readonly messages: Queue.Queue<RpcMessage, E | Cause.Done>;
+  /** Whether notifications and server requests go to `messages`. */
+  readonly ordered: boolean;
   readonly pending: Map<RpcId, Deferred.Deferred<unknown, E | RpcError>>;
+  /** Methods of `requestOrdered` requests awaiting a reply, by id. */
+  readonly pendingOrdered: Map<RpcId, string>;
   readonly termination: Deferred.Deferred<Cause.Cause<E>>;
   closed: Cause.Cause<E> | undefined;
   nextId: number;
 }
 
-const makeState = <E>(unavailable: (end: ChannelEnd) => E) =>
+const makeState = <E>(unavailable: (end: ChannelEnd) => E, ordered: boolean) =>
   Effect.gen(function* () {
     const state: ChannelState<E> = {
       failed: (reason, detail, exitCode) =>
@@ -173,7 +211,10 @@ const makeState = <E>(unavailable: (end: ChannelEnd) => E) =>
       outgoing: yield* Queue.unbounded<string, Cause.Done>(),
       notifications: yield* Queue.unbounded<RpcNotification, E | Cause.Done>(),
       serverRequests: yield* Queue.unbounded<RpcServerRequest, E | Cause.Done>(),
+      messages: yield* Queue.unbounded<RpcMessage, E | Cause.Done>(),
+      ordered,
       pending: new Map(),
+      pendingOrdered: new Map(),
       termination: yield* Deferred.make<Cause.Cause<E>>(),
       closed: undefined,
       nextId: 0,
@@ -195,7 +236,10 @@ const stopRequests = Effect.fnUntraced(function* <E>(
 });
 
 const endStreams = <E>(state: ChannelState<E>) =>
-  Effect.all([Queue.end(state.notifications), Queue.end(state.serverRequests)], { discard: true });
+  Effect.all(
+    [Queue.end(state.notifications), Queue.end(state.serverRequests), Queue.end(state.messages)],
+    { discard: true },
+  );
 
 /** Ends the channel with a typed failure; consumers drain what was buffered, then stop. */
 const finish = <E>(state: ChannelState<E>, error: E) =>
@@ -215,6 +259,7 @@ const supervise =
           yield* stopRequests(state, cause);
           yield* Queue.failCause(state.notifications, cause);
           yield* Queue.failCause(state.serverRequests, cause);
+          yield* Queue.failCause(state.messages, cause);
         }),
       ),
       Effect.forkScoped,
@@ -234,8 +279,23 @@ const receive = Effect.fnUntraced(function* <E>(state: ChannelState<E>, line: st
     Effect.mapError(() => state.failed("decode", "invalid JSON-RPC message")),
   );
   if ("method" in message) {
-    if ("id" in message) yield* Queue.offer(state.serverRequests, message);
+    if ("id" in message) {
+      if (state.ordered) yield* Queue.offer(state.messages, { _tag: "ServerRequest", message });
+      else yield* Queue.offer(state.serverRequests, message);
+    } else if (state.ordered) yield* Queue.offer(state.messages, { _tag: "Notification", message });
     else yield* Queue.offer(state.notifications, message);
+    return;
+  }
+  const orderedMethod = state.pendingOrdered.get(message.id);
+  if (orderedMethod !== undefined) {
+    state.pendingOrdered.delete(message.id);
+    yield* Queue.offer(state.messages, {
+      _tag: "Reply",
+      id: message.id,
+      method: orderedMethod,
+      result: message.result,
+      error: message.error ? new RpcError(message.error) : null,
+    });
     return;
   }
   const deferred = state.pending.get(message.id);
@@ -370,7 +430,7 @@ export const openChannel = Effect.fnUntraced(function* <E>(
   options: ChannelOptions<E>,
 ): Effect.fn.Return<Channel<E>, E, Scope.Scope | ChildProcessSpawner.ChildProcessSpawner> {
   const handle = yield* spawnChild(options);
-  const state = yield* makeState(options.unavailable);
+  const state = yield* makeState(options.unavailable, options.ordered ?? false);
   yield* startPumps(state, handle, options);
   yield* Effect.addFinalizer(() =>
     stopRequests(state, Cause.fail(options.unavailable({ _tag: "Closed" }))).pipe(
@@ -379,6 +439,16 @@ export const openChannel = Effect.fnUntraced(function* <E>(
   );
   const channel: Channel<E> = {
     request: makeRequest(state),
+    requestOrdered: (method, params, register) =>
+      Effect.suspend(() => {
+        const id = state.nextId++;
+        state.pendingOrdered.set(id, method);
+        register?.(id);
+        return send(state, { jsonrpc: "2.0", id, method, params }).pipe(
+          Effect.as(id),
+          Effect.onError(() => Effect.sync(() => state.pendingOrdered.delete(id))),
+        );
+      }),
     notify: (method, params) =>
       send(
         state,
@@ -389,6 +459,7 @@ export const openChannel = Effect.fnUntraced(function* <E>(
       send(state, { jsonrpc: "2.0", id, error: { code, message } }),
     notifications: Stream.fromQueue(state.notifications),
     serverRequests: Stream.fromQueue(state.serverRequests),
+    messages: Stream.fromQueue(state.messages),
     exitCode: exitCodeOf(state, handle),
     termination: Deferred.await(state.termination),
   };

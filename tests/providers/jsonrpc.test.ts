@@ -99,6 +99,32 @@ describe("JSON-RPC channel", () => {
       }).pipe(Effect.provide(NodeServices.layer)),
   );
 
+  it.effect("delivers an ordered reply after the messages the agent wrote before it", () =>
+    Effect.gen(function* () {
+      const channel = yield* open({ ordered: true });
+      const id = yield* channel.requestOrdered("ask", {});
+      const rejected = yield* channel.requestOrdered("reject", {});
+      const messages = yield* channel.messages.pipe(Stream.take(5), Stream.runCollect);
+
+      expect(messages).toEqual([
+        { _tag: "Notification", message: { method: "asking", params: { step: 1 } } },
+        {
+          _tag: "ServerRequest",
+          message: { id: "ask-1", method: "question", params: { text: "first" } },
+        },
+        { _tag: "ServerRequest", message: { id: 9, method: "question" } },
+        { _tag: "Reply", id, method: "ask", result: "asked", error: null },
+        {
+          _tag: "Reply",
+          id: rejected,
+          method: "reject",
+          result: undefined,
+          error: new RpcError({ code: -7, message: "refused" }),
+        },
+      ]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("times out with RpcRequestTimeout and ignores the late reply", () =>
     Effect.gen(function* () {
       const channel = yield* open();
