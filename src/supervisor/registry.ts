@@ -84,6 +84,11 @@ export interface Run {
   projectHook: boolean;
   hooksRequired: boolean;
   worktree: WorktreeFields | null;
+  /**
+   * The worktree's changed paths and their content signatures when the active turn began, kept
+   * only for turns whose read-only mode the provider doesn't sandbox; null otherwise.
+   */
+  turnSnapshot: ReadonlyMap<string, string> | null;
   budgetExpired: boolean;
   budgetTurnId: string | null;
   serverGeneration: symbol | null;
@@ -254,6 +259,7 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
       projectHook: false,
       hooksRequired: false,
       worktree: null,
+      turnSnapshot: null,
       budgetExpired: false,
       budgetTurnId: null,
       serverGeneration: null,

@@ -1,11 +1,11 @@
-import { Clock, Effect, type FileSystem, type Path, type PlatformError, type Schema } from "effect";
+import { Clock, Effect, FileSystem, Path, type PlatformError, type Schema } from "effect";
 import type { ChildProcessSpawner } from "effect/process";
 import { AppConfig } from "../config";
 import { call, outdated, passiveEvents, probe } from "../daemon/client";
 import { type AppError, PermissionDenied, RunConflict, RunNotFound, Usage } from "../errors";
 import { readAgyCatalog } from "../providers/agy/catalog";
 import { agyEnvironment } from "../providers/agy/environment";
-import { listedModels } from "../providers/codex/catalog";
+import { readCodexModels } from "../providers/codex/catalog";
 import { type ModelCatalogs, resolveModel } from "../providers/routing";
 import {
   activeStates,
@@ -93,6 +93,23 @@ interface StartInput extends WaitOptions {
 // Listing models needs no SSH agent, so the catalog read skips the probe the daemon runs.
 const NO_SSH_PROBE = { alive: true, launchdSocket: undefined };
 
+// foreman runs on macOS and Linux only.
+const PATH_DELIMITER = ":";
+
+/**
+ * Whether the agy executable exists: the configured path, or a file of that name in a PATH
+ * directory. Checked here because a failed catalog read doesn't say whether agy was missing.
+ */
+const agyInstalled = Effect.fnUntraced(function* (agyBin: string, searchPath: string | undefined) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const exists = (file: string) => fs.exists(file).pipe(Effect.orElseSucceed(() => false));
+  if (agyBin.includes(path.sep)) return yield* exists(agyBin);
+  for (const directory of (searchPath ?? "").split(PATH_DELIMITER))
+    if (directory !== "" && (yield* exists(path.join(directory, agyBin)))) return true;
+  return false;
+});
+
 /** The model catalogs start routing reads, from this invocation's configuration. */
 const modelCatalogs = Effect.fnUntraced(function* () {
   const config = yield* AppConfig;
@@ -100,6 +117,7 @@ const modelCatalogs = Effect.fnUntraced(function* () {
     FileSystem.FileSystem | Path.Path | ChildProcessSpawner.ChildProcessSpawner
   >();
   const agy = Effect.gen(function* () {
+    if (!(yield* agyInstalled(config.agyBin, config.inheritedEnvironment.PATH))) return null;
     const env = yield* Effect.sync(() => agyEnvironment(config.inheritedEnvironment, NO_SSH_PROBE));
     return yield* readAgyCatalog({
       agyBin: config.agyBin,
@@ -110,7 +128,7 @@ const modelCatalogs = Effect.fnUntraced(function* () {
     });
   });
   const catalogs: ModelCatalogs = {
-    codex: listedModels(config.codexHome).pipe(Effect.provide(services)),
+    codex: readCodexModels(config.codexHome).pipe(Effect.provide(services)),
     agy: agy.pipe(Effect.provide(services)),
   };
   return catalogs;

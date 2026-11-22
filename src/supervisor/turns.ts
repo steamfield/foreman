@@ -13,6 +13,7 @@ import {
   PlatformError,
   Queue,
 } from "effect";
+import { ChildProcess } from "effect/process";
 import type { AppConfig } from "../config";
 import {
   type CreatedWorktree,
@@ -24,9 +25,18 @@ import {
   setupWorktree,
 } from "../core/managed-worktree";
 import { validateWorktree } from "../core/preflight/worktree";
+import { commandResult } from "../core/process";
 import * as Store from "../core/runs/store";
+import { readGitStatus } from "../core/runs/worktree";
 import { validateStartMode } from "../core/start-mode";
-import { detailFor, errorClasses, errorTable, PermissionDenied, RunConflict } from "../errors";
+import {
+  detailFor,
+  errorClasses,
+  errorTable,
+  PermissionDenied,
+  RunConflict,
+  WorktreeInvalid,
+} from "../errors";
 import {
   isProviderUnavailable,
   type ProviderConnection,
@@ -71,6 +81,118 @@ function startWarnings(
     ...(readOnly === undefined ? [] : [readOnly]),
   ];
 }
+
+/**
+ * Whether foreman checks the worktree after this turn: a read-only or hand-off turn on a
+ * provider whose read-only mode leaves shell commands unsandboxed.
+ */
+export function checksReadOnly(record: RunRecord, kind: TurnKind): boolean {
+  if (!UNSANDBOXED_READ_ONLY.has(providerOf(record))) return false;
+  return record.sandbox === "read-only" || kind === "handoff";
+}
+
+const C_ESCAPES: Readonly<Record<string, number>> = {
+  a: 7,
+  b: 8,
+  t: 9,
+  n: 10,
+  v: 11,
+  f: 12,
+  r: 13,
+  '"': 34,
+  "\\": 92,
+};
+
+/** Undoes git's C-style path quoting (`"new file.txt"`, `"caf\303\251"`); other paths pass through. */
+function unquoteGitPath(path: string): string {
+  if (path.length < 2 || !path.startsWith('"') || !path.endsWith('"')) return path;
+  const body = path.slice(1, -1);
+  const encoder = new TextEncoder();
+  const bytes: number[] = [];
+  for (let index = 0; index < body.length; index++) {
+    const char = body.charAt(index);
+    if (char !== "\\") {
+      bytes.push(...encoder.encode(char));
+      continue;
+    }
+    const octal = /^[0-7]{3}/.exec(body.slice(index + 1));
+    if (octal !== null) {
+      bytes.push(Number.parseInt(octal[0], 8));
+      index += 3;
+      continue;
+    }
+    const escaped = body.charAt(index + 1);
+    bytes.push(C_ESCAPES[escaped] ?? escaped.charCodeAt(0));
+    index += 1;
+  }
+  return new TextDecoder().decode(new Uint8Array(bytes));
+}
+
+/** The path a `git status --porcelain` line names; the destination for a rename. */
+export const statusPath = (line: string) => unquoteGitPath(line.slice(3).replace(/.* -> /, ""));
+
+/**
+ * Pairs each changed path with its status code and content hash, so a rewrite of a file that
+ * was already modified still reads as a change. `hashes` has no entry for a deleted path.
+ */
+export function snapshotOf(
+  statusLines: readonly string[],
+  hashes: ReadonlyMap<string, string>,
+): Map<string, string> {
+  const snapshot = new Map<string, string>();
+  for (const line of statusLines) {
+    const path = statusPath(line);
+    snapshot.set(path, `${line.slice(0, 2)} ${hashes.get(path) ?? "-"}`);
+  }
+  return snapshot;
+}
+
+/** The paths that appeared, disappeared or changed between two snapshots, sorted. */
+export function changedSince(
+  before: ReadonlyMap<string, string>,
+  after: ReadonlyMap<string, string>,
+): string[] {
+  const changed = new Set<string>();
+  for (const [path, signature] of after) if (before.get(path) !== signature) changed.add(path);
+  for (const path of before.keys()) if (!after.has(path)) changed.add(path);
+  return [...changed].sort();
+}
+
+/**
+ * Hashes the files `git hash-object` can read in the worktree.
+ * @throws {WorktreeInvalid} When git fails.
+ */
+const hashFiles = Effect.fnUntraced(function* (worktree: string, paths: readonly string[]) {
+  if (paths.length === 0) return new Map<string, string>();
+  const result = yield* commandResult(
+    ChildProcess.make("git", ["hash-object", "--", ...paths], { cwd: worktree }),
+  );
+  if (result.code !== 0)
+    return yield* new WorktreeInvalid({
+      detail: `git hash-object exited ${result.code} in ${worktree}: ${result.stderr.trim()}. Inspect the worktree, then run foreman status.`,
+    });
+  const hashes = result.stdout.split("\n").filter((line) => line !== "");
+  return new Map(paths.map((path, index): [string, string] => [path, hashes[index] ?? "-"]));
+});
+
+/**
+ * Reads the worktree's changed paths with a content signature each.
+ * @throws {WorktreeInvalid} When git fails in the worktree.
+ */
+export const readSnapshot = Effect.fnUntraced(function* (worktree: string) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const lines = yield* readGitStatus(worktree);
+  const files: string[] = [];
+  for (const line of lines) {
+    const changed = statusPath(line);
+    const info = yield* fs
+      .stat(path.join(worktree, changed))
+      .pipe(Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(null)));
+    if (info?.type === "File") files.push(changed);
+  }
+  return snapshotOf(lines, yield* hashFiles(worktree, files));
+});
 
 /** The settings a run's session and turns use, from its record. */
 function sessionSettings(record: RunRecord): SessionSettings {
@@ -136,6 +258,10 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
     run.projectHook = false;
     run.budgetExpired = false;
     run.budgetTurnId = null;
+    // Taken before the turn starts, so status refreshes during the turn can't move the baseline.
+    run.turnSnapshot = checksReadOnly(run.record, kind)
+      ? yield* readSnapshot(run.record.worktree)
+      : null;
     const now = DateTime.makeUnsafe(yield* Clock.currentTimeMillis);
     yield* registry.save(run, {
       turns: run.record.turns + 1,

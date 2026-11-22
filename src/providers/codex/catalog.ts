@@ -58,14 +58,29 @@ export const defaultModel = Effect.fn("preflight.defaultModel")(
   Effect.orElseSucceed(() => fallback),
 );
 
+const AnyModel = Schema.Struct({ slug: Schema.String });
+
+/** The slugs of the cache entries Codex keeps out of its model list. */
+function hiddenSlugs(models: readonly unknown[]): string[] {
+  const listed = new Set(listedSlugs(models));
+  const hidden: string[] = [];
+  for (const entry of models) {
+    const model = Schema.decodeUnknownResult(AnyModel)(entry);
+    if (Result.isSuccess(model) && !listed.has(model.success.slug)) hidden.push(model.success.slug);
+  }
+  return hidden;
+}
+
 /**
- * Returns the model ids Codex lists (`visibility: "list"`) in the cache under `codexHome`.
- * A missing or unreadable cache yields an empty list: routing then can't check Codex models
- * and passes them through as it did before providers existed.
+ * Returns the model ids in the cache under `codexHome`: the ones Codex lists
+ * (`visibility: "list"`) and the hidden rest. A missing or unreadable cache yields empty
+ * lists: routing then can't check Codex models and passes them through as it did before
+ * providers existed.
  */
-export const listedModels = Effect.fn("codex.listedModels")(
+export const readCodexModels = Effect.fn("codex.readCodexModels")(
   function* (codexHome: string) {
-    return listedSlugs(yield* readCache(codexHome));
+    const models = yield* readCache(codexHome);
+    return { listed: listedSlugs(models), hidden: hiddenSlugs(models) };
   },
-  Effect.orElseSucceed((): readonly string[] => []),
+  Effect.orElseSucceed(() => ({ listed: [], hidden: [] })),
 );

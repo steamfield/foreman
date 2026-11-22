@@ -8,7 +8,7 @@ import { Deferred, Effect, Fiber, Layer, ManagedRuntime, Schema } from "effect";
 import { onTestFinished } from "vitest";
 import { call } from "../src/daemon/client";
 import { daemon } from "../src/daemon/server";
-import { AgyUnavailable, RunConflict, Usage } from "../src/errors";
+import { AgyUnavailable, errorEnvelope, RunConflict, Usage } from "../src/errors";
 import type { AgyCatalog } from "../src/providers/agy/catalog";
 import { type ModelCatalogs, type ModelRequest, resolveModel } from "../src/providers/routing";
 import { type DaemonRequestBody, RunName } from "../src/schemas/daemon";
@@ -56,16 +56,24 @@ const agyCatalog: AgyCatalog = {
       name: "Gemini 3.8 Flash (Medium)",
     },
     { id: "claude-opus-5-5", family: "claude-opus-5-5", effort: null, name: "Claude Opus 5.5" },
+    {
+      id: "gpt-oss-120b-medium",
+      family: "gpt-oss-120b-medium",
+      effort: "medium",
+      name: "GPT-OSS 120B (Medium)",
+    },
   ],
 };
 const codexModels = ["gpt-6.1-sol", "gpt-6.1-sol-mini"];
 
 const unreadAgy = Effect.die(new Error("agy's catalog must not be read for this model"));
 const catalogs = (
-  codex: readonly string[] = codexModels,
+  listed: readonly string[] = codexModels,
   agy: ModelCatalogs["agy"] = Effect.succeed(agyCatalog),
-): ModelCatalogs => ({ codex: Effect.succeed(codex), agy });
-const agyMissing = Effect.fail(new AgyUnavailable({ detail: "agy not found on PATH" }));
+  hidden: readonly string[] = ["gpt-x"],
+): ModelCatalogs => ({ codex: Effect.succeed({ listed, hidden }), agy });
+const agyBroken = Effect.fail(new AgyUnavailable({ detail: "`agy models` exited with code 1" }));
+const agyNotInstalled = Effect.succeed(null);
 
 describe("model routing", () => {
   it.effect.each<[string, ModelRequest, ModelCatalogs, unknown]>([
@@ -144,8 +152,20 @@ describe("model routing", () => {
     [
       "an unreadable Codex catalog and missing agy pass the model to Codex",
       { model: "custom" },
-      catalogs([], agyMissing),
+      catalogs([], agyNotInstalled),
       { provider: "codex", model: "custom" },
+    ],
+    [
+      "an unreadable Codex catalog and a failing agy pass the model to Codex",
+      { model: "custom" },
+      catalogs([], agyBroken),
+      { provider: "codex", model: "custom" },
+    ],
+    [
+      "a lone suffixed agy id keeps its fixed effort",
+      { model: "gpt-oss-120b-medium" },
+      catalogs(),
+      { provider: "agy", model: "gpt-oss-120b-medium", effort: "medium" },
     ],
     [
       "an unreadable Codex catalog still routes an agy model to agy",
@@ -231,12 +251,57 @@ describe("model routing", () => {
       }),
     ],
     [
-      "agy unavailable for a model Codex doesn't list",
+      "a lone suffixed agy id given another effort",
+      { model: "gpt-oss-120b-medium", effort: "high" },
+      catalogs(),
+      new Usage({
+        detail:
+          "--effort high is not valid for gpt-oss-120b-medium (agy), which has a fixed effort. Remove --effort.",
+      }),
+    ],
+    [
+      "a hidden Codex model, before agy is consulted",
+      { model: "gpt-x" },
+      catalogs(codexModels, unreadAgy),
+      new Usage({
+        detail:
+          'Model "gpt-x" is in Codex\'s catalog but hidden. Pick a visible model from foreman models.',
+      }),
+    ],
+    [
+      "a hidden Codex model named with codex:",
+      { model: "codex:gpt-x" },
+      catalogs(codexModels, unreadAgy),
+      new Usage({
+        detail:
+          'Model "gpt-x" is in Codex\'s catalog but hidden. Pick a visible model from foreman models.',
+      }),
+    ],
+    [
+      "an unknown model when agy isn't installed, without an install hint",
       { model: "gemini-4-neon" },
-      catalogs(codexModels, agyMissing),
+      catalogs(codexModels, agyNotInstalled),
+      new Usage({
+        detail:
+          "Unknown model \"gemini-4-neon\": codex doesn't list it and agy isn't installed. Run foreman models to see the available models.",
+      }),
+    ],
+    [
+      "an agy: model when agy isn't installed",
+      { model: "agy:gemini-4-neon" },
+      catalogs(codexModels, agyNotInstalled),
       new AgyUnavailable({
         detail:
-          'Can\'t check model "gemini-4-neon": agy is unavailable (agy not found on PATH). Install agy or set AGY_BIN, then run foreman doctor.',
+          "Can't check model \"gemini-4-neon\": agy isn't installed. Install agy or set AGY_BIN, then run foreman doctor.",
+      }),
+    ],
+    [
+      "an installed agy whose catalog fails, for a model Codex doesn't list",
+      { model: "gemini-4-neon" },
+      catalogs(codexModels, agyBroken),
+      new AgyUnavailable({
+        detail:
+          'Can\'t check model "gemini-4-neon": agy is unavailable (`agy models` exited with code 1). Install agy or set AGY_BIN, then run foreman doctor.',
       }),
     ],
   ])("refuses %s", ([, request, given, expected]) =>
@@ -361,15 +426,32 @@ describe("start routing through the CLI", () => {
     const result = await f.run(["--model", "gemini-9-ultra"]);
     expect(result.status).toBe(2);
     expect(result.stdout).toBe("");
-    expect(ndjson(result.stderr)).toEqual([
-      expect.objectContaining({
-        error: expect.objectContaining({
-          tag: "Usage",
+    // The envelope follows the command's error log record.
+    expect(ndjson(result.stderr).at(-1)).toEqual(
+      errorEnvelope(
+        new Usage({
           detail:
             'Unknown model "gemini-9-ultra": neither codex nor agy lists it. Run foreman models to see the available models.',
         }),
-      }),
-    ]);
+      ),
+    );
+    expect(f.requests).toEqual([]);
+  });
+
+  it("tells a Codex-only user about an unknown model without asking them to install agy", async () => {
+    const f = await daemonFixture();
+    await f.codexCache(["gpt-6.1-sol"]);
+    const result = await f.run(["--model", "gpt-6.2-sol"]);
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe("");
+    expect(ndjson(result.stderr).at(-1)).toEqual(
+      errorEnvelope(
+        new Usage({
+          detail:
+            "Unknown model \"gpt-6.2-sol\": codex doesn't list it and agy isn't installed. Run foreman models to see the available models.",
+        }),
+      ),
+    );
     expect(f.requests).toEqual([]);
   });
 });
