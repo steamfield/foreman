@@ -27,23 +27,44 @@ export interface PermissionOption {
   readonly kind: string;
 }
 
-/** Decides a permission request. */
-export function decidePermission(_request: PermissionRequest): PermissionDecision {
-  throw new Error("not implemented");
+const ASK_ORCHESTRATOR_TOOL = "mcp_foreman_ask_orchestrator";
+const EDIT_KINDS: ReadonlySet<string> = new Set(["edit", "delete", "move"]);
+
+/** Decides a permission request from the tool, the run's access and the turn kind. */
+export function decidePermission(request: PermissionRequest): PermissionDecision {
+  if (!request.known) return "rejected";
+  if (request.name === ASK_ORCHESTRATOR_TOOL)
+    return request.turnKind === "handoff" ? "rejected" : "approved";
+  if (EDIT_KINDS.has(request.kind))
+    return request.access === "write" && request.turnKind !== "handoff" ? "approved" : "rejected";
+  return "approved";
 }
 
+const firstOfKind = (options: readonly PermissionOption[], kind: string): string | null =>
+  options.find((option) => option.kind === kind)?.optionId ?? null;
+
+const firstRejection = (options: readonly PermissionOption[]): string | null =>
+  options.find((option) => option.kind.startsWith("reject_"))?.optionId ?? null;
+
 /**
- * Picks the option id that carries a decision, never an `allow_always`. Returns null when no
- * option fits; the caller then answers `{outcome: {outcome: "cancelled"}}`.
+ * Picks the option id that carries a decision, never an `allow_always`. An approval with no
+ * `allow_once` option falls back to the rejection choice, so foreman never grants more than
+ * it decided. Returns null when no option fits; the caller then answers
+ * `{outcome: {outcome: "cancelled"}}`.
  */
 export function pickOption(
-  _options: readonly PermissionOption[],
-  _decision: PermissionDecision,
+  options: readonly PermissionOption[],
+  decision: PermissionDecision,
 ): string | null {
-  throw new Error("not implemented");
+  if (decision === "approved") {
+    const allow = firstOfKind(options, "allow_once");
+    if (allow !== null) return allow;
+  }
+  return firstOfKind(options, "reject_once") ?? firstRejection(options);
 }
 
 /** The run failure message after foreman refused a tool call (agy then ends the turn). */
-export function refusalMessage(_title: string, _kind: string, _turnKind: TurnKind): string {
-  throw new Error("not implemented");
+export function refusalMessage(title: string, kind: string, turnKind: TurnKind): string {
+  const where = turnKind === "handoff" ? "the budget hand-off turn" : "a read-only run";
+  return `foreman refused ${title} (${kind}) in ${where}; agy ends a turn when a permission is refused. Follow up with narrower instructions or start a write run.`;
 }

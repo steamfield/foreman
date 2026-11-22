@@ -43,6 +43,10 @@ export function toRunEvents(event: ProviderEvent, turn: number, kind: TurnKind):
       return [{ _tag: "Retrying", message: event.message }];
     case "McpStartupFailed":
       return [{ _tag: "McpStartupFailed", server: event.server, error: event.error }];
+    case "Permission":
+      return [
+        { _tag: "Permission", kind: event.kind, title: event.title, decision: event.decision },
+      ];
     default:
       return [];
   }

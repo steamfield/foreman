@@ -27,6 +27,9 @@ for (const key of [
   "GIT_COMMON_DIR",
 ])
   delete process.env[key];
+// Tests never run a real agy: an unknown model that reaches agy's catalog finds no agy here.
+// Tests that need agy point AGY_BIN at tests/fixtures/fake-acp-agent.
+process.env.AGY_BIN = "/nonexistent/foreman-tests/agy";
 const home = mkdtempSync(join(tmpdir(), "cli-isolation-"));
 process.env.HOME = home;
 delete process.env.XDG_CONFIG_HOME;

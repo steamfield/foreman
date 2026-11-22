@@ -534,7 +534,8 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* (providers: Prov
   });
   // Start carries no provider until runs are routed by model, so a new run is a Codex run.
   const requestProvider = (body: DaemonRequestBody): ProviderId => {
-    if (body._tag === "Start" || !("name" in body) || body.name === undefined) return "codex";
+    if (body._tag === "Start") return body.provider ?? "codex";
+    if (!("name" in body) || body.name === undefined) return "codex";
     const run = registry.runs.get(body.name);
     return run === undefined ? "codex" : providerOf(run.record);
   };
