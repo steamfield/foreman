@@ -9,8 +9,12 @@ const update = (body: Record<string, unknown>): Step => ({
 });
 
 /** A shell command agy runs itself: start, then completion with output and exit code. */
-export function command(commandLine: string, output: string, exitCode = 0): Step[] {
-  const id = `call_cmd_${commandLine.length}`;
+export function command(
+  commandLine: string,
+  output: string,
+  exitCode = 0,
+  id = `call_cmd_${commandLine.length}`,
+): Step[] {
   const call = {
     toolCallId: id,
     name: "run_command",
@@ -301,6 +305,80 @@ export function askInHandoff(question: string): AcpScenario {
         update({ sessionUpdate: "tool_call", ...askCall("h", question), status: "in_progress" }),
         ...permission("h-permission", "other", `Run ${ASK_TOOL}`, ASK_TOOL),
         message("Hand-off: listed a.txt."),
+      ]),
+    ],
+  };
+}
+
+/**
+ * A turn that runs `ls` and waits for foreman to steer it. The steer's prompt merges into the
+ * turn (the fake replies end_turn to the first prompt), runs `git log`, waits at `held` until
+ * the test opens it, then writes the closing message. A repeating rule takes follow-ups.
+ */
+export function steeredTurn(held: Gate): AcpScenario {
+  return {
+    rules: [
+      prompt([
+        ...command("ls", "a.txt\n"),
+        message("Listing done; waiting for more."),
+        { awaitRequest: "session/prompt" },
+      ]),
+      prompt([
+        ...command("git log --oneline", "abc123 initial\n"),
+        { gate: held },
+        message("Applied the steer."),
+      ]),
+      prompt([message("Follow-up done.")], "end_turn", true),
+    ],
+  };
+}
+
+/** `count` quick shell commands with distinct tool call ids, all written in one burst. */
+export function commandBurst(count: number): Step[] {
+  return Array.from({ length: count }, (_, index) =>
+    command(`echo ${index}`, `${index}\n`, 0, `call_burst_${index}`),
+  ).flat();
+}
+
+/**
+ * A turn that asks (the test lets the question time out into a deferral), then floods foreman
+ * with `burst` commands so the supervisor is still applying them when the prompt replies, and
+ * writes `marker` just before the reply. A repeating rule takes the follow-up.
+ */
+export function lateAnswerAfterTurn(question: string, marker: string, burst: number): AcpScenario {
+  return {
+    rules: [
+      prompt([
+        ...askStart("q", question),
+        ...askEnd("q", question),
+        ...commandBurst(burst),
+        message("Finished without the answer."),
+        { writeFile: marker, text: "replying" },
+      ]),
+      prompt([message("Applied the late answer.")], "end_turn", true),
+    ],
+  };
+}
+
+/**
+ * A turn that works until foreman cancels it (the budget), then a hand-off turn in which agy
+ * runs `git status` (asking first), writes its hand-off, and then asks to edit a file.
+ */
+export function editInHandoff(): AcpScenario {
+  return {
+    rules: [
+      prompt([...command("ls", "a.txt\n"), { awaitRequest: "session/cancel" }], "cancelled"),
+      prompt([
+        ...permission("cmd", "execute", "git status --short", "run_command"),
+        ...command("git status --short", ""),
+        message("Hand-off: listed a.txt; notes.txt not written."),
+        ...permission("edit", "edit", "File notes.txt", "write_file"),
+        update({
+          sessionUpdate: "tool_call_update",
+          toolCallId: "call_edit",
+          kind: "edit",
+          status: "failed",
+        }),
       ]),
     ],
   };

@@ -1,6 +1,6 @@
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Effect, FileSystem, Schema } from "effect";
+import { Effect, Exit, FileSystem, Schema, Scope } from "effect";
 import { ChildProcess } from "effect/process";
 import { AppConfig } from "../../src/config";
 import { commandResult } from "../../src/core/process";
@@ -10,6 +10,7 @@ import * as D from "../../src/schemas/daemon";
 import { Host } from "../../src/services/host";
 import { makeSupervisor } from "../../src/supervisor";
 import { AcpScenario } from "../fixtures/fake-acp-agent/scenario";
+import type { Gate } from "../fixtures/fake-acp-agent/scenarios";
 import { ndjson } from "./cli";
 
 export { eventsPlatform as agyPlatform } from "./events";
@@ -58,10 +59,9 @@ export const agyFixture = Effect.fnUntraced(function* (
   } else yield* git(...commit, "--allow-empty", "-qm", "initial");
   yield* git("worktree", "add", "-qb", "unit", worktree);
   const scenarioFile = `${root}/scenario.json`;
-  yield* fs.writeFileString(
-    scenarioFile,
-    Schema.encodeSync(Schema.fromJsonString(AcpScenario))(scenario),
-  );
+  const writeScenario = (next: AcpScenario) =>
+    fs.writeFileString(scenarioFile, Schema.encodeSync(Schema.fromJsonString(AcpScenario))(next));
+  yield* writeScenario(scenario);
   const env: Record<string, string> = {
     HOME: root,
     FOREMAN_HOME: dataDir,
@@ -89,18 +89,35 @@ export const agyFixture = Effect.fnUntraced(function* (
     build: "test",
     executable: [bun.stdout.trim(), cliEntry],
   });
-  const supervisor = yield* makeSupervisor().pipe(
-    Effect.provide(AppConfig.layer(env)),
-    Effect.provide(daemonHost),
-  );
-  yield* Effect.raceFirst(
-    supervisor.failed,
-    daemon({ dataDir, version: "dev", ...supervisor }).pipe(Effect.provide(daemonHost)),
-  ).pipe(Effect.forkScoped);
   const request = (body: D.DaemonRequestBody) =>
     call(body, { dataDir, connectOnly: true }).pipe(Effect.provide(daemonHost));
-  while ((yield* request({ _tag: "Ping" }).pipe(Effect.result))._tag !== "Success")
-    yield* Effect.yieldNow;
+  /** Starts a supervisor and daemon over `dataDir` in a scope of their own, ready for requests. */
+  const launch = Effect.fnUntraced(function* () {
+    const scope = yield* Scope.make();
+    const supervisor = yield* makeSupervisor().pipe(
+      Effect.provide(AppConfig.layer(env)),
+      Effect.provide(daemonHost),
+      Scope.provide(scope),
+    );
+    yield* Effect.raceFirst(
+      supervisor.failed,
+      daemon({ dataDir, version: "dev", ...supervisor }).pipe(Effect.provide(daemonHost)),
+    ).pipe(Effect.forkIn(scope));
+    while ((yield* request({ _tag: "Ping" }).pipe(Effect.result))._tag !== "Success")
+      yield* Effect.yieldNow;
+    return scope;
+  });
+  let daemonScope = yield* launch();
+  yield* Effect.addFinalizer(() => Scope.close(daemonScope, Exit.void));
+  /**
+   * Stops the daemon, which ends its agy child, and starts a new one over the same foreman
+   * home. With `next`, agy launched from now on plays that scenario instead.
+   */
+  const restart = Effect.fnUntraced(function* (next?: AcpScenario) {
+    yield* Scope.close(daemonScope, Exit.void);
+    if (next !== undefined) yield* writeScenario(next);
+    daemonScope = yield* launch();
+  });
   const start = (write: boolean, options: AgyStartOptions = {}) =>
     request({
       _tag: "Start",
@@ -126,6 +143,15 @@ export const agyFixture = Effect.fnUntraced(function* (
   const events = request({ _tag: "Events", name, limit: 1000 }).pipe(
     Effect.map((page) => (page._tag === "Events" ? page.events.map(({ event }) => event) : [])),
   );
+  /** A gate for the fake under the fixture's directory; open it with `openGate`. */
+  const gate = Effect.fnUntraced(function* (label: string) {
+    const made: Gate = { ready: `${root}/${label}-ready`, release: `${root}/${label}-release` };
+    const fifo = yield* commandResult(ChildProcess.make("mkfifo", [made.release]));
+    if (fifo.code !== 0) return yield* Effect.die(`mkfifo failed: ${fifo.stderr}`);
+    return made;
+  });
+  /** Opens a gate: the write completes once the fake blocked on it has read it. */
+  const openGate = (opened: Gate) => fs.writeFileString(opened.release, "go");
   const readLines = (file: string) =>
     fs.readFileString(file).pipe(
       Effect.orElseSucceed(() => ""),
@@ -141,6 +167,14 @@ export const agyFixture = Effect.fnUntraced(function* (
     start,
     until,
     events,
+    restart,
+    /**
+     * Replaces the scenario agy plays from its next launch: before `start`, for scenarios that
+     * need the fixture's paths (gates, markers).
+     */
+    useScenario: writeScenario,
+    gate,
+    openGate,
     /** Every message foreman sent the fake agent, in order. */
     received: readLines(`${root}/acp.jsonl`),
     /** One entry per agy launch: argv, cwd and environment. */
