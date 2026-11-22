@@ -100,7 +100,8 @@ export type ProviderEvent =
     }
   | {
       readonly _tag: "ItemStarted";
-      readonly turn: TurnId;
+      /** null when only the item type decoded; the hook rule still applies to it. */
+      readonly turn: TurnId | null;
       readonly id: string;
       /** From a minimal decode, so hook enforcement holds even if the full shape changed. */
       readonly kind: "command" | "fileChange" | "agentMessage" | "tool" | "other";
