@@ -2,7 +2,7 @@
 // matcher, through `sh -c`, from the directory holding hooks.json, with agy's JSON on stdin.
 // Tests assert on the decision agy would read from stdout.
 import { spawn } from "node:child_process";
-import { cpSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
@@ -80,13 +80,13 @@ describe("agy PreToolUse adapter", SPAWNS, () => {
     expect(result.reason).toContain("Never work around this block.");
   });
 
-  it("allows a harmless command", async () => {
+  it("asks, not allows, for a harmless command", async () => {
     expect(
       await decideInRepo(
         "run_command",
         agyCall("run_command", { CommandLine: "git status --short" }),
       ),
-    ).toEqual({ decision: "allow" });
+    ).toEqual({ decision: "ask" });
   });
 
   it("denies a write that contains a credential-shaped string", async () => {
@@ -123,13 +123,13 @@ describe("agy PreToolUse adapter", SPAWNS, () => {
     expect(result.reason).toContain("AWS access key ID");
   });
 
-  it("allows a harmless edit", async () => {
+  it("asks for a harmless edit", async () => {
     expect(
       await decideInRepo(
         "edit_file",
         agyCall("edit_file", { Path: "/tmp/repo/a.ts", Target: "a", Replacement: "b" }),
       ),
-    ).toEqual({ decision: "allow" });
+    ).toEqual({ decision: "ask" });
   });
 
   it("denies an edit with no content argument", async () => {
@@ -141,13 +141,13 @@ describe("agy PreToolUse adapter", SPAWNS, () => {
     expect(result.reason).toContain("lacks the argument");
   });
 
-  it("allows a write with no credential", async () => {
+  it("asks for a write with no credential", async () => {
     expect(
       await decideInRepo(
         "write_file",
         agyCall("write_file", { Path: "/tmp/repo/hello.txt", Content: "hello" }),
       ),
-    ).toEqual({ decision: "allow" });
+    ).toEqual({ decision: "ask" });
   });
 
   it("denies when the guard script is missing", async () => {
@@ -156,6 +156,61 @@ describe("agy PreToolUse adapter", SPAWNS, () => {
     const result = await decide(root, "run_command", agyCall("run_command", { CommandLine: "ls" }));
     expect(result.decision).toBe("deny");
     expect(result.reason).toContain("block-destructive.sh not found");
+  });
+
+  it.each([["echo hi\ngit reset --hard"], ["echo hi\nrm -rf ~"]])(
+    "denies a destructive line after the first: %j",
+    async (commandLine) => {
+      const result = await decideInRepo(
+        "run_command",
+        agyCall("run_command", { CommandLine: commandLine }),
+      );
+      expect(result.decision).toBe("deny");
+    },
+  );
+
+  it("denies when _lib.sh is missing, with the real message", async () => {
+    const root = copyOfHooks();
+    rmSync(join(root, ".claude/hooks/_lib.sh"));
+    const result = await decide(root, "run_command", agyCall("run_command", { CommandLine: "ls" }));
+    expect(result).toEqual({
+      decision: "deny",
+      reason: expect.stringContaining("_lib.sh not found"),
+    });
+  });
+
+  describe("with a broken guard", () => {
+    const replaceGuard = (body: string) => {
+      const root = copyOfHooks();
+      writeFileSync(
+        join(root, ".claude/hooks/block-destructive.sh"),
+        `#!/usr/bin/env bash\n${body}\n`,
+      );
+      return root;
+    };
+    const lsCall = agyCall("run_command", { CommandLine: "ls" });
+
+    it("denies a guard that exits nonzero, with its exit code and stderr", async () => {
+      const result = await decide(replaceGuard("echo boom >&2; exit 1"), "run_command", lsCall);
+      expect(result.decision).toBe("deny");
+      expect(result.reason).toContain("block-destructive.sh failed (exit 1)");
+      expect(result.reason).toContain("boom");
+    });
+
+    it("denies output it cannot read, quoting the output", async () => {
+      const result = await decide(replaceGuard(`echo '{"foo":1}'`), "run_command", lsCall);
+      expect(result.decision).toBe("deny");
+      expect(result.reason).toContain("does not understand");
+      expect(result.reason).toContain('{"foo":1}');
+    });
+
+    it("denies a guard that outlives the timeout, before agy's own 10 s", async () => {
+      const started = Date.now();
+      const result = await decide(replaceGuard("sleep 30"), "run_command", lsCall);
+      expect(result.decision).toBe("deny");
+      expect(result.reason).toContain("did not finish within 8s");
+      expect(Date.now() - started).toBeLessThan(10_000);
+    });
   });
 
   it("denies when the adapter script is missing", async () => {
