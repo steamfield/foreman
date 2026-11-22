@@ -5,6 +5,11 @@ import { age, oneLine, stateTone, unsupervised } from "./format";
 import type { FlagView, RowView, State, Tone } from "./model-types";
 import { pace } from "./pace";
 
+/** Names the provider ahead of the model for non-Codex runs; Codex runs get no tag. */
+export function providerTag(run: Pick<RunView, "provider">): string {
+  return run.provider === undefined || run.provider === "codex" ? "" : `${run.provider} `;
+}
+
 /** Builds the task, model, progress and pace facts shared by list layouts. */
 export function rowFacts(
   run: RunView,
@@ -15,7 +20,7 @@ export function rowFacts(
   return {
     review: reviewHint(run),
     task: run.title?.replace(/\p{Cc}/gu, " ") ?? null,
-    modelLabel: `${model} · ${effort}`.replace(/\p{Cc}/gu, " "),
+    modelLabel: `${providerTag(run)}${model} · ${effort}`.replace(/\p{Cc}/gu, " "),
     progress:
       run.commands === null
         ? null

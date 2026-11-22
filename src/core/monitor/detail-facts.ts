@@ -5,6 +5,7 @@ import { shellCommand } from "./attention";
 import type { DetailFeed } from "./detail-feed";
 import { age, cleanText, clockTime, oneLine, plural, stamp, unsupervised } from "./format";
 import type { DetailLine, State, Tone } from "./model-types";
+import { providerTag } from "./row";
 
 /** Formats the run's command, file and token digest. */
 export function digestFacts(data: Detail): string[] {
@@ -67,6 +68,13 @@ export function detailConnection(detail: NonNullable<State["detail"]>) {
   return { connection, message };
 }
 
+/** Formats the model fact; non-Codex runs lead with their provider and have no tier. */
+function modelFact(run: RunView): string {
+  const tag = providerTag(run);
+  if (tag === "") return `${run.model} · ${run.effort} · ${run.tier}`;
+  return `${tag}· ${run.model} · ${run.effort}`;
+}
+
 /** Formats the run's recorded worktree and execution metadata. */
 export function detailHeader(state: State, data: Detail, connection: string) {
   const { run, record } = data;
@@ -78,7 +86,7 @@ export function detailHeader(state: State, data: Detail, connection: string) {
     ["created", stamp(record.createdAt, state.now)],
     ["updated", stamp(record.updatedAt, state.now)],
     ["run dir", record.runDir],
-    ["model", `${run.model} · ${run.effort} · ${run.tier}`],
+    ["model", modelFact(run)],
     ["turn", `${run.turn} ${run.turnKind ?? ""}`],
     ["connection", connection],
   ].map(([label, value]) => [label ?? "", cleanText(value ?? "")] as const);
