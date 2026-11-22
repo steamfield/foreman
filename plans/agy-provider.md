@@ -149,6 +149,7 @@ Scaffold (written when phase 1 lands): `src/providers/output-tail.ts` (outputTai
 | d | S | .agents/hooks.json, .agents/hooks/, tests/hooks/agy-adapter.test.ts | .claude/hooks/block-destructive.sh, .claude/hooks/detect-secrets.sh | | sonnet | merged | deliver/agy-provider-2d | agy-adapter tests pass |
 
 Scaffold: 1333521
+Tag: agy-phase-2
 
 #### Amendments after the phase 1 boundary fixes (apply to every lane below)
 
@@ -302,3 +303,5 @@ Phase 5 runs alongside phases 3 and 4 on its own phase branch, `deliver/agy-prov
 - Codex pin 0.171.0 merged (c0cab8c): no used method or field changed incompatibly; the full real-Codex smoke suite passed on that branch (21 pass, 0 fail).
 - Phase 1 tagged agy-phase-1: a `phase-1` tag from an earlier, unrelated run already exists, so this plan's later tags carry the `agy-` prefix.
 - The delegate preamble stays in the first prompt for both providers (src/supervisor/prompts.ts, prepended by turns.ts) instead of agy's `_meta.antigravity.systemPrompt.append`: provider-neutral and already covered by tests. Follow-ups and hand-offs behave as on Codex.
+- Phase 2 demo ran against real agy 1.5.14 (gemini-3.8-flash-low): write run with hand-off, Permission events, read-only edit refusal failing the run, followup on the same session, interrupt confirmed in 0.1 s, archive. It found two bugs fixed before the tag: agy's inputTokens excludes cache reads (now input = inputTokens + cachedRead + cachedWrite), and agy titles file permissions relative to its launch directory (now rebuilt relative to the worktree).
+- Pre-existing, out of scope: src/core/runs/worktree.ts outsideMayChange parses git status paths without unquoting, so paths with spaces or non-ASCII characters are reported quoted (lane 2/c found it).
