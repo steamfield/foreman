@@ -1,6 +1,7 @@
 import { Cause, Schema } from "effect";
 import { CliError } from "effect/cli";
 import { redactDiagnosticText } from "./diagnostic-redaction";
+import { ModelCandidate } from "./schemas/models";
 
 // `detail` is text foreman writes (which check failed, which run), never text from Codex.
 const detail = { detail: Schema.optional(Schema.String) };
@@ -38,6 +39,13 @@ export class RepoHooksUntrusted extends Schema.TaggedError<RepoHooksUntrusted>()
   detail,
 ) {}
 
+// A --model that routes to no provider. `candidates` are the models the agent likely meant, for
+// the --json envelope.
+export class ModelUnresolved extends Schema.TaggedError<ModelUnresolved>()("ModelUnresolved", {
+  ...detail,
+  candidates: Schema.optional(Schema.Array(ModelCandidate)),
+}) {}
+
 export class UpdateFailed extends Schema.TaggedError<UpdateFailed>()("UpdateFailed", detail) {}
 
 export const errorClasses = [
@@ -56,6 +64,7 @@ export const errorClasses = [
   RepoHooksUntrusted,
   InputError,
   UpdateFailed,
+  ModelUnresolved,
 ] as const;
 export type AppError = InstanceType<(typeof errorClasses)[number]>;
 export const errorTable = {
@@ -107,6 +116,11 @@ export const errorTable = {
   },
   InputError: { code: 2, message: "The input file can't be read.", retryable: false },
   UpdateFailed: { code: 11, message: "foreman could not update itself.", retryable: true },
+  ModelUnresolved: {
+    code: 2,
+    message: "The model doesn't match one provider's catalog. Run foreman models.",
+    retryable: false,
+  },
 } as const satisfies Record<
   AppError["_tag"],
   { code: number; message: string; retryable: boolean }
@@ -117,6 +131,8 @@ export const ErrorEnvelope = Schema.Struct({
     message: Schema.String,
     detail: Schema.optionalKey(Schema.String),
     retryable: Schema.Boolean,
+    // ModelUnresolved only: the models the input likely meant.
+    candidates: Schema.optionalKey(Schema.Array(ModelCandidate)),
   }),
 });
 export const exitCodeFor = (error: AppError) => errorTable[error._tag].code;
@@ -125,12 +141,14 @@ export const detailFor = (error: AppError): string | undefined =>
   "detail" in error ? error.detail : undefined;
 export const errorEnvelope = (error: AppError): typeof ErrorEnvelope.Type => {
   const detail = detailFor(error);
+  const candidates = error._tag === "ModelUnresolved" ? error.candidates : undefined;
   return {
     error: {
       tag: error._tag,
       message: errorTable[error._tag].message,
       ...(detail === undefined ? {} : { detail }),
       retryable: retryableFor(error),
+      ...(candidates === undefined ? {} : { candidates }),
     },
   };
 };

@@ -29,6 +29,8 @@ import {
   type ProviderDescriptor,
   type ProviderId,
   type QuestionCall,
+  QuestionCancelled,
+  QuestionRefused,
 } from "../providers/contract";
 import { RpcError, RpcRequestTimeout } from "../providers/jsonrpc";
 import {
@@ -127,6 +129,25 @@ const rejectRequest = Effect.fnUntraced(function* (
     Cause.hasDies(cause) ? failure(cause) : requestFailure(error, body, home, provider),
   );
 });
+
+/** The bridge's refusal when the run has no turn a question could belong to. */
+const TURN_NOT_ACTIVE = "turn is no longer active";
+
+/** The reason a cancelled question carries, or "cancelled" when it names none. */
+const cancelReason = (cancelled: QuestionCancelled): string =>
+  Predicate.hasProperty(cancelled, "reason") && typeof cancelled.reason === "string"
+    ? cancelled.reason
+    : "cancelled";
+
+/** The bridge's reply when the run refused or cancelled its question; other failures pass. */
+function askFailure<E>(error: E | QuestionRefused | QuestionCancelled): E | RunConflict {
+  if (error instanceof QuestionRefused) return new RunConflict({ detail: error.reason });
+  if (error instanceof QuestionCancelled)
+    return new RunConflict({
+      detail: `question cancelled by the orchestrator: ${cancelReason(error)}`,
+    });
+  return error;
+}
 
 /** The monitor's refusal when another actor already answered or ended a question. */
 const alreadyResolved = (name: string, id: string, state: string | undefined) =>
@@ -372,6 +393,30 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* (providers: Prov
       body.source,
     );
   });
+  /**
+   * Hands a bridge question to the run's connection and waits for its outcome. The run lock is
+   * held only to read the session, so an answer can take it while the question is held.
+   * @throws {RunConflict} When the connection refuses or the supervisor cancels the question.
+   */
+  const ask = Effect.fnUntraced(function* (body: Extract<DaemonRequestBody, { _tag: "Ask" }>) {
+    const run = yield* registry.lookup(body.name);
+    const { session, connection } = yield* run.lock.withPermits(1)(
+      Effect.gen(function* () {
+        yield* registry.requireCurrent(run);
+        return { session: run.record.threadId, connection: yield* connections.forRun(run) };
+      }),
+    );
+    if (session === null) return yield* new RunConflict({ detail: TURN_NOT_ACTIVE });
+    const text = yield* connection
+      .ask(session, {
+        question: body.question,
+        kind: body.kind,
+        callId: body.callId,
+        raw: body,
+      })
+      .pipe(Effect.mapError(askFailure));
+    return { _tag: "AskAnswer" as const, text };
+  });
   const dispatch = Effect.fnUntraced(function* (
     body: DaemonRequestBody,
   ): Effect.fn.Return<
@@ -415,6 +460,8 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* (providers: Prov
       }
       case "Answer":
         return yield* answer(body);
+      case "Ask":
+        return yield* ask(body);
       case "Wait":
         return yield* wait(registry, body);
       case "Archive":

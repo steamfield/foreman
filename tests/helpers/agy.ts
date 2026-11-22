@@ -15,6 +15,13 @@ import { ndjson } from "./cli";
 export { eventsPlatform as agyPlatform } from "./events";
 
 const name = Schema.decodeUnknownSync(D.RunName)("unit");
+const cliEntry = fileURLToPath(new URL("../fixtures/foreman-cli/entry.ts", import.meta.url));
+
+/** Settings a test start passes besides the fixture's model and worktree. */
+export interface AgyStartOptions {
+  readonly questionTimeoutMs?: number;
+  readonly budgetMs?: number;
+}
 
 export interface AgyFixtureOptions {
   /** The ACP protocol version the fake agent answers initialize with (default 1). */
@@ -65,13 +72,23 @@ export const agyFixture = Effect.fnUntraced(function* (
     FAKE_ACP_SCENARIO: scenarioFile,
     FAKE_ACP_LOG: `${root}/acp.jsonl`,
     FAKE_ACP_ARGS: `${root}/args.jsonl`,
+    FAKE_ACP_MCP_LOG: `${root}/mcp.jsonl`,
     // Must not reach agy: it signs in with its own login.
     GEMINI_API_KEY: "placeholder",
     LOG_LEVEL: "none",
     ...(options.protocol === undefined ? {} : { FAKE_ACP_PROTOCOL: String(options.protocol) }),
   };
   const host = yield* Host;
-  const daemonHost = Host.layer({ ...host, build: "test" });
+  // foreman's executable is the daemon's Host.executable; here it is the test CLI entry run by
+  // Bun, so the `mcp-question` bridge agy launches from mcpServers is a real foreman process of
+  // the daemon's build.
+  const bun = yield* commandResult(ChildProcess.make("which", ["bun"]));
+  if (bun.code !== 0) return yield* Effect.die("bun is not on PATH; the agy bridge runs with it");
+  const daemonHost = Host.layer({
+    ...host,
+    build: "test",
+    executable: [bun.stdout.trim(), cliEntry],
+  });
   const supervisor = yield* makeSupervisor().pipe(
     Effect.provide(AppConfig.layer(env)),
     Effect.provide(daemonHost),
@@ -84,7 +101,7 @@ export const agyFixture = Effect.fnUntraced(function* (
     call(body, { dataDir, connectOnly: true }).pipe(Effect.provide(daemonHost));
   while ((yield* request({ _tag: "Ping" }).pipe(Effect.result))._tag !== "Success")
     yield* Effect.yieldNow;
-  const start = (write: boolean) =>
+  const start = (write: boolean, options: AgyStartOptions = {}) =>
     request({
       _tag: "Start",
       name,
@@ -95,6 +112,7 @@ export const agyFixture = Effect.fnUntraced(function* (
       model: "gemini-4-neon",
       effort: "low",
       skipDepsCheck: false,
+      ...options,
     });
   /** Waits until run `unit` reaches `state` (and `turn`, when given), returning its digest. */
   const until = Effect.fnUntraced(function* (state: D.RunState, turn?: number) {
@@ -127,6 +145,8 @@ export const agyFixture = Effect.fnUntraced(function* (
     received: readLines(`${root}/acp.jsonl`),
     /** One entry per agy launch: argv, cwd and environment. */
     launches: readLines(`${root}/args.jsonl`),
+    /** One entry per ended MCP call the fake made: `{label, response}` or `{label, exited}`. */
+    mcpResults: readLines(`${root}/mcp.jsonl`),
     runJson: fs
       .readFileString(`${dataDir}/runs/unit/run.json`)
       .pipe(Effect.map((text): unknown => JSON.parse(text))),

@@ -155,6 +155,9 @@ export function renderResult(
       ].join("\n");
     case "Ok":
       return "ok";
+    // Only the question bridge receives this, and it never prints it.
+    case "AskAnswer":
+      return result.text;
     case "Accepted":
       return `ok${result.delivery === "queued" ? " (answer queued for the next available turn)" : ""}\nnext: ${result.next}`;
     case "Result":

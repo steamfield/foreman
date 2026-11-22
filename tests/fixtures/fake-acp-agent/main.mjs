@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
@@ -28,6 +29,64 @@ let requestId = 0;
 const labels = new Map();
 const responses = new Set();
 const waits = new Set();
+let mcpServers = [];
+const mcpCalls = new Map();
+const mcpChildren = new Set();
+
+function killMcpChildren() {
+  for (const child of mcpChildren) child.kill("SIGKILL");
+}
+process.on("exit", killMcpChildren);
+process.on("SIGTERM", () => process.exit(143));
+process.on("SIGINT", () => process.exit(130));
+
+// One MCP server child per call, speaking JSON-RPC lines on stdio like agy's MCP client.
+function startMcpCall({ tool, arguments: args, label }) {
+  const server = mcpServers.find((entry) => typeof entry?.command === "string");
+  if (server === undefined) throw new Error(`mcpCall ${label}: no stdio server in mcpServers`);
+  const env = { ...process.env };
+  for (const { name, value } of server.env ?? []) env[name] = value;
+  const child = spawn(server.command, server.args ?? [], { env, stdio: ["pipe", "pipe", "inherit"] });
+  mcpChildren.add(child);
+  const exited = new Promise((resolve) => {
+    child.on("error", (error) => resolve({ exited: { code: null, signal: null, error: error.message } }));
+    child.on("exit", (code, signal) => resolve({ exited: { code, signal } }));
+  }).finally(() => mcpChildren.delete(child));
+  const pending = new Map();
+  let nextId = 1;
+  createInterface({ input: child.stdout }).on("line", (line) => {
+    let message;
+    try { message = JSON.parse(line); } catch { return; }
+    pending.get(message.id)?.(message);
+    pending.delete(message.id);
+  });
+  child.stdin.on("error", () => {});
+  const send = (message) => child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`);
+  const request = (method, params) => Promise.race([
+    new Promise((resolve) => {
+      const id = nextId++;
+      pending.set(id, resolve);
+      send({ id, method, params });
+    }),
+    exited,
+  ]);
+  const outcome = (async () => {
+    const initialized = await request("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "fake-agy", version: "1.5.14" } });
+    if ("exited" in initialized || initialized.error !== undefined) return initialized;
+    send({ method: "notifications/initialized" });
+    return request("tools/call", { name: tool, arguments: substitute(args) });
+  })().then((ended) => {
+    child.stdin.end();
+    const line = "exited" in ended ? { label, exited: ended.exited } : { label, response: ended };
+    if (process.env.FAKE_ACP_MCP_LOG) appendFileSync(process.env.FAKE_ACP_MCP_LOG, `${JSON.stringify(line)}\n`);
+  });
+  mcpCalls.set(label, { child, outcome });
+}
+function mcpCall(label) {
+  const call = mcpCalls.get(label);
+  if (call === undefined) throw new Error(`unknown MCP call label: ${label}`);
+  return call;
+}
 
 function substitute(value) {
   if (typeof value === "string") return value.replace(/\{\{(session|seq|cwd)\}\}/g, (_, name) => {
@@ -71,6 +130,12 @@ async function steps(script) {
       readFileSync(step.gate.release);
     }
     else if ("exit" in step) process.exit(step.exit);
+    else if ("mcpCall" in step) startMcpCall(step.mcpCall);
+    else if ("awaitMcpResult" in step) {
+      const { outcome } = mcpCall(step.awaitMcpResult.label);
+      const timeoutMs = step.awaitMcpResult.timeoutMs;
+      await (timeoutMs === undefined ? outcome : Promise.race([outcome, delay(timeoutMs)]));
+    } else if ("killMcp" in step) mcpCall(step.killMcp).child.kill("SIGKILL");
   }
 }
 function remember(method, params) {
@@ -79,6 +144,7 @@ function remember(method, params) {
     session = randomUUID();
     cwd = typeof fields.cwd === "string" ? fields.cwd : "";
   }
+  if ((method === "session/new" || method === "session/load" || method === "session/resume") && Array.isArray(fields.mcpServers)) mcpServers = fields.mcpServers;
   if ((method === "session/load" || method === "session/resume") && typeof fields.sessionId === "string") session = fields.sessionId;
 }
 function defaultResult(method) {
@@ -123,6 +189,8 @@ async function receive(line) {
 }
 
 const input = createInterface({ input: process.stdin });
+// agy's MCP servers end with it; without this, their pipes would keep the fake alive.
+input.on("close", killMcpChildren);
 input.on("line", (line) => {
   receive(line).catch((error) => { console.error(error); process.exit(1); });
 });

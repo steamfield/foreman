@@ -359,6 +359,15 @@ export const DaemonRequestBody = Schema.TaggedUnion({
     source: Schema.optionalKey(Schema.Literal("monitor")),
   },
   Result: { name: RunName },
+  // A question from agy's ask_orchestrator bridge (`foreman mcp-question`). The socket request
+  // stays open until the question is answered, deferred or refused.
+  Ask: {
+    name: RunName,
+    question: Schema.String,
+    kind: QuestionKind,
+    // Minted by the bridge per tool call; matches the provider's QuestionAbandoned.callId.
+    callId: Schema.String,
+  },
   Archive: { name: RunName, keepWorktree: Schema.optionalKey(Schema.Boolean) },
   Wait: {
     names: Schema.Array(RunName),
@@ -420,6 +429,8 @@ export const DaemonResult = Schema.TaggedUnion({
     state: Schema.optionalKey(RunState),
   },
   Ok: {},
+  // The answer to an Ask, returned to the agent as the tool result.
+  AskAnswer: { text: Schema.String },
   Accepted: {
     cursor: Cursor,
     all: Schema.optionalKey(Schema.Boolean),

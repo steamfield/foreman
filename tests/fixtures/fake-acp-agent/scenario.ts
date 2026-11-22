@@ -16,6 +16,20 @@ import { Schema } from "effect";
 // session id, `session/set_config_option` and `session/set_mode` reply `{}`, and anything else
 // gets JSON-RPC error -32601.
 //
+// MCP steps drive the stdio MCP server foreman passed in `mcpServers`, as agy does for
+// ask_orchestrator:
+//   mcpCall: {tool, arguments, label}   launches the first stdio server of the most recent
+//                  session/new|load|resume with its command, args and env (on top of the fake's
+//                  own environment), sends `initialize` and `notifications/initialized`, then
+//                  `tools/call {name: tool, arguments}`. It does not wait: the call runs while
+//                  the following steps play. Each call gets its own server child.
+//   awaitMcpResult: {label, timeoutMs?}   waits until that call ends, or the timeout passes.
+//   killMcp: label   kills that call's server child with SIGKILL, mid-call.
+// Every call's outcome is appended to FAKE_ACP_MCP_LOG (when set) as one line:
+// `{label, response}` with the JSON-RPC response to tools/call (or to initialize when that
+// failed), or `{label, exited: {code, signal}}` when the server exited first. The fake closes
+// a server's stdin once its call ended, and kills every server child when it exits itself.
+//
 // Placeholders in params and results, replaced before sending:
 //   {{session}}   the id of the most recent session/new (or the session a load named)
 //   {{seq}}       a counter that increases on every use
@@ -35,6 +49,16 @@ export const Step = Schema.Union([
   Schema.Struct({ writeFile: Schema.String, text: Schema.String }),
   Schema.Struct({ gate: Schema.Struct({ ready: Schema.String, release: Schema.String }) }),
   Schema.Struct({ exit: Schema.Int }),
+  Schema.Struct({
+    mcpCall: Schema.Struct({ tool: Schema.String, arguments: Json, label: Schema.String }),
+  }),
+  Schema.Struct({
+    awaitMcpResult: Schema.Struct({
+      label: Schema.String,
+      timeoutMs: Schema.optionalKey(Schema.Int),
+    }),
+  }),
+  Schema.Struct({ killMcp: Schema.String }),
 ]);
 export type Step = typeof Step.Type;
 

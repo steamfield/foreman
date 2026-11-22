@@ -192,3 +192,116 @@ export function allowAlwaysOnly(): AcpScenario {
     ],
   };
 }
+
+const ASK_TOOL = "mcp_foreman_ask_orchestrator";
+const ASK_SUMMARY = "Ask the orchestrator";
+
+/** agy's tool call for ask_orchestrator, as its session/update reports it. */
+const askCall = (label: string, question: string) => ({
+  toolCallId: `call_ask_${label}`,
+  name: ASK_TOOL,
+  args: { question, toolSummary: ASK_SUMMARY },
+  kind: "other",
+  title: `Run ${ASK_TOOL}`,
+  rawInput: { question, toolSummary: ASK_SUMMARY },
+});
+
+/**
+ * agy calls ask_orchestrator through foreman's MCP bridge: the tool call starts, foreman
+ * approves it, and the fake calls the tool with agy's extra `toolSummary` argument. The call
+ * stays open while later steps play; finish it with `askEnd`.
+ */
+export function askStart(label: string, question: string): Step[] {
+  return [
+    update({ sessionUpdate: "tool_call", ...askCall(label, question), status: "in_progress" }),
+    ...permission(`${label}-permission`, "other", `Run ${ASK_TOOL}`, ASK_TOOL),
+    {
+      mcpCall: {
+        tool: "ask_orchestrator",
+        arguments: { question, toolSummary: ASK_SUMMARY },
+        label,
+      },
+    },
+  ];
+}
+
+/** Waits for the bridge's tool result, then reports the tool call ended with `status`. */
+export function askEnd(label: string, question: string, status = "completed"): Step[] {
+  return [
+    { awaitMcpResult: { label } },
+    update({ sessionUpdate: "tool_call_update", ...askCall(label, question), status }),
+  ];
+}
+
+/** A turn that asks one question, waits for the tool result and finishes. */
+export function questionTurn(question: string): AcpScenario {
+  return {
+    rules: [
+      prompt([
+        ...askStart("q", question),
+        ...askEnd("q", question),
+        message("Done after the answer."),
+      ]),
+    ],
+  };
+}
+
+/** A pair of gate files; `release` must be a FIFO the test writes to open the gate. */
+export interface Gate {
+  readonly ready: string;
+  readonly release: string;
+}
+
+/**
+ * A turn that asks, waits at `held` until the test saw the question waiting, kills the bridge
+ * child mid-call, then waits at `resume` before finishing. A repeating rule takes follow-ups,
+ * such as the late answer.
+ */
+export function abandonedQuestionTurn(question: string, held: Gate, resume: Gate): AcpScenario {
+  return {
+    rules: [
+      prompt([
+        ...askStart("q", question),
+        { gate: held },
+        { killMcp: "q" },
+        ...askEnd("q", question, "failed"),
+        { gate: resume },
+        message("Continued without the answer."),
+      ]),
+      prompt([message("Applied the late answer.")], "end_turn", true),
+    ],
+  };
+}
+
+/** The prompt replies first; then agy calls the tool with no prompt outstanding. */
+export function askAfterTurn(question: string): AcpScenario {
+  return {
+    rules: [
+      {
+        method: "session/prompt",
+        respond: { result: { stopReason: "end_turn", usage } },
+        steps: [
+          { mcpCall: { tool: "ask_orchestrator", arguments: { question }, label: "late" } },
+          { awaitMcpResult: { label: "late" } },
+        ],
+      },
+    ],
+  };
+}
+
+/**
+ * A turn that works until foreman cancels it (the budget), then a hand-off turn in which agy
+ * asks permission to call ask_orchestrator before writing its hand-off.
+ */
+export function askInHandoff(question: string): AcpScenario {
+  return {
+    rules: [
+      prompt([...command("ls", "a.txt\n"), { awaitRequest: "session/cancel" }], "cancelled"),
+      prompt([
+        update({ sessionUpdate: "tool_call", ...askCall("h", question), status: "in_progress" }),
+        ...permission("h-permission", "other", `Run ${ASK_TOOL}`, ASK_TOOL),
+        message("Hand-off: listed a.txt."),
+      ]),
+    ],
+  };
+}
