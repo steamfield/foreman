@@ -49,6 +49,7 @@ Layout after plan phase 1:
 
 Demo: `bun run check` passes; nothing user-visible changes; `tests/providers/codex-events.test.ts` and `tests/providers/jsonrpc.test.ts` pass.
 Scaffold: b40302a1339a4c93f30549415567a384daed1b50
+Tag: phase-0
 
 Test cases (owned and written by the lanes, from the lists in each brief).
 
