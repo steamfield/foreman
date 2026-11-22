@@ -207,8 +207,8 @@ Depends on: phase 2
 
 | Lane | Size | Owns files | Reads | Tests | Model | Status | Branch | Done when |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| a | M | src/commands/mcp-question.ts, src/core/mcp-question.ts, src/daemon/client.ts, tests/mcp-question.test.ts | contracts | | opus | pending | | |
-| b | M | src/providers/agy/questions.ts, src/providers/agy/connection.ts, src/providers/agy/live.ts, src/supervisor/questions.ts, src/supervisor/notifications.ts, tests/agy-questions.test.ts, tests/agy-runs.test.ts | contracts | | opus | pending | | |
+| a | M | src/commands/mcp-question.ts, src/core/mcp-question.ts, src/daemon/client.ts, tests/mcp-question.test.ts | contracts | | opus | running | deliver/agy-provider-3a | |
+| b | M | src/providers/agy/questions.ts, src/providers/agy/connection.ts, src/providers/agy/live.ts, src/supervisor/questions.ts, src/supervisor/notifications.ts, tests/agy-questions.test.ts, tests/agy-runs.test.ts | contracts | | opus | running | deliver/agy-provider-3b | |
 
 Scaffold: 1d264ff
 
@@ -260,8 +260,8 @@ Depends on: phase 2
 
 | Lane | Size | Owns files | Reads | Tests | Model | Status | Branch | Done when |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| a | M | src/providers/routing.ts, src/providers/routing-errors.ts, src/core/commands.ts, src/commands/models.ts, src/core/models.ts, src/schemas/models.ts, tests/model-routing.test.ts, tests/provider-routing.test.ts | contracts | | opus | pending | | |
-| b | M | src/core/doctor.ts, src/core/doctor-providers.ts, src/schemas/doctor.ts, src/commands/doctor.ts, tests/doctor-providers.test.ts | contracts | | sonnet | pending | | |
+| a | M | src/providers/routing.ts, src/providers/routing-errors.ts, src/core/commands.ts, src/commands/models.ts, src/core/models.ts, src/schemas/models.ts, tests/model-routing.test.ts, tests/provider-routing.test.ts | contracts | | opus | running | deliver/agy-provider-5a | |
+| b | M | src/core/doctor.ts, src/core/doctor-providers.ts, src/schemas/doctor.ts, src/commands/doctor.ts, tests/doctor-providers.test.ts | contracts | | sonnet | running | deliver/agy-provider-5b | |
 | c | M | src/guide/, scripts/generate-skill.ts, .claude/skills/foreman/, docs/architecture.md, README.md, AGENTS.md, docs/harness.md, .claude/README.md | contracts | | opus | pending | | |
 | d | S | src/core/monitor/row.ts, src/core/monitor/detail-facts.ts, tests/monitor-provider.test.ts | contracts | | sonnet | pending | | |
 
