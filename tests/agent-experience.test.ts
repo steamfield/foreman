@@ -192,9 +192,9 @@ describe("start with a model no provider resolves", () => {
       'Unknown provider "gemni" in --model gemni:gemini-4-neon. Use codex or agy.',
     ],
     [
-      "agy's catalog unavailable for a model Codex doesn't list",
+      "a model Codex doesn't list when agy isn't installed",
       ["--model", "gemini-4-neon"],
-      'Can\'t check model "gemini-4-neon": agy is unavailable (agy not found on PATH). Install agy or set AGY_BIN, then run foreman doctor.',
+      "Unknown model \"gemini-4-neon\": codex doesn't list it and agy isn't installed. Run foreman models to see the available models.",
       { agy: false },
     ],
     [

@@ -92,7 +92,7 @@ function signInFailure(detail: string): Checked<{ signedIn: false | null; catalo
     value: { signedIn: signedOut ? false : null, catalogSize: null },
     finding: signedOut
       ? `agy isn't signed in. Run agy once and sign in, then run foreman doctor. (${detail})`
-      : `Could not confirm agy's sign-in because \`agy models\` failed. ${detail}`,
+      : `Could not confirm agy's sign-in because \`agy models\` failed: ${detail.replace(/\.?$/, ".")} Run \`agy models\` to see the problem, then run foreman doctor again.`,
   };
 }
 
