@@ -50,12 +50,29 @@ const paramsSchemas: Readonly<Record<string, Schema.ConstraintEncoder<unknown>>>
   [Method.turnInterrupt]: TurnInterruptParams,
 };
 
-const unavailable = (end: ChannelEnd) =>
-  new CodexUnavailable({ detail: end._tag === "Closed" ? CLOSED_DETAIL : end.detail });
+/** Today's user-facing wording for each way the app-server channel can fail. */
+const failureDetail = (codexBin: string, end: Extract<ChannelEnd, { _tag: "Failed" }>): string => {
+  switch (end.reason) {
+    case "launch":
+      return `Could not launch ${JSON.stringify(codexBin)}. Install Codex or set CODEX_BIN to an executable, then run foreman doctor.`;
+    case "encode":
+      return "could not encode app server message";
+    case "decode":
+      return "invalid app server JSON-RPC message";
+    case "stdin":
+    case "stdout":
+    case "stderr":
+      return `app server ${end.reason} failed`;
+    case "exit":
+      return `app server exited with code ${end.exitCode}`;
+    case "observe-exit":
+      return "could not observe app server exit";
+  }
+};
 
-const launchFailure = (codexBin: string) =>
+const codexUnavailable = (codexBin: string) => (end: ChannelEnd) =>
   new CodexUnavailable({
-    detail: `Could not launch ${JSON.stringify(codexBin)}. Install Codex or set CODEX_BIN to an executable, then run foreman doctor.`,
+    detail: end._tag === "Closed" ? CLOSED_DETAIL : failureDetail(codexBin, end),
   });
 
 // `hasOwn` keeps prototype names such as "constructor" from selecting a schema.
@@ -85,6 +102,7 @@ export type ConnectionOptions = {
  * @throws {CodexUnavailable} When Codex can't be launched, exits, or the connection ends.
  * @throws {CodexRpcError} When Codex rejects the initialize request.
  * @throws {CodexRequestTimeout} When Codex doesn't answer initialize within 30 seconds.
+ * @throws {Schema.SchemaError} When params or a result don't match their schema.
  */
 export const openConnection = Effect.fn("codex.openConnection")(function* (
   options: ConnectionOptions,
@@ -94,8 +112,8 @@ export const openConnection = Effect.fn("codex.openConnection")(function* (
     args: APP_SERVER_ARGS,
     env: options.env,
     stderr: options.stderr,
-    unavailable,
-  }).pipe(Effect.mapError(() => launchFailure(options.codexBin)));
+    unavailable: codexUnavailable(options.codexBin),
+  });
   const request = <A, I, R>(
     method: string,
     params: unknown,

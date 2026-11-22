@@ -31,10 +31,29 @@ export class RpcRequestTimeout extends Data.TaggedError("RpcRequestTimeout")<{
   readonly timeoutMs: number;
 }> {}
 
-/** Why a channel ended: a deliberate close, or a failure with a provider-facing detail. */
+/** Which part of the channel failed; callers word their own message from it. */
+export type ChannelFailure =
+  | "launch"
+  | "encode"
+  | "decode"
+  | "stdin"
+  | "stdout"
+  | "stderr"
+  | "exit"
+  | "observe-exit";
+
+/**
+ * Why a channel ended: a deliberate close, or a failure. `detail` is neutral English naming no
+ * provider; `exitCode` is set when the reason is `exit`.
+ */
 export type ChannelEnd =
   | { readonly _tag: "Closed" }
-  | { readonly _tag: "Failed"; readonly detail: string };
+  | {
+      readonly _tag: "Failed";
+      readonly reason: ChannelFailure;
+      readonly detail: string;
+      readonly exitCode?: number;
+    };
 
 /** A JSON-RPC request id; the channel numbers its own requests, agents may use strings. */
 export const RpcId = Schema.Union([Schema.Number, Schema.String]);
@@ -76,8 +95,10 @@ export interface RequestOptions {
 export interface Channel<E> {
   /**
    * Sends a request with already-encoded params and decodes the result.
+   * @throws E When the channel has ended or ends before the reply arrives.
    * @throws {RpcError} When the agent replies with an error.
    * @throws {RpcRequestTimeout} When no reply arrives within the timeout.
+   * @throws {Schema.SchemaError} When the result doesn't match the `result` schema.
    */
   readonly request: <A, I, R>(
     method: string,
@@ -85,13 +106,29 @@ export interface Channel<E> {
     result: Schema.Codec<A, I, R>,
     options?: RequestOptions,
   ) => Effect.Effect<A, E | RpcError | RpcRequestTimeout | Schema.SchemaError, R>;
+  /**
+   * Sends a notification, which gets no reply.
+   * @throws E When the channel has ended or the message can't be encoded.
+   */
   readonly notify: (method: string, params?: unknown) => Effect.Effect<void, E>;
+  /**
+   * Answers a server request with a result.
+   * @throws E When the channel has ended or the result can't be encoded.
+   */
   readonly respond: (id: RpcId, result: unknown) => Effect.Effect<void, E>;
+  /**
+   * Answers a server request with a JSON-RPC error.
+   * @throws E When the channel has ended.
+   */
   readonly respondError: (id: RpcId, code: number, message: string) => Effect.Effect<void, E>;
   /** Single-consumer; buffers messages that arrive before it is consumed. */
   readonly notifications: Stream.Stream<RpcNotification, E>;
   /** Single-consumer; buffers messages that arrive before it is consumed. */
   readonly serverRequests: Stream.Stream<RpcServerRequest, E>;
+  /**
+   * Waits for the child to exit and returns its code.
+   * @throws E When the exit can't be observed, as when a signal killed the child.
+   */
   readonly exitCode: Effect.Effect<number, E>;
   /** Resolves with the end cause once the channel stops, deliberately or not. */
   readonly termination: Effect.Effect<Cause.Cause<E>>;
@@ -114,7 +151,7 @@ const Incoming = Schema.fromJsonString(
 
 /** Mutable bookkeeping shared by the channel's request side and its background fibers. */
 interface ChannelState<E> {
-  readonly failed: (detail: string) => E;
+  readonly failed: (reason: ChannelFailure, detail: string, exitCode?: number) => E;
   readonly outgoing: Queue.Queue<string, Cause.Done>;
   readonly notifications: Queue.Queue<RpcNotification, E | Cause.Done>;
   readonly serverRequests: Queue.Queue<RpcServerRequest, E | Cause.Done>;
@@ -127,7 +164,12 @@ interface ChannelState<E> {
 const makeState = <E>(unavailable: (end: ChannelEnd) => E) =>
   Effect.gen(function* () {
     const state: ChannelState<E> = {
-      failed: (detail) => unavailable({ _tag: "Failed", detail }),
+      failed: (reason, detail, exitCode) =>
+        unavailable(
+          exitCode === undefined
+            ? { _tag: "Failed", reason, detail }
+            : { _tag: "Failed", reason, detail, exitCode },
+        ),
       outgoing: yield* Queue.unbounded<string, Cause.Done>(),
       notifications: yield* Queue.unbounded<RpcNotification, E | Cause.Done>(),
       serverRequests: yield* Queue.unbounded<RpcServerRequest, E | Cause.Done>(),
@@ -181,7 +223,7 @@ const supervise =
 const send = Effect.fnUntraced(function* <E>(state: ChannelState<E>, message: unknown) {
   if (state.closed) return yield* Effect.failCause(state.closed);
   const line = yield* Schema.encodeEffect(JsonLine)(message).pipe(
-    Effect.mapError(() => state.failed("could not encode app server message")),
+    Effect.mapError(() => state.failed("encode", "could not encode JSON-RPC message")),
   );
   yield* Queue.offer(state.outgoing, `${line}\n`);
 });
@@ -189,7 +231,7 @@ const send = Effect.fnUntraced(function* <E>(state: ChannelState<E>, message: un
 /** Routes one stdout line to a waiting request, the notification queue or the request queue. */
 const receive = Effect.fnUntraced(function* <E>(state: ChannelState<E>, line: string) {
   const message = yield* Schema.decodeUnknownEffect(Incoming)(line).pipe(
-    Effect.mapError(() => state.failed("invalid app server JSON-RPC message")),
+    Effect.mapError(() => state.failed("decode", "invalid JSON-RPC message")),
   );
   if ("method" in message) {
     if ("id" in message) yield* Queue.offer(state.serverRequests, message);
@@ -236,6 +278,12 @@ const makeRequest =
       );
     });
 
+// Node reports a missing cwd as a missing executable, so the detail names both.
+const launchDetail = (options: { command: string; cwd?: string }, error: Error) => {
+  const where = options.cwd === undefined ? "" : ` in ${JSON.stringify(options.cwd)}`;
+  return `could not launch ${JSON.stringify(options.command)}${where}: ${error.message}`;
+};
+
 const spawnChild = <E>(options: ChannelOptions<E>) =>
   Effect.gen(function* () {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -252,10 +300,11 @@ const spawnChild = <E>(options: ChannelOptions<E>) =>
         }),
       )
       .pipe(
-        Effect.mapError(() =>
+        Effect.mapError((error) =>
           options.unavailable({
             _tag: "Failed",
-            detail: `Could not launch ${JSON.stringify(options.command)}.`,
+            reason: "launch",
+            detail: launchDetail(options, error),
           }),
         ),
       );
@@ -278,11 +327,11 @@ const startPumps = Effect.fnUntraced(function* <E>(
   yield* Stream.fromQueue(state.outgoing).pipe(
     Stream.encodeText,
     Stream.run(handle.stdin),
-    Effect.catch(() => finish(state, state.failed("app server stdin failed"))),
+    Effect.catch(() => finish(state, state.failed("stdin", "stdin failed"))),
     fork,
   );
   const reader = yield* handle.stdout.pipe(
-    Stream.mapError(() => state.failed("app server stdout failed")),
+    Stream.mapError(() => state.failed("stdout", "stdout failed")),
     Stream.decodeText(),
     Stream.splitLines,
     Stream.runForEach((line) => receive(state, line)),
@@ -293,12 +342,12 @@ const startPumps = Effect.fnUntraced(function* <E>(
     Stream.decodeText(),
     Stream.splitLines,
     Stream.runForEach(options.stderr),
-    Effect.catch(() => finish(state, state.failed("app server stderr failed"))),
+    Effect.catch(() => finish(state, state.failed("stderr", "stderr failed"))),
     fork,
   );
   yield* Effect.gen(function* () {
     const code = yield* exitCodeOf(state, handle);
-    yield* stopRequests(state, Cause.fail(state.failed(`app server exited with code ${code}`)));
+    yield* stopRequests(state, Cause.fail(state.failed("exit", `exited with code ${code}`, code)));
     yield* joinWithin(reader);
     yield* endStreams(state);
     yield* joinWithin(stderr);
@@ -309,7 +358,9 @@ const startPumps = Effect.fnUntraced(function* <E>(
 });
 
 const exitCodeOf = <E>(state: ChannelState<E>, handle: ChildHandle) =>
-  handle.exitCode.pipe(Effect.mapError(() => state.failed("could not observe app server exit")));
+  handle.exitCode.pipe(
+    Effect.mapError(() => state.failed("observe-exit", "could not observe exit")),
+  );
 
 /**
  * Spawns the command and opens a channel on its stdio, closed with the caller's scope.

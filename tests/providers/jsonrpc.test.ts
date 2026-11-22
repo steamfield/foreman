@@ -20,7 +20,8 @@ const peer = fileURLToPath(new URL("../fixtures/jsonrpc/peer.mjs", import.meta.u
 
 class PeerUnavailable extends Data.TaggedError("PeerUnavailable")<{ readonly end: ChannelEnd }> {}
 
-const failed = (detail: string) => new PeerUnavailable({ end: { _tag: "Failed", detail } });
+const failed = (end: Omit<Extract<ChannelEnd, { _tag: "Failed" }>, "_tag">) =>
+  new PeerUnavailable({ end: { _tag: "Failed", ...end } });
 const closed = new PeerUnavailable({ end: { _tag: "Closed" } });
 const Held = Schema.Struct({ id: Schema.Number });
 
@@ -127,12 +128,10 @@ describe("JSON-RPC channel", () => {
     Effect.gen(function* () {
       const channel = yield* open();
       const held = yield* holdRequest(channel);
-      const detail = "invalid app server JSON-RPC message";
-      expect(yield* Effect.flip(channel.request("garbage", {}, Schema.Unknown))).toEqual(
-        failed(detail),
-      );
-      expect(failureOf(yield* Fiber.join(held.pending))).toEqual(failed(detail));
-      expect(Cause.squash(yield* channel.termination)).toEqual(failed(detail));
+      const invalid = failed({ reason: "decode", detail: "invalid JSON-RPC message" });
+      expect(yield* Effect.flip(channel.request("garbage", {}, Schema.Unknown))).toEqual(invalid);
+      expect(failureOf(yield* Fiber.join(held.pending))).toEqual(invalid);
+      expect(Cause.squash(yield* channel.termination)).toEqual(invalid);
       expect(yield* channel.notifications.pipe(Stream.runCollect)).toEqual([]);
     }).pipe(Effect.provide(NodeServices.layer)),
   );
@@ -141,7 +140,7 @@ describe("JSON-RPC channel", () => {
     Effect.gen(function* () {
       const channel = yield* open();
       const held = yield* holdRequest(channel);
-      const exited = failed("app server exited with code 3");
+      const exited = failed({ reason: "exit", detail: "exited with code 3", exitCode: 3 });
       expect(yield* Effect.flip(channel.request("exit", { code: 3 }, Schema.Unknown))).toEqual(
         exited,
       );
@@ -151,6 +150,24 @@ describe("JSON-RPC channel", () => {
       expect(yield* channel.notifications.pipe(Stream.runCollect)).toEqual([]);
       expect(yield* channel.serverRequests.pipe(Stream.runCollect)).toEqual([]);
       expect(yield* Effect.flip(channel.request("echo", {}, Schema.Unknown))).toEqual(exited);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("delivers stderr and notifications written just before the child exits", () =>
+    Effect.gen(function* () {
+      const stderr: string[] = [];
+      const channel = yield* open({
+        stderr: (line) => Effect.sync(() => stderr.push(line)),
+      });
+      yield* channel.notify("farewell", { code: 4 });
+      expect(yield* channel.notifications.pipe(Stream.runCollect)).toEqual([
+        { method: "goodbye", params: { code: 4 } },
+      ]);
+      expect(Cause.squash(yield* channel.termination)).toEqual(
+        failed({ reason: "exit", detail: "exited with code 4", exitCode: 4 }),
+      );
+      expect(yield* channel.exitCode).toBe(4);
+      expect(stderr).toEqual(["leaving with code 4"]);
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
@@ -171,9 +188,29 @@ describe("JSON-RPC channel", () => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const missing = join(yield* fs.makeTempDirectoryScoped(), "missing");
-      expect(yield* Effect.flip(open({ command: missing, args: [] }))).toEqual(
-        failed(`Could not launch ${JSON.stringify(missing)}.`),
-      );
+      const error = yield* Effect.flip(open({ command: missing, args: [] }));
+      expect(error.end).toEqual({
+        _tag: "Failed",
+        reason: "launch",
+        detail: expect.stringMatching(
+          new RegExp(`^could not launch ${RegExp.escape(JSON.stringify(missing))}: \\S`),
+        ),
+      });
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("names the working directory when launching in a missing one fails", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const cwd = join(yield* fs.makeTempDirectoryScoped(), "gone");
+      const error = yield* Effect.flip(open({ cwd }));
+      expect(error.end).toEqual({
+        _tag: "Failed",
+        reason: "launch",
+        detail: expect.stringContaining(
+          `could not launch ${JSON.stringify(process.execPath)} in ${JSON.stringify(cwd)}: `,
+        ),
+      });
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 

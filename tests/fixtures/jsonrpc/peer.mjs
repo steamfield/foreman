@@ -8,6 +8,8 @@
 //   garbage   writes a line that is not JSON
 //   exit      exits with params.code
 //   cwd       replies with the process working directory
+//   farewell  (a notification) writes a stderr line and a "goodbye" notification, then exits
+//             with params.code
 // A response the test sends back (no method) is reported as an "answered" notification.
 import { createInterface } from "node:readline";
 
@@ -36,6 +38,12 @@ const handlers = {
     process.stdin.destroy();
   },
   cwd: ({ id }) => reply(id, process.cwd()),
+  farewell: ({ params }) => {
+    process.stderr.write(`leaving with code ${params.code}\n`);
+    write({ jsonrpc: "2.0", method: "goodbye", params });
+    process.exitCode = params.code;
+    process.stdin.destroy();
+  },
 };
 
 createInterface({ input: process.stdin }).on("line", (line) => {
