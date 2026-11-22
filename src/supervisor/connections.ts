@@ -35,6 +35,7 @@ import {
   type ProviderId,
   type QuestionCall,
 } from "../providers/contract";
+import { wordingFor } from "../providers/wording";
 import { providerOf, type RunRecord } from "../schemas/daemon";
 import type { Registry } from "./registry";
 import { makeStderrLog } from "./stderr-log";
@@ -109,12 +110,14 @@ export const makeProviders = Effect.fn("supervisor.providers")(function* (
   return providers;
 });
 
-const RETIRED = "app server retired after unconfirmed execution";
+const retiredReason = (provider: ProviderId) =>
+  `${wordingFor(provider).server} retired after unconfirmed execution`;
 
-function lossReason(cause: Cause.Cause<unknown>): string {
+function lossReason(cause: Cause.Cause<unknown>, provider: ProviderId): string {
+  const { server } = wordingFor(provider);
   const error = cause.reasons.find(Cause.isFailReason)?.error;
-  if (isProviderUnavailable(error)) return error.detail ?? "app server unavailable";
-  return "app server supervision failed";
+  if (isProviderUnavailable(error)) return error.detail ?? `${server} unavailable`;
+  return `${server} supervision failed`;
 }
 
 /** The lifecycle of one provider's connection: start, loss, retirement and diagnostics. */
@@ -148,7 +151,7 @@ const makeSlot = Effect.fnUntraced(function* (
     const affected = [...registry.runs.values()].filter(
       (run) => run.serverGeneration === live.generation,
     );
-    const reason = lossReason(cause);
+    const reason = lossReason(cause, registration.provider.id);
     yield* Effect.logError("supervisor.appServer.ended").pipe(
       Effect.annotateLogs({
         names: affected.map((run) => run.record.name).join(", "),
@@ -219,10 +222,10 @@ const makeSlot = Effect.fnUntraced(function* (
     capabilities: registration.provider.capabilities,
     get: lock.withPermits(1)(Effect.suspend(() => (current ? Effect.succeed(current) : start))),
     retire: (live: LiveConnection) =>
-      ended(live, Cause.fail(registration.provider.unavailable(RETIRED))).pipe(
-        Effect.andThen(close(live)),
-        Effect.provide(context),
-      ),
+      ended(
+        live,
+        Cause.fail(registration.provider.unavailable(retiredReason(registration.provider.id))),
+      ).pipe(Effect.andThen(close(live)), Effect.provide(context)),
     compatibilityWarning: registration.provider.compatibilityWarning,
     environment: registration.provider.environment,
     warnings: stderrLog.warnings,

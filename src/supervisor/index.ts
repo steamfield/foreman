@@ -33,6 +33,7 @@ import {
   QuestionRefused,
 } from "../providers/contract";
 import { RpcError, RpcRequestTimeout } from "../providers/jsonrpc";
+import { wordingFor } from "../providers/wording";
 import {
   activeStates,
   type DaemonRequestBody,
@@ -67,7 +68,7 @@ const requestFailure = (
   if (isProviderUnavailable(error) && "name" in body && body.name !== undefined) {
     const detail = error.detail ?? `${provider.displayName} is unavailable`;
     return provider.unavailable(
-      `Run ${body.name}, ${provider.displayName} ${JSON.stringify(provider.binary)}: ${detail}${detail.includes("foreman doctor") ? "" : ". Run foreman doctor and inspect the app-server log before retrying."}`,
+      `Run ${body.name}, ${provider.displayName} ${JSON.stringify(provider.binary)}: ${detail}${detail.includes("foreman doctor") ? "" : `. Run foreman doctor and inspect ${wordingFor(provider.id).logs} under ${home} before retrying.`}`,
     );
   }
   if (error instanceof RpcRequestTimeout)

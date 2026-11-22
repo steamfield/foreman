@@ -273,3 +273,23 @@ it.live(
     }).pipe(Effect.provide(platform)),
   60_000,
 );
+
+it.live(
+  "wait reports a lost agy run as agy going away, not an app server",
+  () =>
+    Effect.gen(function* () {
+      const f = yield* agyFixture({ rules: [prompt([{ exit: 17 }])] });
+      yield* f.start(true);
+      yield* f.until("lost");
+      const waited = yield* f.request({
+        _tag: "Wait",
+        names: [f.name],
+        all: false,
+        cwd: f.repo,
+        timeoutMs: 5_000,
+      });
+      expect(JSON.stringify(waited)).toContain("agy or daemon went away");
+      expect(JSON.stringify(waited)).not.toContain("app server");
+    }).pipe(Effect.provide(platform)),
+  30_000,
+);

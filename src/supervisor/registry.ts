@@ -36,9 +36,11 @@ import {
 import { causeFields, redactDiagnosticText } from "../logging";
 import type { QuestionCall } from "../providers/contract";
 import { RpcError, RpcRequestTimeout } from "../providers/jsonrpc";
+import { wordingFor } from "../providers/wording";
 import {
   activeStates,
   type InterruptedBy,
+  providerOf,
   type QuestionId,
   type QuestionLine,
   type RunEvent,
@@ -444,7 +446,10 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
                   run.recoveryVersion === version
                 ) {
                   yield* run.retireServer;
-                  yield* lost(run, "app server retired after unconfirmed execution");
+                  yield* lost(
+                    run,
+                    `${wordingFor(providerOf(run.record)).server} retired after unconfirmed execution`,
+                  );
                 }
               }),
             ),

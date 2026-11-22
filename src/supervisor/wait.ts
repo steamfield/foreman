@@ -2,11 +2,13 @@ import { Clock, DateTime, Effect, Schema } from "effect";
 import { mainCheckout } from "../core/main-checkout";
 import { readEvents, readHandoff } from "../core/runs/store";
 import { Usage } from "../errors";
+import { wordingFor } from "../providers/wording";
 import {
   activeStates,
   Cursor,
   type DaemonRequestBody,
   type DaemonResult,
+  providerOf,
   RunName,
   type WaitOutcome,
 } from "../schemas/daemon";
@@ -171,7 +173,9 @@ const attention = Effect.fnUntraced(function* (
         name: run.record.name,
         kind: event.to === "failed" ? "failed" : "lost",
         summary:
-          event.to === "failed" ? "supervisor operation failed" : "app server or daemon went away",
+          event.to === "failed"
+            ? "supervisor operation failed"
+            : `${wordingFor(providerOf(run.record)).server} or daemon went away`,
         digest,
         handoff: null,
       });
