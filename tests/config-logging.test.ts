@@ -445,6 +445,31 @@ describe("agy and defaultModel settings", () => {
     const fallback = await readAgy({ HOME: await tempDir() });
     expect(JSON.parse(fallback.stdout)).toEqual({ agyBin: "agy", loaded: "agy" });
   });
+  it("resolves a blank AGY_BIN to the config.json value", async () => {
+    const home = await configFile('{"agyBin":"/from/file/agy"}');
+    const result = await readAgy({ AGY_BIN: "  ", HOME: home });
+    expect(JSON.parse(result.stdout)).toEqual({
+      agyBin: "/from/file/agy",
+      loaded: "/from/file/agy",
+    });
+  });
+  it.each([
+    ['{"agyBin":"/from/file/agy","defaultModel":""}', "agyBin", "/from/file/agy"],
+    ['{"agyBin":" ","defaultModel":"gemini-3"}', "defaultModel", "gemini-3"],
+  ])("keeps the valid key of %s readable", async (content, key, expected) => {
+    const home = await configFile(content);
+    const result = await runCli(["--json"], {
+      env: { AGY_BIN: undefined, HOME: home },
+      program: Effect.gen(function* () {
+        const config = yield* AppConfig;
+        yield* (yield* Output).result(
+          { agyBin: config.agyBin, defaultModel: config.defaultModel },
+          "keys",
+        );
+      }),
+    });
+    expect(JSON.parse(result.stdout)[key]).toBe(expected);
+  });
   it.each([
     ['{"defaultModel":""}', "defaultModel must be a nonempty model name."],
     ['{"defaultModel":7}', "defaultModel must be a nonempty model name."],

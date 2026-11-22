@@ -185,7 +185,7 @@ Environment settings take precedence over `$FOREMAN_HOME/config.json`, then defa
 | `FOREMAN_HOME` | | `~/.foreman` |
 | `CODEX_BIN` | `codexBin` | `codex`, resolved through `PATH` |
 | `AGY_BIN` | `agyBin` | `agy`, resolved through `PATH` |
-| `AGY_DELEGATE` | | Unset; any value marks the process as delegated, like `CODEX_DELEGATE` |
+| `AGY_DELEGATE` | | Unset; any nonblank value marks the process as delegated, like `CODEX_DELEGATE` |
 | | `defaultModel` | Unset; a nonempty model name |
 | `CODEX_HOME` | | `~/.codex` |
 | `LOG_LEVEL` | `logLevel` | `warn`; accepts `trace`, `debug`, `info`, `warn`, `error`, `fatal`, `none` |

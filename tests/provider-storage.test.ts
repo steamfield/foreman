@@ -5,6 +5,7 @@ import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem, Path, Schema } from "effect";
 import * as Store from "../src/core/runs/store";
 import { providerOf, RunEvent, RunRecord } from "../src/schemas/daemon";
+import { makeRegistry } from "../src/supervisor/registry";
 
 const baseRecord = Schema.decodeUnknownSync(Schema.fromJsonString(RunRecord))(
   readFileSync(new URL("./fixtures/runs/run.json", import.meta.url), "utf8"),
@@ -19,7 +20,7 @@ const setup = Effect.fnUntraced(function* (record: RunRecord) {
   execFileSync("git", ["init", "-q", worktree]);
   const run = { ...record, worktree };
   const dir = yield* Store.createRun(root, run, "contract");
-  return { fs, path, dir, run };
+  return { fs, path, root, dir, run };
 });
 
 const storedVersion = Effect.fnUntraced(function* (dir: string) {
@@ -28,28 +29,32 @@ const storedVersion = Effect.fnUntraced(function* (dir: string) {
   return stored.formatVersion;
 });
 
-it.effect("round-trips an agy run as format 3 through create, write and transition replay", () =>
+const expectFormatVersionRefusal = (error: { readonly _tag: string; readonly message: string }) => {
+  expect(error._tag).toBe("SchemaError");
+  expect(error.message).toContain("formatVersion");
+};
+
+it.effect("writes an agy run as format 3 on create and recovers it through transition replay", () =>
   Effect.gen(function* () {
-    const agy: RunRecord = { ...baseRecord, provider: "agy" };
-    const { dir, run } = yield* setup(agy);
+    const { root, dir, run } = yield* setup({ ...baseRecord, provider: "agy" });
     expect(yield* storedVersion(dir)).toBe(3);
     expect(yield* Store.readRun(dir)).toEqual(run);
 
-    const pending = {
+    // A daemon that died between saving the pending transition and journaling it.
+    yield* Store.writeRun(dir, {
       ...run,
-      state: "idle" as const,
-      pendingStateEvent: { id: "t1", from: "running" as const, to: "idle" as const },
-    };
-    yield* Store.writeRun(dir, pending);
-    expect(yield* storedVersion(dir)).toBe(3);
-    const reread = yield* Store.readRun(dir);
-    expect(providerOf(reread)).toBe("agy");
-    expect(yield* Store.hasTransition(dir, "t1")).toBe(false);
+      state: "idle",
+      pendingStateEvent: { id: "t1", from: "running", to: "idle" },
+    });
+    const registry = yield* makeRegistry(root);
+    const recovered = yield* registry.lookup(run.name);
 
-    yield* Store.appendEvent(dir, { _tag: "StateChanged", from: "running", to: "idle" }, "t1");
+    expect(providerOf(recovered.record)).toBe("agy");
     expect(yield* Store.hasTransition(dir, "t1")).toBe(true);
-    yield* Store.writeRun(dir, { ...reread, pendingStateEvent: null });
-    expect(providerOf(yield* Store.readRun(dir))).toBe("agy");
+    expect(yield* storedVersion(dir)).toBe(3);
+    const stored = yield* Store.readRun(dir);
+    expect(providerOf(stored)).toBe("agy");
+    expect(stored.pendingStateEvent ?? null).toBeNull();
   }).pipe(Effect.provide(NodeServices.layer)),
 );
 
@@ -74,8 +79,8 @@ it.effect("refuses a version 4 run.json as unsupported", () =>
     const { fs, dir, run } = yield* setup(baseRecord);
     const encoded = yield* Schema.encodeEffect(RunRecord)(run);
     yield* fs.writeFileString(`${dir}/run.json`, JSON.stringify({ ...encoded, formatVersion: 4 }));
-    yield* Effect.flip(Store.readRun(dir));
-    yield* Effect.flip(Store.writeRun(dir, run));
+    expectFormatVersionRefusal(yield* Effect.flip(Store.readRun(dir)));
+    expectFormatVersionRefusal(yield* Effect.flip(Store.writeRun(dir, run)));
   }).pipe(Effect.provide(NodeServices.layer)),
 );
 
@@ -90,8 +95,10 @@ it.effect("appends agy raw messages to agy.jsonl and checks its version header",
     expect(line).toMatchObject({ method: "session/update", formatVersion: 1 });
 
     yield* fs.writeFileString(`${dir}/agy.jsonl`, `${JSON.stringify({ formatVersion: 4 })}\n`);
-    yield* Effect.flip(Store.appendProviderMessage(dir, "agy", { method: "again" }));
-    yield* Effect.flip(Store.writeRun(dir, baseRecord));
+    expectFormatVersionRefusal(
+      yield* Effect.flip(Store.appendProviderMessage(dir, "agy", { method: "again" })),
+    );
+    expectFormatVersionRefusal(yield* Effect.flip(Store.writeRun(dir, baseRecord)));
   }).pipe(Effect.provide(NodeServices.layer)),
 );
 

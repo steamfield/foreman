@@ -157,21 +157,28 @@ export class AppConfig extends Context.Service<
           ),
           Effect.orElseSucceed(() => executablePath(environmentCodexBin || "codex")),
         );
-        // Like codexBin above: a bad config file is reported by `load`, not here.
-        const lenientSettings = file.pipe(
+        // Like codexBin above: a bad config file is reported by `load`, not here. Each key is
+        // decoded on its own so an invalid one cannot discard the other.
+        const fileAgyBin = yield* file.pipe(
+          Effect.flatMap((value) =>
+            Schema.decodeUnknownEffect(Schema.Struct({ agyBin: Schema.optionalKey(CodexBin) }))(
+              value,
+            ),
+          ),
+          Effect.map((settings) => settings.agyBin),
+          Effect.orElseSucceed(() => undefined),
+        );
+        const fileDefaultModel = yield* file.pipe(
           Effect.flatMap((value) =>
             Schema.decodeUnknownEffect(
-              Schema.Struct({
-                agyBin: Schema.optionalKey(CodexBin),
-                defaultModel: Schema.optionalKey(DefaultModel),
-              }),
+              Schema.Struct({ defaultModel: Schema.optionalKey(DefaultModel) }),
             )(value),
           ),
-          Effect.orElseSucceed(() => ({ agyBin: undefined, defaultModel: undefined })),
+          Effect.map((settings) => settings.defaultModel),
+          Effect.orElseSucceed(() => undefined),
         );
-        const fileSettings = yield* lenientSettings;
-        const agyBin = executablePath(environmentAgyBin || fileSettings.agyBin || "agy");
-        const defaultModel = fileSettings.defaultModel ?? null;
+        const agyBin = executablePath(environmentAgyBin || fileAgyBin || "agy");
+        const defaultModel = fileDefaultModel ?? null;
         const logging = Effect.gen(function* () {
           const config = yield* file.pipe(
             Effect.flatMap((value) =>
