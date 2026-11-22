@@ -68,6 +68,8 @@ export interface Run {
   readonly lock: Semaphore.Semaphore;
   /** Held question calls, each tied to the connection generation that delivered it. */
   readonly calls: Map<QuestionId, { readonly call: QuestionCall; readonly generation: symbol }>;
+  /** Calls abandoned before the run held them (the latest 64), so they are dropped on arrival. */
+  abandonedCalls: readonly { readonly generation: symbol; readonly callId: string }[];
   readonly messages: Queue.Queue<Effect.Effect<void, unknown>, Cause.Done>;
   readonly answers: Queue.Queue<Effect.Effect<void, unknown>, Cause.Done>;
   queuedAnswers: number;
@@ -240,6 +242,7 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
       dir,
       lock: yield* lockFor(record.name),
       calls: new Map(),
+      abandonedCalls: [],
       messages: yield* Queue.unbounded<Effect.Effect<void, unknown>, Cause.Done>(),
       answers: yield* Queue.unbounded<Effect.Effect<void, unknown>, Cause.Done>(),
       queuedAnswers: 0,

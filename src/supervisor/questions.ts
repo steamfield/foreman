@@ -1,13 +1,14 @@
 /**
  * ask_orchestrator questions on a run: holding a provider's question call, answering or
- * deferring it on the connection that delivered it, recording late answers, and cancelling a
- * call whose transport ended before an answer.
+ * deferring it on the connection that delivered it, recording late answers, and the question
+ * timeout a new run records. abandoned-questions.ts handles calls that ended unanswered.
  */
 import { Clock, DateTime, Effect, Schema } from "effect";
 import * as Store from "../core/runs/store";
 import { RunConflict, RunNotFound } from "../errors";
 import type { ProviderId, QuestionCall } from "../providers/contract";
 import { type AnswerDelivery, QuestionId } from "../schemas/daemon";
+import { cancelEnded, wasAbandoned } from "./abandoned-questions";
 import { deferral } from "./prompts";
 import type { Registry, Run } from "./registry";
 
@@ -18,11 +19,6 @@ import type { Registry, Run } from "./registry";
 const AGY_HOLD_MS = 180_000;
 /** agy questions are deferred 80 seconds before the hold ends, so the deferral still lands. */
 const AGY_CAP_MS = AGY_HOLD_MS - 80_000;
-
-/** Why an abandoned question was cancelled, for the log. */
-const ABANDONED = "the agent's tool call ended before an answer";
-/** How many abandoned calls a run remembers, in case their QuestionCall arrives afterwards. */
-const ABANDONED_MEMORY = 64;
 
 const seconds = (ms: number) => `${Math.round(ms / 1000)} seconds`;
 
@@ -44,64 +40,6 @@ export function questionTimeout(
       : `agy holds a question for at most ${seconds(AGY_HOLD_MS)}; deferring after ${seconds(AGY_CAP_MS)}.`;
   return { timeoutMs: AGY_CAP_MS, warning };
 }
-
-/** Per run, the calls abandoned before the supervisor held them; the latest ABANDONED_MEMORY. */
-const abandonedEarly = new WeakMap<Run, readonly { generation: symbol; callId: string }[]>();
-
-function rememberAbandoned(run: Run, generation: symbol, callId: string) {
-  const remembered = abandonedEarly.get(run) ?? [];
-  abandonedEarly.set(run, [...remembered, { generation, callId }].slice(-ABANDONED_MEMORY));
-}
-
-const wasAbandoned = (run: Run, generation: symbol, callId: string) =>
-  (abandonedEarly.get(run) ?? []).some(
-    (entry) => entry.generation === generation && entry.callId === callId,
-  );
-
-/** Records a held question cancelled because its call ended, and resumes a waiting run. */
-const cancelEnded = Effect.fnUntraced(function* (registry: Registry, run: Run, id: QuestionId) {
-  yield* Effect.gen(function* () {
-    run.calls.delete(id);
-    const at = DateTime.makeUnsafe(yield* Clock.currentTimeMillis);
-    yield* registry.question(run, {
-      _tag: "Resolved",
-      id,
-      resolution: "cancelled",
-      text: null,
-      at,
-    });
-    yield* registry.event(run, { _tag: "QuestionResolved", id, resolution: "cancelled" });
-    yield* Effect.logInfo("supervisor.question.abandoned").pipe(
-      Effect.annotateLogs({ name: run.record.name, question: id, reason: ABANDONED }),
-    );
-    if (run.calls.size === 0 && run.record.state === "waiting")
-      yield* registry.state(run, "running");
-  }).pipe(
-    Effect.tapCause((cause) => registry.recover(run, cause)),
-    Effect.uninterruptible,
-  );
-});
-
-/**
- * Cancels the question whose provider call `callId` (from connection `generation`) ended
- * before an answer, and moves a waiting run with no other held call back to running. A later
- * answer to it takes the late-answer path. Called with the run lock held; a call the run no
- * longer holds changes nothing.
- * @throws Never beyond the run store's own failures.
- */
-export const abandonQuestion = Effect.fnUntraced(function* (
-  registry: Registry,
-  run: Run,
-  generation: symbol,
-  callId: string,
-) {
-  const entry = [...run.calls].find(
-    ([, held]) => held.call.callId === callId && held.generation === generation,
-  );
-  // The QuestionCall may still be on its way; receive drops it when it arrives.
-  if (entry === undefined) return rememberAbandoned(run, generation, callId);
-  yield* cancelEnded(registry, run, entry[0]);
-});
 
 /** Builds the question operations over the registry's runs. */
 export const makeQuestions = Effect.fn("supervisor.questions")(function* (registry: Registry) {

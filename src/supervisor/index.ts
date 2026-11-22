@@ -139,6 +139,18 @@ const cancelReason = (cancelled: QuestionCancelled): string =>
     ? cancelled.reason
     : "cancelled";
 
+/** Refuses a call for no known run; an agy asker that already left has nobody to refuse. */
+const rejectUnknownThread = (call: QuestionCall) =>
+  call
+    .reject("unknown thread")
+    .pipe(
+      Effect.catchTag("QuestionCallEnded", () =>
+        Effect.logDebug("supervisor.question.unknownThreadEnded").pipe(
+          Effect.annotateLogs({ callId: call.callId }),
+        ),
+      ),
+    );
+
 /** The bridge's reply when the run refused or cancelled its question; other failures pass. */
 function askFailure<E>(error: E | QuestionRefused | QuestionCancelled): E | RunConflict {
   if (error instanceof QuestionRefused) return new RunConflict({ detail: error.reason });
@@ -209,11 +221,11 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* (providers: Prov
   });
   const question = Effect.fnUntraced(function* (connection: LiveConnection, call: QuestionCall) {
     const run = yield* route(connection, call.session);
-    if (!run) return yield* call.reject("unknown thread");
+    if (!run) return yield* rejectUnknownThread(call);
     yield* registry.enqueue(
       run,
       Effect.gen(function* () {
-        if (!registry.isCurrent(run)) return yield* call.reject("unknown thread");
+        if (!registry.isCurrent(run)) return yield* rejectUnknownThread(call);
         yield* Store.appendProviderMessage(run.dir, connection.provider, call.raw);
         yield* questions.receive(run, connection.generation, call);
       }),
