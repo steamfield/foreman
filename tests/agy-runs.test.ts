@@ -4,6 +4,7 @@ import { expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 import {
   cancellableTurn,
+  message,
   prompt,
   refusedEdit,
   writeTurn,
@@ -255,23 +256,34 @@ it.live(
 );
 
 it.live(
-  "an interrupt agy never confirms leaves the run unknown, not running",
+  "an interrupt agy never confirms ends the turn interrupted and the run takes a follow-up",
   () =>
     Effect.gen(function* () {
       const f = yield* agyFixture(cancellableTurn());
       const hold = yield* f.gate("hold");
-      // agy sees the cancel but never ends the prompt until the test opens the gate.
+      // agy sees the cancel but doesn't end the prompt until the test opens the gate.
       yield* f.useScenario({
-        rules: [prompt([{ awaitRequest: "session/cancel" }, { gate: hold }], "cancelled")],
+        rules: [
+          prompt([{ awaitRequest: "session/cancel" }, { gate: hold }], "cancelled"),
+          prompt([message("Back at it.")], "end_turn", true),
+        ],
       });
       yield* f.start(true);
       yield* f.until("running");
       yield* f.request({ _tag: "Interrupt", name: f.name });
-      const digest = yield* f.until("unknown");
-      expect(digest.warnings.join(" ")).toContain("was not confirmed by");
+      const digest = yield* f.until("interrupted");
+      expect(digest.failure?.message).toContain("did not confirm the cancel within 30 seconds");
+      // Abandonment is definite: the run never parks in unknown, so no recovery deadline runs.
+      expect(yield* f.events).not.toContainEqual(expect.objectContaining({ to: "unknown" }));
+      // The late reply to the abandoned prompt must not disturb the next turn.
       yield* f.openGate(hold);
+      yield* f.request({ _tag: "Followup", name: f.name, message: "Carry on." });
+      yield* f.until("idle", 2);
+      expect(yield* f.request({ _tag: "Result", name: f.name })).toMatchObject({
+        handoff: { turn: 2, text: "Back at it." },
+      });
     }).pipe(Effect.provide(platform)),
-  60_000,
+  90_000,
 );
 
 it.live(

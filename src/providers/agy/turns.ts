@@ -147,12 +147,35 @@ export function recordRefusal(state: AgyTurnState, message: string): AgyTurnStat
   return { ...state, refusal: message };
 }
 
+/** The failure recorded on a turn whose cancel agy never confirmed. */
+export const CANCEL_UNCONFIRMED = (seconds: number) =>
+  `agy did not confirm the cancel within ${seconds} seconds; its prompt was abandoned`;
+
 /**
  * Forgets the session's outstanding prompts after agy failed to answer a cancel, so the next
- * prompt's reply completes its turn.
+ * prompt's reply completes its turn. The abandoned turn ends as interrupted with `failure`,
+ * since no reply will end it.
  */
-export function abandonPrompts(state: AgyTurnState): AgyTurnState {
-  return { ...state, outstanding: 0 };
+export function abandonPrompts(
+  state: AgyTurnState,
+  failure: string,
+): { readonly state: AgyTurnState; readonly events: readonly ProviderEvent[] } {
+  const next: AgyTurnState = { ...state, outstanding: 0 };
+  const turn = state.turn;
+  if (state.outstanding === 0 || turn === null) return { state: next, events: [] };
+  const handoff = handoffText(state.messages);
+  const events: ProviderEvent[] = [];
+  if (handoff !== null)
+    events.push({ _tag: "AgentMessage", turn, text: handoff, phase: "final_answer" });
+  events.push({ _tag: "TokenUsage", turn, totals: state.totals });
+  events.push({
+    _tag: "TurnCompleted",
+    turn,
+    status: "interrupted",
+    failure: { message: failure, codexErrorInfo: null },
+    handoff,
+  });
+  return { state: next, events };
 }
 
 /** The hand-off: the text after the turn's last tool call, else all of it; null when silent. */

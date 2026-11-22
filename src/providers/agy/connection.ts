@@ -10,7 +10,7 @@
 import { Deferred, Effect, FileSystem, Queue, Schema, Stream } from "effect";
 import * as Acp from "../../schemas/acp";
 import type { ProviderConnection, SessionId, SessionSettings, TurnRequest } from "../contract";
-import { type RpcMessage, type RpcNotification, RpcRequestTimeout } from "../jsonrpc";
+import type { RpcMessage, RpcNotification } from "../jsonrpc";
 import { type AgySessionState, readNotification } from "./events";
 import { agyHookTrust } from "./hooks";
 import {
@@ -27,6 +27,7 @@ import { type SessionLocks, steerSession, withSessionLock } from "./steer";
 import {
   abandonPrompts,
   beginTurn,
+  CANCEL_UNCONFIRMED,
   finishPrompt,
   openedSession,
   type PromptOutcome,
@@ -226,19 +227,36 @@ function settleIfIdle(live: Live, session: SessionId) {
   return Deferred.succeed(waiting, undefined);
 }
 
-/** Forgets the session's prompts, so late replies are ignored and the next turn can end. */
+/**
+ * Forgets the session's prompts, so late replies are ignored and the next turn can end, and
+ * reports the abandoned turn as interrupted: no reply will end it.
+ */
 function abandonSession(live: Live, session: SessionId) {
   for (const [id, owner] of live.prompts) if (owner === session) live.prompts.delete(id);
   const state = live.sessions.get(session);
-  if (state !== undefined)
-    live.sessions.set(session, { ...state, turn: abandonPrompts(state.turn) });
-  return settleIfIdle(live, session);
+  const abandoned =
+    state === undefined
+      ? undefined
+      : abandonPrompts(state.turn, CANCEL_UNCONFIRMED(CANCEL_TIMEOUT_MS / 1000));
+  if (state !== undefined && abandoned !== undefined)
+    live.sessions.set(session, { ...state, turn: abandoned.state });
+  return Effect.andThen(
+    abandoned === undefined || abandoned.events.length === 0
+      ? Effect.void
+      : Queue.offer(live.inbound, {
+          session,
+          method: Acp.Method.cancel,
+          raw: null,
+          events: abandoned.events,
+        }),
+    settleIfIdle(live, session),
+  );
 }
 
 /**
- * Cancels the session's turn and waits for its prompts to reply.
- * @throws {RpcRequestTimeout} When they haven't replied within 30 seconds; the prompts are
- * then abandoned.
+ * Cancels the session's turn and waits for its prompts to reply. When they haven't within 30
+ * seconds the prompts are abandoned and the turn ends as interrupted with a failure saying so;
+ * that is a definite outcome, so the interrupt succeeds.
  */
 const interruptSession = Effect.fnUntraced(function* (live: Live, session: SessionId) {
   yield* live.channel.notify(Acp.Method.cancel, { sessionId: session });
@@ -248,14 +266,7 @@ const interruptSession = Effect.fnUntraced(function* (live: Live, session: Sessi
   yield* Deferred.await(settled).pipe(
     Effect.timeoutOrElse({
       duration: CANCEL_TIMEOUT_MS,
-      orElse: () =>
-        abandonSession(live, session).pipe(
-          Effect.andThen(
-            Effect.fail(
-              new RpcRequestTimeout({ method: Acp.Method.cancel, timeoutMs: CANCEL_TIMEOUT_MS }),
-            ),
-          ),
-        ),
+      orElse: () => abandonSession(live, session),
     }),
   );
 });

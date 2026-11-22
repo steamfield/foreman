@@ -139,8 +139,13 @@ const turnStarted = Effect.fnUntraced(function* (
   yield* registry.state(run, run.calls.size ? "waiting" : "running");
 });
 
-function completedState(run: Run, event: EventOf<"TurnCompleted">) {
-  if (run.record.failure !== null || event.status === "failed") return "failed";
+/**
+ * The state a completed turn leaves the run in. `failedEarlier` is a failure the run already
+ * carried or a read-only check found; an interrupted turn's own failure note (agy's
+ * unconfirmed cancel) keeps the run interrupted.
+ */
+function completedState(run: Run, event: EventOf<"TurnCompleted">, failedEarlier: boolean) {
+  if (failedEarlier || event.status === "failed") return "failed";
   if (run.record.turnKind === "handoff" || event.status === "interrupted") return "interrupted";
   return "idle";
 }
@@ -158,6 +163,7 @@ const turnCompleted = Effect.fnUntraced(function* (
   if (event.handoff !== null) yield* registry.handoff(run, event.handoff);
   yield* registry.refreshWorktree(run);
   const readOnlyFailure = yield* checkReadOnlyTurn(registry, run);
+  const failedEarlier = run.record.failure !== null || readOnlyFailure !== null;
   yield* registry.save(run, {
     activeTurnId: null,
     // The provider's own reason comes first; the changed paths are always in the warnings.
@@ -166,7 +172,7 @@ const turnCompleted = Effect.fnUntraced(function* (
   // A working turn ended by its budget gets a hand-off turn instead of a final state.
   if (run.budgetExpired && run.record.failure === null)
     return yield* turns.handoff(run, connection);
-  yield* registry.state(run, completedState(run, event));
+  yield* registry.state(run, completedState(run, event, failedEarlier));
 });
 
 /** Updates live state for one event; returns whether waiters should wake. */
