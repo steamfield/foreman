@@ -48,15 +48,15 @@ Layout after plan phase 1:
 ### Phase 0: shared seams and the Codex event decoder (additive)
 
 Demo: `bun run check` passes; nothing user-visible changes; `tests/providers/codex-events.test.ts` and `tests/providers/jsonrpc.test.ts` pass.
-Scaffold: pending
+Scaffold: b40302a1339a4c93f30549415567a384daed1b50
 
 Test cases (owned and written by the lanes, from the lists in each brief).
 
 | Lane | Size | Owns files | Reads | Tests | Model | Status | Branch | Done when |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| a | M | src/providers/jsonrpc.ts, src/codex/client.ts, tests/providers/jsonrpc.test.ts | contracts, src/codex/client.ts, tests/codex-client.test.ts | tests/codex-client.test.ts | opus | pending | | jsonrpc and codex-client tests pass |
-| b | M | src/providers/codex/events.ts, tests/providers/codex-events.test.ts | contracts, src/supervisor/notifications.ts, src/core/runs/normalize.ts | tests/run-normalize.test.ts | opus | pending | | codex-events tests pass |
-| c | M | src/schemas/daemon.ts, src/core/runs/store.ts, src/config.ts, src/daemon/client.ts, src/daemon/server.ts, src/core/commands.ts, .env.example, README.md, tests/provider-storage.test.ts, tests/config-logging.test.ts | contracts, docs/acceptance/typescript-cli.md | tests/daemon-ownership.test.ts | sonnet | pending | | provider-storage and config tests pass |
+| a | M | src/providers/jsonrpc.ts, src/codex/client.ts, tests/providers/jsonrpc.test.ts | contracts, src/codex/client.ts, tests/codex-client.test.ts | tests/codex-client.test.ts | opus | running | deliver/agy-provider-0a | jsonrpc and codex-client tests pass |
+| b | M | src/providers/codex/events.ts, tests/providers/codex-events.test.ts | contracts, src/supervisor/notifications.ts, src/core/runs/normalize.ts | tests/run-normalize.test.ts | opus | running | deliver/agy-provider-0b | codex-events tests pass |
+| c | M | src/schemas/daemon.ts, src/core/runs/store.ts, src/config.ts, src/daemon/client.ts, src/daemon/server.ts, src/core/commands.ts, .env.example, README.md, tests/provider-storage.test.ts, tests/config-logging.test.ts | contracts, docs/acceptance/typescript-cli.md | tests/daemon-ownership.test.ts | sonnet | running | deliver/agy-provider-0c | provider-storage and config tests pass |
 
 #### Lane a brief
 
