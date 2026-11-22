@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
+import { readFile } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import { Schema } from "effect";
 import { AcpScenario } from "./scenario.ts";
@@ -127,7 +128,8 @@ async function steps(script) {
     else if ("writeFile" in step) writeFileSync(substitute(step.writeFile), step.text);
     else if ("gate" in step) {
       writeFileSync(step.gate.ready, "ready");
-      readFileSync(step.gate.release);
+      // Async, so the fake keeps reading foreman and its MCP children while the gate is shut.
+      await readFile(step.gate.release);
     }
     else if ("exit" in step) process.exit(step.exit);
     else if ("mcpCall" in step) startMcpCall(step.mcpCall);
