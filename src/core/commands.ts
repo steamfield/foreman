@@ -90,9 +90,11 @@ interface StartInput extends WaitOptions {
 export const start = Effect.fn("commands.start")(function* (input: StartInput) {
   yield* validateStartMode(input);
   // Routed before the daemon is contacted, so a wrong model costs no worktree or run.
+  const { defaultModel } = yield* AppConfig;
   const routed = yield* resolveModel(
     {
       ...(input.model === undefined ? {} : { model: input.model }),
+      ...(defaultModel === null ? {} : { defaultModel }),
       ...(input.effort === undefined ? {} : { effort: input.effort }),
       ...(input.tier === undefined ? {} : { tier: input.tier }),
     },

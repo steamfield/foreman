@@ -122,6 +122,21 @@ describe("start routing through the CLI", () => {
     expect(start).not.toHaveProperty("tier");
   });
 
+  it("routes config.json's defaultModel when start names no model", async () => {
+    const f = await daemonFixture();
+    await f.codexCache(["gpt-6.1-sol"]);
+    await f.fakeAgy();
+    await writeFile(
+      join(f.dataDir, "config.json"),
+      JSON.stringify({ defaultModel: "gemini-4-neon-low" }),
+    );
+    const result = await f.run([]);
+    expect(result).toEqual({ status: 0, stdout: '{"_tag":"Ok"}\n', stderr: "" });
+    expect(starts(f.requests)).toEqual([
+      expect.objectContaining({ provider: "agy", model: "gemini-4-neon", effort: "low" }),
+    ]);
+  });
+
   it("refuses an unknown model with exit 2 before contacting the daemon", async () => {
     const f = await daemonFixture();
     await f.codexCache(["gpt-6.1-sol"]);
@@ -144,15 +159,14 @@ describe("start routing through the CLI", () => {
   it("tells a Codex-only user about an unknown model without asking them to install agy", async () => {
     const f = await daemonFixture();
     await f.codexCache(["gpt-6.1-sol"]);
-    const result = await f.run(["--model", "gpt-6.2-sol"]);
+    const result = await f.run(["--model", "gemini-4-neon"]);
     expect(result.status).toBe(2);
     expect(result.stdout).toBe("");
     expect(ndjson(result.stderr).at(-1)).toEqual(
       errorEnvelope(
         new ModelUnresolved({
           detail:
-            'Unknown model "gpt-6.2-sol": no provider lists it. Did you mean gpt-6.1-sol (codex)? Run foreman models to see every model.',
-          candidates: [{ provider: "codex", model: "gpt-6.1-sol", efforts: [] }],
+            "Unknown model \"gemini-4-neon\": codex doesn't list it and agy isn't installed. Run foreman models to see the available models.",
         }),
       ),
     );

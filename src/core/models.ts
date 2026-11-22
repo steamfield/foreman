@@ -2,106 +2,25 @@
  * The model catalogs start routing and `foreman models` read, from this invocation's
  * configuration, and the `foreman models` listing built from them.
  */
-import { Clock, Effect, FileSystem, Path, Result, Schema } from "effect";
+import { Clock, Effect, type FileSystem, Path, type Result } from "effect";
 import type { ChildProcessSpawner } from "effect/process";
 import { AppConfig } from "../config";
-import { AgyUnavailable } from "../errors";
-import { type AgyCatalog, readAgyCatalog } from "../providers/agy/catalog";
+import type { AgyUnavailable } from "../errors";
+import {
+  type AgyCatalogRead,
+  readAgyCatalogIfInstalled,
+  readCachedAgyCatalog,
+} from "../providers/agy/catalog";
 import { agyEnvironment } from "../providers/agy/environment";
-import { defaultModel, readCodexModels } from "../providers/codex/catalog";
-import {
-  agyFamilies,
-  type CodexCatalog,
-  type CodexModel,
-  type ModelCatalogs,
-} from "../providers/routing";
-import {
-  AgyCacheFile,
-  CodexCacheEfforts,
-  CodexCacheFile,
-  type ModelsResult,
-  type ProviderModels,
-} from "../schemas/models";
+import { agyFamilies } from "../providers/agy/models";
+import { type CodexCatalog, defaultModel, readCodexModels } from "../providers/codex/catalog";
+import type { ModelCatalogs } from "../providers/routing";
+import type { ModelsResult, ProviderModels } from "../schemas/models";
 
 // Listing models needs no SSH agent, so the catalog read skips the probe the daemon runs.
 const NO_SSH_PROBE = { alive: true, launchdSocket: undefined };
-// foreman runs on macOS and Linux only.
-const PATH_DELIMITER = ":";
-// Matches the agy adapter's cache lifetime; an older cache doesn't count for "listed by both".
-const AGY_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 type CatalogServices = FileSystem.FileSystem | Path.Path | ChildProcessSpawner.ChildProcessSpawner;
-
-/**
- * Why agy can't run, or null when its executable exists: the configured path, or a file of
- * that name in a PATH directory. Checked here because a failed spawn doesn't say whether agy
- * was missing.
- */
-const agyMissingReason = Effect.fnUntraced(function* (
-  agyBin: string,
-  searchPath: string | undefined,
-) {
-  const fs = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
-  const exists = (file: string) => fs.exists(file).pipe(Effect.orElseSucceed(() => false));
-  if (agyBin.includes(path.sep)) return (yield* exists(agyBin)) ? null : `${agyBin} not found`;
-  for (const directory of (searchPath ?? "").split(PATH_DELIMITER))
-    if (directory !== "" && (yield* exists(path.join(directory, agyBin)))) return null;
-  return `${agyBin} not found on PATH`;
-});
-
-/** The efforts each Codex model declares, by slug; empty when the cache can't be read. */
-const readCodexEfforts = Effect.fnUntraced(
-  function* (codexHome: string) {
-    const fs = yield* FileSystem.FileSystem;
-    const path = yield* Path.Path;
-    const text = yield* fs.readFileString(path.join(codexHome, "models_cache.json"));
-    const cache = yield* Schema.decodeUnknownEffect(CodexCacheFile)(text);
-    const efforts = new Map<string, Omit<CodexModel, "model">>();
-    for (const entry of cache.models) {
-      const decoded = Schema.decodeUnknownResult(CodexCacheEfforts)(entry);
-      if (Result.isFailure(decoded)) continue;
-      const { slug, default_reasoning_level, supported_reasoning_levels } = decoded.success;
-      efforts.set(slug, {
-        efforts: (supported_reasoning_levels ?? []).map((level) => level.effort),
-        defaultEffort: default_reasoning_level ?? null,
-      });
-    }
-    return efforts;
-  },
-  // A missing cache already shows as an empty catalog in readCodexModels.
-  Effect.orElseSucceed(() => new Map<string, Omit<CodexModel, "model">>()),
-);
-
-/** Codex's catalog: the listed models with their efforts, and the hidden ids. */
-const readCodexCatalog = Effect.fnUntraced(function* (codexHome: string) {
-  const { listed, hidden } = yield* readCodexModels(codexHome);
-  const efforts = yield* readCodexEfforts(codexHome);
-  const catalog: CodexCatalog = {
-    listed: listed.map((model) => ({
-      model,
-      ...(efforts.get(model) ?? { efforts: [], defaultEffort: null }),
-    })),
-    hidden,
-  };
-  return catalog;
-});
-
-/** agy's cache file when it is less than a day old, without running agy; else null. */
-const readAgyCacheFile = Effect.fnUntraced(
-  function* (home: string) {
-    const fs = yield* FileSystem.FileSystem;
-    const path = yield* Path.Path;
-    const file = path.join(home, "providers", "agy", "models.json");
-    const cached: AgyCatalog = yield* fs
-      .readFileString(file)
-      .pipe(Effect.flatMap(Schema.decodeUnknownEffect(AgyCacheFile)));
-    const age = (yield* Clock.currentTimeMillis) - Date.parse(cached.fetchedAt);
-    return age >= 0 && age < AGY_CACHE_MAX_AGE_MS ? cached : null;
-  },
-  // A missing or damaged cache only skips the "listed by both" check.
-  Effect.orElseSucceed(() => null),
-);
 
 /**
  * The catalogs start routing and `foreman models` read, from this invocation's configuration.
@@ -113,13 +32,12 @@ export const modelCatalogs = Effect.fnUntraced(function* () {
   const services = yield* Effect.context<CatalogServices>();
   const agy = (refresh: boolean) =>
     Effect.gen(function* () {
-      const missing = yield* agyMissingReason(config.agyBin, config.inheritedEnvironment.PATH);
-      if (missing !== null) return yield* new AgyUnavailable({ detail: missing });
       const env = yield* Effect.sync(() =>
         agyEnvironment(config.inheritedEnvironment, NO_SSH_PROBE),
       );
-      return yield* readAgyCatalog({
+      return yield* readAgyCatalogIfInstalled({
         agyBin: config.agyBin,
+        searchPath: config.inheritedEnvironment.PATH ?? "",
         env,
         home: config.home,
         now: yield* Clock.currentTimeMillis,
@@ -127,8 +45,11 @@ export const modelCatalogs = Effect.fnUntraced(function* () {
       });
     }).pipe(Effect.provide(services));
   const catalogs: ModelCatalogs = {
-    codex: readCodexCatalog(config.codexHome).pipe(Effect.provide(services)),
-    agyCached: readAgyCacheFile(config.home).pipe(Effect.provide(services)),
+    codex: readCodexModels(config.codexHome).pipe(Effect.provide(services)),
+    agyCached: Clock.currentTimeMillis.pipe(
+      Effect.flatMap((now) => readCachedAgyCatalog(config.home, now)),
+      Effect.provide(services),
+    ),
     agy,
   };
   return catalogs;
@@ -147,12 +68,30 @@ function codexModels(catalog: CodexCatalog, defaultId: string, cacheFile: string
 }
 
 /** agy's families for the listing, or the reason agy is unavailable. */
-function agyModels(catalog: Result.Result<AgyCatalog, AgyUnavailable>): ProviderModels {
-  if (Result.isFailure(catalog))
-    return { provider: "agy", unavailable: catalog.failure.detail ?? "no detail", models: [] };
-  const models = agyFamilies(catalog.success).map((family) => ({ ...family, default: false }));
+function agyModels(
+  read: Result.Result<AgyCatalogRead, AgyUnavailable>,
+  defaultId: string,
+): ProviderModels {
+  if (read._tag === "Failure")
+    return { provider: "agy", unavailable: read.failure.detail ?? "no detail", models: [] };
+  if (read.success._tag === "NotInstalled")
+    return { provider: "agy", unavailable: read.success.reason, models: [] };
+  const models = agyFamilies(read.success.catalog).map(
+    ({ model, efforts, defaultEffort, ids }) => ({
+      model,
+      efforts,
+      defaultEffort,
+      default: model === defaultId || ids.includes(defaultId),
+    }),
+  );
   return { provider: "agy", unavailable: null, models };
 }
+
+/** The model a start without --model uses: config.json's `defaultModel`, else Codex's newest. */
+const startDefaultModel = Effect.fnUntraced(function* () {
+  const config = yield* AppConfig;
+  return config.defaultModel ?? (yield* defaultModel(config.codexHome));
+});
 
 /**
  * Lists each provider's models with their efforts and defaults. A provider whose catalog
@@ -165,11 +104,11 @@ export const listModels = Effect.fn("models.listModels")(function* () {
   const catalogs = yield* modelCatalogs();
   const codex = yield* catalogs.codex;
   const agy = yield* catalogs.agy(false).pipe(Effect.result);
-  const defaultId = yield* defaultModel(config.codexHome);
+  const defaultId = yield* startDefaultModel();
   const result: ModelsResult = {
     providers: [
       codexModels(codex, defaultId, path.join(config.codexHome, "models_cache.json")),
-      agyModels(agy),
+      agyModels(agy, defaultId),
     ],
   };
   return result;

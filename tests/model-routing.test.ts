@@ -8,14 +8,9 @@ import { Effect } from "effect";
 import { TestClock } from "effect/testing";
 import { AgyUnavailable, ModelUnresolved } from "../src/errors";
 import type { AgyCatalog } from "../src/providers/agy/catalog";
-import {
-  type CodexCatalog,
-  type ModelCatalogs,
-  type ModelRequest,
-  resolveModel,
-} from "../src/providers/routing";
-import { nearMisses } from "../src/providers/routing-errors";
-import type { ModelCandidate } from "../src/schemas/models";
+import type { CodexCatalog } from "../src/providers/codex/catalog";
+import { type ModelCatalogs, type ModelRequest, resolveModel } from "../src/providers/routing";
+import { type NearMissOption, nearMisses } from "../src/providers/routing-errors";
 import { runCli, tempDir } from "./helpers/cli";
 
 const FETCHED_AT = "2026-11-22T00:00:00.000Z";
@@ -55,13 +50,15 @@ const noCodexCatalog: CodexCatalog = { listed: [], hidden: [] };
 const neverReadAgy = () => Effect.die(new Error("agy's catalog must not be read for this model"));
 const agyBroken = () =>
   Effect.fail(new AgyUnavailable({ detail: "`agy models` exited with code 1" }));
-const agyMissing = () => Effect.fail(new AgyUnavailable({ detail: "agy not found on PATH" }));
+const agyMissing = () =>
+  Effect.succeed({ _tag: "NotInstalled", reason: "agy not found on PATH" } as const);
+const agyRead = (catalog: AgyCatalog) => Effect.succeed({ _tag: "Read", catalog } as const);
 
 const catalogs = (
   options: { codex?: CodexCatalog; agy?: ModelCatalogs["agy"]; agyCached?: AgyCatalog | null } = {},
 ): ModelCatalogs => ({
   codex: Effect.succeed(options.codex ?? codexCatalog),
-  agy: options.agy ?? (() => Effect.succeed(agyCatalog)),
+  agy: options.agy ?? (() => agyRead(agyCatalog)),
   agyCached: Effect.succeed(options.agyCached ?? null),
 });
 
@@ -78,6 +75,24 @@ describe("model routing", () => {
       { effort: "low", tier: "flex" },
       catalogs({ agy: neverReadAgy }),
       { provider: "codex", effort: "low", tier: "flex" },
+    ],
+    [
+      "no model uses a configured Codex default",
+      { defaultModel: "gpt-6.1-sol-mini" },
+      catalogs({ agy: neverReadAgy }),
+      { provider: "codex", model: "gpt-6.1-sol-mini" },
+    ],
+    [
+      "no model routes a configured agy default to agy",
+      { defaultModel: "gemini-4-neon" },
+      catalogs(),
+      { provider: "agy", model: "gemini-4-neon", effort: "high" },
+    ],
+    [
+      "--model wins over the configured default",
+      { model: "gpt-6.1-sol", defaultModel: "gemini-4-neon" },
+      catalogs({ agy: neverReadAgy }),
+      { provider: "codex", model: "gpt-6.1-sol" },
     ],
     [
       "a model Codex lists runs on Codex without running agy",
@@ -270,40 +285,70 @@ describe("model routing", () => {
       }),
     ],
     [
-      "agy missing for a model Codex doesn't list",
+      "a model Codex doesn't list when agy isn't installed, without asking for agy",
       { model: "gemini-4-neon" },
       catalogs({ agy: agyMissing }),
       new ModelUnresolved({
         detail:
-          'Can\'t check model "gemini-4-neon": agy is unavailable (agy not found on PATH). Install agy or set AGY_BIN, then run foreman doctor.',
+          "Unknown model \"gemini-4-neon\": codex doesn't list it and agy isn't installed. Run foreman models to see the available models.",
       }),
     ],
     [
-      "agy failing for a model Codex doesn't list",
-      { model: "gemini-4-neon" },
-      catalogs({ agy: agyBroken }),
-      new ModelUnresolved({
-        detail:
-          'Can\'t check model "gemini-4-neon": agy is unavailable (`agy models` exited with code 1). Install agy or set AGY_BIN, then run foreman doctor.',
-      }),
-    ],
-    [
-      "agy missing for agy:model",
-      { model: "agy:gemini-4-neon" },
-      catalogs({ agy: agyMissing }),
-      new ModelUnresolved({
-        detail:
-          'Can\'t check model "gemini-4-neon": agy is unavailable (agy not found on PATH). Install agy or set AGY_BIN, then run foreman doctor.',
-      }),
-    ],
-    [
-      "a Codex near miss while agy is missing, without asking for agy",
+      "a Codex near miss when agy isn't installed",
       { model: "gpt-6.2-sol" },
       catalogs({ agy: agyMissing }),
       new ModelUnresolved({
         detail:
-          'Unknown model "gpt-6.2-sol": no provider lists it. Did you mean gpt-6.1-sol (codex)? Run foreman models to see every model.',
+          "Unknown model \"gpt-6.2-sol\": codex doesn't list it and agy isn't installed. Did you mean gpt-6.1-sol (codex)? Run foreman models to see every model.",
         candidates: [{ provider: "codex", model: "gpt-6.1-sol", efforts: CODEX_EFFORTS }],
+      }),
+    ],
+    [
+      "an installed agy failing for a model Codex doesn't list",
+      { model: "gemini-4-neon" },
+      catalogs({ agy: agyBroken }),
+      new ModelUnresolved({
+        detail:
+          'Can\'t check model "gemini-4-neon": agy is unavailable (`agy models` exited with code 1). Run foreman doctor.',
+      }),
+    ],
+    [
+      "a Codex near miss over an installed agy failing",
+      { model: "gpt-6.2-sol" },
+      catalogs({ agy: agyBroken }),
+      new ModelUnresolved({
+        detail:
+          'Unknown model "gpt-6.2-sol": codex doesn\'t list it. Did you mean gpt-6.1-sol (codex)? Run foreman models to see every model.',
+        candidates: [{ provider: "codex", model: "gpt-6.1-sol", efforts: CODEX_EFFORTS }],
+      }),
+    ],
+    [
+      "agy:model when agy isn't installed",
+      { model: "agy:gemini-4-neon" },
+      catalogs({ agy: agyMissing }),
+      new ModelUnresolved({
+        detail:
+          'Can\'t check model "gemini-4-neon": agy is unavailable (agy not found on PATH). Install agy or set AGY_BIN.',
+      }),
+    ],
+    [
+      "an agy id misspelled past its effort suffix",
+      { model: "gemini-4-neon-hihg" },
+      catalogs(),
+      new ModelUnresolved({
+        detail:
+          'Unknown model "gemini-4-neon-hihg": no provider lists it. Did you mean gemini-4-neon (agy)? Run foreman models to see every model.',
+        candidates: [neonCandidate],
+      }),
+    ],
+    [
+      "a prefix of a suffixed agy id",
+      { model: "gemini-4-neon-hig" },
+      catalogs(),
+      new ModelUnresolved({
+        detail:
+          'Unknown model "gemini-4-neon-hig": no provider lists it. Did you mean gemini-4-neon (agy)? Run foreman models to see every model.',
+        candidates: [neonCandidate],
       }),
     ],
     [
@@ -354,19 +399,27 @@ describe("model routing", () => {
 });
 
 describe("near misses", () => {
-  const candidate = (model: string, provider: "codex" | "agy" = "agy"): ModelCandidate => ({
-    provider,
-    model,
-    efforts: [],
+  const option = (
+    model: string,
+    provider: "codex" | "agy" = "agy",
+    ids: readonly string[] = [],
+  ): NearMissOption => ({ candidate: { provider, model, efforts: [] }, ids });
+  const candidate = (model: string, provider: "codex" | "agy" = "agy") =>
+    option(model, provider).candidate;
+
+  it("scores every id of a model and reports the model once", () => {
+    const neon = option("gemini-4-neon", "agy", ["gemini-4-neon-low", "gemini-4-neon-high"]);
+    expect(nearMisses("gemini-4-neon-hihg", [neon])).toEqual([neon.candidate]);
+    expect(nearMisses("gemini-4-neon-hig", [neon])).toEqual([neon.candidate]);
   });
 
   it("ranks by edit distance, keeps prefix matches and drops the rest", () => {
     const catalog = [
-      candidate("gemini-4-neon-preview"),
-      candidate("gemini-4-n"),
-      candidate("gemini-4-neon"),
-      candidate("gemini-9-ultra"),
-      candidate("gpt-6.1-sol", "codex"),
+      option("gemini-4-neon-preview"),
+      option("gemini-4-n"),
+      option("gemini-4-neon"),
+      option("gemini-9-ultra"),
+      option("gpt-6.1-sol", "codex"),
     ];
     expect(nearMisses("gemini-4-neo", catalog).map(({ model }) => model)).toEqual([
       "gemini-4-neon",
@@ -376,19 +429,20 @@ describe("near misses", () => {
   });
 
   it("keeps catalog order for ties, so Codex comes first", () => {
-    const catalog = [candidate("gpt-6.1-sol", "codex"), candidate("gpt-6.1-sal")];
-    expect(nearMisses("gpt-6.1-sel", catalog)).toEqual(catalog);
+    const catalog = [option("gpt-6.1-sol", "codex"), option("gpt-6.1-sal")];
+    expect(nearMisses("gpt-6.1-sel", catalog)).toEqual([
+      candidate("gpt-6.1-sol", "codex"),
+      candidate("gpt-6.1-sal"),
+    ]);
   });
 
   it("suggests at most five models for a short prefix", () => {
-    const catalog = ["a1", "a2", "a3", "a4", "a5", "a6"].map((model) =>
-      candidate(`gemini-${model}`),
-    );
+    const catalog = ["a1", "a2", "a3", "a4", "a5", "a6"].map((model) => option(`gemini-${model}`));
     expect(nearMisses("gemini-", catalog)).toHaveLength(5);
   });
 
   it("never suggests the input itself", () => {
-    expect(nearMisses("gemini-4-neon", [candidate("gemini-4-neon")])).toEqual([]);
+    expect(nearMisses("gemini-4-neon", [option("gemini-4-neon")])).toEqual([]);
   });
 });
 
@@ -398,7 +452,7 @@ describe("refreshing agy's catalog for an unknown model", () => {
     const agy = (refresh: boolean) =>
       Effect.sync(() => {
         refreshes.push(refresh);
-        return refresh ? fresh : agyCatalog;
+        return { _tag: "Read", catalog: refresh ? fresh : agyCatalog } as const;
       });
     return { agy, refreshes };
   };
