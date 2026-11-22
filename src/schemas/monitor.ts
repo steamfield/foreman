@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { ProviderId } from "./provider";
 
 const Timestamp = Schema.DateTimeUtcFromString;
 
@@ -29,6 +30,8 @@ export const RunView = Schema.Struct({
   worktree: Schema.String,
   branch: Schema.NullOr(Schema.String),
   title: Schema.NullOr(Schema.String),
+  // Omitted for Codex runs, so Codex overviews are unchanged for older monitors.
+  provider: Schema.optionalKey(ProviderId),
   model: Schema.String,
   effort: Schema.String,
   tier: Schema.String,
