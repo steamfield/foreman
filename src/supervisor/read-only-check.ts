@@ -5,7 +5,7 @@
  * changed fails the turn. The snapshot rules are plain functions; git runs only in
  * `readSnapshot`.
  */
-import { Effect, FileSystem, Path } from "effect";
+import { Effect, FileSystem, Path, Stream } from "effect";
 import { ChildProcess } from "effect/process";
 import { commandResult } from "../core/process";
 import { readGitStatus } from "../core/runs/worktree";
@@ -107,8 +107,12 @@ export function changedSince(
  */
 const hashFiles = Effect.fnUntraced(function* (worktree: string, paths: readonly string[]) {
   if (paths.length === 0) return new Map<string, string>();
+  // Paths go on stdin, one per line: a large untracked tree would overflow argv (ARG_MAX).
   const result = yield* commandResult(
-    ChildProcess.make("git", ["hash-object", "--", ...paths], { cwd: worktree }),
+    ChildProcess.make("git", ["hash-object", "--stdin-paths"], {
+      cwd: worktree,
+      stdin: Stream.make(new TextEncoder().encode(`${paths.join("\n")}\n`)),
+    }),
   );
   if (result.code !== 0)
     return yield* new WorktreeInvalid({
