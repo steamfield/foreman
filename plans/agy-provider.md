@@ -107,10 +107,11 @@ Test cases (owned and written by the lanes, from the lists in each brief).
 
 Demo: `bun run check` passes with the behavior tests unchanged (RFC Testing section); `FOREMAN_SMOKE=1 bun run smoke` passes against real Codex.
 Depends on: phase 0
+Scaffold: 53eadd802dce5f0d9a12aa323f0a173623de7935
 
 | Lane | Size | Owns files | Reads | Tests | Model | Status | Branch | Done when |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| a | L | src/supervisor/, src/providers/codex/, src/codex/, src/core/runs/normalize.ts, src/core/preflight/hooks.ts, src/core/preflight/model.ts, src/core/doctor.ts, src/core/runs/store.ts, src/commands/monitor.ts, biome-plugins/boundaries.grit, tests/supervisor-integration.test.ts, tests/run-normalize.test.ts, tests/codex-client.test.ts, tests/preflight-hooks.test.ts, tests/preflight-model.test.ts, tests/fixtures/daemon/entry.ts | contracts, docs/architecture.md | tests/cli.test.ts, tests/daemon-lifecycle.test.ts, tests/monitor-feed.test.ts | opus | pending | | full gate green |
+| a | L | src/supervisor/, src/providers/codex/, src/codex/, src/core/runs/normalize.ts, src/core/preflight/hooks.ts, src/core/preflight/model.ts, src/core/doctor.ts, src/core/runs/store.ts, src/commands/monitor.ts, biome-plugins/boundaries.grit, tests/supervisor-integration.test.ts, tests/run-normalize.test.ts, tests/codex-client.test.ts, tests/preflight-hooks.test.ts, tests/preflight-model.test.ts, tests/fixtures/daemon/entry.ts | contracts, docs/architecture.md | tests/cli.test.ts, tests/daemon-lifecycle.test.ts, tests/monitor-feed.test.ts | opus | running | deliver/agy-provider-1a | full gate green |
 
 #### Lane a brief
 
