@@ -239,7 +239,7 @@ Depends on: phase 3
 
 | Lane | Size | Owns files | Reads | Tests | Model | Status | Branch | Done when |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| a | M | src/providers/agy/connection.ts, src/providers/agy/events.ts, src/providers/agy/turns.ts, src/providers/agy/steer.ts, src/providers/agy/resume.ts, tests/agy-steer-resume-unit.test.ts | contracts | | opus | running | deliver/agy-provider-4a | |
+| a | M | src/providers/agy/connection.ts, src/providers/agy/events.ts, src/providers/agy/turns.ts, src/providers/agy/steer.ts, src/providers/agy/resume.ts, tests/fixtures/fake-acp-agent/scenarios.ts, tests/agy-steer-resume-unit.test.ts | contracts | | opus | merged | deliver/agy-provider-4a | |
 
 Scaffold: 7b7db73
 
