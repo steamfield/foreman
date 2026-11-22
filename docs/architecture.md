@@ -1,4 +1,4 @@
-# foreman 0.3.1 architecture
+# foreman 0.4.0 architecture
 
 foreman keeps supervision in a local daemon so a coding turn can outlive the CLI call that started it. The daemon owns run state and one shared child per provider: a Codex app server and an `agy acp` process. The CLI resolves inputs, including which provider a start goes to, and renders results; it does not own the lifetime of a turn.
 
