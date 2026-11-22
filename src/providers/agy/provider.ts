@@ -72,7 +72,7 @@ export const makeAgyProvider = Effect.fn("agy.provider")(function* (options: Agy
     id: "agy",
     displayName: "agy",
     binary: options.agyBin,
-    capabilities: { serviceTier: false, hookEvents: false },
+    capabilities: { serviceTier: false, hookEvents: false, cancelsQuestionsBeforeInterrupt: true },
     environment,
     compatibilityWarning: Effect.sync(() => versionWarning(options.agyBin, agentVersion)),
     defaultModel: Effect.succeed(DEFAULT_MODEL),

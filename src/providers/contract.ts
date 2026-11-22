@@ -46,6 +46,12 @@ export interface Capabilities {
    * project hook" rule cannot run and is skipped.
    */
   readonly hookEvents: boolean;
+  /**
+   * Cancelling a held question must come before the interrupt, because the held call blocks
+   * the turn from ending (agy's bridge). When false the provider drops held calls itself, so
+   * a failed interrupt must leave them answerable (Codex).
+   */
+  readonly cancelsQuestionsBeforeInterrupt: boolean;
 }
 
 /** Settings a session runs with. Passed again on resume so nothing falls back to user config. */

@@ -82,7 +82,7 @@ export const makeCodexProvider = Effect.fn("codex.provider")(function* (
     id: "codex",
     displayName: "Codex",
     binary: options.codexBin,
-    capabilities: { serviceTier: true, hookEvents: true },
+    capabilities: { serviceTier: true, hookEvents: true, cancelsQuestionsBeforeInterrupt: false },
     environment,
     compatibilityWarning,
     defaultModel: defaultModel(options.codexHome).pipe(Effect.provide(context)),

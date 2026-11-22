@@ -115,9 +115,12 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
       return yield* new RunConflict({
         detail: `No turn is in progress for run ${run.record.name}; run foreman status ${run.record.name} before choosing the next action.`,
       });
-    // Cancelling held questions first releases a bridge call the provider may be holding,
-    // which agy needs before its turn can end.
-    yield* registry.cancelQuestions(run);
+    // agy's held bridge call blocks its turn from ending, so its questions are cancelled first.
+    // Codex drops them itself; cancelling before a failed interrupt would strand a turn that
+    // is still waiting for the answer.
+    const cancelFirst = (yield* connections.describe(providerOf(run.record))).capabilities
+      .cancelsQuestionsBeforeInterrupt;
+    if (cancelFirst) yield* registry.cancelQuestions(run);
     const interrupted = yield* connection
       .interrupt(run.record.threadId, run.record.activeTurnId)
       .pipe(Effect.result);
@@ -126,6 +129,7 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
       yield* markUnconfirmed(run, by);
       return "unconfirmed" as const;
     }
+    if (!cancelFirst) yield* registry.cancelQuestions(run);
     yield* registry.event(run, { _tag: "Interrupted", by });
     return "confirmed" as const;
   });
