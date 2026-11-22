@@ -8,6 +8,20 @@ export const RepoHookTrust = Schema.Struct({
   detail: Schema.NullOr(Schema.String),
 });
 
+/** What `foreman doctor` learned about agy; probes are null when agy isn't installed. */
+export const AgyDoctor = Schema.Struct({
+  installed: Schema.Boolean,
+  bin: Schema.String,
+  version: Schema.NullOr(Schema.String),
+  signedIn: Schema.NullOr(Schema.Boolean),
+  protocolMatches: Schema.NullOr(Schema.Boolean),
+  agentVersion: Schema.NullOr(Schema.String),
+  hookTrust: Schema.Literals(["accepted", "refused", "not applicable", "unknown"]),
+  catalogSize: Schema.NullOr(Schema.Int),
+  /** Each problem as what happened, why and the next step. */
+  findings: Schema.Array(Schema.String),
+});
+
 export const DoctorResult = Schema.Struct({
   orphans: Schema.optionalKey(
     Schema.Array(
@@ -33,6 +47,7 @@ export const DoctorResult = Schema.Struct({
   protocolMatches: Schema.NullOr(Schema.Boolean),
   loggedIn: Schema.NullOr(Schema.Boolean),
   repoHooks: RepoHookTrust,
+  agy: AgyDoctor,
   daemon: Schema.Union([
     Schema.Struct({ state: Schema.Literal("not running") }),
     Schema.Struct({ state: Schema.Literal("unavailable"), detail: Schema.String }),

@@ -16,6 +16,7 @@ import { hasRepoHooks, inspectHookTrust } from "../providers/codex/hooks";
 import type { DoctorResult, RepoHookTrust } from "../schemas/doctor";
 import { Host } from "../services/host";
 import { foremanExecutable } from "./command-output";
+import { agyDoctor } from "./doctor-providers";
 import { mainCheckout as discoverMainCheckout } from "./main-checkout";
 import { orphanWorktrees } from "./managed-worktree";
 import { readAllRuns } from "./runs/store";
@@ -243,6 +244,7 @@ export const doctor = Effect.fn("doctor")(function* (cwd = ".") {
     loggedIn,
     daemon: yield* daemonState(config.home),
     repoHooks: yield* repoHookTrust(config, env, host.version, cwd),
+    agy: yield* agyDoctor(config, host.version, cwd),
     ...settings,
   } satisfies typeof DoctorResult.Type;
 });
