@@ -1,12 +1,16 @@
+/**
+ * ask_orchestrator questions on a run: holding a provider's question call, answering or
+ * deferring it on the connection that delivered it, and recording late answers.
+ */
 import { Clock, DateTime, Effect, Schema } from "effect";
 import * as Store from "../core/runs/store";
 import { RunConflict, RunNotFound } from "../errors";
-import * as Codex from "../schemas/codex";
+import type { QuestionCall } from "../providers/contract";
 import { type AnswerDelivery, QuestionId } from "../schemas/daemon";
-import type { AppServer } from "./app-server";
 import { deferral } from "./prompts";
 import type { Registry, Run } from "./registry";
 
+/** Builds the question operations over the registry's runs. */
 export const makeQuestions = Effect.fn("supervisor.questions")(function* (registry: Registry) {
   const inspect = Effect.fnUntraced(function* (run: Run, id: QuestionId) {
     const lines = yield* Store.readQuestions(run.dir);
@@ -58,9 +62,16 @@ export const makeQuestions = Effect.fn("supervisor.questions")(function* (regist
     for (const question of Store.unansweredQuestions(yield* Store.readQuestions(run.dir)))
       yield* record(run, question.id, "superseded", null);
   });
+  /**
+   * Answers a held question through the connection generation that delivered it, then
+   * records the resolution. Called with the run lock held.
+   * @throws {RunNotFound} When the run never asked the question.
+   * @throws {RunConflict} When the question is no longer pending or was delivered by an
+   * earlier connection.
+   */
   const resolve = Effect.fnUntraced(function* (
     run: Run,
-    server: AppServer,
+    generation: symbol,
     id: QuestionId,
     text: string,
     resolution: "answered" | "deferred",
@@ -73,20 +84,17 @@ export const makeQuestions = Effect.fn("supervisor.questions")(function* (regist
       return yield* new RunNotFound({
         detail: `No question ${id} in run ${run.record.name}; run foreman status ${run.record.name} to see its questions.`,
       });
-    const rpc = run.calls.get(id);
+    const held = run.calls.get(id);
     if (
-      rpc === undefined ||
-      rpc.server.generation !== server.generation ||
+      held === undefined ||
+      held.generation !== generation ||
       !Store.pendingQuestions(lines).some((q) => q.id === id)
     )
       return yield* new RunConflict({
         detail: `${id} in run ${run.record.name} is no longer pending; run foreman status ${run.record.name} before retrying.`,
       });
     yield* Effect.gen(function* () {
-      yield* rpc.server.connection.respond(rpc.id, {
-        success: true,
-        contentItems: [{ type: "inputText", text }],
-      });
+      yield* held.call.respond(text);
       run.calls.delete(id);
       const at = DateTime.makeUnsafe(yield* Clock.currentTimeMillis);
       yield* registry.question(
@@ -108,55 +116,40 @@ export const makeQuestions = Effect.fn("supervisor.questions")(function* (regist
       Effect.uninterruptible,
     );
   });
-  const receive = Effect.fnUntraced(function* (
-    run: Run,
-    server: AppServer,
-    message: typeof Codex.RpcServerRequest.Type,
-    params: typeof Codex.ToolCallParams.Type,
-  ) {
-    if (params.tool !== "ask_orchestrator")
-      return yield* server.connection.respondError(message.id, -32601, "unsupported tool");
-    const args = yield* Schema.decodeUnknownEffect(Codex.AskOrchestratorArguments)(
-      params.arguments,
-    ).pipe(Effect.result);
-    if (args._tag === "Failure")
-      return yield* server.connection.respondError(
-        message.id,
-        -32602,
-        "invalid ask_orchestrator arguments",
-      );
-    if (
-      params.turnId !== run.record.activeTurnId ||
-      !["running", "waiting"].includes(run.record.state)
-    )
-      return yield* server.connection.respondError(message.id, -32602, "turn is no longer active");
+  /**
+   * Holds a question call for the run and marks it waiting, or rejects the call when its
+   * turn is no longer the active one. Called with the run lock held.
+   */
+  const receive = Effect.fnUntraced(function* (run: Run, generation: symbol, call: QuestionCall) {
+    if (call.turn !== run.record.activeTurnId || !["running", "waiting"].includes(run.record.state))
+      return yield* call.reject("turn is no longer active");
     const lines = yield* Store.readQuestions(run.dir);
     const ids = lines
       .filter((line) => line._tag === "Asked")
       .map((line) => Number(line.id.slice(1)));
     const id = yield* Schema.decodeUnknownEffect(QuestionId)(`q${Math.max(0, ...ids) + 1}`);
-    const kind = args.success.kind ?? "question";
     yield* registry.question(run, {
       _tag: "Asked",
       id,
       turn: run.record.turns,
-      kind,
-      question: args.success.question,
+      kind: call.kind,
+      question: call.question,
       at: DateTime.makeUnsafe(yield* Clock.currentTimeMillis),
     });
-    run.calls.set(id, { id: message.id, server });
+    run.calls.set(id, { call, generation });
     yield* registry.event(run, {
       _tag: "QuestionAsked",
       id,
-      kind,
-      question: args.success.question,
+      kind: call.kind,
+      question: call.question,
     });
     yield* registry.state(run, "waiting");
     yield* Effect.sleep(run.record.questionTimeoutMs).pipe(
       Effect.andThen(
         run.lock.withPermits(1)(
           Effect.gen(function* () {
-            if (run.calls.has(id)) yield* resolve(run, server, id, deferral, "deferred", "timeout");
+            if (run.calls.has(id))
+              yield* resolve(run, generation, id, deferral, "deferred", "timeout");
           }),
         ),
       ),

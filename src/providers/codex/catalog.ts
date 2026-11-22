@@ -1,3 +1,6 @@
+/**
+ * The Codex model catalog: picks the default model from Codex's `models_cache.json`.
+ */
 import { Effect, FileSystem, Path, Result, Schema } from "effect";
 
 const Cache = Schema.Struct({ models: Schema.Array(Schema.Unknown) });
@@ -26,6 +29,10 @@ function newest(models: readonly unknown[]): string {
   return candidates.at(-1)?.slug ?? fallback;
 }
 
+/**
+ * Returns the newest listed `gpt-N-sol` model in the cache under `codexHome`, or the built-in
+ * fallback when the cache is missing, unreadable or lists none.
+ */
 export const defaultModel = Effect.fn("preflight.defaultModel")(
   function* (codexHome: string) {
     const fs = yield* FileSystem.FileSystem;

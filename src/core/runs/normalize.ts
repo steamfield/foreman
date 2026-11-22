@@ -1,117 +1,13 @@
-import { Schema } from "effect";
-import * as Codex from "../../schemas/codex";
-import type { RunEventBody, TurnKind } from "../../schemas/daemon";
+/**
+ * The display title of a run, read from its contract.
+ */
 
-export type DecodedNotification =
-  | { method: "turn/started" | "turn/completed"; params: typeof Codex.TurnNotification.Type }
-  | { method: "item/started" | "item/completed"; params: typeof Codex.ItemNotification.Type }
-  | { method: "hook/started" | "hook/completed"; params: typeof Codex.HookNotification.Type }
-  | { method: "thread/tokenUsage/updated"; params: typeof Codex.TokenUsageNotification.Type }
-  | { method: "error"; params: typeof Codex.ErrorNotification.Type }
-  | { method: "mcpServer/startupStatus/updated"; params: typeof Codex.McpStartupNotification.Type }
-  | { method: `${string}/delta`; params: unknown };
+const TITLE_LENGTH = 120;
 
-function outputTail(output: string | null): string {
-  const bytes = new TextEncoder().encode(output ?? "");
-  let start = Math.max(0, bytes.length - 2048);
-  // Keep the tail valid UTF-8 without inserting a replacement character at the cut.
-  while (start < bytes.length && ((bytes[start] ?? 0) & 0xc0) === 0x80) start++;
-  return new TextDecoder().decode(bytes.subarray(start));
-}
-
-function completedItem(item: Codex.ThreadItem): RunEventBody[] {
-  if (Schema.is(Codex.CommandExecutionItem)(item))
-    return [
-      {
-        _tag: "Command",
-        command: item.command,
-        status: item.status,
-        exitCode: item.exitCode,
-        outputTail: outputTail(item.aggregatedOutput),
-      },
-    ];
-  if (Schema.is(Codex.FileChangeItem)(item))
-    return [{ _tag: "FileChange", paths: item.changes.map((change) => change.path) }];
-  if (Schema.is(Codex.AgentMessageItem)(item))
-    return [{ _tag: "AgentMessage", text: item.text, phase: item.phase }];
-  return [];
-}
-
-export function normalizeNotification(
-  notification: DecodedNotification,
-  turn: number,
-  kind: TurnKind,
-): RunEventBody[] {
-  switch (notification.method) {
-    case "turn/started":
-      return [{ _tag: "TurnStarted", turn, kind }];
-    case "turn/completed":
-      return [
-        {
-          _tag: "TurnCompleted",
-          turn,
-          status: notification.params.turn.status,
-          failure: notification.params.turn.error,
-        },
-      ];
-    case "item/completed":
-      return completedItem(notification.params.item);
-    case "hook/completed": {
-      const run = notification.params.run;
-      return run.status === "blocked"
-        ? [
-            {
-              _tag: "HookBlocked",
-              event: run.eventName,
-              feedback: run.entries.map((entry) => entry.text).join("\n"),
-            },
-          ]
-        : [];
-    }
-    case "thread/tokenUsage/updated": {
-      const total = notification.params.tokenUsage.total;
-      return [
-        {
-          _tag: "TokenUsage",
-          totals: {
-            input: total.inputTokens,
-            cachedInput: total.cachedInputTokens,
-            output: total.outputTokens,
-            reasoningOutput: total.reasoningOutputTokens,
-          },
-        },
-      ];
-    }
-    case "error":
-      return notification.params.willRetry
-        ? [{ _tag: "Retrying", message: notification.params.error.message }]
-        : [];
-    case "mcpServer/startupStatus/updated":
-      return notification.params.status === "failed"
-        ? [
-            {
-              _tag: "McpStartupFailed",
-              server: notification.params.name,
-              error: notification.params.error,
-            },
-          ]
-        : [];
-    case "item/started":
-    case "hook/started":
-      return [];
-  }
-  return [];
-}
-
-export function pickHandoff(items: readonly Codex.ThreadItem[]): string | null {
-  const messages = items.filter(Schema.is(Codex.AgentMessageItem));
-  return (
-    messages.findLast((item) => item.phase === "final_answer")?.text ??
-    messages.at(-1)?.text ??
-    null
-  );
-}
-
+/**
+ * Returns the contract's first Markdown heading, else its first non-empty line, trimmed and
+ * cut to 120 characters; null when the contract has no text.
+ */
 export function contractTitle(contract: string): string | null {
   const lines = contract.split(/\r?\n/).map((line) => line.trim());
   const line = lines.find((line) => /^#+\s/.test(line)) ?? lines.find((line) => line.length > 0);
@@ -120,6 +16,6 @@ export function contractTitle(contract: string): string | null {
       ?.replace(/^#+\s*/, "")
       .replace(/\s+#+$/, "")
       .trim()
-      .slice(0, 120) || null
+      .slice(0, TITLE_LENGTH) || null
   );
 }

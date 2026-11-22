@@ -1,6 +1,10 @@
+/**
+ * Probes of the installed Codex: its version and whether its generated protocol schema
+ * matches the one foreman was built against.
+ */
 import { Effect, FileSystem, Path, Schema, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
-import { CodexUnavailable } from "../errors";
+import { CodexUnavailable } from "../../errors";
 import { supportedCodex } from "./protocol";
 
 /** Hash every generated file, including its relative path and both NUL separators. */

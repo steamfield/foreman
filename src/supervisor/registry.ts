@@ -14,7 +14,6 @@ import {
   Semaphore,
   Stream,
 } from "effect";
-import { CodexRequestTimeout, CodexRpcError } from "../codex/client";
 import { archiveWorktree } from "../core/managed-worktree";
 import {
   handoffLine,
@@ -27,9 +26,16 @@ import { contractTitle } from "../core/runs/normalize";
 import { stateSince } from "../core/runs/state-since";
 import * as Store from "../core/runs/store";
 import { computeWorktreeFields, type WorktreeFields } from "../core/runs/worktree";
-import { CodexUnavailable, PermissionDenied, RunConflict, RunNotFound } from "../errors";
+import {
+  AgyUnavailable,
+  CodexUnavailable,
+  PermissionDenied,
+  RunConflict,
+  RunNotFound,
+} from "../errors";
 import { causeFields, redactDiagnosticText } from "../logging";
-import type { RpcId, ThreadItem } from "../schemas/codex";
+import type { QuestionCall } from "../providers/contract";
+import { RpcError, RpcRequestTimeout } from "../providers/jsonrpc";
 import {
   activeStates,
   type InterruptedBy,
@@ -41,7 +47,6 @@ import {
   type RunRecord,
   type RunState,
 } from "../schemas/daemon";
-import type { AppServer } from "./app-server";
 import { advancePace, countPace, emptyPace, type PaceWindow } from "./pace";
 
 export interface SubAgentState {
@@ -61,11 +66,11 @@ export interface Run {
   record: RunRecord;
   readonly dir: string;
   readonly lock: Semaphore.Semaphore;
-  readonly calls: Map<QuestionId, { id: RpcId; server: AppServer }>;
+  /** Held question calls, each tied to the connection generation that delivered it. */
+  readonly calls: Map<QuestionId, { readonly call: QuestionCall; readonly generation: symbol }>;
   readonly messages: Queue.Queue<Effect.Effect<void, unknown>, Cause.Done>;
   readonly answers: Queue.Queue<Effect.Effect<void, unknown>, Cause.Done>;
   queuedAnswers: number;
-  items: ThreadItem[];
   subagents: Map<string, SubAgentState>;
   openItem: { type: string; command: string | null; startedAt: number; id: string } | null;
   lastActivityAt: number | null;
@@ -233,7 +238,6 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
       messages: yield* Queue.unbounded<Effect.Effect<void, unknown>, Cause.Done>(),
       answers: yield* Queue.unbounded<Effect.Effect<void, unknown>, Cause.Done>(),
       queuedAnswers: 0,
-      items: [],
       subagents: new Map(),
       openItem: null,
       lastActivityAt: null,
@@ -367,7 +371,9 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
         text: null,
         at: DateTime.makeUnsafe(yield* Clock.currentTimeMillis),
       });
+      const held = run.calls.get(question.id);
       run.calls.delete(question.id);
+      if (held) yield* held.call.cancel;
       yield* event(run, { _tag: "QuestionResolved", id: question.id, resolution: "cancelled" });
     }
   });
@@ -452,13 +458,15 @@ export const makeRegistry = Effect.fn("supervisor.registry")(function* (dataDir:
     const error = cause.reasons.find(Cause.isFailReason)?.error;
     const uncertain =
       run.record.activeTurnId !== null ||
-      error instanceof CodexRequestTimeout ||
-      error instanceof CodexUnavailable;
+      error instanceof RpcRequestTimeout ||
+      error instanceof CodexUnavailable ||
+      error instanceof AgyUnavailable;
     const next = uncertain ? "unknown" : "failed";
     const infrastructure = !(
-      error instanceof CodexRequestTimeout ||
+      error instanceof RpcRequestTimeout ||
       error instanceof CodexUnavailable ||
-      error instanceof CodexRpcError
+      error instanceof AgyUnavailable ||
+      error instanceof RpcError
     );
     const diagnostic = causeFields(cause);
     const patch = {

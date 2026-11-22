@@ -4,10 +4,10 @@ import { NodeServices } from "@effect/platform-node";
 import { assert, expect, it } from "@effect/vitest";
 import { Effect, FileSystem, Schema } from "effect";
 import { ChildProcess } from "effect/process";
-import { openConnection } from "../src/codex/client";
-import { checkHookTrust } from "../src/core/preflight/hooks";
 import { commandResult } from "../src/core/process";
 import { RepoHooksUntrusted } from "../src/errors";
+import { openConnection } from "../src/providers/codex/client";
+import { checkHookTrust } from "../src/providers/codex/hooks";
 import { Scenario } from "./fixtures/fake-app-server/scenario";
 import {
   missingProjectHooks,
