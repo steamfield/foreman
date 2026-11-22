@@ -27,6 +27,8 @@ export interface AgyProviderOptions {
   readonly inheritedEnvironment: Readonly<Record<string, string | undefined>>;
   /** foreman's version, sent in the initialize handshake. */
   readonly version: string;
+  /** foreman's own command line (Host.executable), which agy runs as the question bridge. */
+  readonly executable: readonly string[];
 }
 
 /** The services agy's probes and child process need. */
@@ -89,6 +91,7 @@ export const makeAgyProvider = Effect.fn("agy.provider")(function* (options: Agy
           home: options.home,
           env: yield* environment,
           version: options.version,
+          executable: options.executable,
           stderr,
         });
         agentVersion = connected.agentVersion;

@@ -57,6 +57,7 @@ const fakeAgy = Effect.fnUntraced(function* (
       ...(options.protocol === undefined ? {} : { FAKE_ACP_PROTOCOL: String(options.protocol) }),
     },
     version: "test-version",
+    executable: ["/opt/foreman/bin/foreman"],
     stderr: () => Effect.void,
   });
   const readLines = (file: string) =>
@@ -133,7 +134,17 @@ it.effect("opens a session in the worktree with the model, effort and default mo
         }),
         expect.objectContaining({
           method: "session/new",
-          params: { cwd: agy.worktree, mcpServers: [] },
+          params: {
+            cwd: agy.worktree,
+            mcpServers: [
+              {
+                name: "foreman",
+                command: "/opt/foreman/bin/foreman",
+                args: ["mcp-question", "--run", "unit"],
+                env: [{ name: "FOREMAN_HOME", value: `${agy.root}/home` }],
+              },
+            ],
+          },
         }),
         expect.objectContaining({
           method: "session/set_config_option",

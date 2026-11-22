@@ -4,16 +4,14 @@
  * One reader applies everything agy writes in wire order: session updates, permission
  * requests (answered inline) and prompt replies, which end turns. Because a reply is handled
  * only after the updates agy sent before it, a turn's hand-off and events are complete when
- * it ends. Questions, steering and resume arrive in later phases. docs/rfcs/0002-providers.md
- * "The agy adapter" is the design.
+ * it ends. Bridge questions are held in questions.ts. docs/rfcs/0002-providers.md "The agy
+ * adapter" is the design.
  */
-import { type Cause, Deferred, Effect, FileSystem, Queue, Schema, Stream } from "effect";
+import { Deferred, Effect, FileSystem, Queue, Schema, Stream } from "effect";
 import { AgyUnavailable } from "../../errors";
 import * as Acp from "../../schemas/acp";
 import {
-  type Inbound,
   type ProviderConnection,
-  QuestionRefused,
   type SessionId,
   type SessionSettings,
   SteerRefused,
@@ -23,8 +21,9 @@ import { type RpcMessage, type RpcNotification, RpcRequestTimeout } from "../jso
 import { readNotification } from "./events";
 import { agyHookTrust } from "./hooks";
 import { type AgyLaunchOptions, launchAgy, sessionRequest } from "./launch";
-import type { AgyChannel, Live } from "./live";
+import { type Live, makeLive } from "./live";
 import { answerServerRequest } from "./permission-requests";
+import { askQuestion, bridgeFor } from "./questions";
 import {
   abandonPrompts,
   beginTurn,
@@ -42,8 +41,11 @@ const NO_EFFORT = "none";
 const RESUME_UNAVAILABLE =
   "Resuming an agy session after a daemon restart isn't available yet; start a new run.";
 
-/** Settings for one `agy acp` child. */
-export type AgyConnectionOptions = AgyLaunchOptions;
+/** Settings for one `agy acp` child and the question bridge its sessions get. */
+export interface AgyConnectionOptions extends AgyLaunchOptions {
+  /** foreman's own command line (Host.executable), which agy runs as the question bridge. */
+  readonly executable: readonly string[];
+}
 
 /** A live connection and the agy version its initialize reply reported. */
 export interface AgyConnection {
@@ -64,53 +66,42 @@ export function modelValue(settings: SessionSettings): string {
 
 /**
  * Starts `agy acp` and wraps it in the provider contract. Closes with the caller's scope.
- * @throws {AgyUnavailable} When agy can't be launched, refuses or times out on initialize,
- * speaks another ACP protocol, or its directories under foreman's home can't be created.
+ * @throws {AgyUnavailable} When foreman has no executable path for the question bridge, agy
+ * can't be launched, refuses or times out on initialize, speaks another ACP protocol, or its
+ * directories under foreman's home can't be created.
  */
 export const connectAgy = Effect.fn("agy.connect")(function* (options: AgyConnectionOptions) {
   const fs = yield* FileSystem.FileSystem;
+  const bridge = yield* bridgeFor(options.executable, options.home);
   const { channel, agentVersion } = yield* launchAgy(options);
-  const connection = yield* makeConnection(channel, fs);
+  const connection = yield* makeConnection(yield* makeLive(channel, bridge), fs);
   return { connection, agentVersion } satisfies AgyConnection;
 });
 
 /** Wires the channel into the provider contract and starts the reader. */
-const makeConnection = Effect.fnUntraced(function* (
-  channel: AgyChannel,
-  fs: FileSystem.FileSystem,
-) {
-  const live: Live = {
-    channel,
-    sessions: new Map(),
-    prompts: new Map(),
-    settled: new Map(),
-    inbound: yield* Queue.unbounded<Inbound, AgyUnavailable | Cause.Done>(),
-  };
+const makeConnection = Effect.fnUntraced(function* (live: Live, fs: FileSystem.FileSystem) {
   yield* readMessages(live).pipe(Effect.forkScoped);
   const connection: ProviderConnection = {
     provider: "agy",
     generation: Symbol("agy"),
     inbound: Stream.fromQueue(live.inbound),
-    questions: Stream.empty,
-    termination: channel.termination,
-    open: (_run, settings) => openSession(live, settings),
+    questions: Stream.fromQueue(live.questions),
+    termination: live.channel.termination,
+    open: (run, settings) => openSession(live, run, settings),
     nameSession: () => Effect.succeed([]),
     resume: () => Effect.fail(new AgyUnavailable({ detail: RESUME_UNAVAILABLE })),
     isLoaded: (session) => live.sessions.has(session),
     startTurn: (session, request) => startTurn(live, session, request),
     steer: () => Effect.fail(new SteerRefused({ reason: "agy steering is not available yet" })),
     interrupt: (session) => interruptSession(live, session),
-    ask: () =>
-      Effect.fail(
-        new QuestionRefused({ reason: "agy questions arrive in a later foreman version" }),
-      ),
+    ask: (session, question) => askQuestion(live, session, question),
     hookTrust: (mainCheckout, worktree) =>
       agyHookTrust(mainCheckout, worktree).pipe(Effect.provideService(FileSystem.FileSystem, fs)),
   };
   return connection;
 });
 
-/** Applies agy's messages in wire order, ending `inbound` when the channel ends. */
+/** Applies agy's messages in wire order, ending `inbound` and `questions` with the channel. */
 const readMessages = (live: Live) =>
   live.channel.messages.pipe(
     Stream.runForEach((message) => applyMessage(live, message)),
@@ -118,6 +109,8 @@ const readMessages = (live: Live) =>
       onFailure: (cause) => Queue.failCause(live.inbound, cause),
       onSuccess: () => Queue.end(live.inbound),
     }),
+    // inbound carries any failure; the supervisor learns of a lost connection from it.
+    Effect.ensuring(Queue.end(live.questions)),
   );
 
 function applyMessage(live: Live, message: RpcMessage) {
@@ -139,12 +132,16 @@ function applyNotification(live: Live, message: RpcNotification) {
   return Queue.offer(live.inbound, read.inbound);
 }
 
-/** `session/new`, then the model with its thinking level, then default mode. */
-const openSession = Effect.fnUntraced(function* (live: Live, settings: SessionSettings) {
+/** `session/new` with the run's question bridge, then the model and thinking level, then mode. */
+const openSession = Effect.fnUntraced(function* (
+  live: Live,
+  run: string,
+  settings: SessionSettings,
+) {
   const { sessionId } = yield* sessionRequest(
     live.channel,
     Acp.Method.sessionNew,
-    { cwd: settings.cwd, mcpServers: [] },
+    { cwd: settings.cwd, mcpServers: [live.bridge(run)] },
     Acp.SessionNewResult,
     SESSION_NEW_TIMEOUT,
   );
