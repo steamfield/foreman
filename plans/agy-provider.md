@@ -209,6 +209,25 @@ Depends on: phase 2
 | a | M | src/commands/mcp-question.ts, src/core/mcp-question.ts, tests/mcp-question.test.ts | contracts | | opus | pending | | |
 | b | M | src/providers/agy/questions.ts, src/supervisor/questions.ts, src/supervisor/notifications.ts, tests/agy-questions.test.ts | contracts | | opus | pending | | |
 
+Scaffold (written when phase 2 lands): the daemon `Ask` request in src/schemas/daemon.ts (`{run: RunName, question, kind: "question" | "blocked", callId}` replying `{_tag: "AskAnswer", text}` or failing `RunConflict` with the refusal reason), its dispatch in src/supervisor/index.ts to `connections.forRun(run)` then `connection.ask(session, ...)`, mapping QuestionRefused to RunConflict(reason) and QuestionCancelled to RunConflict("question cancelled by the orchestrator: <reason>"); the hidden `mcp-question --run <name>` command registered in src/cli.ts calling a stub `runQuestionBridge` in src/core/mcp-question.ts; the phase test tests/agy-question-runs.test.ts (real daemon, fake ACP agent, and the real bridge spawned by the fake: add a fake-agent step `mcpCall: {server, tool, arguments, label}` that launches the session's stdio MCP server from `session/new` mcpServers and calls the tool, and `awaitMcpResult: label`): a question reaches `waiting`, `foreman answer` releases it and the run finishes with the answer in the tool result; `defer` and the question timeout deferral reply with the deferral text; killing the bridge child while held records the question cancelled, moves the run back to running, and a later answer is a late answer; an ask with no prompt outstanding gets "turn is no longer active"; a hand-off turn's ask is refused by the permission policy.
+
+#### Lane a brief (the bridge)
+
+- Goal: `foreman mcp-question --run <name>` is a stdio MCP server exposing `ask_orchestrator` with exactly the input schema Codex gets (src/schemas/codex.ts `askOrchestratorTool`), forwarding each call to the daemon `Ask` request.
+- Behavior: JSON-RPC 2.0 lines on stdin/stdout. `initialize` replies with protocolVersion echoing the client's (2025-06-18 or what agy sends), capabilities `{tools: {}}` and serverInfo foreman. `tools/list` returns the one tool. `tools/call` for `ask_orchestrator` decodes `{question, kind?}` ignoring unknown arguments (agy adds `toolSummary`), mints a callId (uuid), and sends `Ask` through the connect-only daemon client (`call(body, {dataDir, connectOnly: true})` as doctor does; FOREMAN_HOME comes from the env agy passes). The socket request stays open with no timeout. Success replies `{content: [{type: "text", text}]}`; a refusal replies `{content: [{type: "text", text: reason}], isError: true}`; an unreachable daemon replies isError with "The foreman orchestrator is unavailable. Continue without the answer, list the question under Open in your hand-off, and take no irreversible step that depends on it." Other methods: notifications ignored, unknown requests -32601. Exits when stdin closes. Logs nothing to stdout except protocol; diagnostics to the log file only.
+- Pure parts (message decode, tool-call decode, reply building) in src/core/mcp-question.ts as functions; the stdin/stdout loop and the daemon call at the edge in src/commands/mcp-question.ts.
+- Tests (tests/mcp-question.test.ts): through tests/helpers/cli.ts driving the real command with a real daemon fixture or a fake socket server: initialize, tools/list schema equals Codex's, a call forwarded and answered, toolSummary ignored, refusal becomes isError, daemon unreachable message, unknown method -32601, malformed line is skipped with a log record.
+
+#### Lane b brief (questions in the agy connection and supervisor)
+
+- Goal: agy runs ask through the bridge and the supervisor treats them like Codex questions.
+- `src/providers/agy/questions.ts`: pure helpers: the `mcpServers` entry for a session (`{name: "foreman", command: <foreman executable from Host.executable>, args: [...executable rest, "mcp-question", "--run", run], env: [{name: "FOREMAN_HOME", value: home}]}`) and the bookkeeping for held calls (callId to Deferred).
+- In src/providers/agy/connection.ts (lane b owns it this phase): `open` passes the bridge on `session/new`; `ask(session, question)`: when the session has no outstanding prompt fail `QuestionRefused{reason: "turn is no longer active"}`; otherwise emit a `QuestionCall` on `questions` stamped with the outstanding turn whose respond/reject/cancel complete a Deferred, and await it. If the awaiting fiber is interrupted (the bridge's socket closed) before an outcome, push an Inbound with `QuestionAbandoned{turn, callId}` (raw null).
+- Supervisor (src/supervisor/questions.ts, notifications.ts): `QuestionAbandoned` records the question `cancelled` with resolution reason "the agent's tool call ended before an answer", moves a `waiting` run back to `running`, and later answers to that id take the existing late-answer path. For agy runs, the question timeout is capped at 80 seconds below agy's observed MCP hold (record the cap in run warnings when the requested timeout was higher: "agy holds a question for at most <n>; deferring after <n>"). Measure the hold once against real agy before fixing the number; the probe saw at least 92 s.
+- Tests (tests/agy-questions.test.ts): ask with and without an outstanding prompt; respond, reject and cancel outcomes; interruption emits QuestionAbandoned once; the supervisor's abandon transition and late-answer path; the timeout cap and its warning.
+- Guide lines for phase 5 lane c go in the plan log: how questions behave on agy and the hold cap.
+
+
 ### Phase 4: steering, budgets and resume on agy
 
 Demo: RFC phase 3 demo.
@@ -217,6 +236,19 @@ Depends on: phase 3
 | Lane | Size | Owns files | Reads | Tests | Model | Status | Branch | Done when |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | a | M | src/providers/agy/connection.ts, src/providers/agy/events.ts, tests/agy-steer-resume.test.ts | contracts | | opus | pending | | |
+
+Scaffold (written when phase 3 lands): tests/agy-steer-resume.test.ts, real daemon against the fake ACP agent with a `respondAfterSteps` prompt that waits on `awaitRequest: session/prompt`: a steer during a turn sends a second `session/prompt`, the first reply (`end_turn`) does not complete the foreman turn, the second does, usage is summed and a `Steered` event is recorded; a steer after the turn's completion was emitted is refused and the supervisor delivers it as a follow-up; a 45 s budget (use a short budgetMs in the test) interrupts with `session/cancel` and runs a hand-off turn whose edit is refused and whose shell command is approved, ending idle with the hand-off text; after a daemon restart a followup calls `session/resume` with the worktree cwd and the bridge in mcpServers, then `session/set_config_option` with the run's model and effort, records `Resumed{sandbox: "default", model}`, and finishes the turn.
+
+#### Lane a brief
+
+- Goal: steering, budget hand-off and resume for agy, as RFC "Steering", "Interrupt" and "Resume" describe.
+- Steering in src/providers/agy/connection.ts: track every outstanding prompt per session. `steer(session, turn, input)` is serialized with prompt-reply handling per session (a Semaphore or a single per-session queue): accepted only while a prompt is outstanding and the turn's TurnCompleted hasn't been emitted, else `SteerRefused{reason: "the agy turn already finished"}`. Accepted steers send `session/prompt` on their own fiber. A reply completes the foreman turn only when no later prompt is outstanding; usage sums across replies. A refusal recorded by any prompt still fails the turn.
+- Budget: nothing provider-specific beyond the hand-off permission policy already in permissions.ts and interrupt; verify the supervisor's budget path works end to end on agy and fix only agy code.
+- Resume: `resume(run, session, settings)` sends `session/resume {sessionId, cwd, mcpServers}` (the bridge entry from phase 3), then set_config_option model and set_mode default, and returns `{sandbox: "default", model: settings.model}`. `isLoaded` becomes true after resume. Errors as in `open` (auth wording).
+- events.ts changes only where steering needs them (stamping updates with the latest outstanding prompt's turn).
+- Tests (tests/agy-steer-resume-unit.test.ts, your own): steer accepted and refused windows including the race where the completion is queued; usage sum; resume request sequence; resume auth failure.
+- Guide lines for phase 5 lane c go in the plan log.
+
 
 ### Phase 5: the agent experience
 
