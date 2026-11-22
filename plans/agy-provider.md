@@ -55,7 +55,7 @@ Test cases (owned and written by the lanes, from the lists in each brief).
 | Lane | Size | Owns files | Reads | Tests | Model | Status | Branch | Done when |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | a | M | src/providers/jsonrpc.ts, src/codex/client.ts, tests/providers/jsonrpc.test.ts, tests/fixtures/jsonrpc/ | contracts, src/codex/client.ts, tests/codex-client.test.ts | tests/codex-client.test.ts | opus | running | deliver/agy-provider-0a | jsonrpc and codex-client tests pass |
-| b | M | src/providers/codex/events.ts, src/providers/codex/events-items.ts, tests/providers/codex-events.test.ts | contracts, src/supervisor/notifications.ts, src/core/runs/normalize.ts | tests/run-normalize.test.ts | opus | running | deliver/agy-provider-0b | codex-events tests pass |
+| b | M | src/providers/codex/events.ts, src/providers/codex/events-items.ts, tests/providers/codex-events.test.ts | contracts, src/supervisor/notifications.ts, src/core/runs/normalize.ts | tests/run-normalize.test.ts | opus | merged | deliver/agy-provider-0b | codex-events tests pass |
 | c | M | src/schemas/daemon.ts, src/core/runs/store.ts, src/config.ts, src/daemon/client.ts, src/daemon/server.ts, src/core/commands.ts, .env.example, README.md, tests/provider-storage.test.ts, tests/config-logging.test.ts | contracts, docs/acceptance/typescript-cli.md | tests/daemon-ownership.test.ts | sonnet | merged | deliver/agy-provider-0c | provider-storage and config tests pass |
 
 #### Lane a brief
@@ -178,3 +178,6 @@ Depends on: phase 2
 
 - 2026-11-22: RFC 0002 critique ran this session (devil's advocate, 8 findings, all accepted); the plan critique step is skipped per the deliver profile.
 - Phase 1 is one L lane by choice: the Codex connection and the supervisor switch can't be tested apart, and two lanes would share registry.ts. It gets a lane review and the phase boundary review.
+- Lane 0/b accepted choices: inProgress turn completion maps to completed; completed tool items map to other; the first completed item before any turn/started sets the session's turn (resumed sessions). events.ts is 276 lines, accepted.
+- Lane 0/c accepted choices: AGY_BIN passed to a spawned daemon; agyBin/defaultModel decoded independently.
+- Contract: ItemStarted.turn nullable so the Codex hook rule fails closed on a partly decoded commandExecution (lane 0/b review, finding beyond the brief).
