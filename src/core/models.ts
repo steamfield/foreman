@@ -16,6 +16,7 @@ import { agyFamilies } from "../providers/agy/models";
 import { type CodexCatalog, defaultModel, readCodexModels } from "../providers/codex/catalog";
 import type { ModelCatalogs } from "../providers/routing";
 import type { ModelsResult, ProviderModels } from "../schemas/models";
+import { DEFAULT_CODEX_EFFORT } from "../schemas/provider";
 
 // Listing models needs no SSH agent, so the catalog read skips the probe the daemon runs.
 const NO_SSH_PROBE = { alive: true, launchdSocket: undefined };
@@ -63,7 +64,12 @@ function codexModels(catalog: CodexCatalog, defaultId: string, cacheFile: string
       unavailable: `${cacheFile} is missing or lists no models; run codex once to create it`,
       models: [],
     };
-  const models = catalog.listed.map((entry) => ({ ...entry, default: entry.model === defaultId }));
+  // The default effort shown is the one a start uses, not the catalog's own default.
+  const models = catalog.listed.map((entry) => ({
+    ...entry,
+    defaultEffort: entry.efforts.length === 0 ? null : DEFAULT_CODEX_EFFORT,
+    default: entry.model === defaultId,
+  }));
   return { provider: "codex", unavailable: null, models };
 }
 

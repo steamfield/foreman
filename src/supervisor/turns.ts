@@ -42,6 +42,7 @@ import {
   type RunRecord,
   type TurnKind,
 } from "../schemas/daemon";
+import { DEFAULT_CODEX_EFFORT } from "../schemas/provider";
 import type { Connections } from "./connections";
 import { preamble, timeUp } from "./prompts";
 import { turnStartSnapshot, UNSANDBOXED_READ_ONLY } from "./read-only-check";
@@ -310,7 +311,7 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
           baseCommit: validated.baseCommit,
           ...(created ? { managedWorktree: created.managed } : {}),
           model,
-          effort: body.effort ?? "high",
+          effort: body.effort ?? DEFAULT_CODEX_EFFORT,
           tier,
           sandbox: body.write ? "danger-full-access" : "read-only",
           questionTimeoutMs: body.questionTimeoutMs ?? 900_000,

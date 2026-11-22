@@ -230,7 +230,8 @@ describe("foreman models", () => {
     const codexEntry = (model: string, isDefault = false) => ({
       model,
       efforts: ["low", "medium", "high"],
-      defaultEffort: "medium",
+      // A start with no --effort uses high, whatever the catalog's own default.
+      defaultEffort: "high",
       default: isDefault,
     });
     expect({ ...codex, models: [...(codex?.models ?? [])].sort(byModel) }).toEqual({

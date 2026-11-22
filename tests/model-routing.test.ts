@@ -552,7 +552,7 @@ describe("foreman models", () => {
       stderr: "",
       stdout: [
         "PROVIDER  MODEL                  EFFORTS     DEFAULT EFFORT",
-        "codex     gpt-6.1-sol (default)  low,medium  medium",
+        "codex     gpt-6.1-sol (default)  low,medium  high",
         "codex     gpt-6.1-sol-mini       fixed       -",
         "agy       gemini-4-neon          low,high    high",
         "agy       claude-opus-5-5        fixed       -",

@@ -7,6 +7,9 @@ import { Schema } from "effect";
 export const ProviderId = Schema.Literals(["codex", "agy"]);
 export type ProviderId = typeof ProviderId.Type;
 
+/** The effort a Codex start uses when it names none. */
+export const DEFAULT_CODEX_EFFORT = "high";
+
 /** Access a run grants its agent: read-only, or write with no approval prompts. */
 export const Access = Schema.Literals(["read-only", "write"]);
 export type Access = typeof Access.Type;
