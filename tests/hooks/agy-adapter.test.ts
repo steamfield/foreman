@@ -89,6 +89,24 @@ describe("agy PreToolUse adapter", SPAWNS, () => {
     ).toEqual({ decision: "ask" });
   });
 
+  it("writes nothing to stderr when a guard has no objection", async () => {
+    const stderr = await new Promise<string>((resolve, reject) => {
+      const child = spawn("sh", ["-c", wiredCommand("run_command")], {
+        cwd: join(REPO, ".agents"),
+      });
+      let err = "";
+      child.stderr.setEncoding("utf8").on("data", (chunk: string) => {
+        err += chunk;
+      });
+      child.on("error", reject);
+      child.on("close", () => resolve(err));
+      child.stdin.end(
+        JSON.stringify(agyCall("run_command", { CommandLine: "git status --short" })),
+      );
+    });
+    expect(stderr).toBe("");
+  });
+
   it("denies a write that contains a credential-shaped string", async () => {
     // Built at runtime so this file holds no credential-shaped literal.
     const key = ["AKIA", "ABCDEFGHIJKLMNOP"].join("");
