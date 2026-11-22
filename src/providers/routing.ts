@@ -37,6 +37,8 @@ export interface ModelCatalogs {
 const PROVIDERS: readonly ProviderId[] = ["codex", "agy"];
 const EFFORT_ORDER = ["low", "medium", "high", "xhigh"];
 const AGY_DEFAULT_EFFORT = "high";
+// The effort recorded for an agy model with a fixed effort; the connection sends its id as is.
+const NO_EFFORT = "none";
 const MODELS_HINT = "Run foreman models to see the available models.";
 
 /** A model id matched in agy's catalog: the family agy runs and the effort its id fixes. */
@@ -92,16 +94,22 @@ function familyEfforts(family: string, catalog: AgyCatalog): string[] {
   return [...efforts].sort((a, b) => EFFORT_ORDER.indexOf(a) - EFFORT_ORDER.indexOf(b));
 }
 
-/** "high" when the family offers it (or offers no efforts), else its highest effort. */
+/**
+ * "none" for a family with no efforts (agy then gets the id unchanged), "high" when the family
+ * offers it, else its highest effort.
+ */
 function defaultAgyEffort(efforts: readonly string[]): string {
-  if (efforts.length === 0 || efforts.includes(AGY_DEFAULT_EFFORT)) return AGY_DEFAULT_EFFORT;
+  if (efforts.length === 0) return NO_EFFORT;
+  if (efforts.includes(AGY_DEFAULT_EFFORT)) return AGY_DEFAULT_EFFORT;
   return efforts.at(-1) ?? AGY_DEFAULT_EFFORT;
 }
 
 /** The Usage message when the requested effort doesn't fit the family, or null when it does. */
 function effortProblem(effort: string, family: string, efforts: readonly string[]): string | null {
   if (efforts.length === 0)
-    return `--effort ${effort} is not valid for ${family} (agy), which has a fixed effort. Remove --effort.`;
+    return effort === NO_EFFORT
+      ? null
+      : `--effort ${effort} is not valid for ${family} (agy), which has a fixed effort. Remove --effort.`;
   if (efforts.includes(effort)) return null;
   return `--effort ${effort} is not valid for ${family} (agy). Use one of: ${efforts.join(", ")}.`;
 }

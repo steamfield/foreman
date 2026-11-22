@@ -115,7 +115,19 @@ describe("model routing", () => {
       "agy:model checks agy's catalog only",
       { model: "agy:claude-opus-5-5" },
       catalogs(["claude-opus-5-5"]),
-      { provider: "agy", model: "claude-opus-5-5", effort: "high" },
+      { provider: "agy", model: "claude-opus-5-5", effort: "none" },
+    ],
+    [
+      "a fixed-effort agy model records effort none",
+      { model: "claude-opus-5-5" },
+      catalogs(),
+      { provider: "agy", model: "claude-opus-5-5", effort: "none" },
+    ],
+    [
+      "a fixed-effort agy model accepts --effort none",
+      { model: "claude-opus-5-5", effort: "none" },
+      catalogs(),
+      { provider: "agy", model: "claude-opus-5-5", effort: "none" },
     ],
     [
       "codex:model runs on Codex without reading agy's catalog",
