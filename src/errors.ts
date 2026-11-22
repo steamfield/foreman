@@ -23,6 +23,10 @@ export class CodexUnavailable extends Schema.TaggedError<CodexUnavailable>()(
   "CodexUnavailable",
   detail,
 ) {}
+export class AgyUnavailable extends Schema.TaggedError<AgyUnavailable>()(
+  "AgyUnavailable",
+  detail,
+) {}
 export class RunNotFound extends Schema.TaggedError<RunNotFound>()("RunNotFound", detail) {}
 export class RunConflict extends Schema.TaggedError<RunConflict>()("RunConflict", detail) {}
 export class WorktreeInvalid extends Schema.TaggedError<WorktreeInvalid>()(
@@ -45,6 +49,7 @@ export const errorClasses = [
   Defect,
   DaemonUnavailable,
   CodexUnavailable,
+  AgyUnavailable,
   RunNotFound,
   RunConflict,
   WorktreeInvalid,
@@ -76,6 +81,11 @@ export const errorTable = {
   CodexUnavailable: {
     code: 5,
     message: "Codex is unavailable or not the version foreman was built for.",
+    retryable: true,
+  },
+  AgyUnavailable: {
+    code: 5,
+    message: "agy is unavailable, not signed in, or not the version foreman was built for.",
     retryable: true,
   },
   RunNotFound: { code: 7, message: "No such run or question.", retryable: false },
