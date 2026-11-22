@@ -318,12 +318,16 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
         const connection = yield* connections.forRun(run);
         run.serverGeneration = connection.generation;
         run.retireServer = connections.retire(connection);
-        const title = `${run.record.name} (${path.basename(run.record.group)})`;
-        const opened = yield* connection.open(run.record.name, title, sessionSettings(run.record));
+        const opened = yield* connection.open(run.record.name, sessionSettings(run.record));
+        // Saved before anything else is sent, so the session's notifications route to the run.
         yield* registry.save(run, {
           threadId: opened.session,
           warnings: [...run.record.warnings, ...opened.warnings],
         });
+        const title = `${run.record.name} (${path.basename(run.record.group)})`;
+        const titleWarnings = yield* connection.nameSession(opened.session, title);
+        if (titleWarnings.length > 0)
+          yield* registry.save(run, { warnings: [...run.record.warnings, ...titleWarnings] });
         turnRequested = true;
         yield* begin(
           run,

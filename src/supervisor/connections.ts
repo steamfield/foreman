@@ -13,7 +13,6 @@ import {
   Exit,
   type FileSystem,
   Path,
-  type PlatformError,
   Scope,
   Semaphore,
   Stream,
@@ -21,7 +20,7 @@ import {
 import type { ChildProcessSpawner } from "effect/process";
 import type { AppConfig } from "../config";
 import { AgyUnavailable, CodexUnavailable } from "../errors";
-import { causeFields, makeLogAppender } from "../logging";
+import { causeFields } from "../logging";
 import { type CodexRequirements, makeCodexProvider } from "../providers/codex/provider";
 import type {
   Capabilities,
@@ -34,7 +33,7 @@ import type {
 } from "../providers/contract";
 import { providerOf, type RunRecord } from "../schemas/daemon";
 import type { Registry } from "./registry";
-import { stderrSink } from "./stderr-log";
+import { makeStderrLog } from "./stderr-log";
 
 /** A started provider connection and the scope that owns its child process. */
 export interface LiveConnection extends ProviderConnection {
@@ -84,9 +83,11 @@ const makeSlot = Effect.fnUntraced(function* (
   const context = yield* Effect.context<FileSystem.FileSystem | Path.Path>();
   const lock = yield* Semaphore.make(1);
   const path = yield* Path.Path;
-  const logFile = path.join(config.home, registration.stderrLog);
-  const append = yield* makeLogAppender(logFile);
-  let stderrWarning: string | undefined;
+  const stderrLog = yield* makeStderrLog(
+    path.join(config.home, registration.stderrLog),
+    registration.displayName,
+    registry,
+  );
   let current: LiveConnection | undefined;
   const cleanup = new WeakMap<LiveConnection, Effect.Effect<void>>();
   const closedDeliberately = new WeakSet<LiveConnection>();
@@ -127,31 +128,6 @@ const makeSlot = Effect.fnUntraced(function* (
     yield* loseRuns(live, cause);
   });
 
-  // Reported once per child: a log that can't be written is a warning on every run using it.
-  const stderrUnavailable = (generation: () => symbol | undefined) =>
-    Effect.fnUntraced(function* (error: PlatformError.PlatformError) {
-      if (stderrWarning !== undefined) return;
-      const warning = `${registration.displayName} stderr log ${logFile} is unavailable (${error.reason.method}: ${error.reason._tag}). Check the path and directory permissions before relying on this log.`;
-      stderrWarning = warning;
-      yield* Effect.logWarning("supervisor.appServer.stderr.unavailable").pipe(
-        Effect.annotateLogs({
-          path: logFile,
-          reason: error.reason._tag,
-          method: error.reason.method,
-        }),
-      );
-      for (const run of registry.runs.values()) {
-        if (run.serverGeneration !== generation()) continue;
-        yield* registry.enqueue(
-          run,
-          Effect.gen(function* () {
-            if (registry.isCurrent(run) && !run.record.warnings.includes(warning))
-              yield* registry.save(run, { warnings: [...run.record.warnings, warning] });
-          }),
-        );
-      }
-    }, Effect.provide(context));
-
   const superviseStreams = Effect.fnUntraced(function* (live: LiveConnection) {
     yield* live.inbound.pipe(
       Stream.runForEach((message) => inbound(live, message)),
@@ -169,20 +145,17 @@ const makeSlot = Effect.fnUntraced(function* (
   });
 
   const start = Effect.gen(function* () {
-    stderrWarning = undefined;
+    yield* stderrLog.reset;
     const scope = yield* Scope.fork(owner);
     const completed = yield* Deferred.make<void>();
     // Registered before the process resources, so this runs after their finalizers.
     yield* Scope.addFinalizer(scope, Deferred.succeed(completed, undefined));
     let generation: symbol | undefined;
-    const unavailable = stderrUnavailable(() => generation);
-    const connection = yield* registration.provider
-      .connect(stderrSink((text) => append(text).pipe(Effect.catch(unavailable))))
-      .pipe(
-        Scope.provide(scope),
-        // A failed start closes the child it may have launched.
-        Effect.tapCause((cause) => Scope.close(scope, Exit.failCause(cause))),
-      );
+    const connection = yield* registration.provider.connect(stderrLog.sink(() => generation)).pipe(
+      Scope.provide(scope),
+      // A failed start closes the child it may have launched.
+      Effect.tapCause((cause) => Scope.close(scope, Exit.failCause(cause))),
+    );
     generation = connection.generation;
     const live: LiveConnection = { ...connection, scope };
     // Registered last, so it runs first: the streams then see a deliberate close.
@@ -207,7 +180,7 @@ const makeSlot = Effect.fnUntraced(function* (
       ),
     compatibilityWarning: registration.provider.compatibilityWarning,
     environment: registration.provider.environment,
-    warnings: Effect.sync(() => (stderrWarning === undefined ? [] : [stderrWarning])),
+    warnings: stderrLog.warnings,
   };
 });
 

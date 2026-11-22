@@ -15,6 +15,7 @@ import { activeStates, providerOf } from "../schemas/daemon";
 import * as LiveState from "./live-state";
 import type { Registry, Run } from "./registry";
 import { toRunEvents } from "./run-events";
+import { isStaleMessage } from "./stale";
 import type { Turns } from "./turns";
 
 /** What the supervisor knows about the provider that sent the message. */
@@ -106,14 +107,6 @@ const adoptTurn = Effect.fnUntraced(function* (
   yield* registry.save(run, { activeTurnId: turn });
   yield* registry.state(run, "running");
 });
-
-// Turn events are only stale once a turn is active; other events also when none is.
-function isStale(event: ProviderEvent, activeTurnId: TurnId | null): boolean {
-  if (event.turn === null) return false;
-  if (event._tag === "TurnStarted" || event._tag === "TurnCompleted")
-    return activeTurnId !== null && event.turn !== activeTurnId;
-  return event.turn !== activeTurnId;
-}
 
 const journal = Effect.fnUntraced(function* (
   registry: Registry,
@@ -233,7 +226,7 @@ export const handleNotification = Effect.fn("supervisor.notification")(function*
   if (unrecognized) return yield* recordUnrecognized(registry, run, unrecognized.method);
   if (events.length > 0 && events.every((event) => event._tag === "Activity")) return;
   yield* adoptTurn(registry, run, events);
-  if (events.some((event) => isStale(event, run.record.activeTurnId))) return;
+  if (isStaleMessage(events, run.record.activeTurnId)) return;
   if (run.record.activeTurnId && activeStates.has(run.record.state))
     yield* turns.armBudget(run, connection);
   yield* journal(registry, run, events);

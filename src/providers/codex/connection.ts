@@ -66,16 +66,22 @@ const makeRequest =
 type Request = ReturnType<typeof makeRequest>;
 
 // Codex and the ChatGPT app title an unnamed thread by its first message, which opens with
-// the same preamble for every run. A refused title is cosmetic, so it becomes a warning.
+// the same preamble for every run. A refused title is cosmetic, so it becomes a warning; a
+// lost app server is reported by the turn that follows.
 const nameThread = (request: Request, session: SessionId, title: string) =>
   request(Codex.Method.threadNameSet, { threadId: session, name: title }, Codex.ThreadNameSet).pipe(
     Effect.as<readonly string[]>([]),
-    Effect.catchTag(["RpcError", "RpcRequestTimeout"], (error) =>
-      Effect.succeed([
-        `Codex did not accept the thread title (${error._tag === "RpcError" ? error.message : `timed out after ${error.timeoutMs} ms`}); the Codex app lists this run under its first message.`,
-      ]),
-    ),
+    Effect.catch((error) => Effect.succeed([titleWarning(titleFailure(error))])),
   );
+
+function titleFailure(error: CodexUnavailable | RpcError | RpcRequestTimeout): string {
+  if (error._tag === "RpcError") return error.message;
+  if (error._tag === "RpcRequestTimeout") return `timed out after ${error.timeoutMs} ms`;
+  return error.detail ?? "Codex is unavailable";
+}
+
+const titleWarning = (reason: string) =>
+  `Codex did not accept the thread title (${reason}); the Codex app lists this run under its first message.`;
 
 /** Decodes notifications in order, keeping each session's turn items between them. */
 function inboundFrom(channel: CodexChannel) {
@@ -129,22 +135,21 @@ export const connectCodex = Effect.fn("codex.connect")(function* (options: Conne
     inbound: inboundFrom(channel),
     questions: questionCalls(channel.serverRequests, channel),
     termination: channel.termination,
-    open: (_run, title, settings) =>
-      Effect.gen(function* () {
-        const opened = yield* request(
-          Codex.Method.threadStart,
-          {
-            ...threadSettings(settings),
-            ephemeral: false,
-            dynamicTools: [Codex.askOrchestratorTool],
-          },
-          Codex.ThreadOpened,
-          { timeout: THREAD_START_TIMEOUT },
-        );
-        loaded.add(opened.thread.id);
-        const warnings = yield* nameThread(request, opened.thread.id, title);
-        return { session: opened.thread.id, warnings };
-      }),
+    open: (_run, settings) =>
+      request(
+        Codex.Method.threadStart,
+        {
+          ...threadSettings(settings),
+          ephemeral: false,
+          dynamicTools: [Codex.askOrchestratorTool],
+        },
+        Codex.ThreadOpened,
+        { timeout: THREAD_START_TIMEOUT },
+      ).pipe(
+        Effect.tap((opened) => Effect.sync(() => loaded.add(opened.thread.id))),
+        Effect.map((opened) => ({ session: opened.thread.id, warnings: [] })),
+      ),
+    nameSession: (session, title) => nameThread(request, session, title),
     resume: (_run, session, settings) =>
       request(
         Codex.Method.threadResume,
