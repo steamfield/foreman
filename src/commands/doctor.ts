@@ -17,6 +17,18 @@ function daemonSummary(daemon: typeof DoctorResult.Type.daemon): string {
   }
 }
 
+function agySummary(agy: typeof DoctorResult.Type.agy): string[] {
+  if (!agy.installed) return ["agy: not installed", ...agy.findings.map((line) => `  ${line}`)];
+  return [
+    `agy: ${agy.version ?? agy.agentVersion ?? "version unavailable"} (${agy.bin})`,
+    `  Signed in: ${agy.signedIn ?? "unavailable"}`,
+    `  Protocol matches: ${agy.protocolMatches ?? "unavailable"}`,
+    `  Repo hooks: ${agy.hookTrust}`,
+    `  Models: ${agy.catalogSize ?? "unavailable"}`,
+    ...agy.findings.map((line) => `  ${line}`),
+  ];
+}
+
 export const doctorCommand = Command.make(
   "doctor",
   {},
@@ -55,6 +67,7 @@ export const doctorCommand = Command.make(
                 ? [result.repoHooks.detail]
                 : []),
             ]),
+        ...agySummary(result.agy),
         daemonSummary(result.daemon),
         ...(result.daemon.state === "running"
           ? [
