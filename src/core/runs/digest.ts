@@ -2,6 +2,7 @@ import { DateTime } from "effect";
 import {
   activeStates,
   type Digest,
+  providerOf,
   type QuestionLine,
   type RunEvent,
   type RunRecord,
@@ -61,6 +62,7 @@ export function buildDigest(
   }));
   return {
     name: run.name,
+    provider: providerOf(run),
     state: run.state,
     elapsedMs: Math.max(0, Math.trunc(elapsedUntil - DateTime.toEpochMillis(run.createdAt))),
     model: run.model,
@@ -162,6 +164,13 @@ export function renderStatus(digest: Digest): string {
   ].join("  ");
 }
 
+/** Model, effort and tier as the text digest shows them; non-Codex runs name their provider and have no tier. */
+function runSettings(digest: Digest): string {
+  const provider = digest.provider ?? "codex";
+  if (provider === "codex") return `${digest.model}, ${digest.effort}, ${digest.tier}`;
+  return `${digest.model} on ${provider}, ${digest.effort}`;
+}
+
 export function renderDigest(digest: Digest): string {
   let mode = digest.sandbox === "danger-full-access" ? "write" : "read-only";
   if (
@@ -175,7 +184,7 @@ export function renderDigest(digest: Digest): string {
       ? "(not computed)"
       : "(no May change entry)";
   const lines = [
-    `run:       ${digest.name}  ${digest.state}  ${duration(digest.elapsedMs)}  (${digest.model}, ${digest.effort}, ${digest.tier}, ${mode})`,
+    `run:       ${digest.name}  ${digest.state}  ${duration(digest.elapsedMs)}  (${runSettings(digest)}, ${mode})`,
     `dir:       ${digest.runDir}`,
     `worktree:  ${digest.worktree}`,
     ...(digest.managedWorktree

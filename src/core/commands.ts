@@ -1,7 +1,12 @@
-import { Effect, type PlatformError, type Schema } from "effect";
+import { Clock, Effect, type FileSystem, type Path, type PlatformError, type Schema } from "effect";
+import type { ChildProcessSpawner } from "effect/process";
 import { AppConfig } from "../config";
 import { call, outdated, passiveEvents, probe } from "../daemon/client";
 import { type AppError, PermissionDenied, RunConflict, RunNotFound, Usage } from "../errors";
+import { readAgyCatalog } from "../providers/agy/catalog";
+import { agyEnvironment } from "../providers/agy/environment";
+import { listedModels } from "../providers/codex/catalog";
+import { type ModelCatalogs, resolveModel } from "../providers/routing";
 import {
   activeStates,
   type DaemonRequestBody,
@@ -85,8 +90,43 @@ interface StartInput extends WaitOptions {
   readonly questionTimeoutMs: number | undefined;
 }
 
+// Listing models needs no SSH agent, so the catalog read skips the probe the daemon runs.
+const NO_SSH_PROBE = { alive: true, launchdSocket: undefined };
+
+/** The model catalogs start routing reads, from this invocation's configuration. */
+const modelCatalogs = Effect.fnUntraced(function* () {
+  const config = yield* AppConfig;
+  const services = yield* Effect.context<
+    FileSystem.FileSystem | Path.Path | ChildProcessSpawner.ChildProcessSpawner
+  >();
+  const agy = Effect.gen(function* () {
+    const env = yield* Effect.sync(() => agyEnvironment(config.inheritedEnvironment, NO_SSH_PROBE));
+    return yield* readAgyCatalog({
+      agyBin: config.agyBin,
+      env,
+      home: config.home,
+      now: yield* Clock.currentTimeMillis,
+      refresh: false,
+    });
+  });
+  const catalogs: ModelCatalogs = {
+    codex: listedModels(config.codexHome).pipe(Effect.provide(services)),
+    agy: agy.pipe(Effect.provide(services)),
+  };
+  return catalogs;
+});
+
 export const start = Effect.fn("commands.start")(function* (input: StartInput) {
   yield* validateStartMode(input);
+  // Routed before the daemon is contacted, so a wrong model costs no worktree or run.
+  const routed = yield* resolveModel(
+    {
+      ...(input.model === undefined ? {} : { model: input.model }),
+      ...(input.effort === undefined ? {} : { effort: input.effort }),
+      ...(input.tier === undefined ? {} : { tier: input.tier }),
+    },
+    yield* modelCatalogs(),
+  );
   const started = yield* request({
     _tag: "Start",
     name: input.name,
@@ -97,9 +137,11 @@ export const start = Effect.fn("commands.start")(function* (input: StartInput) {
     ...(input.from === undefined ? {} : { from: input.from }),
     ...(input.setup === undefined ? {} : { setup: input.setup }),
     contract: yield* readText(input.contract),
-    ...(input.model === undefined ? {} : { model: input.model }),
-    ...(input.effort === undefined ? {} : { effort: input.effort }),
-    ...(input.tier === undefined ? {} : { tier: input.tier }),
+    // Omitted for Codex, so a daemon that predates providers accepts every Codex start.
+    ...(routed.provider === "codex" ? {} : { provider: routed.provider }),
+    ...(routed.model === undefined ? {} : { model: routed.model }),
+    ...(routed.effort === undefined ? {} : { effort: routed.effort }),
+    ...(routed.tier === undefined ? {} : { tier: routed.tier }),
     ...(input.budgetMs === undefined ? {} : { budgetMs: input.budgetMs }),
     ...(input.questionTimeoutMs === undefined
       ? {}

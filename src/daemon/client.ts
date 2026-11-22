@@ -401,6 +401,12 @@ const exchangeRunRequest = Effect.fn("daemon.exchangeRunRequest")(function* (
         detail: `Outdated daemon cannot route a late answer or correction for ${body.question} in run ${body.name}; the request was not sent. Finish or interrupt its active runs, then restart the daemon.`,
       });
   }
+  // A daemon that predates providers ignores `provider` and would run the model on Codex.
+  if (outdated && body._tag === "Start" && body.provider === "agy")
+    return yield* new DaemonUnavailable({
+      detail:
+        "Outdated busy daemon can't start agy runs; the request was not sent. Finish or interrupt its active runs, then retry.",
+    });
   if (outdated && body._tag === "Start" && body.newWorktree)
     return yield* new DaemonUnavailable({
       detail: `Outdated busy daemon cannot safely create managed worktrees for run ${body.name}; the request was not sent. Finish or interrupt its active runs, then restart the daemon before starting this run.`,

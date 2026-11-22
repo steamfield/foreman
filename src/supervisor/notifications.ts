@@ -10,12 +10,12 @@ import { Clock, Effect } from "effect";
 import { QUIET_AFTER_MS } from "../core/monitor/attention";
 import * as Store from "../core/runs/store";
 import type { Inbound, ProviderConnection, ProviderEvent, TurnId } from "../providers/contract";
-import { activeStates, providerOf } from "../schemas/daemon";
+import { activeStates, providerOf, type RunRecord } from "../schemas/daemon";
 import * as LiveState from "./live-state";
 import type { Registry, Run } from "./registry";
 import { toRunEvents } from "./run-events";
 import { isStaleMessage } from "./stale";
-import type { Turns } from "./turns";
+import { type Turns, UNSANDBOXED_READ_ONLY } from "./turns";
 
 /** What the supervisor knows about the provider that sent the message. */
 export interface ProviderFacts {
@@ -142,6 +142,38 @@ function completedState(run: Run, event: EventOf<"TurnCompleted">) {
   return "idle";
 }
 
+/** The path a `git status --porcelain` line names; the destination for a rename. */
+const statusPath = (line: string) => line.slice(3).replace(/.* -> /, "");
+
+/**
+ * The paths a turn changed although it ran read-only on a provider whose read-only mode
+ * leaves shell commands unsandboxed. A read-only run counts every change since the run started;
+ * a hand-off turn of a write run counts the changes that appeared during that turn.
+ * `before` and `after` are the run's new git status lines before and after the turn.
+ */
+export function readOnlyChanges(
+  record: RunRecord,
+  before: readonly string[] | null,
+  after: readonly string[] | null,
+): string[] {
+  if (after === null || !UNSANDBOXED_READ_ONLY.has(providerOf(record))) return [];
+  if (record.sandbox === "read-only") return after.map(statusPath);
+  if (record.turnKind !== "handoff") return [];
+  const earlier = new Set(before ?? []);
+  return after.filter((line) => !earlier.has(line)).map(statusPath);
+}
+
+/** Refreshes the worktree fields; returns the run failure for a read-only turn that changed files. */
+const refreshAndCheckReadOnly = Effect.fnUntraced(function* (registry: Registry, run: Run) {
+  const before = run.worktree?.newInGitStatus ?? null;
+  yield* registry.refreshWorktree(run);
+  const changed = readOnlyChanges(run.record, before, run.worktree?.newInGitStatus ?? null);
+  if (changed.length === 0) return null;
+  const message = `read-only ${providerOf(run.record)} run changed files: ${changed.join(", ")}`;
+  yield* registry.save(run, { warnings: [...run.record.warnings, message] });
+  return { message, codexErrorInfo: null };
+});
+
 const turnCompleted = Effect.fnUntraced(function* (
   registry: Registry,
   turns: Turns,
@@ -153,10 +185,11 @@ const turnCompleted = Effect.fnUntraced(function* (
   yield* registry.wake(run);
   yield* registry.cancelQuestions(run);
   if (event.handoff !== null) yield* registry.handoff(run, event.handoff);
-  yield* registry.refreshWorktree(run);
+  const readOnlyFailure = yield* refreshAndCheckReadOnly(registry, run);
   yield* registry.save(run, {
     activeTurnId: null,
-    failure: run.record.failure ?? event.failure,
+    // The provider's own reason comes first; the changed paths are always in the warnings.
+    failure: run.record.failure ?? event.failure ?? readOnlyFailure,
   });
   // A working turn ended by its budget gets a hand-off turn instead of a final state.
   if (run.budgetExpired && run.record.failure === null)

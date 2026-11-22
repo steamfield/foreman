@@ -23,6 +23,7 @@ import {
 import type { ChildProcessSpawner } from "effect/process";
 import type { AppConfig } from "../config";
 import { causeFields } from "../logging";
+import { makeAgyProvider } from "../providers/agy/provider";
 import { makeCodexProvider } from "../providers/codex/provider";
 import {
   type Capabilities,
@@ -73,7 +74,7 @@ export interface Providers {
   readonly registrations: Partial<Record<ProviderId, Registration>>;
 }
 
-/** Builds the daemon's providers. Only Codex is registered. */
+/** Builds the daemon's providers: Codex and agy. Building starts neither child. */
 export const makeProviders = Effect.fn("supervisor.providers")(function* (
   config: AppConfig["Service"],
   version: string,
@@ -84,8 +85,15 @@ export const makeProviders = Effect.fn("supervisor.providers")(function* (
     inheritedEnvironment: config.inheritedEnvironment,
     version,
   });
+  const agy = yield* makeAgyProvider({
+    agyBin: config.agyBin,
+    home: config.home,
+    inheritedEnvironment: config.inheritedEnvironment,
+    version,
+  });
   const registrations: Providers["registrations"] = {
     codex: { provider: codex, stderrLog: "logs/app-server.log" },
+    agy: { provider: agy, stderrLog: "logs/agy-stderr.log" },
   };
   const providers: Providers = {
     registrations,
