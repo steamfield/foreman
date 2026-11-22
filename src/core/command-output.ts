@@ -94,6 +94,8 @@ function eventSummary(event: RunEventBody): string {
       return `${event.server}${event.error === null ? "" : `: ${event.error}`}`;
     case "StateChanged":
       return `${event.from} -> ${event.to}`;
+    case "Permission":
+      return `${event.decision} ${event.kind}: ${event.title}`;
     case "Other":
       return event.method;
   }

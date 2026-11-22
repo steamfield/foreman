@@ -100,7 +100,8 @@ export type ProviderEvent =
     }
   | {
       readonly _tag: "ItemStarted";
-      readonly turn: TurnId;
+      /** null when only the item type decoded; the hook rule still applies to it. */
+      readonly turn: TurnId | null;
       readonly id: string;
       /** From a minimal decode, so hook enforcement holds even if the full shape changed. */
       readonly kind: "command" | "fileChange" | "agentMessage" | "tool" | "other";
@@ -180,8 +181,14 @@ export interface QuestionCall {
   readonly raw: unknown;
   /** Delivers the answer as the tool result. */
   readonly respond: (text: string) => Effect.Effect<void, ProviderUnavailable>;
-  /** Fails the tool call, for a cancelled question or a call the run can't accept. */
+  /** Fails the tool call because the run can't accept it (no active turn, for example). */
   readonly reject: (reason: string) => Effect.Effect<void, ProviderUnavailable>;
+  /**
+   * Releases the call after the supervisor cancelled the question (interrupt, turn end,
+   * budget). Codex drops held calls itself when a turn ends, so its cancel sends nothing;
+   * agy's answers the bridge so the MCP tool call returns.
+   */
+  readonly cancel: Effect.Effect<void>;
 }
 
 /** What opening a session reports besides its id. */

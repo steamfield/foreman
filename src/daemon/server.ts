@@ -29,6 +29,7 @@ export interface DaemonOptions {
   readonly shutdown?: Effect.Effect<void>;
   readonly idleLimitMs?: number;
   readonly codexBin?: string;
+  readonly agyBin?: string;
   readonly codexHome?: string;
 }
 
@@ -162,6 +163,7 @@ export const daemon = Effect.fn("daemon")(
                                 ...(options.codexBin === undefined
                                   ? {}
                                   : { codexBin: options.codexBin }),
+                                ...(options.agyBin === undefined ? {} : { agyBin: options.agyBin }),
                                 ...(options.codexHome === undefined
                                   ? {}
                                   : { codexHome: options.codexHome }),
