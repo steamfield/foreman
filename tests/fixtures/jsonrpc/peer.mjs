@@ -30,7 +30,11 @@ const handlers = {
     reply(id, "asked");
   },
   garbage: () => process.stdout.write("this is not json\n"),
-  exit: ({ params }) => process.exit(params.code),
+  // Closing stdin lets Node finish on its own, so pending stdout writes flush before it ends.
+  exit: ({ params }) => {
+    process.exitCode = params.code;
+    process.stdin.destroy();
+  },
   cwd: ({ id }) => reply(id, process.cwd()),
 };
 
