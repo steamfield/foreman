@@ -1,8 +1,9 @@
 import { Schema } from "effect";
+import { askOrchestratorDefinition } from "./questions";
 
 // The `codex app-server` messages foreman sends and reads, written for Codex 0.166.0 with the
-// experimental API and checked against 0.169.0. Only the fields foreman uses are declared.
-// Decoding ignores fields Codex adds; a field it removes fails decoding. src/codex/protocol.ts
+// experimental API and checked against 0.171.0. Only the fields foreman uses are declared.
+// Decoding ignores fields Codex adds; a field it removes fails decoding. src/providers/codex/protocol.ts
 // records the Codex version and protocol schema these were last checked against.
 
 export const CodexThreadId = Schema.String.check(Schema.isMinLength(1)).pipe(
@@ -311,23 +312,13 @@ export const ToolCallResponse = Schema.Struct({
   ),
 });
 
-// The ask_orchestrator tool.
+// The ask_orchestrator tool, shared with agy through src/schemas/questions.ts.
 
-export const QuestionKind = Schema.Literals(["question", "blocked"]);
-export type QuestionKind = typeof QuestionKind.Type;
-
-export const AskOrchestratorArguments = Schema.Struct({
-  question: Schema.String,
-  kind: Schema.optionalKey(QuestionKind),
-});
+export { AskOrchestratorArguments, QuestionKind } from "./questions";
 
 export const askOrchestratorTool: typeof DynamicToolSpec.Type = {
   type: "function",
-  name: "ask_orchestrator",
-  description:
-    "Ask the orchestrator only when blocked by something the contract and code don't settle, or a decision with real consequences is needed. Progress, findings and corrections go in the hand-off: every call pauses the turn until answered. If no answer comes in time, you'll be told to continue without it; the answer arrives later as a message.",
-  inputSchema: Schema.toJsonSchemaDocument(AskOrchestratorArguments, { onExcessProperty: "error" })
-    .schema,
+  ...askOrchestratorDefinition,
 };
 
 // Repo hook trust, resolved by Codex for each requested working directory.

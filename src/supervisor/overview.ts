@@ -2,7 +2,7 @@ import { Clock, DateTime, Deferred, Effect, Path } from "effect";
 import { activity, questionTime, quiet } from "../core/monitor/attention";
 import { buildDigest } from "../core/runs/digest";
 import { redactDiagnosticText } from "../logging";
-import type { DaemonRequestBody } from "../schemas/daemon";
+import { type DaemonRequestBody, providerOf } from "../schemas/daemon";
 import type { Overview, RunView } from "../schemas/monitor";
 import { advancePace } from "./pace";
 import type { Registry, Run } from "./registry";
@@ -27,6 +27,7 @@ export function projectRun(run: Run, repo: string, now: number): RunView {
     worktree: record.worktree,
     branch: record.managedWorktree?.branch ?? null,
     title: run.title,
+    ...(providerOf(record) === "codex" ? {} : { provider: providerOf(record) }),
     model: record.model,
     effort: record.effort,
     tier: record.tier,

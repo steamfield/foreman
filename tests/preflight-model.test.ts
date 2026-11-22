@@ -1,7 +1,7 @@
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem, Path } from "effect";
-import { defaultModel } from "../src/core/preflight/model";
+import { defaultModel } from "../src/providers/codex/catalog";
 
 it.effect(
   "selects listed sol models by numeric version, skipping malformed entries individually",

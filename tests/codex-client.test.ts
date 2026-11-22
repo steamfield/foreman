@@ -6,9 +6,9 @@ import { NodeServices } from "@effect/platform-node";
 import { assert, describe, expect, it } from "@effect/vitest";
 import { Cause, Deferred, Effect, Exit, Fiber, FileSystem, Schema, Scope, Stream } from "effect";
 import { TestClock } from "effect/testing";
-import { checkProtocol, codexVersion, hashSchemas } from "../src/codex/check";
-import { CodexRpcError, openConnection } from "../src/codex/client";
-import { appServerEnvironment } from "../src/codex/environment";
+import { checkProtocol, codexVersion, hashSchemas } from "../src/providers/codex/check";
+import { CodexRpcError, openConnection } from "../src/providers/codex/client";
+import { appServerEnvironment } from "../src/providers/codex/environment";
 import * as Codex from "../src/schemas/codex";
 import { Scenario } from "./fixtures/fake-app-server/scenario";
 import {

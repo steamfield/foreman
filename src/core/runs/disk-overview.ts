@@ -1,6 +1,6 @@
 import { DateTime, Effect, FileSystem, Path } from "effect";
 import { redactDiagnosticText } from "../../logging";
-import type { QuestionId, RunRecord } from "../../schemas/daemon";
+import { providerOf, type QuestionId, type RunRecord } from "../../schemas/daemon";
 import type { RunView } from "../../schemas/monitor";
 import {
   activity,
@@ -54,6 +54,7 @@ export const diskRunView = Effect.fn("runs.diskRunView")(function* (
     worktree: record.worktree,
     branch: record.managedWorktree?.branch ?? null,
     title,
+    ...(providerOf(record) === "codex" ? {} : { provider: providerOf(record) }),
     model: record.model,
     effort: record.effort,
     tier: record.tier,

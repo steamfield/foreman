@@ -24,23 +24,29 @@ export const levels = {
 } as const;
 const Level = Schema.Literals(["trace", "debug", "info", "warn", "error", "fatal", "none"]);
 const CodexBin = Schema.String.check(Schema.isPattern(/\S/));
+const DefaultModel = Schema.String.check(Schema.isPattern(/\S/));
 const ConfigFile = Schema.Struct({
   codexBin: Schema.optionalKey(CodexBin),
+  agyBin: Schema.optionalKey(CodexBin),
+  defaultModel: Schema.optionalKey(DefaultModel),
   logLevel: Schema.optionalKey(Level),
 });
 const configDiagnosis = (file: string, issue: SchemaIssue.Issue) => {
   const key = SchemaIssue.makeFormatterStandardSchemaV1()(issue).issues[0]?.path?.[0];
-  let diagnosis = "Expected a JSON object with optional codexBin and logLevel fields.";
+  let diagnosis =
+    "Expected a JSON object with optional codexBin, agyBin, defaultModel and logLevel fields.";
   if (key === "codexBin") diagnosis = "codexBin must be a nonempty executable name or path.";
+  else if (key === "agyBin") diagnosis = "agyBin must be a nonempty executable name or path.";
+  else if (key === "defaultModel") diagnosis = "defaultModel must be a nonempty model name.";
   else if (key === "logLevel")
     diagnosis = `logLevel must be one of: ${Object.keys(levels).join(", ")}.`;
   else if (typeof key === "string")
-    diagnosis = `Unknown key ${JSON.stringify(redactDiagnosticText(key))}. Allowed keys: codexBin, logLevel.`;
+    diagnosis = `Unknown key ${JSON.stringify(redactDiagnosticText(key))}. Allowed keys: codexBin, agyBin, defaultModel, logLevel.`;
   return new InvalidConfig({
     detail: `${JSON.stringify(file)}: ${diagnosis} Update this file and retry.`,
   });
 };
-export type Settings = { codexBin: string };
+export type Settings = { codexBin: string; agyBin: string; defaultModel: string | null };
 export type LogSettings = {
   level: (typeof levels)[keyof typeof levels];
   format: "json" | "pretty";
@@ -57,6 +63,8 @@ export class AppConfig extends Context.Service<
     defaultHome: string;
     userHome: string | null;
     codexBin: string;
+    agyBin: string;
+    defaultModel: string | null;
     codexHome: string;
     launcher: string | null;
     inDelegate: boolean;
@@ -90,6 +98,7 @@ export class AppConfig extends Context.Service<
         const home = absolute(yield* text("FOREMAN_HOME", defaultHome));
         const configFile = path.join(home, "config.json");
         const environmentCodexBin = yield* text("CODEX_BIN");
+        const environmentAgyBin = yield* text("AGY_BIN");
         const codexHome = absolute(yield* text("CODEX_HOME", path.join(userHome ?? ".", ".codex")));
         const launcherSetting = yield* read(
           Config.schema(CodexBin, "FOREMAN_LAUNCHER").pipe(Config.withDefault("")),
@@ -130,7 +139,11 @@ export class AppConfig extends Context.Service<
                 ),
               ),
             );
-            return { codexBin: executablePath(environmentCodexBin || config.codexBin || "codex") };
+            return {
+              codexBin: executablePath(environmentCodexBin || config.codexBin || "codex"),
+              agyBin: executablePath(environmentAgyBin || config.agyBin || "agy"),
+              defaultModel: config.defaultModel ?? null,
+            };
           }),
         );
         const codexBin = yield* file.pipe(
@@ -144,6 +157,28 @@ export class AppConfig extends Context.Service<
           ),
           Effect.orElseSucceed(() => executablePath(environmentCodexBin || "codex")),
         );
+        // Like codexBin above: a bad config file is reported by `load`, not here. Each key is
+        // decoded on its own so an invalid one cannot discard the other.
+        const fileAgyBin = yield* file.pipe(
+          Effect.flatMap((value) =>
+            Schema.decodeUnknownEffect(Schema.Struct({ agyBin: Schema.optionalKey(CodexBin) }))(
+              value,
+            ),
+          ),
+          Effect.map((settings) => settings.agyBin),
+          Effect.orElseSucceed(() => undefined),
+        );
+        const fileDefaultModel = yield* file.pipe(
+          Effect.flatMap((value) =>
+            Schema.decodeUnknownEffect(
+              Schema.Struct({ defaultModel: Schema.optionalKey(DefaultModel) }),
+            )(value),
+          ),
+          Effect.map((settings) => settings.defaultModel),
+          Effect.orElseSucceed(() => undefined),
+        );
+        const agyBin = executablePath(environmentAgyBin || fileAgyBin || "agy");
+        const defaultModel = fileDefaultModel ?? null;
         const logging = Effect.gen(function* () {
           const config = yield* file.pipe(
             Effect.flatMap((value) =>
@@ -173,9 +208,12 @@ export class AppConfig extends Context.Service<
           defaultHome,
           userHome,
           codexBin,
+          agyBin,
+          defaultModel,
           codexHome,
           launcher,
-          inDelegate: (yield* text("CODEX_DELEGATE")) !== "",
+          inDelegate:
+            (yield* text("CODEX_DELEGATE")) !== "" || (yield* text("AGY_DELEGATE")) !== "",
           inheritedEnvironment: { ...env },
         };
       }),

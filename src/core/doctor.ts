@@ -1,8 +1,5 @@
 import { Effect, FileSystem, Option, Path, Schema } from "effect";
 import { ChildProcess, ChildProcessSpawner, CommandLine } from "effect/process";
-import { checkProtocol, codexVersion } from "../codex/check";
-import { openConnection } from "../codex/client";
-import { appServerEnvironment } from "../codex/environment";
 import { AppConfig } from "../config";
 import { probe } from "../daemon/client";
 import {
@@ -12,12 +9,16 @@ import {
   RepoHooksUntrusted,
   WorktreeInvalid,
 } from "../errors";
+import { checkProtocol, codexVersion } from "../providers/codex/check";
+import { openConnection } from "../providers/codex/client";
+import { appServerEnvironment } from "../providers/codex/environment";
+import { hasRepoHooks, inspectHookTrust } from "../providers/codex/hooks";
 import type { DoctorResult, RepoHookTrust } from "../schemas/doctor";
 import { Host } from "../services/host";
 import { foremanExecutable } from "./command-output";
+import { agyDoctor } from "./doctor-providers";
 import { mainCheckout as discoverMainCheckout } from "./main-checkout";
 import { orphanWorktrees } from "./managed-worktree";
-import { hasRepoHooks, inspectHookTrust } from "./preflight/hooks";
 import { readAllRuns } from "./runs/store";
 
 const probeTimeout = "5 seconds";
@@ -243,6 +244,7 @@ export const doctor = Effect.fn("doctor")(function* (cwd = ".") {
     loggedIn,
     daemon: yield* daemonState(config.home),
     repoHooks: yield* repoHookTrust(config, env, host.version, cwd),
+    agy: yield* agyDoctor(config, host.version, cwd),
     ...settings,
   } satisfies typeof DoctorResult.Type;
 });

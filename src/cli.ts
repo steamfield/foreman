@@ -3,6 +3,8 @@ import { CliError, Command, Flag } from "effect/cli";
 import { daemonCommand } from "./commands/daemon";
 import { doctorCommand } from "./commands/doctor";
 import { guideCommand } from "./commands/guide";
+import { mcpQuestionCommand } from "./commands/mcp-question";
+import { modelsCommand } from "./commands/models";
 import { monitorCommand } from "./commands/monitor";
 import {
   answerCommand,
@@ -53,10 +55,12 @@ export const cli = (name: string, monitor = monitorCommand) =>
       archiveCommand,
       waitCommand,
       doctorCommand,
+      modelsCommand,
       guideCommand,
       skillCommand,
       daemonCommand,
       updateCommand,
+      mcpQuestionCommand,
     ]),
     Command.provideEffectDiscard(({ json }) =>
       Effect.flatMap(Output, (output) => output.setJson(json)),

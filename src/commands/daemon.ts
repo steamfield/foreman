@@ -145,6 +145,7 @@ export const daemonCommand = Command.make(
               dataDir: config.home,
               version: host.version,
               codexBin: config.codexBin,
+              agyBin: config.agyBin,
               codexHome: config.codexHome,
               ...supervisor,
             }),

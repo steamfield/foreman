@@ -1,10 +1,25 @@
+/**
+ * Codex repo hooks: whether a main checkout has `.codex/hooks.json`, and whether Codex trusts
+ * the project hooks it loads for a worktree (`hooks/list`).
+ */
 import { Effect, FileSystem, Path, Schema } from "effect";
-import type { openConnection } from "../../codex/client";
 import { PermissionDenied, RepoHooksUntrusted } from "../../errors";
 import * as Codex from "../../schemas/codex";
 
-type Connection = Effect.Success<ReturnType<typeof openConnection>>;
+/** Anything that can send a Codex request; the app-server client in production and tests. */
+export interface HooksClient<E> {
+  readonly request: <A, I, R>(
+    method: string,
+    params: unknown,
+    result: Schema.Codec<A, I, R>,
+  ) => Effect.Effect<A, E, R>;
+}
 
+/**
+ * Reports whether the main checkout has a Codex hooks file, dangling symlinks included.
+ * @throws {PermissionDenied} When the hooks file's directory can't be inspected.
+ * @throws {RepoHooksUntrusted} When inspecting the file fails for another reason.
+ */
 export const hasRepoHooks = Effect.fn("preflight.hasRepoHooks")(function* (mainCheckout: string) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -26,20 +41,21 @@ export const hasRepoHooks = Effect.fn("preflight.hasRepoHooks")(function* (mainC
   );
 });
 
+/** The steps that make Codex trust a checkout's project hooks. */
 export const hookTrustFix = (mainCheckout: string) =>
   `Open Codex in ${mainCheckout}, run /hooks and approve these hooks (and trust the project if Codex asks). Then run foreman doctor to check.`;
 
-export const inspectHookTrust = Effect.fn("preflight.inspectHookTrust")(function* (
-  connection: Connection,
+/**
+ * Asks Codex which project hooks it loads for the worktree and whether each is trusted.
+ * @throws E When the hooks/list request fails.
+ */
+export const inspectHookTrust = Effect.fn("preflight.inspectHookTrust")(function* <E>(
+  client: HooksClient<E>,
   mainCheckout: string,
   worktree: string,
 ) {
   const params = yield* Schema.encodeEffect(Codex.HooksListParams)({ cwds: [worktree] });
-  const response = yield* connection.request(
-    Codex.Method.hooksList,
-    params,
-    Codex.HooksListResponse,
-  );
+  const response = yield* client.request(Codex.Method.hooksList, params, Codex.HooksListResponse);
   const entries = response.data.filter((entry) => entry.cwd === worktree);
   const hooks = entries.flatMap((entry) => entry.hooks).filter((hook) => hook.source === "project");
   const failures = hooks
@@ -56,14 +72,20 @@ export const inspectHookTrust = Effect.fn("preflight.inspectHookTrust")(function
   };
 });
 
-export const checkHookTrust = Effect.fn("preflight.checkHookTrust")(function* (
-  connection: Connection,
+/**
+ * Refuses a start when the main checkout has repo hooks that Codex won't run in the worktree.
+ * @throws {RepoHooksUntrusted} When a project hook is untrusted, missing or failed to load.
+ * @throws {PermissionDenied} When the hooks file can't be inspected.
+ * @throws E When the hooks/list request fails.
+ */
+export const checkHookTrust = Effect.fn("preflight.checkHookTrust")(function* <E>(
+  client: HooksClient<E>,
   mainCheckout: string,
   worktree: string,
 ) {
   const present = yield* hasRepoHooks(mainCheckout);
   if (!present) return;
-  const result = yield* inspectHookTrust(connection, mainCheckout, worktree);
+  const result = yield* inspectHookTrust(client, mainCheckout, worktree);
   if (!result.acceptsStart)
     return yield* new RepoHooksUntrusted({ detail: result.detail ?? undefined });
 });

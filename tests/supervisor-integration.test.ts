@@ -22,8 +22,6 @@ import {
 } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import { TestClock } from "effect/testing";
-import { openConnection } from "../src/codex/client";
-import { supportedCodex } from "../src/codex/protocol";
 import { AppConfig } from "../src/config";
 import { QUIET_AFTER_MS } from "../src/core/monitor/attention";
 import { commandResult } from "../src/core/process";
@@ -35,13 +33,16 @@ import { DaemonSockets } from "../src/daemon/sockets";
 import { ErrorEnvelope, RunConflict } from "../src/errors";
 import { entry, type LogEntry } from "../src/logging";
 import { jsonRequested, main } from "../src/main";
+import { openConnection } from "../src/providers/codex/client";
+import { supportedCodex } from "../src/providers/codex/protocol";
+import { type QuestionReplies, readServerRequest } from "../src/providers/codex/questions";
 import { AppLayer } from "../src/runtime";
 import * as Codex from "../src/schemas/codex";
 import * as D from "../src/schemas/daemon";
 import { Overview } from "../src/schemas/monitor";
 import { Host } from "../src/services/host";
 import { makeSupervisor } from "../src/supervisor";
-import { makeAppServer } from "../src/supervisor/app-server";
+import { makeConnections } from "../src/supervisor/connections";
 import { deferral, preamble, timeUp } from "../src/supervisor/prompts";
 import { makeQuestions } from "../src/supervisor/questions";
 import { makeRegistry } from "../src/supervisor/registry";
@@ -61,6 +62,12 @@ it("limits ask_orchestrator to blockers and consequential decisions, with progre
 });
 const name = Schema.decodeUnknownSync(D.RunName)("unit");
 const q1 = Schema.decodeUnknownSync(D.QuestionId)("q1");
+/** The question call Codex's adapter makes from an ask_orchestrator tool call. */
+const questionCall = (request: typeof Codex.RpcServerRequest.Type, replies: QuestionReplies) => {
+  const reading = readServerRequest(request, replies);
+  assert(reading._tag === "Question", "expected an ask_orchestrator question call");
+  return reading.call;
+};
 const platform = Layer.mergeAll(
   NodeServices.layer,
   DaemonSockets.layer({
@@ -372,7 +379,7 @@ const preflightFixture = Effect.fnUntraced(function* () {
   const f = yield* fixture(scenario(turnRule()));
   const config = yield* Effect.service(AppConfig).pipe(Effect.provide(AppConfig.layer(f.env)));
   const registry = yield* makeRegistry(f.dataDir);
-  const servers = yield* makeAppServer(
+  const servers = yield* makeConnections(
     config,
     "test",
     registry,
@@ -1412,6 +1419,38 @@ describe("supervisor over the real daemon socket", () => {
       const verbose = yield* f.cli(["events", "unit", "--verbose"]);
       expect(verbose).toContain("thread/name/updated");
       expect(verbose).not.toContain("[redacted]");
+    }).pipe(Effect.provide(platform)),
+  );
+  it.live("keeps a refused tool call for a known thread in the raw Codex log", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(
+        scenario(
+          turnRule([
+            {
+              request: Codex.Method.toolCall,
+              label: "unsupported",
+              params: {
+                threadId: "{{thread}}",
+                turnId: "{{turn}}",
+                callId: "call-unsupported",
+                namespace: null,
+                tool: "other_tool",
+                arguments: {},
+              },
+            },
+            { awaitResponse: "unsupported" },
+            question("invalid", { wrong: true }),
+            { awaitResponse: "invalid" },
+            complete(),
+          ]),
+        ),
+      );
+      yield* f.launch();
+      yield* f.start();
+      yield* f.untilState("idle");
+      const raw = yield* f.fs.readFileString(`${f.runDir}/codex.jsonl`);
+      expect(raw).toContain('"tool":"other_tool"');
+      expect(raw).toContain('"callId":"call-invalid"');
     }).pipe(Effect.provide(platform)),
   );
   it.live("start names the Codex thread after the run and its repo", () =>
@@ -3373,7 +3412,7 @@ exec '${realGit}' "$@"
       const f = yield* fixture(scenario(turnRule()));
       const config = yield* Effect.service(AppConfig).pipe(Effect.provide(AppConfig.layer(f.env)));
       const registry = yield* makeRegistry(f.dataDir);
-      const servers = yield* makeAppServer(
+      const servers = yield* makeConnections(
         config,
         "test",
         registry,
@@ -3633,14 +3672,14 @@ exec '${realGit}' "$@"
       const f = yield* fixture(scenario());
       const registry = yield* makeRegistry(f.dataDir);
       const config = yield* AppConfig.pipe(Effect.provide(AppConfig.layer(f.env)));
-      const servers = yield* makeAppServer(
+      const servers = yield* makeConnections(
         config,
         "test",
         registry,
         () => Effect.void,
         () => Effect.void,
       );
-      const server = yield* servers.get;
+      const server = yield* servers.get("codex");
       const held = yield* Deferred.make<void>();
       const release = yield* Deferred.make<void>();
       const completed = yield* Deferred.make<void>();
@@ -3696,7 +3735,7 @@ exec '${realGit}' "$@"
       const stored = Schema.decodeUnknownSync(
         Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)),
       )(yield* f.fs.readFileString(file));
-      const future = JSON.stringify({ ...stored, formatVersion: 3 });
+      const future = JSON.stringify({ ...stored, formatVersion: 4 });
       yield* f.fs.writeFileString(file, future);
       expect(yield* f.request({ _tag: "Archive", name }).pipe(Effect.flip)).toMatchObject({
         _tag: "RunConflict",
@@ -4937,12 +4976,7 @@ child.on("exit", code => process.exit(code ?? 1));
       });
       const message = { id: 42, method: Codex.Method.toolCall, params };
       const questions = yield* makeQuestions(registry);
-      yield* questions.receive(
-        run,
-        { connection, scope, generation: Symbol(), loaded: new Set() },
-        message,
-        params,
-      );
+      yield* questions.receive(run, Symbol(), questionCall(message, connection));
       yield* Scope.close(scope, Exit.void);
       yield* TestClock.adjust(1000);
       const recovered = Effect.gen(function* () {
@@ -4982,7 +5016,7 @@ child.on("exit", code => process.exit(code ?? 1));
           version: "test",
           stderr: () => Effect.void,
         }).pipe(Scope.provide(scope));
-        return { scope, connection, generation: Symbol(), loaded: new Set<string>() };
+        return { scope, connection, generation: Symbol() };
       });
       const origin = yield* open;
       const replacement = yield* open;
@@ -4997,13 +5031,14 @@ child.on("exit", code => process.exit(code ?? 1));
       const questions = yield* makeQuestions(registry);
       yield* questions.receive(
         run,
-        origin,
-        { id: 42, method: Codex.Method.toolCall, params },
-        params,
+        origin.generation,
+        questionCall({ id: 42, method: Codex.Method.toolCall, params }, origin.connection),
       );
       yield* Scope.close(origin.scope, Exit.void);
       expect(
-        (yield* questions.resolve(run, replacement, q1, "A", "answered").pipe(Effect.result))._tag,
+        (yield* questions
+          .resolve(run, replacement.generation, q1, "A", "answered")
+          .pipe(Effect.result))._tag,
       ).toBe("Failure");
       expect(Store.pendingQuestions(yield* Store.readQuestions(run.dir))).toHaveLength(1);
       expect((yield* f.readLog).filter((message) => message.result !== undefined)).toHaveLength(0);
@@ -5043,7 +5078,7 @@ child.on("exit", code => process.exit(code ?? 1));
               Effect.as(undefined),
             ),
       };
-      const server = { scope, connection, generation: Symbol(), loaded: new Set<string>() };
+      const generation = Symbol();
       const params = Schema.decodeUnknownSync(Codex.ToolCallParams)({
         threadId: "thread-a",
         turnId: "turn-2",
@@ -5055,12 +5090,11 @@ child.on("exit", code => process.exit(code ?? 1));
       const questions = yield* makeQuestions(registry);
       yield* questions.receive(
         run,
-        server,
-        { id: 42, method: Codex.Method.toolCall, params },
-        params,
+        generation,
+        questionCall({ id: 42, method: Codex.Method.toolCall, params }, connection),
       );
       const pending = yield* questions
-        .resolve(run, server, q1, "A", "answered")
+        .resolve(run, generation, q1, "A", "answered")
         .pipe(Effect.forkChild);
       yield* Deferred.await(delivered);
       yield* opened.request("flush", {}, Schema.Unknown).pipe(Effect.result);
@@ -5115,7 +5149,7 @@ child.on("exit", code => process.exit(code ?? 1));
               return undefined;
             }),
         };
-        const server = { scope, connection, generation: Symbol(), loaded: new Set<string>() };
+        const generation = Symbol();
         const params = Schema.decodeUnknownSync(Codex.ToolCallParams)({
           threadId: "thread-a",
           turnId: "turn-2",
@@ -5127,17 +5161,16 @@ child.on("exit", code => process.exit(code ?? 1));
         const questions = yield* makeQuestions(registry);
         yield* questions.receive(
           run,
-          server,
-          { id: 42, method: Codex.Method.toolCall, params },
-          params,
+          generation,
+          questionCall({ id: 42, method: Codex.Method.toolCall, params }, connection),
         );
         expect(
-          (yield* questions.resolve(run, server, q1, "A", "answered").pipe(Effect.result))._tag,
+          (yield* questions.resolve(run, generation, q1, "A", "answered").pipe(Effect.result))._tag,
         ).toBe("Failure");
         yield* f.fs.remove(file, { recursive: true });
         yield* f.fs.rename(`${file}.saved`, file);
         expect(
-          (yield* questions.resolve(run, server, q1, "A", "answered").pipe(Effect.result))._tag,
+          (yield* questions.resolve(run, generation, q1, "A", "answered").pipe(Effect.result))._tag,
         ).toBe("Failure");
         yield* opened.request("flush", {}, Schema.Unknown).pipe(Effect.result);
         expect((yield* f.readLog).filter((message) => message.result !== undefined)).toHaveLength(
@@ -6356,6 +6389,42 @@ else { require("node:child_process").spawn(process.execPath, [${JSON.stringify(f
       expect(result.stderr).toBe("");
       expect(result.stdout).toContain("Budget expired for run unit");
       expect(result.stdout).toContain("foreman wait unit");
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("a failed Codex interrupt leaves the held question pending", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(
+        scenario(turnRule([question(), { awaitResponse: "q" }]), {
+          method: Codex.Method.turnInterrupt,
+          respond: { error: { code: -1, message: "already completed" } },
+        }),
+      );
+      yield* f.launch();
+      yield* f.start();
+      yield* f.untilState("waiting");
+      yield* f.request({ _tag: "Interrupt", name });
+      const digest = yield* f.status();
+      expect(digest.state).toBe("unknown");
+      expect(digest.questions.map(({ id }) => id)).toEqual(["q1"]);
+    }).pipe(Effect.provide(platform)),
+  );
+
+  it.live("an unconfirmed interrupt's warning carries the provider's reason", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(
+        scenario(turnRule(), {
+          method: Codex.Method.turnInterrupt,
+          respond: { error: { code: -1, message: "already completed" } },
+        }),
+      );
+      yield* f.launch();
+      yield* f.start();
+      yield* f.untilState("running");
+      yield* f.request({ _tag: "Interrupt", name });
+      const digest = yield* f.status();
+      expect(digest.state).toBe("unknown");
+      expect(digest.warnings.join(" ")).toContain("already completed");
     }).pipe(Effect.provide(platform)),
   );
 

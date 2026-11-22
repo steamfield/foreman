@@ -1,6 +1,10 @@
+/**
+ * The thin Claude Code skill `foreman skill install` writes. It only points at `foreman guide`;
+ * scripts/generate-skill.ts writes the checked-in copy under skills/foreman/.
+ */
 export const skillText = `---
 name: foreman
-description: Delegate coding work to Codex through foreman, supervise its questions and progress, then review, refactor, check and commit the work yourself. Use when the user asks for Codex or delegation, or for substantial implementation, test authoring or mechanical refactors with a clear contract, including independent tasks that can run in parallel.
+description: Delegate coding work to Codex or Antigravity (Gemini) through foreman, supervise its questions and progress, then review, refactor, check and commit the work yourself. Use when the user asks for Codex, Gemini, agy or delegation, or for substantial implementation, test authoring or mechanical refactors with a clear contract, including independent tasks that can run in parallel.
 ---
 
 # Delegate through foreman
@@ -8,7 +12,7 @@ description: Delegate coding work to Codex through foreman, supervise its questi
 Before the first foreman command in a session, run \`foreman guide\`. This is required.
 Run \`foreman guide <topic>\` when the situation calls for it, and \`foreman <command> --help\` for a command's arguments, flags, states, exit codes and examples.
 
-- Never work around a guard or hook refusal, or edit Codex trust or auth; ask the user.
+- Never work around a guard or hook refusal, or edit Codex or agy trust or auth; ask the user.
 - Never commit delegated work without reviewing the diff and running the repo's gate yourself.
 - Run \`--wait\` commands as background tasks, and stop any wait or loop you started once its run is archived or replaced.
 - A question that needs a person gets \`foreman defer\`, not a guessed answer; answer it later with the same \`foreman answer\` command.

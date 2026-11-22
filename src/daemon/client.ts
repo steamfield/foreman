@@ -24,6 +24,7 @@ export interface CallOptions {
   readonly startupTimeoutMs?: number;
   readonly onOutdated?: Effect.Effect<void, AppError>;
   readonly codexBin?: string;
+  readonly agyBin?: string;
   readonly codexHome?: string;
   readonly logFile?: string;
 }
@@ -73,6 +74,7 @@ const spawn = Effect.fn("daemon.spawn")(
               env: {
                 FOREMAN_HOME: dataDir,
                 ...(options.codexBin === undefined ? {} : { CODEX_BIN: options.codexBin }),
+                ...(options.agyBin === undefined ? {} : { AGY_BIN: options.agyBin }),
                 ...(options.codexHome === undefined ? {} : { CODEX_HOME: options.codexHome }),
                 ...(options.logFile === undefined
                   ? {}
@@ -399,6 +401,12 @@ const exchangeRunRequest = Effect.fn("daemon.exchangeRunRequest")(function* (
         detail: `Outdated daemon cannot route a late answer or correction for ${body.question} in run ${body.name}; the request was not sent. Finish or interrupt its active runs, then restart the daemon.`,
       });
   }
+  // A daemon that predates providers ignores `provider` and would run the model on Codex.
+  if (outdated && body._tag === "Start" && body.provider === "agy")
+    return yield* new DaemonUnavailable({
+      detail:
+        "Outdated busy daemon can't start agy runs; the request was not sent. Finish or interrupt its active runs, then retry.",
+    });
   if (outdated && body._tag === "Start" && body.newWorktree)
     return yield* new DaemonUnavailable({
       detail: `Outdated busy daemon cannot safely create managed worktrees for run ${body.name}; the request was not sent. Finish or interrupt its active runs, then restart the daemon before starting this run.`,
@@ -435,6 +443,7 @@ export const outdated = (
   (options.codexBin !== undefined &&
     pong.codexBin !== undefined &&
     options.codexBin !== pong.codexBin) ||
+  (options.agyBin !== undefined && pong.agyBin !== undefined && options.agyBin !== pong.agyBin) ||
   (options.codexHome !== undefined &&
     pong.codexHome !== undefined &&
     options.codexHome !== pong.codexHome);
@@ -506,8 +515,9 @@ export const call = Effect.fn("daemon.call")(function* (
       return yield* new DaemonUnavailable({
         detail: `Daemon returned ${pong._tag} to Ping at ${socketPath}; the command was not sent. Run foreman doctor and inspect the daemon log before retrying.`,
       });
-    // Diagnostics must inspect an old daemon without replacing or launching one.
-    if (body._tag === "Ping" && options.connectOnly) return pong;
+    // Diagnostics must inspect an old daemon without replacing or launching one, and the agy
+    // question bridge must never stop the daemon supervising the run that launched it.
+    if ((body._tag === "Ping" || body._tag === "Ask") && options.connectOnly) return pong;
     if (outdated(pong, host.build, options)) {
       const stopped = yield* stopConnected(
         options.dataDir,

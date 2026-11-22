@@ -8,7 +8,7 @@
 // daemon regenerates and hashes the schema at startup; a different hash means the protocol
 // changed, whatever the version number says.
 export const supportedCodex = {
-  version: "0.169.0",
-  schemaFiles: 479,
-  schemaHash: "f7c9371db33a311cea847c5bfcdb9df37875e0fb62cc12966b910e13b6e543da",
+  version: "0.171.0",
+  schemaFiles: 483,
+  schemaHash: "6178cb3e65eb16623262e81cce12d9563245ce279d2ef906d459f5aa6183e9e5",
 } as const;

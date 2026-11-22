@@ -4,7 +4,7 @@ Instructions for coding agents working in this repository. Keep this file under 
 
 ## Overview
 
-foreman 0.3.1 lets Claude Code delegate coding tasks to OpenAI's Codex in git worktrees and supervise them through a local daemon. It drives `codex app-server` over JSON-RPC with the Codex CLI's ChatGPT login. The TypeScript CLI uses Effect 4 and compiles to one binary with Bun. The command is `foreman`; npm installs use `@steamfield/foreman`.
+foreman 0.3.1 lets Claude Code delegate coding tasks to Codex or agy (Google's Antigravity CLI, serving Gemini models) in git worktrees and supervise them through a local daemon. The model a start names picks the provider. foreman drives `codex app-server` with the Codex CLI's ChatGPT login and `agy acp` (the Agent Client Protocol) with agy's own sign-in, both over JSON-RPC. The TypeScript CLI uses Effect 4 and compiles to one binary with Bun. The command is `foreman`; npm installs use `@steamfield/foreman`.
 
 The daemon owns turns, question deferral and late answers, budgets and repo hook enforcement. Mutation continuations wait on the named run; explicit `wait --all` supervises a repo group. `foreman monitor` is the human's live view and can act after confirmation; agents use `status --all`, `wait` and `events`. Agents learn the installed version through `foreman guide` and command `--help`; `foreman skill install` installs the thin entry point. Read [repo setup](README.md#one-time-repo-setup) before delegating into another repo and [architecture](docs/architecture.md) before changing supervision or storage.
 
@@ -41,12 +41,15 @@ src/
   main.ts        the invocation boundary: runs the CLI, maps errors to exit codes, renders output once
   cli.ts         the Effect CLI command tree
   commands/      thin command handlers that call core/
-  codex/         app-server JSON-RPC client, protocol and environment checks
+  providers/     the provider contract, JSON-RPC transport, model routing and its errors
+    codex/       Codex app-server adapter: connection, event decoding, questions, catalog, hooks
+    agy/         agy ACP adapter: connection, events, permission policy, catalog, hooks
   core/          platform-free command programs and doctor
-    preflight/   worktree validation, hook trust, model selection and SSH probe
+    preflight/   worktree validation and SSH probe
     runs/        persistence, normalization, worktree changes and digests
   daemon/        socket client/server, ownership lock, startup and build replacement
-  supervisor/    app-server lifetime, per-run queues, deferral/answers, budgets, hooks and waits
+  supervisor/    provider connections, per-run queues, deferral/answers, budgets, hooks and waits
+  guide/         guide topics, provider-aware contract templates and the skill text
   schemas/       Schema definitions for every boundary shape (args, config, machine output)
   services/      Context.Service classes: Host, Invocation, Output
   config.ts      file + environment config (only place that reads env)
@@ -61,11 +64,11 @@ biome-plugins/   Grit lint rules for the platform and schema boundaries
 site/           the landing page: a separate Astro project with its own AGENTS.md and toolchain
 ```
 
-argv flows `bin.ts` -> `main.ts` -> `cli.ts` -> `commands/*` -> `core/*` -> daemon client. The daemon dispatches to the supervisor, which owns Codex and persisted runs. Results go through Output to stdout; diagnostics use stderr and the log file.
+argv flows `bin.ts` -> `main.ts` -> `cli.ts` -> `commands/*` -> `core/*` -> daemon client. The daemon dispatches to the supervisor, which owns the provider connections and persisted runs. Results go through Output to stdout; diagnostics use stderr and the log file.
 
 ## Agent harness
 
-Claude Code hooks live in `.claude/hooks/` and are wired in `.claude/settings.json`; [`.claude/README.md`](.claude/README.md) lists each one and [`docs/harness.md`](docs/harness.md) explains the layers. Codex runs the same shell guards through `.codex/hooks.json` (`block-destructive.sh` for Bash, `.codex/hooks/check-patch.sh` for `apply_patch`), refusing the call if a guard is missing; `.codex/hooks/inject-rules.ts` hands Codex the `.claude/rules/` files covering each patch's paths. Skills live in `.claude/skills/`; `.agents/skills` is a symlink to it, so Codex sees the same tree. Agents `architect` and `reviewer` are in `.claude/agents/`; commands `/check`, `/test`, `/feature` in `.claude/commands/`.
+Claude Code hooks live in `.claude/hooks/` and are wired in `.claude/settings.json`; [`.claude/README.md`](.claude/README.md) lists each one and [`docs/harness.md`](docs/harness.md) explains the layers. Codex runs the same shell guards through `.codex/hooks.json` (`block-destructive.sh` for Bash, `.codex/hooks/check-patch.sh` for `apply_patch`), refusing the call if a guard is missing; `.codex/hooks/inject-rules.ts` hands Codex the `.claude/rules/` files covering each patch's paths. agy runs them through `.agents/hooks.json`: `.agents/hooks/guard-adapter.sh` turns agy's PreToolUse input into the guards' payload, sending `run_command` to `block-destructive.sh` and `write_file`/`edit_file` to `detect-secrets.sh`, and denies whenever a guard is missing or fails. foreman refuses agy runs in a repo with `.codex/hooks.json` but no `.agents/hooks.json`, so keep both. Skills live in `.claude/skills/`; `.agents/skills` is a symlink to it, so Codex and agy see the same tree. Agents `architect` and `reviewer` are in `.claude/agents/`; commands `/check`, `/test`, `/feature` in `.claude/commands/`.
 
 Codex has no path-scoped rules of its own. The `apply_patch` hook sends each matching rule once per session (again after a compaction), alongside the first edit to a covered file: check that edit against the rule when it arrives, or read the rule before editing.
 
@@ -108,7 +111,7 @@ Boundary schemas live in `src/schemas/`, one dependency-free file per domain imp
 Unit tests (`src/*.test.ts`) cover pure contracts. `tests/cli.test.ts` drives the real parser and invocation boundary with temporary files and real Node services through `tests/helpers/cli.ts`. `tests/config-logging.test.ts` implements the matrix in `docs/acceptance/typescript-cli.md`. `e2e/binary.test.ts` runs the compiled binary with a clean environment. Vitest always runs on Node; Bun's runner only runs `./e2e`. `tests/helpers/setup.ts` isolates tests from a local `.env`. No mocks of project services; nothing needs to be running first.
 
 - Behavior-focused tests against real dependencies where practical. Fake only what crosses the network to third parties.
-- Automated tests never run real inference. Codex is the one third party: tests use the fake app server in `tests/fixtures/fake-app-server/`. `bun run smoke` hits real Codex and is a development tool only; never add it to `check`, git hooks or CI.
+- Automated tests never run real inference. Codex and agy are the third parties: tests use the fake app server in `tests/fixtures/fake-app-server/` and the fake ACP agent in `tests/fixtures/fake-acp-agent/`. `bun run smoke` hits real Codex and is a development tool only; never add it to `check`, git hooks or CI.
 - A bug fix starts with a test that reproduces the bug.
 - Weakening or skipping a test to get green is a failure, not a fix.
 

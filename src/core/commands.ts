@@ -2,6 +2,7 @@ import { Effect, type PlatformError, type Schema } from "effect";
 import { AppConfig } from "../config";
 import { call, outdated, passiveEvents, probe } from "../daemon/client";
 import { type AppError, PermissionDenied, RunConflict, RunNotFound, Usage } from "../errors";
+import { resolveModel } from "../providers/routing";
 import {
   activeStates,
   type DaemonRequestBody,
@@ -13,6 +14,7 @@ import { Host } from "../services/host";
 import { Output } from "../services/output";
 import { durationMs, type MessageInput, messageText, readText, realPath } from "./command-input";
 import { foremanExecutable, renderEventLines } from "./command-output";
+import { modelCatalogs } from "./models";
 import * as Store from "./runs/store";
 import { validateStartMode } from "./start-mode";
 
@@ -26,6 +28,7 @@ const request = Effect.fn("commands.request")(function* (
   return yield* call(body, {
     dataDir: config.home,
     codexBin: config.codexBin,
+    agyBin: config.agyBin,
     codexHome: config.codexHome,
     logFile: (yield* config.logging).file,
     onOutdated:
@@ -86,6 +89,17 @@ interface StartInput extends WaitOptions {
 
 export const start = Effect.fn("commands.start")(function* (input: StartInput) {
   yield* validateStartMode(input);
+  // Routed before the daemon is contacted, so a wrong model costs no worktree or run.
+  const { defaultModel } = yield* AppConfig;
+  const routed = yield* resolveModel(
+    {
+      ...(input.model === undefined ? {} : { model: input.model }),
+      ...(defaultModel === null ? {} : { defaultModel }),
+      ...(input.effort === undefined ? {} : { effort: input.effort }),
+      ...(input.tier === undefined ? {} : { tier: input.tier }),
+    },
+    yield* modelCatalogs(),
+  );
   const started = yield* request({
     _tag: "Start",
     name: input.name,
@@ -96,9 +110,11 @@ export const start = Effect.fn("commands.start")(function* (input: StartInput) {
     ...(input.from === undefined ? {} : { from: input.from }),
     ...(input.setup === undefined ? {} : { setup: input.setup }),
     contract: yield* readText(input.contract),
-    ...(input.model === undefined ? {} : { model: input.model }),
-    ...(input.effort === undefined ? {} : { effort: input.effort }),
-    ...(input.tier === undefined ? {} : { tier: input.tier }),
+    // Omitted for Codex, so a daemon that predates providers accepts every Codex start.
+    ...(routed.provider === "codex" ? {} : { provider: routed.provider }),
+    ...(routed.model === undefined ? {} : { model: routed.model }),
+    ...(routed.effort === undefined ? {} : { effort: routed.effort }),
+    ...(routed.tier === undefined ? {} : { tier: routed.tier }),
     ...(input.budgetMs === undefined ? {} : { budgetMs: input.budgetMs }),
     ...(input.questionTimeoutMs === undefined
       ? {}

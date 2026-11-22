@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.4.0] - 2026-11-22
+
+### Added
+
+- foreman can delegate to agy, Google's Antigravity CLI, alongside Codex. The model a start names picks the provider: `foreman start --model gemini-4-neon` runs on agy, a Codex model runs on Codex, and the run keeps its provider for every follow-up. agy runs support questions, steering, interrupts, budgets, follow-ups and resume after a daemon restart, the same commands as Codex runs.
+- `foreman models` lists the models each installed provider offers, with their effort levels. A model name that is close but not exact (a missing effort suffix, a typo, a model neither provider lists) is refused with the nearest matches and the command to list them.
+- agy runs use agy's own sign-in. foreman strips Gemini and Google API keys from agy's environment and answers agy's permission requests itself by the run's access: read-only runs and hand-off turns refuse edits, and a read-only agy turn that changes the worktree anyway is recorded as failed.
+- agy reaches the orchestrator's questions through `foreman mcp-question`, an MCP server foreman passes to each agy session. agy holds a question for a limited time, so an agy run's question timeout is capped below that hold and the cap is recorded as a warning.
+- `foreman doctor` reports agy's version, sign-in and protocol next to Codex, and the guide and skill explain agy runs (`foreman guide contract agy`). agy reads committed `.agents/hooks.json` repo hooks; an agy start is refused in a repo whose only hooks are Codex hooks.
+
+### Changed
+
+- An agy run's `run.json` uses storage format 3, so 0.3.x binaries refuse agy runs instead of misreading them. Codex runs keep format 1 and stay readable by older versions.
+- When Codex doesn't confirm an interrupt, the run moves to `unknown` with a warning that gives Codex's reason, and a question Codex is still holding stays answerable. When agy doesn't confirm a cancel within 30 seconds, foreman abandons the prompt and the run ends interrupted, ready for a follow-up.
+- foreman now checks the Codex protocol against Codex 0.171.0 instead of 0.169.0, so `doctor` and new runs stop warning about a protocol mismatch on 0.171.0. Install it with `npm i -g @openai/codex@0.171.0`; on 0.169.0 you now see that warning instead.
+
+### Fixed
+
+- In `foreman monitor`, the Feed pane header shows its filter once, unfocused detail pane titles stay readable, and the run list keeps a gap between the task and the next column.
+
 ## [0.3.1] - 2026-11-17
 
 ### Changed

@@ -16,6 +16,17 @@ or {
       and {
         $src <: r"[\"'](?:zod|zod/[^\"']*|@effect/schema[^\"']*)[\"']",
         register_diagnostic(span=$src, message="Use Schema from effect at project-owned boundaries.")
+      },
+      and {
+        $src <: r"[\"'][^\"']*/schemas/codex(?:\.ts)?[\"']",
+        $filename <: not r".*/src/providers/codex/.*",
+        register_diagnostic(span=$src, message="Codex wire types stay in src/providers/codex; use the provider contract.")
+      },
+      and {
+        $src <: r"[\"'][^\"']*/providers/(?:codex|agy)/[^\"']*[\"']",
+        $filename <: r".*/src/(?:supervisor|core/runs)/.*",
+        $filename <: not r".*/src/supervisor/connections\.ts",
+        register_diagnostic(span=$src, message="The supervisor and run store reach providers through the contract; only src/supervisor/connections.ts registers them.")
       }
     }
   },

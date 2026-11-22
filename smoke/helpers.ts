@@ -199,7 +199,12 @@ export async function fixture(inherited: NodeJS.ProcessEnv = process.env) {
     }
   };
   const diagnostics = async () => {
-    const paths = ["logs/daemon.jsonl", "logs/app-server.log"];
+    const paths = [
+      "logs/daemon.jsonl",
+      "logs/app-server.log",
+      "logs/agy-acp.log",
+      "logs/agy-stderr.log",
+    ];
     const logs = await Promise.allSettled(paths.map((path) => readFile(join(data, path), "utf8")));
     for (const [index, log] of logs.entries()) {
       if (log.status === "fulfilled") console.error(`${paths[index]}:\n${log.value}`);
