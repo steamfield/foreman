@@ -7,10 +7,11 @@
  * `RpcRequestTimeout`; a reply that doesn't match the supported protocol becomes
  * `CodexUnavailable`.
  */
-import { type Duration, Effect, type FileSystem, type Path, Schema, Stream } from "effect";
+import { type Duration, Effect, type FileSystem, type Path, Queue, Schema, Stream } from "effect";
 import { CodexUnavailable, RepoHooksUntrusted } from "../../errors";
 import * as Codex from "../../schemas/codex";
 import {
+  type Inbound,
   type ProviderConnection,
   QuestionRefused,
   type SessionId,
@@ -130,11 +131,18 @@ export const connectCodex = Effect.fn("codex.connect")(function* (options: Conne
   const context = yield* Effect.context<FileSystem.FileSystem | Path.Path>();
   const request = makeRequest(channel);
   const loaded = new Set<SessionId>();
+  const refused = yield* Queue.unbounded<Inbound>();
   const connection: ProviderConnection = {
     provider: "codex",
     generation: Symbol("codex"),
-    inbound: inboundFrom(channel),
-    questions: questionCalls(channel.serverRequests, channel),
+    // Refused server requests join the notifications so the raw log keeps them; the
+    // notifications decide when the stream ends.
+    inbound: Stream.merge(inboundFrom(channel), Stream.fromQueue(refused), {
+      haltStrategy: "left",
+    }),
+    questions: questionCalls(channel.serverRequests, channel, (inbound) =>
+      Queue.offer(refused, inbound),
+    ),
     termination: channel.termination,
     open: (_run, settings) =>
       request(

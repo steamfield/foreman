@@ -7,7 +7,7 @@
 import { Effect, Result, Schema, Stream } from "effect";
 import type { CodexUnavailable } from "../../errors";
 import * as Codex from "../../schemas/codex";
-import type { QuestionCall } from "../contract";
+import type { Inbound, QuestionCall } from "../contract";
 import type { RpcId, RpcServerRequest } from "../jsonrpc";
 
 const METHOD_NOT_FOUND = -32601;
@@ -79,18 +79,31 @@ export function readServerRequest(
 
 /**
  * Turns the channel's server requests into question calls, answering every other request
- * with its JSON-RPC error on the way.
+ * with its JSON-RPC error on the way. `onRefused` receives each refused request as an
+ * eventless inbound message, so the run's raw log still shows it.
  */
 export const questionCalls = <E>(
   requests: Stream.Stream<RpcServerRequest, E>,
   replies: QuestionReplies,
+  onRefused: (inbound: Inbound) => Effect.Effect<unknown>,
 ): Stream.Stream<QuestionCall, E | CodexUnavailable> =>
   requests.pipe(
     Stream.filterMapEffect((request) => {
       const reading = readServerRequest(request, replies);
       if (reading._tag === "Question") return Effect.succeed(Result.succeed(reading.call));
-      return replies
-        .respondError(request.id, reading.code, reading.message)
-        .pipe(Effect.as(Result.fail(undefined)));
+      return onRefused({
+        session: threadOf(request.params),
+        method: request.method,
+        raw: request,
+        events: [],
+      }).pipe(
+        Effect.andThen(replies.respondError(request.id, reading.code, reading.message)),
+        Effect.as(Result.fail(undefined)),
+      );
     }),
   );
+
+/** The thread a server request names, or null when it names none. */
+function threadOf(params: unknown): string | null {
+  return Schema.is(Schema.Struct({ threadId: Schema.String }))(params) ? params.threadId : null;
+}

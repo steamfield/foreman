@@ -1421,6 +1421,38 @@ describe("supervisor over the real daemon socket", () => {
       expect(verbose).not.toContain("[redacted]");
     }).pipe(Effect.provide(platform)),
   );
+  it.live("keeps a refused tool call for a known thread in the raw Codex log", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture(
+        scenario(
+          turnRule([
+            {
+              request: Codex.Method.toolCall,
+              label: "unsupported",
+              params: {
+                threadId: "{{thread}}",
+                turnId: "{{turn}}",
+                callId: "call-unsupported",
+                namespace: null,
+                tool: "other_tool",
+                arguments: {},
+              },
+            },
+            { awaitResponse: "unsupported" },
+            question("invalid", { wrong: true }),
+            { awaitResponse: "invalid" },
+            complete(),
+          ]),
+        ),
+      );
+      yield* f.launch();
+      yield* f.start();
+      yield* f.untilState("idle");
+      const raw = yield* f.fs.readFileString(`${f.runDir}/codex.jsonl`);
+      expect(raw).toContain('"tool":"other_tool"');
+      expect(raw).toContain('"callId":"call-invalid"');
+    }).pipe(Effect.provide(platform)),
+  );
   it.live("start names the Codex thread after the run and its repo", () =>
     Effect.gen(function* () {
       const f = yield* fixture(scenario(turnRule([complete()])), false, "my-app");
