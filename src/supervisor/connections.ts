@@ -180,7 +180,8 @@ const makeSlot = Effect.fnUntraced(function* (
       .connect(stderrSink((text) => append(text).pipe(Effect.catch(unavailable))))
       .pipe(
         Scope.provide(scope),
-        Effect.onExit((exit) => (Exit.isFailure(exit) ? Scope.close(scope, exit) : Effect.void)),
+        // A failed start closes the child it may have launched.
+        Effect.tapCause((cause) => Scope.close(scope, Exit.failCause(cause))),
       );
     generation = connection.generation;
     const live: LiveConnection = { ...connection, scope };
