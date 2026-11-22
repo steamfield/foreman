@@ -73,7 +73,7 @@ describe("agy PreToolUse adapter", SPAWNS, () => {
   it("denies a destructive command with the guard's reason", async () => {
     const result = await decideInRepo(
       "run_command",
-      agyCall("run_command", { CommandLine: "git reset --hard" }),
+      agyCall("run_command", { CommandLine: "git push --force origin main" }),
     );
     expect(result.decision).toBe("deny");
     expect(result.reason).toContain("BLOCKED");
@@ -158,7 +158,7 @@ describe("agy PreToolUse adapter", SPAWNS, () => {
     expect(result.reason).toContain("block-destructive.sh not found");
   });
 
-  it.each([["echo hi\ngit reset --hard"], ["echo hi\nrm -rf ~"]])(
+  it.each([["echo hi\ngit push --force origin main"], ["echo hi\nrm -rf ~"]])(
     "denies a destructive line after the first: %j",
     async (commandLine) => {
       const result = await decideInRepo(
