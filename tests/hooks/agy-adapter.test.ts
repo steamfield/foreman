@@ -109,6 +109,38 @@ describe("agy PreToolUse adapter", SPAWNS, () => {
     expect(result.reason).toContain(".env");
   });
 
+  it("denies an edit whose Replacement is credential-shaped", async () => {
+    const key = ["AKIA", "ABCDEFGHIJKLMNOP"].join("");
+    const result = await decideInRepo(
+      "edit_file",
+      agyCall("edit_file", {
+        Path: "/tmp/repo/config.ts",
+        Target: "const id = 1;",
+        Replacement: `const id = "${key}";`,
+      }),
+    );
+    expect(result.decision).toBe("deny");
+    expect(result.reason).toContain("AWS access key ID");
+  });
+
+  it("allows a harmless edit", async () => {
+    expect(
+      await decideInRepo(
+        "edit_file",
+        agyCall("edit_file", { Path: "/tmp/repo/a.ts", Target: "a", Replacement: "b" }),
+      ),
+    ).toEqual({ decision: "allow" });
+  });
+
+  it("denies an edit with no content argument", async () => {
+    const result = await decideInRepo(
+      "edit_file",
+      agyCall("edit_file", { Path: "/tmp/repo/a.ts", Target: "a" }),
+    );
+    expect(result.decision).toBe("deny");
+    expect(result.reason).toContain("lacks the argument");
+  });
+
   it("allows a write with no credential", async () => {
     expect(
       await decideInRepo(

@@ -17,7 +17,7 @@ guards_dir="$adapter_dir/../../.claude/hooks"
 
 # Argument names agy uses for the target file and for the text a write or edit adds.
 PATH_KEYS=(Path AbsolutePath TargetFile)
-CONTENT_KEYS=(Content CodeContent ReplacementContent NewString NewText)
+CONTENT_KEYS=(Content Replacement CodeContent ReplacementContent NewString NewText)
 
 # deny_agy <reason>: print agy's deny decision and stop. Works even when _lib.sh
 # could not be loaded, since that is one of the cases it reports.
@@ -70,7 +70,14 @@ claude_payload() {
     ;;
   write_file | edit_file)
     file_path=$(first_arg "$input" "${PATH_KEYS[@]}") || return 1
-    content=$(all_args "$input" "${CONTENT_KEYS[@]}")
+    # hook_get prints a newline even for an empty string, so no output at all means
+    # no content key was present. The sentinel keeps $(...) from trimming that newline.
+    content=$(
+      all_args "$input" "${CONTENT_KEYS[@]}"
+      printf x
+    )
+    content=${content%x}
+    [ -n "$content" ] || return 1
     printf '{"tool_name":"Write","cwd":%s,"tool_input":{"file_path":%s,"content":%s}}' \
       "$(json_quote "$cwd")" "$(json_quote "$file_path")" "$(json_quote "$content")"
     ;;
