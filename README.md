@@ -44,12 +44,12 @@ Without interactive stdin and stdout, with `--json`, or inside a Codex delegate,
 
 ## Install
 
-You need git, a repo with a commit and [Node 26 or newer](https://nodejs.org/en/download) for the npm launcher. Install Codex **0.169.0**, the version foreman's protocol is checked against, then sign in:
+You need git, a repo with a commit and [Node 26 or newer](https://nodejs.org/en/download) for the npm launcher. Install Codex **0.171.0**, the version foreman's protocol is checked against, then sign in:
 
 ```sh
 npm i -g @steamfield/foreman
 foreman skill install
-npm i -g @openai/codex@0.169.0
+npm i -g @openai/codex@0.171.0
 codex login
 foreman doctor
 ```
