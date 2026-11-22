@@ -20,7 +20,15 @@ export interface TurnMessages {
   readonly all: string;
   /** What it said since the turn's last tool call started (all of it before the first). */
   readonly sinceToolCall: string;
+  /**
+   * A merged prompt replied, so the next text starts another answer and is set apart from the
+   * text before it.
+   */
+  readonly answerEnded: boolean;
 }
+
+/** What separates the answers of a turn's merged prompts. */
+const ANSWER_SEPARATOR = "\n\n";
 
 /** One session's turn state. */
 export interface AgyTurnState {
@@ -30,7 +38,10 @@ export interface AgyTurnState {
   readonly turn: TurnId | null;
   readonly outstanding: number;
   readonly messages: TurnMessages;
-  /** The run failure after foreman refused a permission this turn. */
+  /**
+   * The run failure recorded this turn: foreman refused a permission, or a prompt that didn't
+   * end the turn (one a steer merged) failed.
+   */
   readonly refusal: string | null;
   /** Token totals summed over every prompt reply of the session. */
   readonly totals: TokenTotals;
@@ -46,7 +57,7 @@ export type PromptOutcome =
   /** agy answered with an error, or a reply foreman can't read; `message` is the failure. */
   | { readonly _tag: "Failed"; readonly message: string };
 
-const NO_MESSAGES: TurnMessages = { all: "", sinceToolCall: "" };
+const NO_MESSAGES: TurnMessages = { all: "", sinceToolCall: "", answerEnded: false };
 const NO_TOKENS: TokenTotals = { input: 0, cachedInput: 0, output: 0, reasoningOutput: 0 };
 
 /** The state of a session that was just opened with the run's access. */
@@ -78,15 +89,42 @@ export function beginTurn(state: AgyTurnState, request: TurnRequest): AgyTurnSta
   };
 }
 
+/**
+ * Adds a steer's prompt to the running turn: one more outstanding prompt, keeping the turn id,
+ * its message buffer and any refusal, since agy merges the prompt into the same turn.
+ * @throws Never.
+ */
+export function beginSteer(state: AgyTurnState): AgyTurnState {
+  return { ...state, outstanding: state.outstanding + 1 };
+}
+
+/**
+ * Whether a steer for `turn` can join the session's running turn: a prompt is outstanding and
+ * it belongs to that turn. Once the last reply is applied the turn's completion is queued, so
+ * nothing outstanding means the steer would start a new agy turn foreman isn't tracking.
+ * @throws Never.
+ */
+export function acceptsSteer(state: AgyTurnState, turn: TurnId): boolean {
+  return state.outstanding > 0 && state.turn === turn;
+}
+
 /** The turn events belong to: the outstanding prompt's, or null when none is outstanding. */
 export function activeTurn(state: AgyTurnState): TurnId | null {
   return state.outstanding > 0 ? state.turn : null;
 }
 
-/** Adds a chunk of agent message text to the turn's buffer. */
+/**
+ * Adds a chunk of agent message text to the turn's buffers. The first chunk after a merged
+ * prompt's reply is separated from earlier text, so two answers don't run together.
+ */
 export function appendMessage(state: AgyTurnState, text: string): AgyTurnState {
-  const { all, sinceToolCall } = state.messages;
-  return { ...state, messages: { all: all + text, sinceToolCall: sinceToolCall + text } };
+  const { all, sinceToolCall, answerEnded } = state.messages;
+  const join = (buffer: string) =>
+    answerEnded && buffer !== "" ? buffer + ANSWER_SEPARATOR + text : buffer + text;
+  return {
+    ...state,
+    messages: { all: join(all), sinceToolCall: join(sinceToolCall), answerEnded: false },
+  };
 }
 
 /**
@@ -149,8 +187,19 @@ function turnOutcome(
 }
 
 /**
+ * Applies a reply that doesn't end the turn: a failure is kept for the turn's outcome, and the
+ * next text is marked as another answer.
+ */
+function mergeReply(state: AgyTurnState, outcome: PromptOutcome): AgyTurnState {
+  const messages = { ...state.messages, answerEnded: state.messages.all !== "" };
+  if (outcome._tag !== "Failed" || state.refusal !== null) return { ...state, messages };
+  return { ...state, messages, refusal: outcome.message };
+}
+
+/**
  * Applies a prompt's reply. Usage always counts; the turn completes only when no other prompt
- * is outstanding, with the hand-off message, the session's token totals and the outcome.
+ * is outstanding, with the hand-off message, the session's token totals and the outcome. A
+ * failure recorded by any of the turn's prompts fails it.
  */
 export function finishPrompt(
   state: AgyTurnState,
@@ -163,7 +212,8 @@ export function finishPrompt(
     totals: addTokens(state.totals, usage),
   };
   const turn = state.turn;
-  if (next.outstanding > 0 || turn === null) return { state: next, events: [] };
+  if (next.outstanding > 0 || turn === null)
+    return { state: mergeReply(next, outcome), events: [] };
   const handoff = handoffText(state.messages);
   const { status, failure } = turnOutcome(state, outcome);
   const events: ProviderEvent[] = [];
