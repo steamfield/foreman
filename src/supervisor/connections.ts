@@ -78,6 +78,7 @@ export interface Providers {
 export const makeProviders = Effect.fn("supervisor.providers")(function* (
   config: AppConfig["Service"],
   version: string,
+  executable: readonly string[],
 ) {
   const codex = yield* makeCodexProvider({
     codexBin: config.codexBin,
@@ -90,6 +91,7 @@ export const makeProviders = Effect.fn("supervisor.providers")(function* (
     home: config.home,
     inheritedEnvironment: config.inheritedEnvironment,
     version,
+    executable,
   });
   const registrations: Providers["registrations"] = {
     codex: { provider: codex, stderrLog: "logs/app-server.log" },
@@ -242,7 +244,7 @@ export const makeConnections = Effect.fn("supervisor.connections")(function* (
   question: QuestionHandler,
   built?: Providers,
 ) {
-  const providers = built ?? (yield* makeProviders(config, version));
+  const providers = built ?? (yield* makeProviders(config, version, []));
   const slots: Partial<Record<ProviderId, Slot>> = {};
   for (const registration of Object.values(providers.registrations))
     if (registration !== undefined)

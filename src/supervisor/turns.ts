@@ -45,6 +45,7 @@ import {
 import { DEFAULT_CODEX_EFFORT } from "../schemas/provider";
 import type { Connections } from "./connections";
 import { preamble, timeUp } from "./prompts";
+import { questionTimeout } from "./questions";
 import { turnStartSnapshot, UNSANDBOXED_READ_ONLY } from "./read-only-check";
 import type { Registry, Run } from "./registry";
 
@@ -301,6 +302,7 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
             detail: `${body.name} has unreadable run data in ${yield* Store.runDirectory(config.home, body.name)}; preserve and inspect that directory before reusing the name.`,
           });
         const now = DateTime.makeUnsafe(yield* Clock.currentTimeMillis);
+        const questions = questionTimeout(providerId, body.questionTimeoutMs, 900_000);
         const record: RunRecord = {
           name: body.name,
           threadId: null,
@@ -314,7 +316,7 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
           effort: body.effort ?? DEFAULT_CODEX_EFFORT,
           tier,
           sandbox: body.write ? "danger-full-access" : "read-only",
-          questionTimeoutMs: body.questionTimeoutMs ?? 900_000,
+          questionTimeoutMs: questions.timeoutMs,
           state: "starting",
           turns: 0,
           turnKind: null,
@@ -324,7 +326,7 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
           restoreSandbox: false,
           tokens: null,
           failure: null,
-          warnings,
+          warnings: questions.warning === null ? warnings : [...warnings, questions.warning],
           createdAt: now,
           updatedAt: now,
         };

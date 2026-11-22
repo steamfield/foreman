@@ -515,8 +515,9 @@ export const call = Effect.fn("daemon.call")(function* (
       return yield* new DaemonUnavailable({
         detail: `Daemon returned ${pong._tag} to Ping at ${socketPath}; the command was not sent. Run foreman doctor and inspect the daemon log before retrying.`,
       });
-    // Diagnostics must inspect an old daemon without replacing or launching one.
-    if (body._tag === "Ping" && options.connectOnly) return pong;
+    // Diagnostics must inspect an old daemon without replacing or launching one, and the agy
+    // question bridge must never stop the daemon supervising the run that launched it.
+    if ((body._tag === "Ping" || body._tag === "Ask") && options.connectOnly) return pong;
     if (outdated(pong, host.build, options)) {
       const stopped = yield* stopConnected(
         options.dataDir,

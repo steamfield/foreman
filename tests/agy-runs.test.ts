@@ -95,7 +95,19 @@ it.live(
       expect(paramsOf(received, "initialize")[0]).toMatchObject({ protocolVersion: 1 });
       expect(paramsOf(received, "session/new")[0]).toMatchObject({
         cwd: expect.stringMatching(/\/repo\/work\/unit$/),
-        mcpServers: [],
+        mcpServers: [
+          {
+            name: "foreman",
+            command: expect.stringMatching(/bun$/),
+            args: [
+              expect.stringMatching(/tests\/fixtures\/foreman-cli\/entry\.ts$/),
+              "mcp-question",
+              "--run",
+              "unit",
+            ],
+            env: [{ name: "FOREMAN_HOME", value: f.home }],
+          },
+        ],
       });
       expect(paramsOf(received, "session/set_config_option")[0]).toMatchObject({
         configId: "model",
