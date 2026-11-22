@@ -242,6 +242,7 @@ Depends on: phase 3
 | a | M | src/providers/agy/connection.ts, src/providers/agy/events.ts, src/providers/agy/turns.ts, src/providers/agy/steer.ts, src/providers/agy/resume.ts, tests/fixtures/fake-acp-agent/scenarios.ts, tests/agy-steer-resume-unit.test.ts | contracts | | opus | merged | deliver/agy-provider-4a | |
 
 Scaffold: 7b7db73
+Tag: agy-phase-4
 
 Scaffold contents: tests/agy-steer-resume.test.ts, real daemon against the fake ACP agent with a `respondAfterSteps` prompt that waits on `awaitRequest: session/prompt`: a steer during a turn sends a second `session/prompt`, the first reply (`end_turn`) does not complete the foreman turn, the second does, usage is summed and a `Steered` event is recorded; a steer after the turn's completion was emitted is refused and the supervisor delivers it as a follow-up; a 45 s budget (use a short budgetMs in the test) interrupts with `session/cancel` and runs a hand-off turn whose shell command is approved and whose edit is refused, ending failed with the refusal after writing its hand-off text; after a daemon restart a followup calls `session/resume` with the worktree cwd and the bridge in mcpServers, then `session/set_config_option` with the run's model and effort, records `Resumed{sandbox: "default", model}`, and finishes the turn.
 
