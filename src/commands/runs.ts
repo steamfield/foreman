@@ -138,10 +138,16 @@ export const startCommand = Command.make(
     ),
     model: optionalText(
       "model",
-      "Override the newest visible gpt-*-sol in CODEX_HOME/models_cache.json (default cache: ~/.codex/models_cache.json; fallback model: gpt-6.1-sol).",
+      "Run a Codex or agy model; the model picks the provider, and provider:model (codex:..., agy:...) names it explicitly. Default: the newest visible gpt-*-sol in CODEX_HOME/models_cache.json (default cache: ~/.codex/models_cache.json; fallback model: gpt-6.1-sol).",
     ),
-    effort: optionalText("effort", "Set Codex reasoning effort (default: high)."),
-    tier: optionalText("tier", "Set the Codex service tier (default: priority)."),
+    effort: optionalText(
+      "effort",
+      "Set the reasoning effort (default: high); agy accepts the efforts its model lists.",
+    ),
+    tier: optionalText(
+      "tier",
+      "Set the Codex service tier (default: priority); Codex models only.",
+    ),
     budgetMs: optionalDuration(
       "budget",
       "Turn budget (default: 60m); also sets the setup limit when supplied.",

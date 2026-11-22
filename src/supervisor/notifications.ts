@@ -12,6 +12,7 @@ import * as Store from "../core/runs/store";
 import type { Inbound, ProviderConnection, ProviderEvent, TurnId } from "../providers/contract";
 import { activeStates, providerOf } from "../schemas/daemon";
 import * as LiveState from "./live-state";
+import { checkReadOnlyTurn } from "./read-only-check";
 import type { Registry, Run } from "./registry";
 import { toRunEvents } from "./run-events";
 import { isStaleMessage } from "./stale";
@@ -154,9 +155,11 @@ const turnCompleted = Effect.fnUntraced(function* (
   yield* registry.cancelQuestions(run);
   if (event.handoff !== null) yield* registry.handoff(run, event.handoff);
   yield* registry.refreshWorktree(run);
+  const readOnlyFailure = yield* checkReadOnlyTurn(registry, run);
   yield* registry.save(run, {
     activeTurnId: null,
-    failure: run.record.failure ?? event.failure,
+    // The provider's own reason comes first; the changed paths are always in the warnings.
+    failure: run.record.failure ?? event.failure ?? readOnlyFailure,
   });
   // A working turn ended by its budget gets a hand-off turn instead of a final state.
   if (run.budgetExpired && run.record.failure === null)

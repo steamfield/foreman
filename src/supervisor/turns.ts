@@ -44,10 +44,23 @@ import {
 } from "../schemas/daemon";
 import type { Connections } from "./connections";
 import { preamble, timeUp } from "./prompts";
+import { turnStartSnapshot, UNSANDBOXED_READ_ONLY } from "./read-only-check";
 import type { Registry, Run } from "./registry";
 
-// Every new run is a Codex run until runs are routed to a provider by model.
-const NEW_RUN_PROVIDER: ProviderId = "codex";
+/** The warnings a new run starts with: the provider's own, then any about its read-only mode. */
+function startWarnings(
+  provider: ProviderId,
+  write: boolean,
+  compatibility: string | null,
+  diagnostics: readonly string[],
+): string[] {
+  const readOnly = write ? undefined : UNSANDBOXED_READ_ONLY.get(provider);
+  return [
+    ...(compatibility ? [compatibility] : []),
+    ...diagnostics,
+    ...(readOnly === undefined ? [] : [readOnly]),
+  ];
+}
 
 /** The settings a run's session and turns use, from its record. */
 function sessionSettings(record: RunRecord): SessionSettings {
@@ -113,6 +126,7 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
     run.projectHook = false;
     run.budgetExpired = false;
     run.budgetTurnId = null;
+    run.turnSnapshot = yield* turnStartSnapshot(run.record, kind);
     const now = DateTime.makeUnsafe(yield* Clock.currentTimeMillis);
     yield* registry.save(run, {
       turns: run.record.turns + 1,
@@ -213,6 +227,7 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
       return yield* new RunConflict({
         detail: `${body.name} has unreadable run data in ${yield* Store.runDirectory(config.home, body.name)}; preserve and inspect that directory before reusing the name.`,
       });
+    const providerId: ProviderId = body.provider ?? "codex";
     const prepare = Effect.gen(function* () {
       if (body.newWorktree)
         yield* createWorktree(body.worktree, body.name, body.from, (owned) => {
@@ -223,13 +238,13 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
         yield* setupWorktree(
           worktree,
           body.setup,
-          yield* connections.environment(NEW_RUN_PROVIDER),
+          yield* connections.environment(providerId),
           body.budgetMs,
         );
       const validated = yield* validateWorktree(worktree, body.skipDepsCheck);
       yield* available;
-      const provider = yield* connections.describe(NEW_RUN_PROVIDER);
-      const connection = yield* connections.get(NEW_RUN_PROVIDER);
+      const provider = yield* connections.describe(providerId);
+      const connection = yield* connections.get(providerId);
       // Inspected here first so an unreadable hooks file reports PermissionDenied; the
       // provider's trust check can only report untrusted hooks.
       yield* provider.hasRepoHooks(validated.mainCheckout, validated.worktree);
@@ -238,11 +253,17 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
         validated,
         hooksRequired: trust.required,
         model: body.model ?? (yield* provider.defaultModel),
-        warning: yield* connections.compatibilityWarning(NEW_RUN_PROVIDER),
-        diagnostics: yield* connections.warnings(NEW_RUN_PROVIDER),
+        // A provider without service tiers records "n/a", so the digest never reads null.
+        tier: body.tier ?? (provider.capabilities.serviceTier ? "priority" : "n/a"),
+        warnings: startWarnings(
+          providerId,
+          body.write,
+          yield* connections.compatibilityWarning(providerId),
+          yield* connections.warnings(providerId),
+        ),
       };
     });
-    const { validated, hooksRequired, model, warning, diagnostics } = yield* Effect.raceFirst(
+    const { validated, hooksRequired, model, tier, warnings } = yield* Effect.raceFirst(
       prepare,
       Deferred.await(pending.cancel).pipe(Effect.as(undefined)),
     ).pipe(
@@ -282,13 +303,15 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
         const record: RunRecord = {
           name: body.name,
           threadId: null,
+          // Absent for Codex, so Codex runs stay readable by builds that predate providers.
+          ...(providerId === "codex" ? {} : { provider: providerId }),
           group: validated.mainCheckout,
           worktree: validated.worktree,
           baseCommit: validated.baseCommit,
           ...(created ? { managedWorktree: created.managed } : {}),
           model,
           effort: body.effort ?? "high",
-          tier: body.tier ?? "priority",
+          tier,
           sandbox: body.write ? "danger-full-access" : "read-only",
           questionTimeoutMs: body.questionTimeoutMs ?? 900_000,
           state: "starting",
@@ -300,7 +323,7 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
           restoreSandbox: false,
           tokens: null,
           failure: null,
-          warnings: [...(warning ? [warning] : []), ...diagnostics],
+          warnings,
           createdAt: now,
           updatedAt: now,
         };
