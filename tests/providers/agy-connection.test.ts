@@ -387,6 +387,38 @@ it.effect("a reply written right after thousands of updates ends the turn after 
   ),
 );
 
+it.effect("prompts agy answers at once still end their turns, fifty in a row", () =>
+  provide(
+    Effect.gen(function* () {
+      const agy = yield* fakeAgy({
+        rules: [
+          {
+            method: "session/prompt",
+            repeat: true,
+            respond: { result: { stopReason: "end_turn" } },
+          },
+        ],
+      });
+      const { session } = yield* agy.connection.open("unit", settings(agy.worktree));
+      const completed: ProviderEvent[] = [];
+      for (let turn = 1; turn <= 50; turn++) {
+        yield* agy.connection.startTurn(session, { ...turnOne(agy.worktree), turn });
+        completed.push(...eventsOf(yield* untilCompleted(agy.connection)).slice(-1));
+      }
+
+      expect(completed).toEqual(
+        Array.from({ length: 50 }, (_, index) => ({
+          _tag: "TurnCompleted",
+          turn: `t${index + 1}`,
+          status: "completed",
+          failure: null,
+          handoff: null,
+        })),
+      );
+    }),
+  ),
+);
+
 it.effect("a write run refuses an edit when agy offers no one-time allow", () =>
   provide(
     Effect.gen(function* () {

@@ -175,8 +175,10 @@ const startTurn = Effect.fnUntraced(function* (
     events: [{ _tag: "TurnStarted", turn }],
   });
   const prompt = [{ type: "text", text: request.input }];
-  const id = yield* live.channel.requestOrdered(Acp.Method.prompt, { sessionId: session, prompt });
-  live.prompts.set(id, session);
+  // Registered before the write: the reader may see the reply before this fiber resumes.
+  yield* live.channel.requestOrdered(Acp.Method.prompt, { sessionId: session, prompt }, (id) =>
+    live.prompts.set(id, session),
+  );
   return turn;
 });
 

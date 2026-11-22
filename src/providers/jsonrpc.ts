@@ -142,10 +142,16 @@ export interface Channel<E> {
   readonly respondError: (id: RpcId, code: number, message: string) => Effect.Effect<void, E>;
   /**
    * Sends a request whose reply arrives on `messages` after everything the agent wrote before
-   * it, rather than to the caller. Returns the request's id. No timeout applies.
+   * it, rather than to the caller. No timeout applies. Returns the request's id.
+   * @param register Called with the id before the request is written, so the caller knows the
+   * id before any reply can be read.
    * @throws E When the channel has ended or the message can't be encoded.
    */
-  readonly requestOrdered: (method: string, params: unknown) => Effect.Effect<RpcId, E>;
+  readonly requestOrdered: (
+    method: string,
+    params: unknown,
+    register?: (id: RpcId) => void,
+  ) => Effect.Effect<RpcId, E>;
   /** Single-consumer; buffers messages that arrive before it is consumed. */
   readonly notifications: Stream.Stream<RpcNotification, E>;
   /** Single-consumer; buffers messages that arrive before it is consumed. */
@@ -433,14 +439,16 @@ export const openChannel = Effect.fnUntraced(function* <E>(
   );
   const channel: Channel<E> = {
     request: makeRequest(state),
-    requestOrdered: (method, params) => {
-      const id = state.nextId++;
-      state.pendingOrdered.set(id, method);
-      return send(state, { jsonrpc: "2.0", id, method, params }).pipe(
-        Effect.as(id),
-        Effect.onError(() => Effect.sync(() => state.pendingOrdered.delete(id))),
-      );
-    },
+    requestOrdered: (method, params, register) =>
+      Effect.suspend(() => {
+        const id = state.nextId++;
+        state.pendingOrdered.set(id, method);
+        register?.(id);
+        return send(state, { jsonrpc: "2.0", id, method, params }).pipe(
+          Effect.as(id),
+          Effect.onError(() => Effect.sync(() => state.pendingOrdered.delete(id))),
+        );
+      }),
     notify: (method, params) =>
       send(
         state,
