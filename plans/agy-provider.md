@@ -144,9 +144,9 @@ Scaffold (written when phase 1 lands): `src/providers/output-tail.ts` (outputTai
 | Lane | Size | Owns files | Reads | Tests | Model | Status | Branch | Done when |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | a | M | src/schemas/acp.ts, src/providers/agy/connection.ts, src/providers/agy/events.ts, src/providers/agy/turns.ts, src/providers/agy/provider.ts, tests/providers/agy-connection.test.ts, tests/acp-schemas.test.ts | contracts, src/providers/codex/connection.ts | tests/agy-runs.test.ts | opus | running | deliver/agy-provider-2a | agy-connection and acp-schemas tests pass |
-| b | S | src/providers/agy/permissions.ts, src/providers/agy/hooks.ts, src/providers/agy/catalog.ts, src/providers/agy/environment.ts, tests/providers/agy-policy.test.ts | contracts | | sonnet | running | deliver/agy-provider-2b | agy-policy tests pass |
+| b | S | src/providers/agy/permissions.ts, src/providers/agy/hooks.ts, src/providers/agy/catalog.ts, src/providers/agy/environment.ts, tests/providers/agy-policy.test.ts, tests/providers/agy-hooks.test.ts, tests/providers/agy-catalog.test.ts | contracts | | sonnet | merged | deliver/agy-provider-2b | agy-policy tests pass |
 | c | M | src/providers/routing.ts, src/supervisor/connections.ts, src/supervisor/turns.ts, src/supervisor/notifications.ts, src/core/runs/digest.ts, src/core/commands.ts, src/commands/runs.ts, src/daemon/client.ts, tests/provider-routing.test.ts | contracts | tests/agy-runs.test.ts | opus | running | deliver/agy-provider-2c | provider-routing tests pass; agy-runs passes once lane a lands |
-| d | S | .agents/hooks.json, .agents/hooks/, tests/hooks/agy-adapter.test.ts | .claude/hooks/block-destructive.sh, .claude/hooks/detect-secrets.sh | | sonnet | running | deliver/agy-provider-2d | agy-adapter tests pass |
+| d | S | .agents/hooks.json, .agents/hooks/, tests/hooks/agy-adapter.test.ts | .claude/hooks/block-destructive.sh, .claude/hooks/detect-secrets.sh | | sonnet | merged | deliver/agy-provider-2d | agy-adapter tests pass |
 
 Scaffold: 1333521
 
@@ -207,7 +207,26 @@ Depends on: phase 2
 | Lane | Size | Owns files | Reads | Tests | Model | Status | Branch | Done when |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | a | M | src/commands/mcp-question.ts, src/core/mcp-question.ts, tests/mcp-question.test.ts | contracts | | opus | pending | | |
-| b | M | src/providers/agy/questions.ts, src/supervisor/questions.ts, src/supervisor/notifications.ts, tests/agy-questions.test.ts | contracts | | opus | pending | | |
+| b | M | src/providers/agy/questions.ts, src/providers/agy/connection.ts, src/supervisor/questions.ts, src/supervisor/notifications.ts, tests/agy-questions.test.ts | contracts | | opus | pending | | |
+
+Scaffold (written when phase 2 lands): the daemon `Ask` request in src/schemas/daemon.ts (`{run: RunName, question, kind: "question" | "blocked", callId}` replying `{_tag: "AskAnswer", text}` or failing `RunConflict` with the refusal reason), its dispatch in src/supervisor/index.ts to `connections.forRun(run)` then `connection.ask(session, ...)`, mapping QuestionRefused to RunConflict(reason) and QuestionCancelled to RunConflict("question cancelled by the orchestrator: <reason>"); the hidden `mcp-question --run <name>` command registered in src/cli.ts calling a stub `runQuestionBridge` in src/core/mcp-question.ts; the phase test tests/agy-question-runs.test.ts (real daemon, fake ACP agent, and the real bridge spawned by the fake: add a fake-agent step `mcpCall: {server, tool, arguments, label}` that launches the session's stdio MCP server from `session/new` mcpServers and calls the tool, and `awaitMcpResult: label`): a question reaches `waiting`, `foreman answer` releases it and the run finishes with the answer in the tool result; `defer` and the question timeout deferral reply with the deferral text; killing the bridge child while held records the question cancelled, moves the run back to running, and a later answer is a late answer; an ask with no prompt outstanding gets "turn is no longer active"; a hand-off turn's ask is refused by the permission policy.
+
+#### Lane a brief (the bridge)
+
+- Goal: `foreman mcp-question --run <name>` is a stdio MCP server exposing `ask_orchestrator` with exactly the input schema Codex gets (src/schemas/codex.ts `askOrchestratorTool`), forwarding each call to the daemon `Ask` request.
+- Behavior: JSON-RPC 2.0 lines on stdin/stdout. `initialize` replies with protocolVersion echoing the client's (2025-06-18 or what agy sends), capabilities `{tools: {}}` and serverInfo foreman. `tools/list` returns the one tool. `tools/call` for `ask_orchestrator` decodes `{question, kind?}` ignoring unknown arguments (agy adds `toolSummary`), mints a callId (uuid), and sends `Ask` through the connect-only daemon client (`call(body, {dataDir, connectOnly: true})` as doctor does; FOREMAN_HOME comes from the env agy passes). The socket request stays open with no timeout. Success replies `{content: [{type: "text", text}]}`; a refusal replies `{content: [{type: "text", text: reason}], isError: true}`; an unreachable daemon replies isError with "The foreman orchestrator is unavailable. Continue without the answer, list the question under Open in your hand-off, and take no irreversible step that depends on it." Other methods: notifications ignored, unknown requests -32601. Exits when stdin closes. Logs nothing to stdout except protocol; diagnostics to the log file only.
+- Pure parts (message decode, tool-call decode, reply building) in src/core/mcp-question.ts as functions; the stdin/stdout loop and the daemon call at the edge in src/commands/mcp-question.ts.
+- Tests (tests/mcp-question.test.ts): through tests/helpers/cli.ts driving the real command with a real daemon fixture or a fake socket server: initialize, tools/list schema equals Codex's, a call forwarded and answered, toolSummary ignored, refusal becomes isError, daemon unreachable message, unknown method -32601, malformed line is skipped with a log record.
+
+#### Lane b brief (questions in the agy connection and supervisor)
+
+- Goal: agy runs ask through the bridge and the supervisor treats them like Codex questions.
+- `src/providers/agy/questions.ts`: pure helpers: the `mcpServers` entry for a session (`{name: "foreman", command: <foreman executable from Host.executable>, args: [...executable rest, "mcp-question", "--run", run], env: [{name: "FOREMAN_HOME", value: home}]}`) and the bookkeeping for held calls (callId to Deferred).
+- In src/providers/agy/connection.ts (lane b owns it this phase): `open` passes the bridge on `session/new`; `ask(session, question)`: when the session has no outstanding prompt fail `QuestionRefused{reason: "turn is no longer active"}`; otherwise emit a `QuestionCall` on `questions` stamped with the outstanding turn whose respond/reject/cancel complete a Deferred, and await it. If the awaiting fiber is interrupted (the bridge's socket closed) before an outcome, push an Inbound with `QuestionAbandoned{turn, callId}` (raw null).
+- Supervisor (src/supervisor/questions.ts, notifications.ts): `QuestionAbandoned` records the question `cancelled` with resolution reason "the agent's tool call ended before an answer", moves a `waiting` run back to `running`, and later answers to that id take the existing late-answer path. For agy runs, the question timeout is capped at 80 seconds below agy's observed MCP hold (record the cap in run warnings when the requested timeout was higher: "agy holds a question for at most <n>; deferring after <n>"). Measure the hold once against real agy before fixing the number; the probe saw at least 92 s.
+- Tests (tests/agy-questions.test.ts): ask with and without an outstanding prompt; respond, reject and cancel outcomes; interruption emits QuestionAbandoned once; the supervisor's abandon transition and late-answer path; the timeout cap and its warning.
+- Guide lines for phase 5 lane c go in the plan log: how questions behave on agy and the hold cap.
+
 
 ### Phase 4: steering, budgets and resume on agy
 
@@ -216,7 +235,20 @@ Depends on: phase 3
 
 | Lane | Size | Owns files | Reads | Tests | Model | Status | Branch | Done when |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| a | M | src/providers/agy/connection.ts, src/providers/agy/events.ts, tests/agy-steer-resume.test.ts | contracts | | opus | pending | | |
+| a | M | src/providers/agy/connection.ts, src/providers/agy/events.ts, src/providers/agy/turns.ts, tests/agy-steer-resume-unit.test.ts | contracts | | opus | pending | | |
+
+Scaffold (written when phase 3 lands): tests/agy-steer-resume.test.ts, real daemon against the fake ACP agent with a `respondAfterSteps` prompt that waits on `awaitRequest: session/prompt`: a steer during a turn sends a second `session/prompt`, the first reply (`end_turn`) does not complete the foreman turn, the second does, usage is summed and a `Steered` event is recorded; a steer after the turn's completion was emitted is refused and the supervisor delivers it as a follow-up; a 45 s budget (use a short budgetMs in the test) interrupts with `session/cancel` and runs a hand-off turn whose edit is refused and whose shell command is approved, ending idle with the hand-off text; after a daemon restart a followup calls `session/resume` with the worktree cwd and the bridge in mcpServers, then `session/set_config_option` with the run's model and effort, records `Resumed{sandbox: "default", model}`, and finishes the turn.
+
+#### Lane a brief
+
+- Goal: steering, budget hand-off and resume for agy, as RFC "Steering", "Interrupt" and "Resume" describe.
+- Steering in src/providers/agy/connection.ts: track every outstanding prompt per session. `steer(session, turn, input)` is serialized with prompt-reply handling per session (a Semaphore or a single per-session queue): accepted only while a prompt is outstanding and the turn's TurnCompleted hasn't been emitted, else `SteerRefused{reason: "the agy turn already finished"}`. Accepted steers send `session/prompt` on their own fiber. A reply completes the foreman turn only when no later prompt is outstanding; usage sums across replies. A refusal recorded by any prompt still fails the turn.
+- Budget: nothing provider-specific beyond the hand-off permission policy already in permissions.ts and interrupt; verify the supervisor's budget path works end to end on agy and fix only agy code.
+- Resume: `resume(run, session, settings)` sends `session/resume {sessionId, cwd, mcpServers}` (the bridge entry from phase 3), then set_config_option model and set_mode default, and returns `{sandbox: "default", model: settings.model}`. `isLoaded` becomes true after resume. Errors as in `open` (auth wording).
+- events.ts changes only where steering needs them (stamping updates with the latest outstanding prompt's turn).
+- Tests (tests/agy-steer-resume-unit.test.ts, your own): steer accepted and refused windows including the race where the completion is queued; usage sum; resume request sequence; resume auth failure.
+- Guide lines for phase 5 lane c go in the plan log.
+
 
 ### Phase 5: the agent experience
 
@@ -225,10 +257,36 @@ Depends on: phase 2
 
 | Lane | Size | Owns files | Reads | Tests | Model | Status | Branch | Done when |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| a | M | src/providers/routing.ts, src/commands/models.ts, src/core/models.ts, src/schemas/models.ts, tests/model-routing.test.ts | contracts | | opus | pending | | |
-| b | S | src/core/doctor-providers.ts, tests/doctor-providers.test.ts | contracts | | sonnet | pending | | |
-| c | M | src/guide/, scripts/generate-skill.ts, docs/architecture.md | contracts | | opus | pending | | |
+| a | M | src/providers/routing.ts, src/providers/routing-errors.ts, src/commands/models.ts, src/core/models.ts, src/schemas/models.ts, tests/model-routing.test.ts | contracts | | opus | pending | | |
+| b | M | src/core/doctor.ts, src/core/doctor-providers.ts, src/schemas/doctor.ts, src/commands/doctor.ts, tests/doctor-providers.test.ts | contracts | | sonnet | pending | | |
+| c | M | src/guide/, scripts/generate-skill.ts, .claude/skills/foreman/, docs/architecture.md, README.md, AGENTS.md, docs/harness.md, .claude/README.md | contracts | | opus | pending | | |
 | d | S | src/core/monitor/row.ts, src/core/monitor/detail-facts.ts, tests/monitor-provider.test.ts | contracts | | sonnet | pending | | |
+
+Phase 5 runs alongside phases 3 and 4 on its own phase branch, `deliver/agy-provider-p5`. Scaffold (written when phase 2 lands): `ModelUnresolved` in src/errors.ts (exit 2, not retryable, optional `candidates: [{provider, model, efforts}]` carried into the `--json` error envelope), the `models` command registered in src/cli.ts calling a stub in src/core/models.ts, stub `routingError`/`nearMisses` in src/providers/routing-errors.ts, and the phase test tests/agent-experience.test.ts through tests/helpers/cli.ts with fixture catalogs (a Codex models_cache.json and a seeded agy models.json cache): `start --model gemini-4-neo` fails exit 2 with the near-miss text and candidates in `--json`, with no daemon contacted; each RFC routing error row's text; `models --json` lists both providers with efforts and defaults, and an unavailable agy with its reason; `doctor --json` reports codex and agy separately, and "agy: not installed" leaves the exit code 0.
+
+#### Lane a brief (routing errors and `foreman models`)
+
+- Replace phase 2's `Usage` routing errors with `ModelUnresolved` and the RFC "Model routing and its errors" table, every row's text exactly. Near misses: edit distance at most 2 or a catalog id that starts with the input, across both catalogs, with the provider named. The fourth refresh rule: a model in neither catalog with an agy cache older than an hour refreshes agy's catalog once before failing.
+- `foreman models [--json]`: provider, model id, valid efforts, default effort, which is the default model; an unavailable provider appears with its reason. Text output is a compact table.
+- Tests (tests/model-routing.test.ts): every table row, near-miss ranking, the refresh-once rule, models output in both formats.
+
+#### Lane b brief (doctor)
+
+- `foreman doctor` reports each provider separately as RFC "The agent experience" says: executable and version, sign-in (Codex: today's check; agy: `agy models` succeeds), protocol compatibility (agy: initialize protocol and version against `supportedAgy`), hook trust for the current repo (agy: `agyHookTrust`), catalog size. The exit code reflects only providers that would refuse a start; a missing agy is "agy: not installed" and not a failure. Keep every existing Codex field in `doctor --json` (add an `agy` object rather than renaming).
+- Tests (tests/doctor-providers.test.ts): agy present and signed in (fake agent), missing, signed out, the Codex-only hooks refusal shown, exit codes.
+
+#### Lane c brief (guide, skill, contract templates, docs)
+
+- Guide core topic: one provider table (what each is good for, how it signs in, default model and efforts), `foreman models` instead of reading models_cache.json, and the guide lines phases 3 and 4 logged (questions, hold cap, steering, read-only strength on agy: use Codex for an enforced read-only sandbox).
+- src/guide/contract.ts templates take the provider: instruction loading (Codex: AGENTS.md and its skills; agy: GEMINI.md, AGENTS.md, .agents/rules/, .agents/skills/) and the self-review command (`codex exec --ephemeral --sandbox read-only ...`; agy: `agy -p --model <model> --output-format text < prompt.md` with a no-edits instruction). Check agy print mode's handling of an edit permission request with one real cheap run (gemini-3.8-flash-low) before finalizing that text, and report what happened.
+- Regenerate the skill with `bun scripts/generate-skill.ts`; its description says "Delegate coding work to Codex or Antigravity (Gemini) through foreman".
+- README (usage, AGY_BIN, models, agy setup and sign-in), docs/architecture.md (providers, routing, storage fence, agy adapter), the AGENTS.md overview and harness section (.agents/hooks.json), docs/harness.md and .claude/README.md for the agy hook adapter. Keep AGENTS.md under 200 lines.
+- Tests: existing guide and skill tests updated for the new text; contract template tests for both providers.
+
+#### Lane d brief (monitor)
+
+- A short provider tag beside the model in list rows and detail facts (`agy` for agy runs; Codex runs show nothing new unless docs/design/monitor.md's column rules make an empty tag ambiguous). Follow docs/design/monitor.md for color and width; nothing else in the TUI changes.
+- Tests (tests/monitor-provider.test.ts): rows and facts for both providers at narrow and wide widths.
 
 ## Log
 
@@ -243,3 +301,4 @@ Depends on: phase 2
 - Phase 1 boundary review: 5 findings, all verified against the code and accepted: provider-neutral request failures and steer-fallback by tag, not text; hasRepoHooks/hook-bypass message/default model behind the provider plus a lint rule keeping supervisor off providers/codex; null turn means "unnamed, applies to active" and no-turn messages carry no events; a provider-neutral `ask` for bridge questions; Inbound.raw nullable. Fixed on deliver/agy-provider-1fix.
 - Codex pin 0.171.0 merged (c0cab8c): no used method or field changed incompatibly; the full real-Codex smoke suite passed on that branch (21 pass, 0 fail).
 - Phase 1 tagged agy-phase-1: a `phase-1` tag from an earlier, unrelated run already exists, so this plan's later tags carry the `agy-` prefix.
+- The delegate preamble stays in the first prompt for both providers (src/supervisor/prompts.ts, prepended by turns.ts) instead of agy's `_meta.antigravity.systemPrompt.append`: provider-neutral and already covered by tests. Follow-ups and hand-offs behave as on Codex.

@@ -1,0 +1,36 @@
+{
+  "repo-guards": {
+    "PreToolUse": [
+      {
+        "matcher": "run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -f ./hooks/guard-adapter.sh ]; then bash ./hooks/guard-adapter.sh || echo '{\"decision\":\"deny\",\"reason\":\"BLOCKED: .agents/hooks/guard-adapter.sh failed, so the command is refused rather than run unguarded.\"}'; else echo '{\"decision\":\"deny\",\"reason\":\"BLOCKED: .agents/hooks/guard-adapter.sh not found, so the command is refused rather than run unguarded.\"}'; fi",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "write_file",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -f ./hooks/guard-adapter.sh ]; then bash ./hooks/guard-adapter.sh || echo '{\"decision\":\"deny\",\"reason\":\"BLOCKED: .agents/hooks/guard-adapter.sh failed, so the write is refused rather than run unguarded.\"}'; else echo '{\"decision\":\"deny\",\"reason\":\"BLOCKED: .agents/hooks/guard-adapter.sh not found, so the write is refused rather than run unguarded.\"}'; fi",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "edit_file",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -f ./hooks/guard-adapter.sh ]; then bash ./hooks/guard-adapter.sh || echo '{\"decision\":\"deny\",\"reason\":\"BLOCKED: .agents/hooks/guard-adapter.sh failed, so the edit is refused rather than run unguarded.\"}'; else echo '{\"decision\":\"deny\",\"reason\":\"BLOCKED: .agents/hooks/guard-adapter.sh not found, so the edit is refused rather than run unguarded.\"}'; fi",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
