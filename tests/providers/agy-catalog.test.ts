@@ -194,7 +194,9 @@ describe("readAgyCatalog", () => {
         const agy = yield* fakeAgy("1.5.14", true);
         const error = yield* readAgyCatalog(agy.options()).pipe(Effect.flip);
         expect(error).toBeInstanceOf(AgyUnavailable);
-        expect(error.detail).toContain("models` exited with code 3: not signed in");
+        expect(error.detail).toBe(
+          "`agy models` exited with code 3: not signed in. Run `agy models` yourself to see the problem, then run foreman doctor.",
+        );
         expect(yield* agy.fs.exists(`${agy.dir}/home/providers/agy/models.json`)).toBe(false);
       }),
     ),
@@ -208,7 +210,26 @@ describe("readAgyCatalog", () => {
           Effect.flip,
         );
         expect(error).toBeInstanceOf(AgyUnavailable);
-        expect(error.detail).toContain("Install agy or set AGY_BIN, then run foreman doctor.");
+        expect(error.detail).toBe(
+          "Could not run `agy --version` (the executable was not found or could not start). Install agy or set AGY_BIN, then run foreman doctor.",
+        );
+      }),
+    ),
+  );
+
+  it.effect("fails when agy models exits 0 but lists nothing, caching nothing", () =>
+    run(
+      Effect.gen(function* () {
+        const agy = yield* fakeAgy();
+        yield* agy.fs.writeFileString(`${agy.dir}/models`, "Please sign in\n");
+        const error = yield* readAgyCatalog(agy.options()).pipe(Effect.flip);
+        expect(error).toEqual(
+          new AgyUnavailable({
+            detail:
+              "`agy models` listed no models (output: Please sign in\n). Run `agy models` to check sign-in, then run foreman doctor.",
+          }),
+        );
+        expect(yield* agy.fs.exists(`${agy.dir}/home/providers/agy/models.json`)).toBe(false);
       }),
     ),
   );

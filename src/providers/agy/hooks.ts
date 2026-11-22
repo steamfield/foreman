@@ -36,22 +36,32 @@ const NamedHook = Schema.Struct({
 const HooksFile = Schema.fromJsonString(Schema.Record(Schema.String, NamedHook));
 
 /**
+ * Whether a file or symlink exists at the path. lstat, not stat: a dangling symlink counts, so
+ * the repo isn't treated as unguarded. NotFound and BadResource (a parent that is a regular
+ * file, ENOTDIR) both mean there is no file there.
+ */
+const pathExists = Effect.fnUntraced(function* (file: string) {
+  const fs = yield* FileSystem.FileSystem;
+  return yield* fs.lstat(file).pipe(
+    Effect.as(true),
+    Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(false)),
+    Effect.catchReason("PlatformError", "BadResource", () => Effect.succeed(false)),
+  );
+});
+
+/**
  * Returns the first `hooks.json` agy would load from the worktree, or null when there is none.
  * A dangling symlink counts as present.
  * @throws {PermissionDenied} When a hook directory can't be inspected.
  */
 export const findAgyHooks = Effect.fn("agy.findAgyHooks")(function* (worktree: string) {
-  const fs = yield* FileSystem.FileSystem;
   for (const dir of AGY_HOOK_DIRS) {
     const candidate = `${worktree}/${dir}/${HOOKS_FILE}`;
-    // lstat, not stat: a dangling symlink must still count so the repo isn't treated as unguarded.
-    const found = yield* fs.lstat(candidate).pipe(
-      Effect.as(true),
-      Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(false)),
+    const found = yield* pathExists(candidate).pipe(
       Effect.mapError(
-        () =>
+        (error) =>
           new PermissionDenied({
-            detail: `Cannot inspect agy hooks at ${candidate}. Check its directory permissions and retry.`,
+            detail: `Cannot inspect agy hooks at ${candidate} (${error.message}). Fix the permissions, then run foreman doctor.`,
           }),
       ),
     );
@@ -78,11 +88,8 @@ const checkHooksFileDecodes = Effect.fnUntraced(function* (hooksPath: string) {
 });
 
 const hasCodexHooks = Effect.fnUntraced(function* (mainCheckout: string) {
-  const fs = yield* FileSystem.FileSystem;
   const codexHooks = `${mainCheckout}/${CODEX_HOOKS_FILE}`;
-  return yield* fs.lstat(codexHooks).pipe(
-    Effect.as(true),
-    Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(false)),
+  return yield* pathExists(codexHooks).pipe(
     Effect.mapError(
       (error) =>
         new RepoHooksUntrusted({
@@ -103,13 +110,8 @@ export const agyHookTrust = Effect.fn("agy.agyHookTrust")(function* (
   worktree: string,
 ) {
   const hooksPath = yield* findAgyHooks(worktree).pipe(
-    // The contract allows only RepoHooksUntrusted here, so a permission problem names the path.
-    Effect.mapError(
-      (error) =>
-        new RepoHooksUntrusted({
-          detail: `${error.detail ?? "Cannot inspect agy hooks."} Fix the permissions, then run foreman doctor.`,
-        }),
-    ),
+    // The contract allows only RepoHooksUntrusted here; the detail already names the path.
+    Effect.mapError((error) => new RepoHooksUntrusted({ detail: error.detail })),
   );
   if (hooksPath !== null) {
     yield* checkHooksFileDecodes(hooksPath);

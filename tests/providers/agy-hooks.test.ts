@@ -81,9 +81,31 @@ it.effect.skipIf(process.getuid?.() === 0)(
           Effect.ensuring(fs.chmod(`${work}/.agents`, 0o755).pipe(Effect.ignore)),
         );
         expect(error).toBeInstanceOf(PermissionDenied);
-        expect(error.detail).toContain(`${work}/.agents/hooks.json`);
+        expect(error.detail).toMatch(
+          new RegExp(
+            `^Cannot inspect agy hooks at ${work}/.agents/hooks.json \\(.+\\)\\. Fix the permissions, then run foreman doctor\\.$`,
+          ),
+        );
       }),
     ),
+);
+
+it.effect("treats a hook directory that is a regular file as no hooks there", () =>
+  run(
+    Effect.gen(function* () {
+      const { main, work } = yield* repoWith({
+        work: { ".agents": "not a directory", "_agents/hooks.json": "{}" },
+      });
+      expect(yield* findAgyHooks(work)).toBe(`${work}/_agents/hooks.json`);
+      const { main: bareMain, work: bareWork } = yield* repoWith({
+        main: { ".codex": "not a directory" },
+        work: { ".agents": "not a directory" },
+      });
+      expect(yield* findAgyHooks(bareWork)).toBeNull();
+      expect(yield* agyHookTrust(bareMain, bareWork)).toEqual({ required: false });
+      expect(yield* agyHookTrust(main, work)).toEqual({ required: true });
+    }),
+  ),
 );
 
 it.effect("requires hooks when a valid file exists, in either entry shape", () =>

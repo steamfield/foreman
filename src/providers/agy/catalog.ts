@@ -5,7 +5,7 @@
 import { Effect, FileSystem, Path, Schema } from "effect";
 import { ChildProcess } from "effect/process";
 import { commandResult } from "../../core/process";
-import { AgyUnavailable } from "../../errors";
+import { AgyUnavailable, type PermissionDenied, type WorktreeInvalid } from "../../errors";
 import { outputTail } from "../output-tail";
 
 /** One model `agy models` lists. */
@@ -81,26 +81,38 @@ export interface ReadAgyCatalogOptions {
   readonly refresh: boolean;
 }
 
+const spawnFailureReason = (error: PermissionDenied | WorktreeInvalid) =>
+  error._tag === "PermissionDenied"
+    ? "permission denied"
+    : "the executable was not found or could not start";
+
 /** Runs `agy <args>` and returns its stdout. */
 const runAgy = Effect.fnUntraced(function* (options: ReadAgyCatalogOptions, args: string[]) {
-  const command = `${options.agyBin} ${args.join(" ")}`;
-  const unavailable = (reason: string) =>
-    new AgyUnavailable({
-      detail: `\`${command}\` ${reason}. Install agy or set AGY_BIN, then run foreman doctor.`,
-    });
+  const command = `agy ${args.join(" ")}`;
   const result = yield* commandResult(
     ChildProcess.make(options.agyBin, args, { env: options.env, extendEnv: false }),
   ).pipe(
     Effect.timeoutOrElse({
       duration: AGY_COMMAND_TIMEOUT,
-      orElse: () => Effect.fail(unavailable(`didn't finish within ${AGY_COMMAND_TIMEOUT}`)),
+      orElse: () =>
+        Effect.fail(
+          new AgyUnavailable({
+            detail: `\`${command}\` didn't finish within ${AGY_COMMAND_TIMEOUT}. Run it yourself to see why, then run foreman doctor.`,
+          }),
+        ),
     }),
     Effect.mapError((error) =>
-      error instanceof AgyUnavailable ? error : unavailable(`couldn't run: ${error.detail}`),
+      error instanceof AgyUnavailable
+        ? error
+        : new AgyUnavailable({
+            detail: `Could not run \`${command}\` (${spawnFailureReason(error)}). Install agy or set AGY_BIN, then run foreman doctor.`,
+          }),
     ),
   );
   if (result.code !== 0)
-    return yield* unavailable(`exited with code ${result.code}: ${outputTail(result.stderr)}`);
+    return yield* new AgyUnavailable({
+      detail: `\`${command}\` exited with code ${result.code}: ${outputTail(result.stderr).trim() || "no stderr"}. Run \`agy models\` yourself to see the problem, then run foreman doctor.`,
+    });
   return result.stdout;
 });
 
@@ -157,7 +169,12 @@ export const readAgyCatalog = Effect.fn("agy.readAgyCatalog")(function* (
     const cached = yield* readFreshCache(cacheFile, agyVersion, options.now);
     if (cached !== undefined) return cached;
   }
-  const models = parseAgyModels(yield* runAgy(options, ["models"]));
+  const modelsOutput = yield* runAgy(options, ["models"]);
+  const models = parseAgyModels(modelsOutput);
+  if (models.length === 0)
+    return yield* new AgyUnavailable({
+      detail: `\`agy models\` listed no models (output: ${outputTail(modelsOutput)}). Run \`agy models\` to check sign-in, then run foreman doctor.`,
+    });
   const catalog: AgyCatalog = {
     fetchedAt: new Date(options.now).toISOString(),
     agyVersion,
