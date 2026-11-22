@@ -101,6 +101,33 @@ export function changedSince(
   return [...changed].sort();
 }
 
+const isSpecial = (char: string) => {
+  const code = char.charCodeAt(0);
+  return code < 0x20 || code === 0x7f || char === "\\" || char === '"';
+};
+const SIMPLE_ESCAPES: Readonly<Record<string, string>> = {
+  "\\": "\\\\",
+  '"': '\\"',
+  "\n": "\\n",
+  "\t": "\\t",
+};
+
+/**
+ * One line of `git hash-object --stdin-paths` input for `path`. Git C-unquotes a line that
+ * starts with a double quote and splits lines at newlines, so a path with a newline, a
+ * backslash, a double quote or another control character is quoted the way git quotes names.
+ * @throws Never; pure.
+ */
+export function stdinPathLine(path: string): string {
+  const chars = [...path];
+  if (!chars.some(isSpecial)) return path;
+  const body = chars.map((char) => {
+    if (!isSpecial(char)) return char;
+    return SIMPLE_ESCAPES[char] ?? `\\${char.charCodeAt(0).toString(8).padStart(3, "0")}`;
+  });
+  return `"${body.join("")}"`;
+}
+
 /**
  * Hashes the files `git hash-object` can read in the worktree.
  * @throws {WorktreeInvalid} When git fails.
@@ -111,7 +138,7 @@ const hashFiles = Effect.fnUntraced(function* (worktree: string, paths: readonly
   const result = yield* commandResult(
     ChildProcess.make("git", ["hash-object", "--stdin-paths"], {
       cwd: worktree,
-      stdin: Stream.make(new TextEncoder().encode(`${paths.join("\n")}\n`)),
+      stdin: Stream.make(new TextEncoder().encode(`${paths.map(stdinPathLine).join("\n")}\n`)),
     }),
   );
   if (result.code !== 0)

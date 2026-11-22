@@ -143,6 +143,27 @@ it.live(
   30_000,
 );
 
+it.live(
+  "snapshots handle file names with a newline, a backslash and a leading double quote",
+  () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const repo = yield* fs.makeTempDirectoryScoped({ directory: "/tmp", prefix: "fm-ro-" });
+      const init = yield* commandResult(ChildProcess.make("git", ["init", "-q"], { cwd: repo }));
+      expect(init.code).toBe(0);
+      const names = ['"quoted.txt', "line\nbreak.txt", "back\\slash.txt", "tab\there.txt"];
+      for (const name of names) yield* fs.writeFileString(`${repo}/${name}`, "one\n");
+      const before = yield* readSnapshot(repo);
+      expect([...before.keys()].sort()).toEqual(names.map((name) => name).sort());
+      yield* fs.writeFileString(`${repo}/line\nbreak.txt`, "two\n");
+      yield* fs.writeFileString(`${repo}/"quoted.txt`, "two\n");
+      expect(changedSince(before, yield* readSnapshot(repo))).toEqual(
+        ['"quoted.txt', "line\nbreak.txt"].sort(),
+      );
+    }).pipe(Effect.provide(platform), Effect.scoped),
+  30_000,
+);
+
 const leak = "read-only agy run changed files: leak.txt";
 
 it.live(
