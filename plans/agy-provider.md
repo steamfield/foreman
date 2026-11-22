@@ -239,9 +239,10 @@ Depends on: phase 3
 
 | Lane | Size | Owns files | Reads | Tests | Model | Status | Branch | Done when |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| a | M | src/providers/agy/connection.ts, src/providers/agy/events.ts, src/providers/agy/turns.ts, src/providers/agy/steer.ts, src/providers/agy/resume.ts, tests/agy-steer-resume-unit.test.ts | contracts | | opus | running | deliver/agy-provider-4a | |
+| a | M | src/providers/agy/connection.ts, src/providers/agy/events.ts, src/providers/agy/turns.ts, src/providers/agy/steer.ts, src/providers/agy/resume.ts, tests/fixtures/fake-acp-agent/scenarios.ts, tests/agy-steer-resume-unit.test.ts | contracts | | opus | merged | deliver/agy-provider-4a | |
 
 Scaffold: 7b7db73
+Tag: agy-phase-4
 
 Scaffold contents: tests/agy-steer-resume.test.ts, real daemon against the fake ACP agent with a `respondAfterSteps` prompt that waits on `awaitRequest: session/prompt`: a steer during a turn sends a second `session/prompt`, the first reply (`end_turn`) does not complete the foreman turn, the second does, usage is summed and a `Steered` event is recorded; a steer after the turn's completion was emitted is refused and the supervisor delivers it as a follow-up; a 45 s budget (use a short budgetMs in the test) interrupts with `session/cancel` and runs a hand-off turn whose shell command is approved and whose edit is refused, ending failed with the refusal after writing its hand-off text; after a daemon restart a followup calls `session/resume` with the worktree cwd and the bridge in mcpServers, then `session/set_config_option` with the run's model and effort, records `Resumed{sandbox: "default", model}`, and finishes the turn.
 
@@ -316,3 +317,4 @@ Phase 5 runs alongside phases 3 and 4 on its own phase branch, `deliver/agy-prov
 - Phase 5 lane a, "listed by both": detect it by reading agy's cached catalog file when Codex lists the model (no agy process, no refresh, no version check); a missing or stale cache means no ambiguity check, so Codex starts never pay for an agy spawn.
 - Phase 3 lane b measured real agy's MCP question hold: after 180 s agy sends notifications/cancelled to the MCP server and continues without the answer. agy question timeouts are capped at 100 s at start, with a run warning.
 - Phase 3 demo on real agy 1.5.14 (gemini-3.8-flash-low): ask_orchestrator through the bridge put the run in waiting, `foreman answer` released it, and agy wrote the answered value. Phase 3 review fixes: an answer racing the bridge's abandon is never recorded as delivered; an abandon overtaking its call is remembered so the run doesn't wait on a dead call; the 100 s cap warns only when an explicit timeout exceeds it.
+- Phase 4 demo on real agy: a steer during a running Neon turn changed its result; after a daemon restart a followup resumed the session with history and recorded Resumed. It found that agy (flash and Neon) moves a slow command to the background and ends its turn, and nothing starts the next turn when the command finishes, so an unattended run stopped half done. session/new now appends an instruction to agy's system prompt (the RFC's systemPrompt.append, which persists across resume) to keep commands in the foreground; with it, the same contract completed.

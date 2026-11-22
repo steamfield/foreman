@@ -229,7 +229,8 @@ it.live(
       expect(sent(after, "session/resume")).toEqual([
         {
           sessionId: session,
-          cwd: f.worktree,
+          // The supervisor passes the real path (/private/tmp on macOS), as session/new gets.
+          cwd: expect.stringMatching(/\/repo\/work\/unit$/),
           mcpServers: (opened as { readonly mcpServers: unknown }).mcpServers,
         },
       ]);

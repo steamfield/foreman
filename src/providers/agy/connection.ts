@@ -8,22 +8,22 @@
  * adapter" is the design.
  */
 import { Deferred, Effect, FileSystem, Queue, Schema, Stream } from "effect";
-import { AgyUnavailable } from "../../errors";
 import * as Acp from "../../schemas/acp";
-import {
-  type ProviderConnection,
-  type SessionId,
-  type SessionSettings,
-  SteerRefused,
-  type TurnRequest,
-} from "../contract";
+import type { ProviderConnection, SessionId, SessionSettings, TurnRequest } from "../contract";
 import { type RpcMessage, type RpcNotification, RpcRequestTimeout } from "../jsonrpc";
 import { readNotification } from "./events";
 import { agyHookTrust } from "./hooks";
-import { type AgyLaunchOptions, launchAgy, sessionRequest } from "./launch";
+import {
+  type AgyLaunchOptions,
+  launchAgy,
+  sessionRequest,
+  UNATTENDED_INSTRUCTIONS,
+} from "./launch";
 import { type Live, makeLive } from "./live";
 import { answerServerRequest } from "./permission-requests";
 import { askQuestion, bridgeFor } from "./questions";
+import { configureSession, resumeSession } from "./resume";
+import { type SessionLocks, steerSession, withSessionLock } from "./steer";
 import {
   abandonPrompts,
   beginTurn,
@@ -36,10 +36,6 @@ import {
 
 const SESSION_NEW_TIMEOUT = "180 seconds";
 const CANCEL_TIMEOUT_MS = 30_000;
-/** The effort routing records for agy models that have no thinking levels. */
-const NO_EFFORT = "none";
-const RESUME_UNAVAILABLE =
-  "Resuming an agy session after a daemon restart isn't available yet; start a new run.";
 
 /** Settings for one `agy acp` child and the question bridge its sessions get. */
 export interface AgyConnectionOptions extends AgyLaunchOptions {
@@ -52,16 +48,6 @@ export interface AgyConnection {
   readonly connection: ProviderConnection;
   /** null when agy didn't report one. */
   readonly agentVersion: string | null;
-}
-
-/**
- * agy takes model and thinking level as one id: `gemini-4-neon-low`. Models without thinking
- * levels (`claude-opus-5-5`) go as they are.
- */
-export function modelValue(settings: SessionSettings): string {
-  const suffix = `-${settings.effort}`;
-  if (settings.effort === NO_EFFORT || settings.model.endsWith(suffix)) return settings.model;
-  return `${settings.model}${suffix}`;
 }
 
 /**
@@ -80,7 +66,8 @@ export const connectAgy = Effect.fn("agy.connect")(function* (options: AgyConnec
 
 /** Wires the channel into the provider contract and starts the reader. */
 const makeConnection = Effect.fnUntraced(function* (live: Live, fs: FileSystem.FileSystem) {
-  yield* readMessages(live).pipe(Effect.forkScoped);
+  const locks: SessionLocks = new Map();
+  yield* readMessages(live, locks).pipe(Effect.forkScoped);
   const connection: ProviderConnection = {
     provider: "agy",
     generation: Symbol("agy"),
@@ -89,10 +76,10 @@ const makeConnection = Effect.fnUntraced(function* (live: Live, fs: FileSystem.F
     termination: live.channel.termination,
     open: (run, settings) => openSession(live, run, settings),
     nameSession: () => Effect.succeed([]),
-    resume: () => Effect.fail(new AgyUnavailable({ detail: RESUME_UNAVAILABLE })),
+    resume: (run, session, settings) => resumeSession(live, run, session, settings),
     isLoaded: (session) => live.sessions.has(session),
     startTurn: (session, request) => startTurn(live, session, request),
-    steer: () => Effect.fail(new SteerRefused({ reason: "agy steering is not available yet" })),
+    steer: (session, turn, input) => steerSession(live, locks, session, turn, input),
     interrupt: (session) => interruptSession(live, session),
     ask: (session, question) => askQuestion(live, session, question),
     hookTrust: (mainCheckout, worktree) =>
@@ -102,9 +89,9 @@ const makeConnection = Effect.fnUntraced(function* (live: Live, fs: FileSystem.F
 });
 
 /** Applies agy's messages in wire order, ending `inbound` and `questions` with the channel. */
-const readMessages = (live: Live) =>
+const readMessages = (live: Live, locks: SessionLocks) =>
   live.channel.messages.pipe(
-    Stream.runForEach((message) => applyMessage(live, message)),
+    Stream.runForEach((message) => applyMessage(live, locks, message)),
     Effect.matchCauseEffect({
       onFailure: (cause) => Queue.failCause(live.inbound, cause),
       onSuccess: () => Queue.end(live.inbound),
@@ -113,14 +100,14 @@ const readMessages = (live: Live) =>
     Effect.ensuring(Queue.end(live.questions)),
   );
 
-function applyMessage(live: Live, message: RpcMessage) {
+function applyMessage(live: Live, locks: SessionLocks, message: RpcMessage) {
   switch (message._tag) {
     case "Notification":
       return applyNotification(live, message.message);
     case "ServerRequest":
       return answerServerRequest(live, message.message);
     case "Reply":
-      return applyReply(live, message);
+      return applyReply(live, locks, message);
   }
 }
 
@@ -141,7 +128,11 @@ const openSession = Effect.fnUntraced(function* (
   const { sessionId } = yield* sessionRequest(
     live.channel,
     Acp.Method.sessionNew,
-    { cwd: settings.cwd, mcpServers: [live.bridge(run)] },
+    {
+      cwd: settings.cwd,
+      mcpServers: [live.bridge(run)],
+      _meta: { antigravity: { systemPrompt: { append: UNATTENDED_INSTRUCTIONS } } },
+    },
     Acp.SessionNewResult,
     SESSION_NEW_TIMEOUT,
   );
@@ -150,10 +141,7 @@ const openSession = Effect.fnUntraced(function* (
     tools: new Map(),
     cwd: settings.cwd,
   });
-  const model = { sessionId, configId: "model", value: modelValue(settings) };
-  yield* sessionRequest(live.channel, Acp.Method.setConfigOption, model, Schema.Unknown);
-  const mode = { sessionId, modeId: "default" };
-  yield* sessionRequest(live.channel, Acp.Method.setMode, mode, Schema.Unknown);
+  yield* configureSession(live, sessionId, settings);
   return { session: sessionId, warnings: [] };
 });
 
@@ -184,17 +172,30 @@ const startTurn = Effect.fnUntraced(function* (
   return turn;
 });
 
-/** Ends a prompt's turn, unless the prompt was abandoned or another one is outstanding. */
-function applyReply(live: Live, reply: Extract<RpcMessage, { _tag: "Reply" }>) {
+/**
+ * Ends a prompt's turn, unless the prompt was abandoned or another one is outstanding. Holds
+ * the session's lock, so a steer either joins the turn before this reply or sees it ended.
+ */
+function applyReply(
+  live: Live,
+  locks: SessionLocks,
+  reply: Extract<RpcMessage, { _tag: "Reply" }>,
+) {
   const session = live.prompts.get(reply.id);
   if (session === undefined) return Effect.void;
-  live.prompts.delete(reply.id);
   const raw =
     reply.error === null
       ? reply.result
       : { error: { code: reply.error.code, message: reply.error.message } };
   const outcome = promptOutcome(reply.result, reply.error);
-  return finishTurn(live, session, raw, outcome).pipe(Effect.andThen(settleIfIdle(live, session)));
+  const apply = Effect.suspend(() => {
+    // An interrupt that timed out may have abandoned the prompt while this waited.
+    if (!live.prompts.delete(reply.id)) return Effect.void;
+    return finishTurn(live, session, raw, outcome);
+  });
+  return withSessionLock(locks, session, apply).pipe(
+    Effect.andThen(() => settleIfIdle(live, session)),
+  );
 }
 
 /** Applies a prompt's reply to the session and reports the events it produces. */

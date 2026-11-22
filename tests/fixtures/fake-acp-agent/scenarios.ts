@@ -383,3 +383,13 @@ export function editInHandoff(): AcpScenario {
     ],
   };
 }
+
+/**
+ * A turn whose first prompt answers and replies end_turn at once, so a steer sent right after
+ * it races that reply, then a prompt that gives the steer's answer.
+ */
+export function steerRacesReply(): AcpScenario {
+  return {
+    rules: [prompt([message("First answer.")]), prompt([message("Second answer.")])],
+  };
+}

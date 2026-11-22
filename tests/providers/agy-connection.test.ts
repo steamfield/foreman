@@ -9,6 +9,7 @@ import { Cause, Effect, Fiber, FileSystem, Schema, type Scope, Stream } from "ef
 import { TestClock } from "effect/testing";
 import { AgyUnavailable } from "../../src/errors";
 import { connectAgy } from "../../src/providers/agy/connection";
+import { UNATTENDED_INSTRUCTIONS } from "../../src/providers/agy/launch";
 import type { Inbound, ProviderConnection, ProviderEvent } from "../../src/providers/contract";
 import { RpcRequestTimeout } from "../../src/providers/jsonrpc";
 import {
@@ -144,6 +145,7 @@ it.effect("opens a session in the worktree with the model, effort and default mo
                 env: [{ name: "FOREMAN_HOME", value: `${agy.root}/home` }],
               },
             ],
+            _meta: { antigravity: { systemPrompt: { append: UNATTENDED_INSTRUCTIONS } } },
           },
         }),
         expect.objectContaining({

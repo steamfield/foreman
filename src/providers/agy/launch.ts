@@ -150,3 +150,16 @@ export const sessionRequest = <A, I>(
       Effect.fail(mentionsAuth(error.message) ? new AgyUnavailable({ detail: SIGNED_OUT }) : error),
     ),
   );
+
+/**
+ * Appended to agy's system prompt on `session/new`; agy keeps it with the session across
+ * resume. agy ends a turn while a command it moved to the background is still running, and
+ * nothing starts its next turn when that command finishes, so an unattended run would stop
+ * with the work half done.
+ */
+export const UNATTENDED_INSTRUCTIONS =
+  "foreman is running you unattended for an orchestrator, and only foreman starts your next turn. " +
+  "Run every command in the foreground and wait for it to finish before you continue: set " +
+  "WaitMsBeforeAsync to cover the command's whole runtime, and never end your turn while a " +
+  "command you started is still running. When you need a decision, call ask_orchestrator " +
+  "instead of waiting for a reply.";
