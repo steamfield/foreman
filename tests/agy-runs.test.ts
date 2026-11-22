@@ -2,7 +2,12 @@
 // supervisor, with the fake ACP agent standing in for `agy acp`.
 import { expect, it } from "@effect/vitest";
 import { Effect } from "effect";
-import { cancellableTurn, refusedEdit, writeTurn } from "./fixtures/fake-acp-agent/scenarios";
+import {
+  cancellableTurn,
+  prompt,
+  refusedEdit,
+  writeTurn,
+} from "./fixtures/fake-acp-agent/scenarios";
 import { agyFixture, agyPlatform as platform } from "./helpers/agy";
 
 const methodsOf = (messages: readonly unknown[]) =>
@@ -247,4 +252,24 @@ it.live(
       });
     }).pipe(Effect.provide(platform)),
   30_000,
+);
+
+it.live(
+  "an interrupt agy never confirms leaves the run unknown, not running",
+  () =>
+    Effect.gen(function* () {
+      const f = yield* agyFixture(cancellableTurn());
+      const hold = yield* f.gate("hold");
+      // agy sees the cancel but never ends the prompt until the test opens the gate.
+      yield* f.useScenario({
+        rules: [prompt([{ awaitRequest: "session/cancel" }, { gate: hold }], "cancelled")],
+      });
+      yield* f.start(true);
+      yield* f.until("running");
+      yield* f.request({ _tag: "Interrupt", name: f.name });
+      const digest = yield* f.until("unknown");
+      expect(digest.warnings.join(" ")).toContain("was not confirmed by");
+      yield* f.openGate(hold);
+    }).pipe(Effect.provide(platform)),
+  60_000,
 );

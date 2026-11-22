@@ -114,9 +114,38 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
       return yield* new RunConflict({
         detail: `No turn is in progress for run ${run.record.name}; run foreman status ${run.record.name} before choosing the next action.`,
       });
-    yield* connection.interrupt(run.record.threadId, run.record.activeTurnId);
+    // Cancelling held questions first releases a bridge call the provider may be holding,
+    // which agy needs before its turn can end.
     yield* registry.cancelQuestions(run);
+    const interrupted = yield* connection
+      .interrupt(run.record.threadId, run.record.activeTurnId)
+      .pipe(Effect.result);
+    if (interrupted._tag === "Failure") {
+      if (!isUnconfirmed(interrupted.failure)) return yield* Effect.fail(interrupted.failure);
+      yield* markUnconfirmed(run, by);
+      return "unconfirmed" as const;
+    }
     yield* registry.event(run, { _tag: "Interrupted", by });
+    return "confirmed" as const;
+  });
+  /** The provider neither confirmed nor refused the interrupt: the turn may still be running. */
+  const isUnconfirmed = (error: unknown) =>
+    error instanceof RpcError || isProviderUnavailable(error) || error instanceof RpcRequestTimeout;
+  /** Parks the run in `unknown` until the provider reports the turn ended or recovery gives up. */
+  const markUnconfirmed = Effect.fnUntraced(function* (run: Run, by: string) {
+    const provider = yield* connections.describe(providerOf(run.record));
+    yield* Effect.logWarning("supervisor.interrupt.unconfirmed").pipe(
+      Effect.annotateLogs({ name: run.record.name }),
+    );
+    yield* registry.markUnknown(run);
+    yield* registry.save(run, {
+      warnings: [
+        ...run.record.warnings,
+        by === "budget"
+          ? `Budget expired for run ${run.record.name}, but ${provider.displayName} did not confirm the interrupt. Run foreman wait ${run.record.name}; execution remains unconfirmed until the run becomes inactive.`
+          : `Interrupt of run ${run.record.name} was not confirmed by ${provider.displayName}. Run foreman wait ${run.record.name}; execution remains unconfirmed until the run becomes inactive.`,
+      ],
+    });
   });
   const begin = Effect.fnUntraced(function* (
     run: Run,
@@ -169,30 +198,8 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
           Effect.gen(function* () {
             if (run.record.activeTurnId !== turnId || !activeStates.has(run.record.state)) return;
             run.budgetExpired = kind !== "handoff";
-            const interrupted = yield* interrupt(run, connection, "budget").pipe(Effect.result);
-            if (interrupted._tag === "Failure") {
-              if (
-                interrupted.failure instanceof RpcError ||
-                isProviderUnavailable(interrupted.failure) ||
-                interrupted.failure instanceof RpcRequestTimeout
-              ) {
-                const provider = yield* connections.describe(providerOf(run.record));
-                yield* Effect.logWarning("supervisor.budget.interrupt.unconfirmed").pipe(
-                  Effect.annotateLogs({
-                    name: run.record.name,
-                  }),
-                );
-                yield* registry.markUnknown(run);
-                yield* registry.save(run, {
-                  warnings: [
-                    ...run.record.warnings,
-                    `Budget expired for run ${run.record.name}, but ${provider.displayName} did not confirm the interrupt. Run foreman wait ${run.record.name}; execution remains unconfirmed until the run becomes inactive.`,
-                  ],
-                });
-                return;
-              }
-              return yield* Effect.fail(interrupted.failure);
-            }
+            const outcome = yield* interrupt(run, connection, "budget");
+            if (outcome === "unconfirmed") return;
             // The completed notification starts the hand-off, after the provider has ended the old turn.
             if (kind === "handoff") yield* registry.markUnknown(run);
           }),
