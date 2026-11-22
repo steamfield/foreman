@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { BunServices } from "@effect/platform-bun";
 import { Effect } from "effect";
-import { checkProtocol, codexVersion } from "../src/codex/check";
-import { supportedCodex } from "../src/codex/protocol";
+import { checkProtocol, codexVersion } from "../src/providers/codex/check";
+import { supportedCodex } from "../src/providers/codex/protocol";
 
 test.skipIf(process.env.FOREMAN_SMOKE !== "1")(
   "matches the installed Codex protocol and version",

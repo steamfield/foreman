@@ -2,7 +2,7 @@ import { Schema } from "effect";
 
 // The `codex app-server` messages foreman sends and reads, written for Codex 0.166.0 with the
 // experimental API and checked against 0.169.0. Only the fields foreman uses are declared.
-// Decoding ignores fields Codex adds; a field it removes fails decoding. src/codex/protocol.ts
+// Decoding ignores fields Codex adds; a field it removes fails decoding. src/providers/codex/protocol.ts
 // records the Codex version and protocol schema these were last checked against.
 
 export const CodexThreadId = Schema.String.check(Schema.isMinLength(1)).pipe(

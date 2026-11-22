@@ -111,7 +111,7 @@ Scaffold: 53eadd802dce5f0d9a12aa323f0a173623de7935
 
 | Lane | Size | Owns files | Reads | Tests | Model | Status | Branch | Done when |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| a | L | src/supervisor/, src/providers/codex/, src/codex/, src/core/runs/normalize.ts, src/core/preflight/hooks.ts, src/core/preflight/model.ts, src/core/doctor.ts, src/core/runs/store.ts, src/commands/monitor.ts, biome-plugins/boundaries.grit, tests/supervisor-integration.test.ts, tests/run-normalize.test.ts, tests/codex-client.test.ts, tests/preflight-hooks.test.ts, tests/preflight-model.test.ts, tests/fixtures/daemon/entry.ts | contracts, docs/architecture.md | tests/cli.test.ts, tests/daemon-lifecycle.test.ts, tests/monitor-feed.test.ts | opus | running | deliver/agy-provider-1a | full gate green |
+| a | L | src/supervisor/, src/providers/codex/, src/codex/, src/core/runs/normalize.ts, src/core/preflight/hooks.ts, src/core/preflight/model.ts, src/core/doctor.ts, src/core/runs/store.ts, src/commands/monitor.ts, biome-plugins/boundaries.grit, tests/supervisor-integration.test.ts, tests/run-normalize.test.ts, tests/codex-client.test.ts, tests/preflight-hooks.test.ts, tests/preflight-model.test.ts, tests/fixtures/daemon/entry.ts | contracts, docs/architecture.md | tests/cli.test.ts, tests/daemon-lifecycle.test.ts, tests/monitor-feed.test.ts | opus | merged | deliver/agy-provider-1a | full gate green |
 
 #### Lane a brief
 
@@ -226,3 +226,4 @@ Depends on: phase 2
 - Lane 0/c accepted choices: AGY_BIN passed to a spawned daemon; agyBin/defaultModel decoded independently.
 - Contract: ItemStarted.turn nullable so the Codex hook rule fails closed on a partly decoded commandExecution (lane 0/b review, finding beyond the brief).
 - Phase 0 gate: five tests used formatVersion 3 as their unknown future version; 3 is now the agy run.json version, so they use 4. tests/supervisor-stress.test.ts failed once under full-suite load (daemon stop saw active runs), passed 4/4 alone on the branch and 3/3 on main, and the gate rerun passed: treated as a load flake.
+- Lane 1/a accepted divergences: initialize refusal surfaces as CodexUnavailable; non-blocked hook/completed, non-retry error and non-failed MCP startup no longer adopt a turn for an unknown run; AgentMessage/SubAgent don't clear the open item; unknown-thread questions get -32602 and unsupported tools aren't logged to codex.jsonl; the journal keeps normalized TurnCompleted status (inProgress -> completed) and AgentMessage phase (unknown -> null); an app server lost during thread/name/set becomes a title warning and the run ends unknown at turn/start, keeping its worktree.
