@@ -1,8 +1,8 @@
 # foreman 0.3.1 architecture
 
-foreman keeps supervision in a local daemon so a coding turn can outlive the CLI call that started it. The daemon owns run state and one shared Codex app-server child. The CLI resolves inputs and renders results; it does not own the lifetime of a turn.
+foreman keeps supervision in a local daemon so a coding turn can outlive the CLI call that started it. The daemon owns run state and one shared child per provider: a Codex app server and an `agy acp` process. The CLI resolves inputs, including which provider a start goes to, and renders results; it does not own the lifetime of a turn.
 
-The [RFC](rfcs/0001-foreman.md) records the original plan and build history. Contributor commands and area-specific rules live in [AGENTS.md](../AGENTS.md).
+The [RFC](rfcs/0001-foreman.md) records the original plan and build history; [RFC 0002](rfcs/0002-providers.md) records the provider design and the agy probes behind it. Contributor commands and area-specific rules live in [AGENTS.md](../AGENTS.md).
 
 Agents start with `foreman guide`, then read a workflow topic or a command's `--help` as needed. `foreman skill install` installs the thin discovery skill for that binary. Workflow topics, contract templates and skill text live once in `src/guide/` and compile into the binary; `scripts/generate-skill.ts` writes the checked-in skill, with drift checked by tests. The guide and installer run locally without contacting Codex or a daemon.
 
@@ -12,13 +12,14 @@ Agents start with `foreman guide`, then read a workflow topic or a command's `--
 sequenceDiagram
     participant C as CLI
     participant D as Daemon
-    participant S as Codex app-server
+    participant S as Provider child (codex app-server or agy acp)
     participant R as Run directory
+    C->>C: Resolve --model to a provider
     C->>D: Connect on FOREMAN_HOME/foreman.sock
     C->>D: Ping, compare build
     C->>D: Start or supervision request
     D->>R: Validate, reserve, persist
-    D->>S: thread/start, then turn/start
+    D->>S: Open a thread or session, then start a turn
     D-->>C: Started
     S->>D: Notifications and tool requests
     D->>R: Events, questions, hand-offs
@@ -26,13 +27,49 @@ sequenceDiagram
     D-->>C: Attention, digest, next command
 ```
 
-The socket protocol is newline-delimited JSON with request ids. `src/schemas/daemon.ts` defines requests, results and persisted run shapes. `src/schemas/codex.ts` describes the app-server messages foreman consumes. Schema decoding at these boundaries keeps transport details out of command programs.
+The socket protocol is newline-delimited JSON with request ids. `src/schemas/daemon.ts` defines requests, results and persisted run shapes. `src/schemas/codex.ts` describes the app-server messages foreman consumes, and `src/schemas/acp.ts` the ACP messages from agy. Schema decoding at these boundaries keeps transport details out of command programs.
 
 `bin.ts` supplies Bun platform services and process writers. `main.ts` runs the command tree in `cli.ts`, maps errors to exit codes and renders output once. Handlers in `commands/` call `core/commands.ts`, which resolves paths and message files before calling the daemon client. Results go through Output; stdout contains one result, and diagnostics go to stderr. The same programs run under Node services in tests.
 
-The daemon starts the app server lazily when a request needs it. Runs use separate persistent Codex threads in the shared child, routed by thread id. This saves a process per run, but an app-server failure can lose supervision for every active run on that connection. The next request needing Codex starts a new child; an inactive run can resume its saved thread. It needs both a thread id and an existing worktree. Resume does not recreate the thread's dynamic question tool, so question delivery on resumed threads depends on Codex retaining it.
+The daemon starts each provider's child lazily when a request needs it. Runs use separate persistent Codex threads (or agy sessions) in the shared child, routed by thread or session id. This saves a process per run, but a child failure can lose supervision for every active run on that connection. The next request needing that provider starts a new child; an inactive run can resume its saved thread. It needs both a thread id and an existing worktree. Codex resume does not recreate the thread's dynamic question tool, so question delivery on resumed Codex threads depends on Codex retaining it; agy's `session/resume` passes the question bridge again.
 
 Protocol compatibility uses the recorded Codex 0.171.0 schema hash, not a version-number comparison. A failed check or mismatch adds a warning to new runs; it does not itself refuse start. Replies that fail decoding still fail the request. The client gives `thread/start` 180 seconds for MCP startup, and other requests 30 seconds by default. Global Codex MCP servers remain enabled.
+
+## Providers
+
+A provider is the agent a run delegates to: `codex` or `agy`. `src/providers/contract.ts` is the seam. A provider decodes its wire protocol into `ProviderEvent`s and `QuestionCall`s, owns its own ids and child process, and accepts the commands the supervisor issues (open or resume a session, start a turn, steer, interrupt, answer a question). The supervisor owns every run state machine: states, budgets, questions, hand-offs and hook enforcement. `src/supervisor/connections.ts` keeps one lazily started connection per provider and routes each run to its own through `forRun`, using the provider recorded on the run. Both adapters share the newline-delimited JSON-RPC transport in `src/providers/jsonrpc.ts`, whose `RpcError` and `RpcRequestTimeout` never cross the daemon boundary: the supervisor maps them to `CodexUnavailable` or `AgyUnavailable` (both exit 5) by provider.
+
+`Capabilities` records what differs: `serviceTier` (Codex only) and `hookEvents`, which is false for agy because ACP reports no hook runs.
+
+### Model routing
+
+The CLI picks the provider before it contacts the daemon, so a wrong model costs nothing. `src/providers/routing.ts` reads catalogs, not name patterns. Codex's catalog is `CODEX_HOME/models_cache.json` (entries with `visibility: "list"`). agy's comes from `agy models`, which creates no conversation, grouped into families and efforts by the `-low|-medium|-high|-xhigh` suffix and cached at `FOREMAN_HOME/providers/agy/models.json` with its fetch time and agy version, written by temporary-file rename. The cache refreshes when it is missing, older than 24 hours or from another agy version, and once when a model is in neither catalog and the cache is over an hour old. Nothing else in routing spawns a process.
+
+Resolution, in order: `provider:model` checks that provider's catalog only; an exact id in exactly one catalog picks that provider; an agy id with an effort suffix resolves to its family plus that effort. A model Codex lists is checked against agy's cached catalog file without starting agy, so a model both list is reported as ambiguous. No `--model` keeps the configured or Codex default. Failures are `ModelUnresolved` (exit 2) with the RFC's wording, a near-miss suggestion across both catalogs naming the provider, and a `candidates` field in the `--json` envelope. `foreman models` prints the same catalogs. `followup` keeps the run's provider; a different model is a new run.
+
+### The agy adapter
+
+`src/providers/agy/` drives `agy acp --disable-telemetry --log-file <home>/logs/agy-acp.log`, started on first need with the filtered environment and its working directory set to an empty `<home>/providers/agy/cwd`, because agy adds its launch directory to every session's workspace. One child serves every agy run. `initialize` must report ACP protocol 1; an agy version other than the recorded 1.5.14 adds a run warning, as a Codex schema-hash mismatch does. A signed-out agy fails `session/new` and surfaces as `AgyUnavailable` asking the user to run `agy` and sign in.
+
+Opening a run calls `session/new` with the worktree as `cwd` and the question bridge as its MCP server, sets the model and thinking level in one `session/set_config_option`, and sets `default` mode, in which agy asks before every edit, shell command and MCP call. The agy session id is stored in `threadId`. The delegate preamble goes in the first prompt, as for Codex, not in agy's system-prompt extension, so follow-ups and hand-offs behave the same on both. A turn is a `session/prompt` with no request timeout; `end_turn` completes it, `cancelled` interrupts it, and other stop reasons fail it. Usage comes from the prompt reply, with input tokens counted as agy's `inputTokens` plus cached reads and writes, since agy's `inputTokens` leaves cache reads out. `usage_update` is context occupancy, not a bill.
+
+foreman is the ACP client, so it answers agy's `session/request_permission` itself through `permissions.ts`, a pure function of the tool's kind and name, the run's access and the turn kind. It picks the request's `allow_once` or `reject_once` option, never `allow_always`, and never passes `--dangerously-skip-permissions`. Every decision is a `Permission` event.
+
+| Request | Write run | Read-only run | Budget hand-off turn |
+| --- | --- | --- | --- |
+| `mcp_foreman_ask_orchestrator` | allow | allow | reject |
+| `execute` (shell) | allow | allow | allow |
+| `edit`, `delete`, `move` | allow | reject | reject |
+| any other kind | allow | allow | allow |
+| a session foreman didn't create | reject | reject | reject |
+
+agy ends its turn the moment a permission is refused, unlike a Codex sandbox denial. foreman records that turn as failed with a message naming the refused tool, so `wait` reports the run failed. Read-only is therefore weaker on agy: refusing shell would end every review at its first `git status`, so read-only agy runs allow shell and refuse only agy's edit tools. Every read-only agy run carries the warning that shell commands aren't blocked. `src/supervisor/read-only-check.ts` checks read-only agy turns and every agy hand-off turn: when the turn starts it snapshots the worktree's changed paths from Git status, each with a content hash, and when the turn ends any path that appeared, disappeared or changed content fails the run with "read-only agy run changed files: <paths>". Git status leaves ignored build output and caches out of the check. This snapshot is separate from `baseline.txt`, the creation-time status used for scope reporting. The guide sends work that needs an enforced read-only sandbox to Codex.
+
+Questions reach the supervisor through an MCP server, because ACP has no dynamic tools. Each session gets `foreman mcp-question --run <name>` as a stdio server exposing `ask_orchestrator` with the schema Codex gets. On a call it sends an `Ask` request through the connect-only daemon client, which never starts or replaces a daemon. The agy connection turns it into a `QuestionCall` stamped with the outstanding turn, or refuses with "turn is no longer active". If the bridge's socket closes before an answer (agy dropped the tool call, or the turn was cancelled), the connection emits `QuestionAbandoned`; the question is recorded cancelled, the run returns to `running`, and a later answer takes the late-answer path. agy holds a tool call for a limited time, so agy runs cap their question timeout below that hold and record the cap as a run warning.
+
+agy merges a prompt sent during a turn into that turn. `steer` sends a second `session/prompt`; the adapter tracks outstanding prompts per session, and a reply completes the foreman turn only when no later prompt is outstanding, with usage summed across replies. Steers and replies are serialized per session, and a steer after the turn's completion is refused with `SteerRefused`, so the supervisor's fallback delivers it as a follow-up. `interrupt` sends `session/cancel` and waits up to 30 seconds for the prompts to reply `cancelled` before the run enters `unknown`. Resume calls `session/resume` with the worktree and the question bridge, then sets the model again, because agy reverts a restored session to its default model.
+
+The agy environment drops `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `GOOGLE_GEMINI_BASE_URL`, `GOOGLE_GENAI_USE_ENTERPRISE`, `AGY_ADC_AUTH` and `ANTIGRAVITY_PROJECT_ID` on top of the shared drops, and adds `AGY_DELEGATE=1`, so agy uses its keyring sign-in.
 
 ## Daemon ownership and replacement
 
@@ -42,7 +79,7 @@ Only one daemon may own a home. `daemon/lock.ts` holds an exclusive SQLite trans
 
 The daemon exits after 30 minutes with no busy runs and no open client connections. Active states, preflight worktree reservations and queued answers count as busy. Explicit shutdown refuses while any of those need ownership. A long wait connection keeps the daemon alive too.
 
-A build identity hashes sorted TypeScript source paths and contents, `package.json`, `bun.lock`, the build script and Bun version. Source runs use a `dev-` prefix. On a run request, the CLI pings the daemon and compares build identity and, when reported, Codex executable and home settings. A missing build identity counts as outdated.
+A build identity hashes sorted TypeScript source paths and contents, `package.json`, `bun.lock`, the build script and Bun version. Source runs use a `dev-` prefix. On a run request, the CLI pings the daemon and compares build identity and, when reported, the Codex and agy executables and home settings. A missing build identity counts as outdated.
 
 | Existing daemon | Client behavior |
 | --- | --- |
@@ -69,13 +106,13 @@ Run names are global within a home. A run's group is the real path of its main c
 | `start-mark` | Modification-time baseline for the files-written scan |
 | `events.jsonl` | Sequenced normalized events |
 | `questions.jsonl` | Asked, deferred and resolved question history |
-| `codex.jsonl` | Redacted Codex messages routed to this run, rotated as a log |
+| `codex.jsonl` or `agy.jsonl` | Redacted provider messages routed to this run, rotated as a log |
 | `turns/<n>.md` | Hand-off for a turn when one was available |
 | `last-message.md` | Copy of the latest written hand-off |
 
 Creation writes to `runs/.tmp-<name>-<random>` and publishes by rename after the record is complete. Discovery ignores staging and archive directories. `run.json` and hand-offs use temporary-file renames. JSONL readers consume only newline-terminated records; writers truncate an incomplete tail before appending. Corrupt complete records fail when decoded. Startup checks JSONL version headers without fully decoding every body, so corruption may surface on a later read. Recovery logs and skips runs it cannot load, leaving their files intact and refusing reuse of their published names.
 
-Storage decoding checks `formatVersion` at every boundary. Unversioned data is version 1. New question and event lines declare version 2; run records and raw Codex lines still use version 1. The current reader accepts both. Older binaries that accept only version 1 refuse these runs, protecting the new question semantics from old writers. Unsupported versions fence mutations across the run's files; startup rechecks full histories.
+Storage decoding checks `formatVersion` at every boundary. Unversioned data is version 1. New question and event lines declare version 2; Codex run records and raw provider lines still use version 1. An agy run's `run.json` is version 3, derived from `record.provider` on every write, so a 0.3.x binary, which would read the agy session id as a Codex thread, refuses the whole run. Codex runs stay at version 1 so a downgrade leaves them usable. `run.json` records `provider`, and a record without it is a Codex run. The current reader accepts versions 1 to 3. Older binaries that accept only version 1 refuse these runs, protecting the new question semantics from old writers. Unsupported versions fence mutations across the run's files; startup rechecks full histories.
 
 State changes journal a transition id in `run.json` before publishing the event. Recovery replays an unpublished transition without duplicating one already written. This keeps continuing waits from missing a failed or lost outcome after a crash between record and event writes.
 
@@ -120,7 +157,9 @@ Start checks the main checkout's `.codex/hooks.json`. When present, `hooks/list`
 
 For each turn, the supervisor records whether a project hook has started. If required hooks have not run when any `item/started` identifies a `commandExecution`, it interrupts and records `repo hooks did not run`. This minimal check precedes full item decoding, so changed or missing command fields cannot bypass it. It confirms a project hook ran in the turn, not that every command ran every hook. Repo hooks still own their individual command policies.
 
-Read-only runs request a read-only sandbox with network disabled. Write runs request `dangerFullAccess`, with approval policy `never`. The app-server environment drops `CLAUDE_*`, `FOREMAN_*`, `LOG_LEVEL`, `OPENAI_API_KEY`, `OPENAI_API_BASE` and `CODEX_API_KEY`, adds delegate markers, and probes SSH agent availability. Setup uses that same environment. Worktree isolation separates Git edits; it does not restrict a write run's access to the host.
+agy runs a repo's hooks without a trust step, from `hooks.json` under `.agents/`, `.agent/`, `_agents/` or `_agent/` in the worktree it works in, so the agy check reads the worktree rather than the main checkout. Start refuses with `RepoHooksUntrusted` when that file doesn't decode against agy's hook schema, and when the main checkout has `.codex/hooks.json` but the worktree has no agy hooks file, because the run would skip the repo's guards. ACP reports no hook runs, so the "command before any project hook" rule applies only to providers with `hookEvents`. A command a hook denies arrives as a failed tool call, indistinguishable from any other failure, so it isn't counted in `blockedByHooks`.
+
+Read-only Codex runs request a read-only sandbox with network disabled. Write runs request `dangerFullAccess`, with approval policy `never`. agy has no sandbox in this design; its access is foreman's permission policy (see Providers). Every provider's environment drops `CLAUDE_*`, `FOREMAN_*` and `LOG_LEVEL`, adds `STACKS_DELEGATE=1`, and probes SSH agent availability. Codex also loses `OPENAI_API_KEY`, `OPENAI_API_BASE` and `CODEX_API_KEY` and gets `CODEX_DELEGATE=1`; agy's extra drops are listed under the agy adapter. Setup uses that same environment. Worktree isolation separates Git edits; it does not restrict a write run's access to the host.
 
 ## Wait cursors and event pages
 
@@ -166,10 +205,10 @@ Monitor answers carry `expectOpen: true`. Under the run lock, the supervisor rej
 
 The TUI lives in `src/tui/` and is reached only through a dynamic import, but Bun still bundles it into the binary, which adds about 12 ms to every command's startup. It renders a pure view model from `src/core/monitor/model.ts` and receives terminal streams only from the `Terminal` service. Changed-file and diff reads run at this TUI boundary through injected `readChanges` and `readDiff` readers, against the worktree and recorded base commit. Opening detail or review requests changed files once the detail data is loaded; `R` refreshes them. File diffs are read on demand with a 512 KiB display limit; `D` hands the tracked Git diff to `$PAGER` with a separate 16 MiB limit. Untracked paths are listed by `readChanges` and get an individual `--no-index` diff through `d`; the pager's combined diff omits them. These read-only Git operations do not refresh daemon projections or run on a timer. The list preview uses the detail digest's recorded file paths, without numstat reads.
 
-`monitor --line` uses the passive overview feed directly, without the alternate screen or prompts. It shows the oldest pending question and run counts, or saved/reconnecting status. TTY output rewrites one truncated line; redirected output prints changed lines without color. `--once` takes the first update and exits, including when that update is saved state. Line mode works under `CODEX_DELEGATE`, never starts, replaces or keeps a daemon alive, and rejects a run name or `--json`; `--once` requires `--line`.
+`monitor --line` uses the passive overview feed directly, without the alternate screen or prompts. It shows the oldest pending question and run counts, or saved/reconnecting status. TTY output rewrites one truncated line; redirected output prints changed lines without color. `--once` takes the first update and exits, including when that update is saved state. Line mode works under a delegate marker, never starts, replaces or keeps a daemon alive, and rejects a run name or `--json`; `--once` requires `--line`.
 
-Without two TTYs, with `--json`, or under `CODEX_DELEGATE`, ordinary `monitor` prints the `status --all` (or `status <name>`) snapshot instead, because Codex runs commands in a PTY and would otherwise receive an alternate screen it never exits. This snapshot uses the normal status path and may start the daemon.
+Without two TTYs, with `--json`, or under a delegate marker (`CODEX_DELEGATE` or `AGY_DELEGATE`), ordinary `monitor` prints the `status --all` (or `status <name>`) snapshot instead, because a delegate runs commands in a PTY and would otherwise receive an alternate screen it never exits. This snapshot uses the normal status path and may start the daemon.
 
 ## Verification boundaries
 
-Vitest runs on Node with real filesystem and process services, temporary Git repos and a scripted fake app server for the third-party boundary. Recorded Codex messages test wire shapes; compiled-binary e2e tests run under Bun. The [agent harness](harness.md) adds editing guards. Real-Codex smoke tests are opt-in development checks, outside automated gates. They provide evidence about supported protocol behavior without making network inference a test dependency.
+Vitest runs on Node with real filesystem and process services, temporary Git repos, and for the third-party boundary a scripted fake app server and a fake ACP agent (`tests/fixtures/fake-acp-agent/`) that can launch the real question bridge. Recorded Codex and agy messages test wire shapes; compiled-binary e2e tests run under Bun. The [agent harness](harness.md) adds editing guards. Real-Codex smoke tests are opt-in development checks, outside automated gates. They provide evidence about supported protocol behavior without making network inference a test dependency.

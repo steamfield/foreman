@@ -44,6 +44,16 @@ To try a hook by hand, pipe it a payload:
 echo '{"tool_name":"Bash","tool_input":{"command":"git push --force"}}' | bash .claude/hooks/block-destructive.sh
 ```
 
+### The same guards for agy
+
+agy (the Antigravity CLI foreman delegates to) doesn't read `.claude/settings.json`. It reads `.agents/hooks.json`, whose PreToolUse entries send `run_command` to `block-destructive.sh` and `write_file` and `edit_file` to `detect-secrets.sh`, through `.agents/hooks/guard-adapter.sh`. The adapter converts agy's input (`toolCall.name`, `args.CommandLine`, the target path and written text) into the payload these guards read and turns their deny into agy's `{decision, reason}`. Anything it can't check becomes a deny, and an unobjectionable call gets `ask`, so agy still sends foreman its permission request. When you add a guard for Bash or Edit/Write, add the matching agy tool to the adapter and a case to `tests/hooks/agy-adapter.test.ts`. Keep `.agents/hooks.json` committed: foreman refuses agy runs in a repo with `.codex/hooks.json` but no agy hooks.
+
+To try it by hand:
+
+```bash
+echo '{"toolCall":{"name":"run_command","args":{"CommandLine":"git push --force"}}}' | bash .agents/hooks/guard-adapter.sh
+```
+
 ### Turning one off
 
 `/hooks` in Claude Code lists what's wired. To run a session without hooks, set `"disableAllHooks": true` in `settings.local.json` and remove it afterwards; the `permissions.deny` rules still apply. There's no per-hook switch: to drop one hook for good, delete its entry from `settings.json`.
