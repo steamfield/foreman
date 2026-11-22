@@ -28,7 +28,7 @@ import {
 } from "../fixtures/fake-acp-agent/scenarios";
 
 const fake = fileURLToPath(new URL("../fixtures/fake-acp-agent/main.mjs", import.meta.url));
-const usageTotals = { input: 1000, cachedInput: 200, output: 50, reasoningOutput: 10 };
+const usageTotals = { input: 1200, cachedInput: 200, output: 50, reasoningOutput: 10 };
 
 /** Connects to the fake agent playing `scenario`, in a temp home with a temp worktree. */
 const fakeAgy = Effect.fnUntraced(function* (

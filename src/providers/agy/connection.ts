@@ -148,7 +148,11 @@ const openSession = Effect.fnUntraced(function* (live: Live, settings: SessionSe
     Acp.SessionNewResult,
     SESSION_NEW_TIMEOUT,
   );
-  live.sessions.set(sessionId, { turn: openedSession(settings.access), tools: new Map() });
+  live.sessions.set(sessionId, {
+    turn: openedSession(settings.access),
+    tools: new Map(),
+    cwd: settings.cwd,
+  });
   const model = { sessionId, configId: "model", value: modelValue(settings) };
   yield* sessionRequest(live.channel, Acp.Method.setConfigOption, model, Schema.Unknown);
   const mode = { sessionId, modeId: "default" };
@@ -165,6 +169,7 @@ const startTurn = Effect.fnUntraced(function* (
   const state = live.sessions.get(session) ?? {
     turn: openedSession(request.settings.access),
     tools: new Map(),
+    cwd: request.settings.cwd,
   };
   const turn = turnIdFor(request.turn);
   live.sessions.set(session, { ...state, turn: beginTurn(state.turn, request) });

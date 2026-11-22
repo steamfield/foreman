@@ -69,7 +69,7 @@ it.live(
       });
       expect(events).toContainEqual({
         _tag: "TokenUsage",
-        totals: { input: 1000, cachedInput: 200, output: 50, reasoningOutput: 10 },
+        totals: { input: 1200, cachedInput: 200, output: 50, reasoningOutput: 10 },
       });
       expect(events).toContainEqual(
         expect.objectContaining({ _tag: "TurnCompleted", turn: 1, status: "completed" }),

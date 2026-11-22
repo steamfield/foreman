@@ -24,6 +24,8 @@ export interface ToolCallInfo {
 export interface AgySessionState {
   readonly turn: AgyTurnState;
   readonly tools: ReadonlyMap<string, ToolCallInfo>;
+  /** The worktree the session runs in, when this connection opened it. */
+  readonly cwd: string | null;
 }
 
 /** The ask_orchestrator bridge's tool; its question reaches foreman through the daemon. */

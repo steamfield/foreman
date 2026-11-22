@@ -31,6 +31,7 @@ export const PromptUsage = Schema.Struct({
   inputTokens: Schema.Number,
   outputTokens: Schema.Number,
   cachedReadTokens: Schema.optionalKey(Schema.Number),
+  cachedWriteTokens: Schema.optionalKey(Schema.Number),
   thoughtTokens: Schema.optionalKey(Schema.Number),
 });
 export type PromptUsage = typeof PromptUsage.Type;

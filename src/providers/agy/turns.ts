@@ -180,10 +180,13 @@ export function finishPrompt(
   return { state: next, events };
 }
 
-/** Converts a reply's ACP usage into foreman's token totals. */
+/**
+ * Converts a reply's ACP usage into foreman's token totals. agy counts cache reads and writes
+ * apart from `inputTokens`; foreman's input, like Codex's, includes them.
+ */
 export function tokensOf(usage: Acp.PromptUsage): TokenTotals {
   return {
-    input: usage.inputTokens,
+    input: usage.inputTokens + (usage.cachedReadTokens ?? 0) + (usage.cachedWriteTokens ?? 0),
     cachedInput: usage.cachedReadTokens ?? 0,
     output: usage.outputTokens,
     reasoningOutput: usage.thoughtTokens ?? 0,

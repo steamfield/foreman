@@ -4,6 +4,7 @@
  * logged to the run's raw log, and a permission's outcome becomes a Permission event and, when
  * refused, the failure of the turn agy then ends.
  */
+import { isAbsolute, relative } from "node:path";
 import { Cause, Effect, Queue, Schema } from "effect";
 import * as Acp from "../../schemas/acp";
 import type { RpcServerRequest } from "../jsonrpc";
@@ -15,6 +16,20 @@ import { activeTurn, recordRefusal } from "./turns";
 const METHOD_NOT_FOUND = -32601;
 const INVALID_PARAMS = -32602;
 const INTERNAL_ERROR = -32603;
+
+/**
+ * The title a permission is reported under. agy titles file tools with a path relative to its
+ * own launch directory (`File ../../../../repo/w/a.txt`), so a file tool's title is rebuilt
+ * from its location, relative to the session's worktree when the file is inside it.
+ */
+export function permissionTitle(toolCall: Acp.ToolCall, cwd: string | null): string {
+  const title = toolCall.title ?? toolCall.name ?? toolCall.kind ?? "other";
+  const path = toolCall.locations?.[0]?.path;
+  if (cwd === null || path === undefined || !isAbsolute(path) || !title.startsWith("File "))
+    return title;
+  const inWorktree = relative(cwd, path);
+  return `File ${inWorktree.startsWith("..") || isAbsolute(inWorktree) ? path : inWorktree}`;
+}
 
 /** The refusal when foreman meant to allow a tool but agy offered no one-time allow. */
 export const noAllowMessage = (title: string, kind: string) =>
@@ -80,7 +95,7 @@ const decide = Effect.fnUntraced(function* (
   const { sessionId, toolCall, options } = params;
   const state = live.sessions.get(sessionId);
   const kind = toolCall.kind ?? "other";
-  const title = toolCall.title ?? toolCall.name ?? kind;
+  const title = permissionTitle(toolCall, state?.cwd ?? null);
   const turnKind = state?.turn.turnKind ?? "start";
   const policy = decidePermission({
     kind,

@@ -46,11 +46,23 @@ describe("agy 1.5.14 replies", () => {
     expect(prompts).toEqual([
       {
         stopReason: "end_turn",
-        usage: { inputTokens: 16009, outputTokens: 360, cachedReadTokens: 22442, thoughtTokens: 0 },
+        usage: {
+          inputTokens: 16009,
+          outputTokens: 360,
+          cachedReadTokens: 22442,
+          cachedWriteTokens: 0,
+          thoughtTokens: 0,
+        },
       },
       {
         stopReason: "cancelled",
-        usage: { inputTokens: 2128, outputTokens: 38, cachedReadTokens: 7590, thoughtTokens: 0 },
+        usage: {
+          inputTokens: 2128,
+          outputTokens: 38,
+          cachedReadTokens: 7590,
+          cachedWriteTokens: 0,
+          thoughtTokens: 0,
+        },
       },
     ]);
   });
@@ -79,6 +91,7 @@ describe("agy 1.5.14 session updates", () => {
       settings: { cwd: "/tmp", model: "m", effort: "low", tier: null, access: "write" },
     }),
     tools: new Map(),
+    cwd: null,
   });
 
   it.each(updates.map((line, index) => [index, line] as const))(
