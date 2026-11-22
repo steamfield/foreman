@@ -13,7 +13,12 @@ import type { ProviderConnection, SessionId, SessionSettings, TurnRequest } from
 import { type RpcMessage, type RpcNotification, RpcRequestTimeout } from "../jsonrpc";
 import { readNotification } from "./events";
 import { agyHookTrust } from "./hooks";
-import { type AgyLaunchOptions, launchAgy, sessionRequest } from "./launch";
+import {
+  type AgyLaunchOptions,
+  launchAgy,
+  sessionRequest,
+  UNATTENDED_INSTRUCTIONS,
+} from "./launch";
 import { type Live, makeLive } from "./live";
 import { answerServerRequest } from "./permission-requests";
 import { askQuestion, bridgeFor } from "./questions";
@@ -123,7 +128,11 @@ const openSession = Effect.fnUntraced(function* (
   const { sessionId } = yield* sessionRequest(
     live.channel,
     Acp.Method.sessionNew,
-    { cwd: settings.cwd, mcpServers: [live.bridge(run)] },
+    {
+      cwd: settings.cwd,
+      mcpServers: [live.bridge(run)],
+      _meta: { antigravity: { systemPrompt: { append: UNATTENDED_INSTRUCTIONS } } },
+    },
     Acp.SessionNewResult,
     SESSION_NEW_TIMEOUT,
   );
