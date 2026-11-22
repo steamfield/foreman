@@ -178,12 +178,15 @@ Failures leave stdout empty and report on stderr. With `--json`, the last stderr
 
 ## Configuration, state and logs
 
-Environment settings take precedence over `$FOREMAN_HOME/config.json`, then defaults. The file accepts only `codexBin` and `logLevel`; unknown keys make it invalid. The CLI never reads `.env`. See [.env.example](.env.example).
+Environment settings take precedence over `$FOREMAN_HOME/config.json`, then defaults. The file accepts only `codexBin`, `agyBin`, `defaultModel` and `logLevel`; unknown keys make it invalid. The CLI never reads `.env`. See [.env.example](.env.example).
 
 | Variable | Config key | Default |
 | --- | --- | --- |
 | `FOREMAN_HOME` | | `~/.foreman` |
 | `CODEX_BIN` | `codexBin` | `codex`, resolved through `PATH` |
+| `AGY_BIN` | `agyBin` | `agy`, resolved through `PATH` |
+| `AGY_DELEGATE` | | Unset; any value marks the process as delegated, like `CODEX_DELEGATE` |
+| | `defaultModel` | Unset; a nonempty model name |
 | `CODEX_HOME` | | `~/.codex` |
 | `LOG_LEVEL` | `logLevel` | `warn`; accepts `trace`, `debug`, `info`, `warn`, `error`, `fatal`, `none` |
 | `FOREMAN_LOG_FORMAT` | | Pretty stderr; `json` selects JSON lines |
@@ -191,7 +194,7 @@ Environment settings take precedence over `$FOREMAN_HOME/config.json`, then defa
 
 Relative paths resolve from the caller's directory. Start defaults to the newest visible `gpt-*-sol` in Codex's cache (fallback `gpt-6.1-sol`), `high` effort and `priority` tier.
 
-`FOREMAN_HOME` holds the socket, ownership files, logs and `runs/<name>/` records, with home mode `0700`. Use a local filesystem with advisory locking; the socket path must fit within 104 bytes. Question and event lines use storage format **2**; older binaries refuse those runs.
+`FOREMAN_HOME` holds the socket, ownership files, logs and `runs/<name>/` records, with home mode `0700`. Use a local filesystem with advisory locking; the socket path must fit within 104 bytes. Question and event lines use storage format **2**, and an agy run's `run.json` uses **3**; older binaries refuse those runs.
 
 Daemon diagnostics are in `logs/daemon.jsonl`, app-server stderr in `logs/app-server.log`; both rotate past 5 MB. CLI logs use stderr and optionally `FOREMAN_LOG_FILE`. Command records use debug on success, error on failure, filtered by `LOG_LEVEL`. The [architecture doc](docs/architecture.md) details storage and the child environment, which removes API key/base overrides and adds delegate markers.
 

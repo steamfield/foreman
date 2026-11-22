@@ -24,6 +24,7 @@ export interface CallOptions {
   readonly startupTimeoutMs?: number;
   readonly onOutdated?: Effect.Effect<void, AppError>;
   readonly codexBin?: string;
+  readonly agyBin?: string;
   readonly codexHome?: string;
   readonly logFile?: string;
 }
@@ -73,6 +74,7 @@ const spawn = Effect.fn("daemon.spawn")(
               env: {
                 FOREMAN_HOME: dataDir,
                 ...(options.codexBin === undefined ? {} : { CODEX_BIN: options.codexBin }),
+                ...(options.agyBin === undefined ? {} : { AGY_BIN: options.agyBin }),
                 ...(options.codexHome === undefined ? {} : { CODEX_HOME: options.codexHome }),
                 ...(options.logFile === undefined
                   ? {}
@@ -435,6 +437,7 @@ export const outdated = (
   (options.codexBin !== undefined &&
     pong.codexBin !== undefined &&
     options.codexBin !== pong.codexBin) ||
+  (options.agyBin !== undefined && pong.agyBin !== undefined && options.agyBin !== pong.agyBin) ||
   (options.codexHome !== undefined &&
     pong.codexHome !== undefined &&
     options.codexHome !== pong.codexHome);

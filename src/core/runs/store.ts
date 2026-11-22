@@ -15,6 +15,7 @@ import { makeLogAppender, redactDiagnostic, redactDiagnosticText } from "../../l
 import {
   activeStates,
   type DaemonResult,
+  providerOf,
   QuestionLine,
   RunEvent,
   type RunEventBody,
@@ -22,6 +23,7 @@ import {
   RunRecord,
   StorageHeader,
 } from "../../schemas/daemon";
+import type { ProviderId } from "../../schemas/provider";
 import { readGitStatus } from "./worktree";
 
 const decodeStored = Effect.fnUntraced(function* <A>(
@@ -37,7 +39,7 @@ const encodeStored = Effect.fnUntraced(function* <A>(
   schema: Schema.Codec<A, unknown>,
   value: A,
   diagnostic = false,
-  formatVersion: 1 | 2 = 1,
+  formatVersion: 1 | 2 | 3 = 1,
 ) {
   const encoded = yield* Schema.encodeEffect(schema)(value);
   const fields = yield* Schema.decodeUnknownEffect(Schema.Record(Schema.String, Schema.Unknown))(
@@ -110,15 +112,23 @@ const rememberVersion = Effect.fnUntraced(function* (file: string) {
   const fs = yield* FileSystem.FileSystem;
   checksFor(fs).set(file, fileStamp(yield* fs.stat(file)));
 });
+/** The raw protocol log a provider's messages are appended to. */
+export const rawLogName = (provider: ProviderId) =>
+  provider === "agy" ? "agy.jsonl" : "codex.jsonl";
+
+const versionedLogs = ["events.jsonl", "questions.jsonl", rawLogName("codex"), rawLogName("agy")];
+
+// run.json is version 3 for a non-Codex provider and version 1 otherwise.
+const runFormatVersion = (record: RunRecord) => (providerOf(record) === "agy" ? 3 : 1);
+
 const forgetVersions = Effect.fnUntraced(function* (dir: string) {
   const checks = checksFor(yield* FileSystem.FileSystem);
-  for (const file of ["events.jsonl", "questions.jsonl", "codex.jsonl"])
-    checks.delete(`${dir}/${file}`);
+  for (const file of versionedLogs) checks.delete(`${dir}/${file}`);
 });
 const assertLogVersions = Effect.fnUntraced(function* (runDir: string, fresh = false) {
   const fs = yield* FileSystem.FileSystem;
   const checks = checksFor(fs);
-  for (const file of ["events.jsonl", "questions.jsonl", "codex.jsonl"]) {
+  for (const file of versionedLogs) {
     const fullPath = `${runDir}/${file}`;
     const info = yield* fs
       .stat(fullPath)
@@ -187,10 +197,15 @@ export const writeRun = Effect.fn("runs.writeRun")(function* (runDir: string, re
   const path = yield* Path.Path;
   const file = path.join(runDir, "run.json");
   yield* assertSupported(runDir);
-  const text = yield* encodeStored(RunRecord, {
-    ...record,
-    failure: redactFailure(record.failure, [record.worktree, record.group, runDir]),
-  });
+  const text = yield* encodeStored(
+    RunRecord,
+    {
+      ...record,
+      failure: redactFailure(record.failure, [record.worktree, record.group, runDir]),
+    },
+    false,
+    runFormatVersion(record),
+  );
   yield* fs.writeFileString(`${file}.tmp`, text);
   yield* fs.rename(`${file}.tmp`, file);
 });
@@ -344,7 +359,7 @@ const appendLine = Effect.fnUntraced(function* <A>(
   schema: Schema.Codec<A, unknown>,
   value: A,
   diagnostic = true,
-  formatVersion: 1 | 2 = 1,
+  formatVersion: 1 | 2 | 3 = 1,
 ) {
   const fs = yield* FileSystem.FileSystem;
   const text = yield* encodeStored(schema, value, diagnostic, formatVersion);
@@ -460,18 +475,24 @@ export const appendEvent = Effect.fn("runs.appendEvent")(function* (
   return entry;
 });
 
-export const appendCodexMessage = Effect.fn("runs.appendCodexMessage")(function* (
+/** Appends one raw protocol message to the provider's log, redacted and rotated. */
+export const appendProviderMessage = Effect.fn("runs.appendProviderMessage")(function* (
   runDir: string,
+  provider: ProviderId,
   message: unknown,
 ) {
   const path = yield* Path.Path;
+  const file = path.join(runDir, rawLogName(provider));
   yield* assertSupported(runDir);
   const text = yield* encodeStored(Schema.Unknown, message, true);
-  yield* repairTail(path.join(runDir, "codex.jsonl"));
-  const append = yield* makeLogAppender(path.join(runDir, "codex.jsonl"), 1);
+  yield* repairTail(file);
+  const append = yield* makeLogAppender(file, 1);
   yield* append(`${text}\n`);
-  yield* rememberVersion(path.join(runDir, "codex.jsonl"));
+  yield* rememberVersion(file);
 });
+
+export const appendCodexMessage = (runDir: string, message: unknown) =>
+  appendProviderMessage(runDir, "codex", message);
 
 export const readQuestions = Effect.fn("runs.readQuestions")(function* (runDir: string) {
   const path = yield* Path.Path;
