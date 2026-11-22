@@ -7,7 +7,7 @@ import { Clock, DateTime, Effect, Schema } from "effect";
 import * as Store from "../core/runs/store";
 import { RunConflict, RunNotFound } from "../errors";
 import type { ProviderId, QuestionCall } from "../providers/contract";
-import { type AnswerDelivery, providerOf, QuestionId } from "../schemas/daemon";
+import { type AnswerDelivery, QuestionId } from "../schemas/daemon";
 import { deferral } from "./prompts";
 import type { Registry, Run } from "./registry";
 
@@ -19,47 +19,27 @@ const AGY_HOLD_MS = 180_000;
 /** agy questions are deferred 80 seconds before the hold ends, so the deferral still lands. */
 const AGY_CAP_MS = AGY_HOLD_MS - 80_000;
 
-/**
- * How long a provider keeps an ask_orchestrator call open, and the question timeout foreman
- * caps it to, for providers whose hold is shorter than foreman's default timeout.
- */
-const QUESTION_HOLD: Partial<Record<ProviderId, { holdMs: number; capMs: number }>> = {
-  agy: { holdMs: AGY_HOLD_MS, capMs: AGY_CAP_MS },
-};
-
 /** Why an abandoned question was cancelled, for the log. */
 const ABANDONED = "the agent's tool call ended before an answer";
 
 const seconds = (ms: number) => `${Math.round(ms / 1000)} seconds`;
 
 /**
- * The question timeout a run's provider can honour, and the run warning when it is shorter than
- * the requested one. Pure.
+ * The question timeout a new run records: the requested one, capped below agy's MCP hold for
+ * agy runs, with the start warning when the cap applied. Pure.
  * @throws Never.
  */
 export function questionTimeout(
   provider: ProviderId,
   requestedMs: number,
 ): { readonly timeoutMs: number; readonly warning: string | null } {
-  const hold = QUESTION_HOLD[provider];
-  if (hold === undefined || requestedMs <= hold.capMs)
+  if (provider !== "agy" || requestedMs <= AGY_CAP_MS)
     return { timeoutMs: requestedMs, warning: null };
   return {
-    timeoutMs: hold.capMs,
-    warning: `${provider} holds a question for at most ${seconds(hold.holdMs)}; deferring after ${seconds(hold.capMs)}.`,
+    timeoutMs: AGY_CAP_MS,
+    warning: `agy holds a question for at most ${seconds(AGY_HOLD_MS)}; deferring after ${seconds(AGY_CAP_MS)}.`,
   };
 }
-
-/** The run's question timeout, recording the provider's cap in its warnings once. */
-const effectiveTimeout = Effect.fnUntraced(function* (registry: Registry, run: Run) {
-  const { timeoutMs, warning } = questionTimeout(
-    providerOf(run.record),
-    run.record.questionTimeoutMs,
-  );
-  if (warning !== null && !run.record.warnings.includes(warning))
-    yield* registry.save(run, { warnings: [...run.record.warnings, warning] });
-  return timeoutMs;
-});
 
 /**
  * Cancels the question whose provider call `callId` (from connection `generation`) ended
@@ -235,7 +215,7 @@ export const makeQuestions = Effect.fn("supervisor.questions")(function* (regist
       question: call.question,
     });
     yield* registry.state(run, "waiting");
-    yield* Effect.sleep(yield* effectiveTimeout(registry, run)).pipe(
+    yield* Effect.sleep(run.record.questionTimeoutMs).pipe(
       Effect.andThen(
         run.lock.withPermits(1)(
           Effect.gen(function* () {

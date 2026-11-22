@@ -279,6 +279,13 @@ it.live(
       });
       yield* f.start(true);
       yield* f.until("running", 1);
+      // The default 15-minute timeout is capped when the run starts.
+      expect(yield* f.runJson).toMatchObject({
+        questionTimeoutMs: 100_000,
+        warnings: expect.arrayContaining([
+          "agy holds a question for at most 180 seconds; deferring after 100 seconds.",
+        ]),
+      });
       const asking = yield* f
         .request({ _tag: "Ask", name: f.name, question: QUESTION, kind: "question", callId: "c1" })
         .pipe(Effect.forkScoped);
@@ -286,11 +293,6 @@ it.live(
       expect(waiting.questions).toEqual([
         { id: "q1", kind: "question", question: QUESTION, pendingMs: expect.any(Number) },
       ]);
-      expect(yield* f.runJson).toMatchObject({
-        warnings: expect.arrayContaining([
-          "agy holds a question for at most 180 seconds; deferring after 100 seconds.",
-        ]),
-      });
       // The bridge's socket closing interrupts the daemon's Ask, as a killed bridge does.
       yield* Fiber.interrupt(asking);
       const running = yield* f.until("running");

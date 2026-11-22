@@ -625,7 +625,7 @@ export const makeSupervisor = Effect.fn("supervisor.make")(function* () {
     AppConfig | Host | FileSystem.FileSystem | Path.Path | ChildProcessSpawner.ChildProcessSpawner
   >();
   const host = yield* Host;
-  const providers = yield* makeProviders(config, host.version);
+  const providers = yield* makeProviders(config, host.version, host.executable);
   // Failures before the supervisor exists can't name a run's provider.
   const codex = yield* providers.describe("codex");
   const ready = yield* Deferred.make<Effect.Success<ReturnType<typeof buildSupervisor>>, unknown>();
