@@ -20,7 +20,15 @@ export interface TurnMessages {
   readonly all: string;
   /** What it said since the turn's last tool call started (all of it before the first). */
   readonly sinceToolCall: string;
+  /**
+   * A merged prompt replied, so the next text starts another answer and is set apart from the
+   * text before it.
+   */
+  readonly answerEnded: boolean;
 }
+
+/** What separates the answers of a turn's merged prompts. */
+const ANSWER_SEPARATOR = "\n\n";
 
 /** One session's turn state. */
 export interface AgyTurnState {
@@ -49,7 +57,7 @@ export type PromptOutcome =
   /** agy answered with an error, or a reply foreman can't read; `message` is the failure. */
   | { readonly _tag: "Failed"; readonly message: string };
 
-const NO_MESSAGES: TurnMessages = { all: "", sinceToolCall: "" };
+const NO_MESSAGES: TurnMessages = { all: "", sinceToolCall: "", answerEnded: false };
 const NO_TOKENS: TokenTotals = { input: 0, cachedInput: 0, output: 0, reasoningOutput: 0 };
 
 /** The state of a session that was just opened with the run's access. */
@@ -105,10 +113,18 @@ export function activeTurn(state: AgyTurnState): TurnId | null {
   return state.outstanding > 0 ? state.turn : null;
 }
 
-/** Adds a chunk of agent message text to the turn's buffer. */
+/**
+ * Adds a chunk of agent message text to the turn's buffers. The first chunk after a merged
+ * prompt's reply is separated from earlier text, so two answers don't run together.
+ */
 export function appendMessage(state: AgyTurnState, text: string): AgyTurnState {
-  const { all, sinceToolCall } = state.messages;
-  return { ...state, messages: { all: all + text, sinceToolCall: sinceToolCall + text } };
+  const { all, sinceToolCall, answerEnded } = state.messages;
+  const join = (buffer: string) =>
+    answerEnded && buffer !== "" ? buffer + ANSWER_SEPARATOR + text : buffer + text;
+  return {
+    ...state,
+    messages: { all: join(all), sinceToolCall: join(sinceToolCall), answerEnded: false },
+  };
 }
 
 /**
@@ -170,10 +186,14 @@ function turnOutcome(
   return { status: "failed", failure: `agy stopped the turn: ${outcome.stopReason}` };
 }
 
-/** Keeps a failed prompt's message when a later prompt is still outstanding to end the turn. */
-function keepEarlierFailure(state: AgyTurnState, outcome: PromptOutcome): AgyTurnState {
-  if (outcome._tag !== "Failed" || state.refusal !== null) return state;
-  return { ...state, refusal: outcome.message };
+/**
+ * Applies a reply that doesn't end the turn: a failure is kept for the turn's outcome, and the
+ * next text is marked as another answer.
+ */
+function mergeReply(state: AgyTurnState, outcome: PromptOutcome): AgyTurnState {
+  const messages = { ...state.messages, answerEnded: state.messages.all !== "" };
+  if (outcome._tag !== "Failed" || state.refusal !== null) return { ...state, messages };
+  return { ...state, messages, refusal: outcome.message };
 }
 
 /**
@@ -193,7 +213,7 @@ export function finishPrompt(
   };
   const turn = state.turn;
   if (next.outstanding > 0 || turn === null)
-    return { state: keepEarlierFailure(next, outcome), events: [] };
+    return { state: mergeReply(next, outcome), events: [] };
   const handoff = handoffText(state.messages);
   const { status, failure } = turnOutcome(state, outcome);
   const events: ProviderEvent[] = [];

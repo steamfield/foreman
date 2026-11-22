@@ -12,12 +12,14 @@ import { connectAgy } from "../src/providers/agy/connection";
 import { SIGNED_OUT } from "../src/providers/agy/launch";
 import {
   acceptsSteer,
+  appendMessage,
   beginSteer,
   beginTurn,
   finishPrompt,
   openedSession,
   type PromptOutcome,
   recordRefusal,
+  startToolCall,
 } from "../src/providers/agy/turns";
 import {
   type Inbound,
@@ -29,7 +31,13 @@ import {
   type AcpScenario,
   AcpScenario as AcpScenarioSchema,
 } from "./fixtures/fake-acp-agent/scenario";
-import { command, message, prompt, writeTurn } from "./fixtures/fake-acp-agent/scenarios";
+import {
+  command,
+  message,
+  prompt,
+  steerRacesReply,
+  writeTurn,
+} from "./fixtures/fake-acp-agent/scenarios";
 
 const fake = fileURLToPath(new URL("./fixtures/fake-acp-agent/main.mjs", import.meta.url));
 /** The fake's usage on every prompt reply, as foreman's token totals. */
@@ -142,6 +150,40 @@ it.effect("a steer joins the running turn, which ends on the steer's reply with 
   ),
 );
 
+it.effect("a steer sent as the first prompt replies still ends the turn once, on its reply", () =>
+  provide(
+    Effect.gen(function* () {
+      const agy = yield* fakeAgy(steerRacesReply());
+      const { session } = yield* agy.connection.open("unit", settings(agy.worktree));
+      const turn = yield* agy.connection.startTurn(session, turnOne(agy.worktree));
+      // Nothing has read inbound yet: the first reply may already be on its way.
+      yield* agy.connection.steer(session, turn, "And the second part.");
+      const inbounds = yield* agy.connection.inbound.pipe(
+        Stream.takeUntil((inbound) => inbound.events.some((e) => e._tag === "TurnCompleted")),
+        Stream.runCollect,
+      );
+      const events = eventsOf(inbounds);
+
+      expect(ofTag(events, "TurnCompleted")).toEqual([
+        {
+          _tag: "TurnCompleted",
+          turn: "t1",
+          status: "completed",
+          failure: null,
+          handoff: "First answer.\n\nSecond answer.",
+        },
+      ]);
+      expect(ofTag(events, "TokenUsage")).toEqual([
+        expect.objectContaining({
+          totals: expect.objectContaining({ output: 2 * oneReply.output }),
+        }),
+      ]);
+      const prompts = (yield* agy.received).filter((line) => line.method === "session/prompt");
+      expect(prompts).toHaveLength(2);
+    }),
+  ),
+);
+
 it.effect("refuses a steer once the turn's completion is queued, sending nothing to agy", () =>
   provide(
     Effect.gen(function* () {
@@ -210,6 +252,28 @@ it.each([
   });
 });
 
+it.each([
+  {
+    case: "text before the merged reply",
+    before: "First answer.",
+    handoff: "First answer.\n\nSecond.",
+  },
+  { case: "no text before the merged reply", before: "", handoff: "Second." },
+])("the steer's answer after $case", ({ before, handoff }) => {
+  const steered = beginSteer(appendMessage(beginTurn(openedSession("write"), request), before));
+  const merged = finishPrompt(steered, replied).state;
+  const ended = finishPrompt(appendMessage(merged, "Second."), replied);
+  expect(ended.events.at(-1)).toMatchObject({ _tag: "TurnCompleted", handoff });
+});
+
+it("sets the steer's answer apart in the text since the last tool call too", () => {
+  const ran = appendMessage(beginTurn(openedSession("write"), request), "Running ls.");
+  const said = appendMessage(startToolCall(ran).state, "Listing done.");
+  const merged = finishPrompt(beginSteer(said), replied).state;
+  const ended = finishPrompt(appendMessage(merged, "Second."), replied);
+  expect(ended.events.at(-1)).toMatchObject({ handoff: "Listing done.\n\nSecond." });
+});
+
 it.effect("resumes a session with the bridge, then the model and mode, and loads it", () =>
   provide(
     Effect.gen(function* () {
@@ -249,6 +313,32 @@ it.effect("resumes a session with the bridge, then the model and mode, and loads
           params: { sessionId: "sess-1", modeId: "default" },
         }),
       ]);
+    }),
+  ),
+);
+
+it.effect("reports a session agy can't resume with the run and a next step", () =>
+  provide(
+    Effect.gen(function* () {
+      const agy = yield* fakeAgy({
+        rules: [
+          {
+            method: "session/resume",
+            respond: { error: { code: -32002, message: "session not found" } },
+          },
+        ],
+      });
+      const error = yield* agy.connection
+        .resume("unit", "sess-1", settings(agy.worktree))
+        .pipe(Effect.flip);
+
+      expect(error).toEqual(
+        new AgyUnavailable({
+          detail:
+            "agy could not resume session sess-1 for run unit (session not found); start a new run with foreman start, or run foreman doctor if this keeps happening.",
+        }),
+      );
+      expect(agy.connection.isLoaded("sess-1")).toBe(false);
     }),
   ),
 );

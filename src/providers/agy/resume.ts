@@ -3,6 +3,7 @@
  * and resuming a session share. docs/rfcs/0002-providers.md "Resume" is the design.
  */
 import { Effect, Schema } from "effect";
+import { AgyUnavailable } from "../../errors";
 import * as Acp from "../../schemas/acp";
 import type { Resumed, SessionId, SessionSettings } from "../contract";
 import { sessionRequest } from "./launch";
@@ -17,6 +18,10 @@ const SESSION_RESUME_TIMEOUT = "180 seconds";
 const NO_EFFORT = "none";
 /** The agy mode foreman runs sessions in; its permission requests come to foreman. */
 const DEFAULT_MODE = "default";
+
+/** The failure when agy refuses to resume a session for a reason other than signing in. */
+const resumeRefused = (session: SessionId, run: string, message: string) =>
+  `agy could not resume session ${session} for run ${run} (${message}); start a new run with foreman start, or run foreman doctor if this keeps happening.`;
 
 /**
  * agy takes model and thinking level as one id: `gemini-4-neon-low`. Models without thinking
@@ -52,9 +57,9 @@ export const configureSession = Effect.fnUntraced(function* (
  * Loads a session this connection didn't open, with the run's question bridge, model and
  * mode. The session counts as loaded only once all of that succeeded, so a failed resume is
  * retried in full on the next follow-up.
- * @throws {AgyUnavailable} When the connection has ended, nobody is signed in, or a reply
- * doesn't match the supported protocol.
- * @throws {RpcError} When agy refuses the session (it no longer exists, for example).
+ * @throws {AgyUnavailable} When the connection has ended, nobody is signed in, agy refuses
+ * the session (it no longer exists, for example), or a reply doesn't match the protocol.
+ * @throws {RpcError} When agy refuses the model or the mode.
  * @throws {RpcRequestTimeout} When agy doesn't answer in time.
  */
 export const resumeSession = Effect.fnUntraced(function* (
@@ -70,6 +75,10 @@ export const resumeSession = Effect.fnUntraced(function* (
     params,
     Schema.Unknown,
     SESSION_RESUME_TIMEOUT,
+  ).pipe(
+    Effect.catchTag("RpcError", (error) =>
+      Effect.fail(new AgyUnavailable({ detail: resumeRefused(session, run, error.message) })),
+    ),
   );
   yield* configureSession(live, session, settings);
   live.sessions.set(session, {
