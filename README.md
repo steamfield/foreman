@@ -1,24 +1,43 @@
 # foreman
 
-foreman lets Claude Code delegate coding tasks to OpenAI's Codex in git worktrees. Claude writes a contract, starts a run, answers Codex's questions and sends corrections, then reviews the diff before committing. A local daemon keeps runs alive between CLI calls, and `foreman monitor` gives you a live terminal view of every run on your machine.
+foreman lets Claude Code delegate coding tasks to OpenAI's Codex or to agy, Google's Antigravity CLI, in git worktrees. Claude writes a contract, starts a run, answers the delegate's questions and sends corrections, then reviews the diff before committing. A local daemon keeps runs alive between CLI calls, and `foreman monitor` gives you a live terminal view of every run on your machine.
 
-foreman drives `codex app-server` using your Codex ChatGPT login. It does not need an API key. The MCP wrapper is still pending.
+foreman drives `codex app-server` using your Codex ChatGPT login, and `agy acp` (the Agent Client Protocol) using your agy sign-in. Neither needs an API key: foreman removes OpenAI and Gemini key variables from the delegate's environment, so a run never bills to a key by accident. The MCP wrapper is still pending.
 
 ## How it works
 
-Claude Code is the orchestrator and Codex is the delegate. You ask Claude to hand a task to Codex; Claude does the rest through foreman commands, and you can watch.
+Claude Code is the orchestrator and Codex or agy is the delegate. You ask Claude to hand a task to Codex or Gemini; Claude does the rest through foreman commands, and you can watch.
 
 | Term | Meaning |
 | --- | --- |
 | Run | One delegated task with a short unique name, such as `fix-hooks`. It has its own git worktree and branch, so it never touches your checkout. |
 | Contract | The written task: the goal, the files the run may change and the files it must not. Scope is a review aid, not a sandbox. |
 | Turn | One round of work in a run. Turn 1 is the start; later turns come from follow-ups or the automatic hand-off. |
-| Question | Codex pausing to ask. It waits for an answer, and after a timeout (15 minutes by default) is deferred so Codex continues on its best guess. A late answer is still accepted. |
+| Provider | The agent that runs a delegated task: `codex` or `agy`. The model a run starts with picks it, and the run keeps it. |
+| Question | The delegate pausing to ask. It waits for an answer, and after a timeout (15 minutes by default, less on agy) is deferred so the delegate continues on its best guess. A late answer is still accepted. |
 | Budget | A time limit per working turn (60 minutes by default). At expiry foreman interrupts and asks for a read-only hand-off. |
-| Hand-off | The summary Codex writes when a turn ends. |
-| Daemon | A local process that owns run state and the Codex session, so a turn outlives the command that started it. |
+| Hand-off | The summary the delegate writes when a turn ends. |
+| Daemon | A local process that owns run state and the provider sessions, so a turn outlives the command that started it. |
 
 A run is in one of these states: `starting`, `running`, `waiting` (a question needs a person), `idle` (turn finished), `failed`, `interrupted`, `lost` (supervision was lost) or `unknown`.
+
+## Providers and models
+
+`start --model` picks the provider by looking the model up in each provider's catalog, so a model either provider adds works without a foreman release. `foreman models` lists every model with its efforts and defaults, and shows an unavailable provider with the reason.
+
+| Provider | Models | Sign-in | With no `--model` |
+| --- | --- | --- | --- |
+| `codex` | GPT models from Codex's catalog | `codex login` (ChatGPT) | The newest visible `gpt-*-sol`, `high` effort, `priority` tier |
+| `agy` | Gemini models, plus the other models agy lists for your account | Run `agy` once and sign in | Not used: name an agy model |
+
+An agy id with an effort suffix, such as `gemini-4-neon-high`, means the family plus that effort, so `--model gemini-4-neon --effort high` is the same run. `--tier` applies only to Codex. When both catalogs list a model, pass `codex:<model>` or `agy:<model>`. An unknown model fails before a worktree or the daemon is touched, with exit 2, a near-miss suggestion when there is one, and with `--json` a `candidates` list.
+
+The two providers differ in a few places:
+
+- Read-only Codex runs use an OS sandbox. A read-only agy run refuses agy's edit tools but allows shell commands; the run carries a warning, and it fails if a shell command changed files. Use Codex when read-only must be enforced.
+- agy ends its turn when foreman refuses a permission, so a refused edit in a read-only run fails the run rather than letting agy continue.
+- agy holds a question's tool call for a limited time, so agy runs cap the question timeout below that hold and record the cap as a warning.
+- Every other command (`wait`, `answer`, `steer`, `followup`, `interrupt`, `result`, `archive`, `monitor`) works the same on both. A follow-up stays on its run's provider.
 
 ## Watch your runs
 
@@ -40,7 +59,7 @@ The live view opens watching, with a passive connection that does not keep the d
 
 `?` shows help and the legend; `q` quits when no action overlay or text input is open. For a one-row pane use `foreman monitor --line`; for a status bar use `foreman monitor --line --once` to print one update and exit. Line mode stays passive, works with redirected streams and cannot take a run name or `--json`.
 
-Without interactive stdin and stdout, with `--json`, or inside a Codex delegate, the ordinary monitor prints a snapshot: `status <name>` for a named run, otherwise `status --all`. That path may start the daemon. Agents use `status --all`, `wait` and `events`. [The design contract](docs/design/monitor.md) describes the screens and keys in full.
+Without interactive stdin and stdout, with `--json`, or inside a Codex or agy delegate, the ordinary monitor prints a snapshot: `status <name>` for a named run, otherwise `status --all`. That path may start the daemon. Agents use `status --all`, `wait` and `events`. [The design contract](docs/design/monitor.md) describes the screens and keys in full.
 
 ## Install
 
@@ -56,7 +75,19 @@ foreman doctor
 
 The package supplies a native binary for macOS or Linux, arm64 or x64; keep optional dependencies enabled. You can also install with `bun add -g @steamfield/foreman` or run `npx @steamfield/foreman`.
 
-Read doctor's probes even when it exits 0. It checks config, Codex, hook trust and daemon state without starting a turn or starting or replacing the daemon. If a version-manager shim fails, set `CODEX_BIN` to the actual executable.
+Read doctor's probes even when it exits 0. It checks config, each provider, hook trust and daemon state without starting a turn or starting or replacing the daemon. If a version-manager shim fails, set `CODEX_BIN` to the actual executable.
+
+### Add agy
+
+agy is optional. Install the Antigravity CLI (foreman's protocol check is recorded against agy **1.5.14**), then run it once to sign in with your Google account:
+
+```sh
+agy
+foreman doctor
+foreman models
+```
+
+Doctor reports agy separately from Codex: the executable and version, whether `agy models` succeeds (which means you're signed in), protocol compatibility, hook trust for the current repo and the catalog size. Without agy it prints `agy: not installed` and still exits 0. Set `AGY_BIN` when `agy` isn't on `PATH`. foreman starts one `agy acp` process for all agy runs, and agy keeps each run's conversation in its own history, as Codex does.
 
 ### Use the Claude Code skill
 
@@ -66,13 +97,13 @@ The binary installs its matching entry point for Claude Code:
 foreman skill install
 ```
 
-An identical installed file is unchanged; inspect a different copy before replacing it with `foreman skill install --force`. Other agents can read `foreman skill install --print` (or `npx @steamfield/foreman skill install --print`). Open Claude Code in the repo and ask: "Use the foreman skill to delegate this task to Codex, then review its work."
+An identical installed file is unchanged; inspect a different copy before replacing it with `foreman skill install --force`. Other agents can read `foreman skill install --print` (or `npx @steamfield/foreman skill install --print`). Open Claude Code in the repo and ask: "Use the foreman skill to delegate this task to Codex, then review its work", or name a Gemini model for agy.
 
 The [skill](skills/foreman/SKILL.md) requires `foreman guide` before the first command in a session. The guide ships the workflow and contract templates with the installed binary; `foreman <command> --help` owns arguments, flags, defaults, accepted states, exit codes and examples.
 
 ## One-time repo setup
 
-Open Codex in the **main checkout** of the repo you want to delegate into:
+For Codex runs, open Codex in the **main checkout** of the repo you want to delegate into:
 
 ```sh
 codex
@@ -90,9 +121,13 @@ Codex loads `AGENTS.md` from the repo root down to the worktree and reads an ins
 
 Linked worktrees inside the main checkout inherit its approved hooks. Reapprove changed definitions there; hook edits in a delegated branch take effect after reaching the main checkout. foreman never approves hooks or changes Codex trust.
 
+agy has no trust step: it runs `hooks.json` from `.agents/` (or `.agent/`, `_agents/`, `_agent/`) in the worktree it works in, so the copy that matters is the committed one. foreman refuses an agy start when that file doesn't match agy's hook schema, and when the repo has `.codex/hooks.json` but the worktree has no agy hooks, because agy would run without the repo's guards. To guard agy with the same scripts, add an `.agents/hooks.json` whose PreToolUse hooks match agy's tool names (`run_command`, `write_file`, `edit_file`), as this repo's [`.agents/hooks.json`](.agents/hooks.json) does through [`guard-adapter.sh`](.agents/hooks/guard-adapter.sh). agy reports no hook runs, so foreman can't confirm a hook ran in a turn as it does for Codex.
+
+agy loads `GEMINI.md`, `AGENTS.md`, `.agents/rules/` and `.agents/skills/` itself, walking from the worktree to the repo root.
+
 ## Delegate and supervise
 
-Run `foreman guide` before the first delegation in a session. It walks through writing a contract, starting a background wait, handling questions, reviewing the diff and archiving. Fill a template from `foreman guide contract`, or `foreman guide contract tests` for a test author.
+Run `foreman guide` before the first delegation in a session. It walks through writing a contract, starting a background wait, handling questions, reviewing the diff and archiving. Fill a template from `foreman guide contract`, or `foreman guide contract tests` for a test author; add `agy` (`foreman guide contract agy`) for an agy run, whose self-review runs `agy -p` instead of `codex exec`.
 
 Read `foreman guide supervise` when a question or correction arrives, `foreman guide review` before landing work, and `foreman guide recover` before retrying a failed run or upgrading. Use the printed `next:` command after each result. Run waits in the background so the orchestrator remains available.
 
@@ -106,7 +141,8 @@ All commands accept `--json` and `--help`. Commands below follow `foreman`; angl
 
 | Command | Purpose |
 | --- | --- |
-| `guide [<topic>]` | Print the agent workflow, or contract, contract tests, supervise, review or recover; `--json` includes text, topics and mentioned commands |
+| `guide [<topic>]` | Print the agent workflow, or contract, contract tests (either followed by `agy` for an agy run), supervise, review or recover; `--json` includes text, topics and mentioned commands |
+| `models` | List each provider's models, efforts and defaults, and any unavailable provider with its reason |
 | `skill install [--force] [--print]` | Install the bundled skill under `$HOME/.claude/skills/foreman/`, leave an identical copy unchanged, or print it for another agent |
 | `start <name> --new-worktree --contract <file>` | Create a worktree and start; accepts `--from`, `--setup`, `--write`, `--model`, `--effort`, `--tier`, `--budget`, `--question-timeout`, `--skip-deps-check` |
 | `start <name> --worktree <path> --contract <file>` | Use a prepared linked worktree inside the main checkout; foreman never removes it or its branch |
@@ -121,7 +157,7 @@ All commands accept `--json` and `--help`. Commands below follow `foreman`; angl
 | `result <name>` | Digest and latest available hand-off, naming its turn |
 | `archive <name> [--keep-worktree]` | Archive an inactive run and clean up its managed worktree, or retain it explicitly |
 | `wait <name>...` or `wait --all` | Wait for attention; accepts `--after <cursor>` and `--timeout <duration>` |
-| `doctor` | Inspect config, Codex, hook trust, home permissions and daemon state |
+| `doctor` | Inspect config, Codex and agy, hook trust, home permissions and daemon state |
 | `daemon` / `daemon stop` | Run in the foreground / stop when no runs or accepted answers need the daemon |
 | `update [--check]` | Install the latest release with the npm, bun or pnpm global install that installed this foreman; `--check` only reports. Other installs get instructions |
 
@@ -162,10 +198,10 @@ On `failed` or `lost`, read status, result, events and the worktree before conti
 | --- | --- |
 | 0 | Success, including wait outcomes and doctor with unavailable probes |
 | 1 | Internal error |
-| 2 | Invalid command, arguments or input file |
+| 2 | Invalid command, arguments or input file, including a model no provider lists |
 | 3 | Invalid configuration |
 | 4 | Daemon unavailable |
-| 5 | Codex unavailable |
+| 5 | Codex or agy unavailable (`CodexUnavailable` or `AgyUnavailable`) |
 | 6 | Permission denied, including input files, run data, repo hooks, or daemon sockets |
 | 7 | Run or question not found |
 | 8 | Run conflict, including unreadable or unsupported run data |
@@ -192,11 +228,11 @@ Environment settings take precedence over `$FOREMAN_HOME/config.json`, then defa
 | `FOREMAN_LOG_FORMAT` | | Pretty stderr; `json` selects JSON lines |
 | `FOREMAN_LOG_FILE` | | No additional CLI file; overrides the daemon JSON log path when set |
 
-Relative paths resolve from the caller's directory. Start defaults to the newest visible `gpt-*-sol` in Codex's cache (fallback `gpt-6.1-sol`), `high` effort and `priority` tier.
+Relative paths resolve from the caller's directory. Start defaults to `defaultModel`, else the newest visible `gpt-*-sol` in Codex's cache (fallback `gpt-6.1-sol`), with `high` effort and `priority` tier. agy runs default to `high` effort. foreman caches agy's catalog in `$FOREMAN_HOME/providers/agy/models.json` and refreshes it when it is missing, older than a day or from another agy version, or once when a model is in neither catalog and the cache is over an hour old.
 
 `FOREMAN_HOME` holds the socket, ownership files, logs and `runs/<name>/` records, with home mode `0700`. Use a local filesystem with advisory locking; the socket path must fit within 104 bytes. Question and event lines use storage format **2**, and an agy run's `run.json` uses **3**; older binaries refuse those runs.
 
-Daemon diagnostics are in `logs/daemon.jsonl`, app-server stderr in `logs/app-server.log`; both rotate past 5 MB. CLI logs use stderr and optionally `FOREMAN_LOG_FILE`. Command records use debug on success, error on failure, filtered by `LOG_LEVEL`. The [architecture doc](docs/architecture.md) details storage and the child environment, which removes API key/base overrides and adds delegate markers.
+Daemon diagnostics are in `logs/daemon.jsonl`, app-server stderr in `logs/app-server.log` and agy's in `logs/agy-stderr.log`; these rotate past 5 MB. agy writes its own log to `logs/agy-acp.log`. CLI logs use stderr and optionally `FOREMAN_LOG_FILE`. Command records use debug on success, error on failure, filtered by `LOG_LEVEL`. The [architecture doc](docs/architecture.md) details storage and the child environment, which removes API key/base overrides and adds delegate markers.
 
 ## Upgrade
 

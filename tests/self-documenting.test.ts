@@ -123,8 +123,8 @@ describe("installed guidance", () => {
     expect(body).toContain("Before the first foreman command in a session, run `foreman guide`");
   });
 
-  it.each(["contract", "contract tests"] as const)(
-    "keeps the %s template free of one user's plugins and of files Codex already loads",
+  it.each(["contract", "contract agy", "contract tests", "contract tests agy"] as const)(
+    "keeps the %s template free of one user's plugins and of files the delegate already loads",
     (topic) => {
       const text = guideTopics[topic];
       expect(text).not.toMatch(/\bce:|claude-essentials|plugins\/cache|marketplace/);
@@ -132,6 +132,58 @@ describe("installed guidance", () => {
       expect(text).toContain("{ABSOLUTE CONTRACT PATH}");
     },
   );
+
+  it.each([
+    {
+      topic: "contract",
+      loads: "Codex loads AGENTS.md",
+      review: 'codex exec --ephemeral --sandbox read-only -m "{REVIEW MODEL}"',
+      config: "`~/.codex`",
+      other: /\bagy\b|GEMINI\.md|~\/\.gemini/,
+    },
+    {
+      topic: "contract tests",
+      loads: "Codex loads AGENTS.md",
+      review: 'codex exec --ephemeral --sandbox read-only -m "{REVIEW MODEL}"',
+      config: "`~/.codex`",
+      other: /\bagy\b|GEMINI\.md|~\/\.gemini/,
+    },
+    {
+      topic: "contract agy",
+      loads: "agy loads GEMINI.md, AGENTS.md, .agents/rules/ and .agents/skills/",
+      review: 'agy -p "Follow the instructions in {REVIEW DIR}/prompt.md."',
+      config: "`~/.gemini`",
+      other: /codex exec|~\/\.codex|Codex/,
+    },
+    {
+      topic: "contract tests agy",
+      loads: "agy loads GEMINI.md, AGENTS.md, .agents/rules/ and .agents/skills/",
+      review: 'agy -p "Follow the instructions in {REVIEW DIR}/prompt.md."',
+      config: "`~/.gemini`",
+      other: /codex exec|~\/\.codex|Codex/,
+    },
+  ] as const)(
+    "gives the $topic template its provider's instructions and review command only",
+    async ({ topic, loads, review, config, other }) => {
+      const result = await runCli(["guide", ...topic.split(" ")]);
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain(loads);
+      expect(result.stdout).toContain(review);
+      expect(result.stdout).toContain(config);
+      expect(result.stdout).not.toMatch(other);
+      expect(result.stdout).not.toMatch(/\$\{|undefined/);
+    },
+  );
+
+  it("has the agy review run without shell commands and report an empty review", () => {
+    for (const topic of ["contract agy", "contract tests agy"] as const) {
+      const text = guideTopics[topic];
+      expect(text).toContain('git diff HEAD --output="{REVIEW DIR}/changes.diff"');
+      expect(text).toContain("Make no edits and run no shell commands");
+      expect(text).toContain('--output-format text > "{REVIEW DIR}/review.md"');
+      expect(text).toContain("If\n`review.md` is empty, read that file and ask the orchestrator");
+    }
+  });
 
   it("names only commands and flags that the real command tree exposes", () => {
     const texts = [...Object.values(guideTopics), skillText];
@@ -197,7 +249,8 @@ describe("installed guidance", () => {
     const example =
       guideTopics.core.split("\n").find((line) => line.includes("foreman start doctor-help")) ?? "";
     expect(example).toMatch(/--model gpt-[\w.-]+/);
-    expect(guideTopics.core).toContain("models_cache.json");
+    expect(guideTopics.core).toContain("foreman models");
+    expect(guideTopics.core).not.toContain("models_cache.json");
     expect(guideTopics.core).toContain("foreman status doctor-help");
     expect(guideTopics.core).toContain("same literal model");
   });

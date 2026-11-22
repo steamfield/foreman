@@ -1,13 +1,24 @@
-export const contractTestsText = `# Contract: acceptance tests for {TITLE}
+/**
+ * The fillable contract for an independent test author, written ahead of the implementer's. The
+ * provider decides what the delegate already loads and how it runs the independent review.
+ */
+import type { ProviderId } from "../schemas/provider";
+import { contractAgents } from "./contract-agents";
+
+/** The test-author contract for a run on the given provider. */
+export const contractTestsText = (provider: ProviderId): string => {
+  const agent = contractAgents[provider];
+  return `# Contract: acceptance tests for {TITLE}
 
 <!-- Claude: copy outside the worktree, fill task placeholders and remove this comment.
 Leave REVIEW DIR for the delegate's mktemp output.
-Fill REVIEW MODEL with the literal visible model passed to foreman start --model and confirm
-it in the digest's run: header. Use foreman start <name> --worktree <path> --contract <this-file>
---write --model <model>, then background the printed next: wait command and follow each next:.
-Codex loads AGENTS.md from the repo root down to the worktree and lists its installed skills
-itself, so don't ask it to read either. Every file listed below is read before the first edit
-and resent on every later model call: list only what this task needs. -->
+Fill REVIEW MODEL with the literal model from foreman models passed to foreman start --model and
+confirm it in the digest's run: header. Use foreman start <name> --worktree <path> --contract
+<this-file> --write --model <model>, then background the printed next: wait command and follow
+each next:.
+${agent.loadsItself}
+Every file listed below is read before the first edit and resent on every later model call:
+list only what this task needs. -->
 
 You are the test author, separate from the implementer.
 
@@ -39,15 +50,15 @@ merge, remove worktrees or clean up the orchestrator's scratch files.
 ## Read first
 
 - {Existing tests, helpers and fixtures whose patterns to follow.}
-- {Testing instructions Codex does not load itself, such as CLAUDE.md sections or path-scoped
-  rules the repo's Codex hooks don't inject, only where they apply.}
+- {Testing instructions ${agent.name} does not load itself, such as ${agent.unloadedRules},
+  only where they apply.}
 
 Read anything else when the work reaches it, not up front.
 
 ## Skills to apply
 
 {Optional; delete this section if not needed. Name installed skills that must apply, and when,
-for example "the testing skill for every test". Codex finds them by name.} If a named skill
+for example "the testing skill for every test". ${agent.name} finds them by name.} If a named skill
 is not installed, say so in the hand-off and continue with the repo's rules. The repo's testing
 rules win where they differ. Report where the skills changed your approach.
 
@@ -96,16 +107,14 @@ failure messages identify the missing behaviour and the fixtures reach the inten
 - Edit an existing or locked test, weaken an assertion or skip a test to get a different result.
 - Disable lint, add a cast or suppress a type error to hide a missing import.
 - Add mechanisms the design's tests do not need.
-- Edit \`~/.codex\` config, hooks, trust or auth. Codex's own runtime session and log writes
-  there are fine, including during the independent review.
+${agent.ownConfig}
 - Mention any repository outside this one in a tracked file. External references are for
   reading only.
 
 ## Review before hand-off
 
 Once the tests fail for the right reasons and the other checks are clean as described above,
-get one independent review in a fresh Codex process. Run it from the worktree root, where Codex
-loads AGENTS.md and its installed skills itself.
+get one independent review in a fresh ${agent.name} process. ${agent.reviewWhere}
 
 Run separate simple commands from the worktree root. First:
 
@@ -113,7 +122,8 @@ Run separate simple commands from the worktree root. First:
 mktemp -d
 \`\`\`
 
-Keep its printed absolute directory outside the worktree. With the file-writing tool, write
+Keep its printed absolute directory outside the worktree.
+${agent.reviewInputs}With the file-writing tool, write
 \`<review-directory>/prompt.md\`: the body of \`{REPO REVIEWER PATH OR NONE}\` without
 frontmatter, if present, then these task instructions:
 
@@ -122,13 +132,11 @@ frontmatter, if present, then these task instructions:
 acceptance tests written ahead of implementation. Check that they assert the design's
 behaviour, reject wrong implementations and avoid races and coupling to internals, following
 the repo's rules, including path-scoped rules (such as \`.claude/rules/\`) covering the changed
-files. Your sandbox is read-only; don't run tests or edit files. The author ran the checks. Report every real defect with a file:line reference."
+files. ${agent.reviewLimits} The author ran the checks. Report every real defect with a file:line reference."
 
 Then run this one plain command, filling \`{REVIEW DIR}\` with that printed absolute path:
 
-\`\`\`sh
-codex exec --ephemeral --sandbox read-only -m "{REVIEW MODEL}" -c 'model_reasoning_effort="high"' -c 'service_tier="priority"' -o "{REVIEW DIR}/review.md" - < "{REVIEW DIR}/prompt.md"
-\`\`\`
+${agent.reviewCommand}
 
 Use the literal \`{REVIEW MODEL}\` Claude filled in and verified against the run's digest header,
 not an environment variable. Do not wrap these steps in a function, braces, a heredoc or a
@@ -155,3 +163,4 @@ Leave everything uncommitted and end with this report, naming files and symbols:
 8. Look closer at: tests or assumptions the orchestrator should examine.
 9. Open: unfinished work, blockers and questions.
 `;
+};
