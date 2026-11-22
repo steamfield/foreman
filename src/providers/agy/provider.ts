@@ -10,6 +10,7 @@ import { probeSsh } from "../../core/preflight/ssh";
 import { AgyUnavailable } from "../../errors";
 import type { Provider } from "../contract";
 import { connectAgy } from "./connection";
+import { checkAgyEffort } from "./effort";
 import { agyEnvironment } from "./environment";
 import { findAgyHooks } from "./hooks";
 
@@ -82,6 +83,17 @@ export const makeAgyProvider = Effect.fn("agy.provider")(function* (options: Agy
         Effect.map((path) => path !== null),
         Effect.provide(context),
       ),
+    checkEffort: (model, effort) =>
+      checkAgyEffort(
+        {
+          agyBin: options.agyBin,
+          searchPath: options.inheritedEnvironment.PATH ?? "",
+          home: options.home,
+          environment,
+        },
+        model,
+        effort,
+      ).pipe(Effect.provide(context)),
     hookBypassMessage: (group, worktree) =>
       `agy reports no hook runs, so foreman can't confirm the hooks in ${group}/.agents/hooks.json ran in ${worktree}.`,
     connect: (stderr) =>

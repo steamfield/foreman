@@ -85,6 +85,7 @@ export const resumeSession = Effect.fnUntraced(function* (
     turn: openedSession(settings.access, settings.priorTokens ?? undefined),
     tools: new Map(),
     cwd: settings.cwd,
+    effort: settings.effort,
   });
   return { sandbox: DEFAULT_MODE, model: settings.model } satisfies Resumed;
 });

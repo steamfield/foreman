@@ -252,6 +252,7 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* (providers: Prov
     body: Extract<DaemonRequestBody, { _tag: "Followup" }>,
     supersede = true,
   ) {
+    yield* turns.checkFollowupEffort(run, body.effort);
     const threadId = yield* registry.starts.withPermits(1)(
       Effect.gen(function* () {
         yield* acceptingStarts;

@@ -457,6 +457,15 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
       }),
     );
   });
+  /**
+   * Refuses a follow-up whose --effort the run's model doesn't offer. Runs before the run
+   * leaves its resting state, so a refusal changes nothing.
+   */
+  const checkFollowupEffort = Effect.fnUntraced(function* (run: Run, effort: string | undefined) {
+    if (effort === undefined) return;
+    const provider = yield* connections.describe(providerOf(run.record));
+    if (provider.checkEffort) yield* provider.checkEffort(run.record.model, effort);
+  });
   const reserveFollowup = Effect.fnUntraced(function* (run: Run) {
     if (run.record.state === "waiting") {
       const pending = Store.pendingQuestions(yield* Store.readQuestions(run.dir))[0];
@@ -540,6 +549,7 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
   return {
     start,
     cancelStart,
+    checkFollowupEffort,
     reserveFollowup,
     followup,
     begin,

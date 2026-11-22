@@ -11,7 +11,7 @@ import { Deferred, Effect, FileSystem, Queue, Schema, Stream } from "effect";
 import * as Acp from "../../schemas/acp";
 import type { ProviderConnection, SessionId, SessionSettings, TurnRequest } from "../contract";
 import { type RpcMessage, type RpcNotification, RpcRequestTimeout } from "../jsonrpc";
-import { readNotification } from "./events";
+import { type AgySessionState, readNotification } from "./events";
 import { agyHookTrust } from "./hooks";
 import {
   type AgyLaunchOptions,
@@ -140,6 +140,7 @@ const openSession = Effect.fnUntraced(function* (
     turn: openedSession(settings.access),
     tools: new Map(),
     cwd: settings.cwd,
+    effort: settings.effort,
   });
   yield* configureSession(live, sessionId, settings);
   return { session: sessionId, warnings: [] };
@@ -151,13 +152,20 @@ const startTurn = Effect.fnUntraced(function* (
   session: SessionId,
   request: TurnRequest,
 ) {
-  const state = live.sessions.get(session) ?? {
+  const state: AgySessionState = live.sessions.get(session) ?? {
     turn: openedSession(request.settings.access),
     tools: new Map(),
     cwd: request.settings.cwd,
   };
   const turn = turnIdFor(request.turn);
-  live.sessions.set(session, { ...state, turn: beginTurn(state.turn, request) });
+  // A follow-up may change the thinking level, which agy only takes as a config option.
+  if (state.effort !== undefined && state.effort !== request.settings.effort)
+    yield* configureSession(live, session, request.settings);
+  live.sessions.set(session, {
+    ...state,
+    effort: request.settings.effort,
+    turn: beginTurn(state.turn, request),
+  });
   yield* Queue.offer(live.inbound, {
     session,
     method: Acp.Method.prompt,

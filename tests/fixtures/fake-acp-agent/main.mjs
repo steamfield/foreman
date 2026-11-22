@@ -11,6 +11,17 @@ import { AcpScenario } from "./scenario.ts";
 const scenario = Schema.decodeUnknownSync(Schema.fromJsonString(AcpScenario))(
   readFileSync(process.env.FAKE_ACP_SCENARIO ?? "", "utf8"),
 );
+// The catalog commands foreman runs besides `acp`: a Gemini family with three efforts and a
+// model with no thinking levels.
+if (process.argv[2] === "--version") {
+  console.log("1.5.14");
+  process.exit(0);
+}
+if (process.argv[2] === "models") {
+  const rows = ["gemini-4-neon-low", "gemini-4-neon-medium", "gemini-4-neon-high", "claude-opus-5-5"];
+  console.log(`Fetching models...\n${rows.map((id) => `${id}\t${id}`).join("\n")}`);
+  process.exit(0);
+}
 if (process.argv[2] !== "acp") throw new Error("expected acp as the first argument");
 if (process.env.FAKE_ACP_ARGS) appendFileSync(process.env.FAKE_ACP_ARGS, `${JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), env: process.env })}\n`);
 const Message = Schema.Struct({

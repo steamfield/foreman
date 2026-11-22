@@ -12,6 +12,7 @@ import { type Cause, Data, type Effect, type Scope, type Stream } from "effect";
 import {
   AgyUnavailable,
   CodexUnavailable,
+  type ModelUnresolved,
   type PermissionDenied,
   type RepoHooksUntrusted,
 } from "../errors";
@@ -365,6 +366,16 @@ export interface ProviderDescriptor {
   ) => Effect.Effect<boolean, PermissionDenied | RepoHooksUntrusted>;
   /** The run failure when a command started before any project hook ran. */
   readonly hookBypassMessage: (group: string, worktree: string) => string;
+  /**
+   * Checks an effort a follow-up asks for against the model's catalog, before it is saved.
+   * Absent for providers that validate efforts themselves (Codex).
+   * @throws {ModelUnresolved} When the model doesn't offer the effort; the message lists the valid ones.
+   * @throws {AgyUnavailable} When the catalog can't be read.
+   */
+  readonly checkEffort?: (
+    model: string,
+    effort: string,
+  ) => Effect.Effect<void, ModelUnresolved | ProviderUnavailable>;
 }
 
 /** A provider: its descriptor and how to start a connection. */

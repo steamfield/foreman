@@ -275,3 +275,59 @@ it.live(
     }).pipe(Effect.provide(platform)),
   30_000,
 );
+
+it.live(
+  "a follow-up with --effort sets the thinking level on the session before its prompt",
+  () =>
+    Effect.gen(function* () {
+      const f = yield* agyFixture({
+        rules: [prompt([said("First turn done.")], "end_turn", true)],
+      });
+      yield* f.start(true);
+      yield* reach(f, "idle", 1);
+      const before = (yield* f.received).length;
+      yield* f.request({
+        _tag: "Followup",
+        name: f.name,
+        message: "Think harder.",
+        effort: "high",
+      });
+      const digest = yield* reach(f, "idle", 2);
+      expect(digest.effort).toBe("high");
+      const after = (yield* f.received).slice(before);
+      expect(methodsOf(after)).toEqual([
+        "session/set_config_option",
+        "session/set_mode",
+        "session/prompt",
+      ]);
+      expect(sent(after, "session/set_config_option")).toEqual([
+        { sessionId: expect.any(String), configId: "model", value: "gemini-4-neon-high" },
+      ]);
+    }).pipe(Effect.provide(platform)),
+  30_000,
+);
+
+it.live(
+  "a follow-up effort the model doesn't offer is refused with the valid levels and not saved",
+  () =>
+    Effect.gen(function* () {
+      const f = yield* agyFixture({
+        rules: [prompt([said("First turn done.")], "end_turn", true)],
+      });
+      yield* f.start(true);
+      yield* reach(f, "idle", 1);
+      const before = (yield* f.received).length;
+      const error = yield* f
+        .request({ _tag: "Followup", name: f.name, message: "Go.", effort: "xhigh" })
+        .pipe(Effect.flip);
+      expect(error).toMatchObject({
+        _tag: "ModelUnresolved",
+        detail:
+          "--effort xhigh is not valid for gemini-4-neon (agy). Use one of: low, medium, high.",
+      });
+      const digest = yield* reach(f, "idle", 1);
+      expect(digest.effort).toBe("low");
+      expect(methodsOf((yield* f.received).slice(before))).not.toContain("session/prompt");
+    }).pipe(Effect.provide(platform)),
+  30_000,
+);

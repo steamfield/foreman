@@ -26,6 +26,8 @@ export interface AgySessionState {
   readonly tools: ReadonlyMap<string, ToolCallInfo>;
   /** The worktree the session runs in, when this connection opened it. */
   readonly cwd: string | null;
+  /** The effort last applied to the session; a turn asking for another reconfigures it. */
+  readonly effort?: string;
 }
 
 /** The ask_orchestrator bridge's tool; its question reaches foreman through the daemon. */
