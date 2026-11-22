@@ -97,7 +97,7 @@ const runAgy = Effect.fnUntraced(function* (options: ReadAgyCatalogOptions, args
       orElse: () =>
         Effect.fail(
           new AgyUnavailable({
-            detail: `\`${command}\` didn't finish within ${AGY_COMMAND_TIMEOUT}. Run it yourself to see why, then run foreman doctor.`,
+            detail: `\`${command}\` didn't finish within ${AGY_COMMAND_TIMEOUT}`,
           }),
         ),
     }),
@@ -105,31 +105,55 @@ const runAgy = Effect.fnUntraced(function* (options: ReadAgyCatalogOptions, args
       error instanceof AgyUnavailable
         ? error
         : new AgyUnavailable({
-            detail: `Could not run \`${command}\` (${spawnFailureReason(error)}). Install agy or set AGY_BIN, then run foreman doctor.`,
+            detail: `Could not run \`${command}\`: ${spawnFailureReason(error)}`,
           }),
     ),
   );
   if (result.code !== 0)
     return yield* new AgyUnavailable({
-      detail: `\`${command}\` exited with code ${result.code}: ${outputTail(result.stderr).trim() || "no stderr"}. Run \`agy models\` yourself to see the problem, then run foreman doctor.`,
+      detail: `\`${command}\` exited with code ${result.code}: ${outputTail(result.stderr).trim() || "no stderr"}`,
     });
   return result.stdout;
 });
 
-/** The cached catalog when it is still usable, else undefined. A damaged cache counts as missing. */
+/** The cache file's path under foreman's home. */
+const cachePath = (path: Path.Path, home: string) =>
+  path.join(home, "providers", "agy", "models.json");
+
+/** The catalog in the cache file when it is less than a day old, else undefined. */
+const readUnexpiredCache = Effect.fnUntraced(function* (cacheFile: string, now: number) {
+  const fs = yield* FileSystem.FileSystem;
+  const cached = yield* fs.readFileString(cacheFile).pipe(
+    Effect.flatMap(Schema.decodeUnknownEffect(AgyCatalogFile)),
+    // A damaged cache counts as missing.
+    Effect.orElseSucceed(() => undefined),
+  );
+  if (cached === undefined) return undefined;
+  const age = now - Date.parse(cached.fetchedAt);
+  return age >= 0 && age < CACHE_MAX_AGE_MS ? cached : undefined;
+});
+
+/** The cached catalog when it is still usable for this agy version, else undefined. */
 const readFreshCache = Effect.fnUntraced(function* (
   cacheFile: string,
   agyVersion: string,
   now: number,
 ) {
-  const fs = yield* FileSystem.FileSystem;
-  const cached = yield* fs.readFileString(cacheFile).pipe(
-    Effect.flatMap(Schema.decodeUnknownEffect(AgyCatalogFile)),
-    Effect.orElseSucceed(() => undefined),
-  );
-  if (cached === undefined || cached.agyVersion !== agyVersion) return undefined;
-  const age = now - Date.parse(cached.fetchedAt);
-  return age >= 0 && age < CACHE_MAX_AGE_MS ? cached : undefined;
+  const cached = yield* readUnexpiredCache(cacheFile, now);
+  return cached?.agyVersion === agyVersion ? cached : undefined;
+});
+
+/**
+ * The cache file's catalog without running agy, so without checking agy's version; null when
+ * it is missing, damaged or more than a day old.
+ * @throws Never; an unusable cache is null.
+ */
+export const readCachedAgyCatalog = Effect.fn("agy.readCachedAgyCatalog")(function* (
+  home: string,
+  now: number,
+) {
+  const path = yield* Path.Path;
+  return (yield* readUnexpiredCache(cachePath(path, home), now)) ?? null;
 });
 
 /** Writes the cache to a temporary file and renames it, so readers never see a torn file. */
@@ -148,7 +172,7 @@ const writeCache = Effect.fnUntraced(
   Effect.mapError(
     (error) =>
       new AgyUnavailable({
-        detail: `Could not write the agy model cache: ${error.message}. Check that foreman's home is writable, then retry.`,
+        detail: `Could not write the agy model cache: ${error.message}`,
       }),
   ),
 );
@@ -163,7 +187,7 @@ export const readAgyCatalog = Effect.fn("agy.readAgyCatalog")(function* (
   options: ReadAgyCatalogOptions,
 ) {
   const path = yield* Path.Path;
-  const cacheFile = path.join(options.home, "providers", "agy", "models.json");
+  const cacheFile = cachePath(path, options.home);
   const agyVersion = (yield* runAgy(options, ["--version"])).trim();
   if (!options.refresh) {
     const cached = yield* readFreshCache(cacheFile, agyVersion, options.now);
@@ -173,7 +197,7 @@ export const readAgyCatalog = Effect.fn("agy.readAgyCatalog")(function* (
   const models = parseAgyModels(modelsOutput);
   if (models.length === 0)
     return yield* new AgyUnavailable({
-      detail: `\`agy models\` listed no models (output: ${outputTail(modelsOutput)}). Run \`agy models\` to check sign-in, then run foreman doctor.`,
+      detail: `\`agy models\` listed no models (output: ${outputTail(modelsOutput)})`,
     });
   const catalog: AgyCatalog = {
     fetchedAt: new Date(options.now).toISOString(),
@@ -182,4 +206,41 @@ export const readAgyCatalog = Effect.fn("agy.readAgyCatalog")(function* (
   };
   yield* writeCache(cacheFile, catalog);
   return catalog;
+});
+
+/** agy's catalog, or why it couldn't be read because agy isn't installed. */
+export type AgyCatalogRead =
+  | { readonly _tag: "Read"; readonly catalog: AgyCatalog }
+  | { readonly _tag: "NotInstalled"; readonly reason: string };
+
+// foreman runs on macOS and Linux only.
+const PATH_DELIMITER = ":";
+
+/**
+ * Why agy isn't installed, or null when its executable exists: the configured path, or a file
+ * of that name in a PATH directory. Checked first because a failed spawn doesn't say whether
+ * agy was missing.
+ */
+const missingReason = Effect.fnUntraced(function* (agyBin: string, searchPath: string) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const exists = (file: string) => fs.exists(file).pipe(Effect.orElseSucceed(() => false));
+  if (agyBin.includes(path.sep)) return (yield* exists(agyBin)) ? null : `${agyBin} not found`;
+  for (const directory of searchPath.split(PATH_DELIMITER))
+    if (directory !== "" && (yield* exists(path.join(directory, agyBin)))) return null;
+  return `${agyBin} not found on PATH`;
+});
+
+/**
+ * Reads agy's catalog as readAgyCatalog does, after checking that agy is installed; a missing
+ * executable is a NotInstalled result rather than a failure.
+ * @throws {AgyUnavailable} When agy is installed and its catalog can't be read.
+ */
+export const readAgyCatalogIfInstalled = Effect.fn("agy.readAgyCatalogIfInstalled")(function* (
+  options: ReadAgyCatalogOptions & { readonly searchPath: string },
+) {
+  const reason = yield* missingReason(options.agyBin, options.searchPath);
+  if (reason !== null) return { _tag: "NotInstalled", reason } satisfies AgyCatalogRead;
+  const catalog = yield* readAgyCatalog(options);
+  return { _tag: "Read", catalog } satisfies AgyCatalogRead;
 });

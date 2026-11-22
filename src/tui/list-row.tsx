@@ -1,6 +1,7 @@
 import { Box, Text } from "ink";
 import { memo } from "react";
 import stringWidth from "string-width";
+import { MODEL_CELL_WIDTH } from "../core/monitor/format";
 import type { RowView, ViewModel } from "../core/monitor/model-types";
 import { PACE_MINUTES } from "../schemas/monitor";
 import { Glyph, Line, pad, truncate } from "./components";
@@ -30,7 +31,7 @@ function widths(model: ListModel) {
     }
   const sizes = {
     name: Math.min(name, Math.max(1, model.columns - (stale ? 34 : 19))),
-    model: model.listColumns.model ? 16 : 0,
+    model: model.listColumns.model ? MODEL_CELL_WIDTH : 0,
     status: statusWidth,
     task: model.listColumns.task ? Math.max(1, task - (statusWidth - status)) : 0,
     pace: model.listColumns.pace ? PACE_MINUTES + 1 : 0,

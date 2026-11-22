@@ -1,3 +1,4 @@
+import cliTruncate from "cli-truncate";
 import { DateTime } from "effect";
 import type { RunView } from "../../schemas/monitor";
 import type { DetailFeed } from "./detail-feed";
@@ -13,6 +14,28 @@ export function duration(ms: number): string {
   if (seconds >= 10 * 86400) return `${Math.floor(seconds / 86400)}d`;
   if (seconds >= 10 * 3600) return `${Math.floor(seconds / 3600)}h`;
   return `${Math.floor(seconds / 3600)}h${String(Math.floor((seconds % 3600) / 60)).padStart(2, "0")}m`;
+}
+
+/** Width of the list's model cell, shared by the row label and the column layout. */
+export const MODEL_CELL_WIDTH = 16;
+
+/** The provider's short tag for non-Codex runs, or null when the run needs none. */
+export function providerTag(run: Pick<RunView, "provider">): string | null {
+  return run.provider === undefined || run.provider === "codex" ? null : run.provider;
+}
+
+/** Effort as the list shows it: medium reads `med`, and a fixed-effort model has none. */
+export function effortLabel(effort: string): string | null {
+  if (effort === "none") return null;
+  return effort === "medium" ? "med" : effort;
+}
+
+/** Builds the tagged model cell, clipping only the model so the tag and effort stay readable. */
+export function taggedModelLabel(tag: string, model: string, effort: string | null): string {
+  const suffix = effort === null ? "" : ` · ${effort}`;
+  // One cell stays free so the label never touches the status column.
+  const room = Math.max(1, MODEL_CELL_WIDTH - 1 - tag.length - 1 - suffix.length);
+  return `${tag} ${cliTruncate(model.replace(/^gemini-/, ""), room)}${suffix}`;
 }
 
 const epoch = DateTime.toEpochMillis;

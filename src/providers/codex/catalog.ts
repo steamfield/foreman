@@ -71,16 +71,59 @@ function hiddenSlugs(models: readonly unknown[]): string[] {
   return hidden;
 }
 
+/** The reasoning fields of a cache entry; other fields are ignored. */
+const ModelEfforts = Schema.Struct({
+  default_reasoning_level: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  supported_reasoning_levels: Schema.optionalKey(
+    Schema.Array(Schema.Struct({ effort: Schema.String })),
+  ),
+});
+
+/** A model Codex lists, with the reasoning efforts its cache entry declares. */
+export interface CodexModel {
+  readonly model: string;
+  readonly efforts: readonly string[];
+  /** null when the entry declares no default. */
+  readonly defaultEffort: string | null;
+}
+
+/** The models in Codex's catalog, by visibility. */
+export interface CodexCatalog {
+  /** Models Codex shows (`visibility: "list"`), in cache order; empty when unreadable. */
+  readonly listed: readonly CodexModel[];
+  /** Ids present without `visibility: "list"`. */
+  readonly hidden: readonly string[];
+}
+
+/** The listed models with their efforts; an entry with malformed efforts declares none. */
+function listedModels(models: readonly unknown[]): CodexModel[] {
+  const listed: CodexModel[] = [];
+  for (const entry of models) {
+    const model = Schema.decodeUnknownResult(Model)(entry);
+    if (Result.isFailure(model)) continue;
+    const efforts = Schema.decodeUnknownResult(ModelEfforts)(entry);
+    const declared = Result.isSuccess(efforts) ? efforts.success : {};
+    listed.push({
+      model: model.success.slug,
+      efforts: (declared.supported_reasoning_levels ?? []).map((level) => level.effort),
+      defaultEffort: declared.default_reasoning_level ?? null,
+    });
+  }
+  return listed;
+}
+
 /**
- * Returns the model ids in the cache under `codexHome`: the ones Codex lists
- * (`visibility: "list"`) and the hidden rest. A missing or unreadable cache yields empty
- * lists: routing then can't check Codex models and passes them through as it did before
- * providers existed.
+ * Returns the models in the cache under `codexHome`: the ones Codex lists
+ * (`visibility: "list"`) with their efforts, and the hidden rest. A missing or unreadable cache
+ * yields empty lists: routing then can't check Codex models and passes them through as it did
+ * before providers existed.
+ * @throws Never; an unreadable cache is an empty catalog.
  */
 export const readCodexModels = Effect.fn("codex.readCodexModels")(
   function* (codexHome: string) {
     const models = yield* readCache(codexHome);
-    return { listed: listedSlugs(models), hidden: hiddenSlugs(models) };
+    const catalog: CodexCatalog = { listed: listedModels(models), hidden: hiddenSlugs(models) };
+    return catalog;
   },
-  Effect.orElseSucceed(() => ({ listed: [], hidden: [] })),
+  Effect.orElseSucceed((): CodexCatalog => ({ listed: [], hidden: [] })),
 );

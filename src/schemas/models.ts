@@ -21,6 +21,7 @@ export const ModelEntry = Schema.Struct({
   // True for the model a start without --model uses.
   default: Schema.Boolean,
 });
+export type ModelEntry = typeof ModelEntry.Type;
 
 /** One provider's catalog; an unavailable provider lists no models and says why. */
 export const ProviderModels = Schema.Struct({
@@ -28,6 +29,7 @@ export const ProviderModels = Schema.Struct({
   unavailable: Schema.NullOr(Schema.String),
   models: Schema.Array(ModelEntry),
 });
+export type ProviderModels = typeof ProviderModels.Type;
 
 /** The `foreman models --json` result. */
 export const ModelsResult = Schema.Struct({

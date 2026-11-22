@@ -194,15 +194,13 @@ describe("readAgyCatalog", () => {
         const agy = yield* fakeAgy("1.5.14", true);
         const error = yield* readAgyCatalog(agy.options()).pipe(Effect.flip);
         expect(error).toBeInstanceOf(AgyUnavailable);
-        expect(error.detail).toBe(
-          "`agy models` exited with code 3: not signed in. Run `agy models` yourself to see the problem, then run foreman doctor.",
-        );
+        expect(error.detail).toBe("`agy models` exited with code 3: not signed in");
         expect(yield* agy.fs.exists(`${agy.dir}/home/providers/agy/models.json`)).toBe(false);
       }),
     ),
   );
 
-  it.effect("fails with the install hint when the agy binary is missing", () =>
+  it.effect("fails naming the spawn failure when the agy binary is missing", () =>
     run(
       Effect.gen(function* () {
         const agy = yield* fakeAgy();
@@ -211,7 +209,7 @@ describe("readAgyCatalog", () => {
         );
         expect(error).toBeInstanceOf(AgyUnavailable);
         expect(error.detail).toBe(
-          "Could not run `agy --version` (the executable was not found or could not start). Install agy or set AGY_BIN, then run foreman doctor.",
+          "Could not run `agy --version`: the executable was not found or could not start",
         );
       }),
     ),
@@ -225,8 +223,7 @@ describe("readAgyCatalog", () => {
         const error = yield* readAgyCatalog(agy.options()).pipe(Effect.flip);
         expect(error).toEqual(
           new AgyUnavailable({
-            detail:
-              "`agy models` listed no models (output: Please sign in\n). Run `agy models` to check sign-in, then run foreman doctor.",
+            detail: "`agy models` listed no models (output: Please sign in\n)",
           }),
         );
         expect(yield* agy.fs.exists(`${agy.dir}/home/providers/agy/models.json`)).toBe(false);

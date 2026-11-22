@@ -4,24 +4,52 @@
 import { Effect, Schema } from "effect";
 import { Command } from "effect/cli";
 import { listModels } from "../core/models";
-import { ModelsResult } from "../schemas/models";
+import { ModelsResult, type ProviderModels } from "../schemas/models";
 import { Invocation } from "../services/invocation";
 import { Output } from "../services/output";
 
-/** The compact text table: one line per model, one per unavailable provider. */
-function modelsText(result: ModelsResult): string {
-  return result.providers
-    .flatMap((provider) =>
-      provider.unavailable === null
-        ? provider.models.map(
-            (entry) =>
-              `${provider.provider}  ${entry.model}${entry.default ? " (default)" : ""}  efforts: ${entry.efforts.join(", ") || "fixed"}${entry.defaultEffort === null ? "" : ` (default ${entry.defaultEffort})`}`,
-          )
-        : [`${provider.provider}: unavailable (${provider.unavailable})`],
-    )
-    .join("\n");
+const TABLE_HEADER = ["PROVIDER", "MODEL", "EFFORTS", "DEFAULT EFFORT"] as const;
+const COLUMN_GAP = "  ";
+
+/** One table row per listed model; the default model is marked after its id. */
+function modelRows(provider: ProviderModels): string[][] {
+  return provider.models.map((entry) => [
+    provider.provider,
+    entry.default ? `${entry.model} (default)` : entry.model,
+    entry.efforts.join(",") || "fixed",
+    entry.defaultEffort ?? "-",
+  ]);
 }
 
+/** Rows padded into aligned columns. */
+function alignedRows(rows: readonly (readonly string[])[]): string[] {
+  const widths = TABLE_HEADER.map((_, column) =>
+    Math.max(...rows.map((row) => (row[column] ?? "").length)),
+  );
+  return rows.map((row) =>
+    row
+      .map((cell, column) => cell.padEnd(widths[column] ?? 0))
+      .join(COLUMN_GAP)
+      .trimEnd(),
+  );
+}
+
+/** The compact text table, then one line per unavailable provider with its reason. */
+function modelsText(result: ModelsResult): string {
+  const rows = result.providers.flatMap(modelRows);
+  const table = rows.length === 0 ? [] : alignedRows([TABLE_HEADER, ...rows]);
+  const unavailable = result.providers.flatMap((provider) =>
+    provider.unavailable === null
+      ? []
+      : [`${provider.provider}: unavailable (${provider.unavailable})`],
+  );
+  return [...table, ...unavailable].join("\n");
+}
+
+/**
+ * The `foreman models` command: prints every provider's catalog as a table or one JSON value.
+ * @throws Never; output failures are handled by the invocation boundary.
+ */
 export const modelsCommand = Command.make(
   "models",
   {},

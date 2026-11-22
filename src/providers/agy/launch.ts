@@ -48,7 +48,7 @@ function endDetail(agyBin: string, end: ChannelEnd): string {
   return `agy ${JSON.stringify(agyBin)}: ${end.detail}`;
 }
 
-/** Completes the handshake and returns agy's version; refuses any other protocol version. */
+/** Sends initialize and returns what agy answered, without judging its protocol version. */
 const initialize = Effect.fnUntraced(function* (channel: AgyChannel, version: string) {
   const reply = yield* channel
     .request(
@@ -78,22 +78,18 @@ const initialize = Effect.fnUntraced(function* (channel: AgyChannel, version: st
         ),
       ),
     );
-  if (reply.protocolVersion !== ACP_PROTOCOL_VERSION) {
-    return yield* new AgyUnavailable({
-      detail: `agy speaks ACP protocol ${reply.protocolVersion}; foreman supports ${ACP_PROTOCOL_VERSION}. Install agy 1.5.14 or a compatible version, then run foreman doctor.`,
-    });
-  }
-  return reply.agentInfo?.version ?? null;
+  return { protocolVersion: reply.protocolVersion, agentVersion: reply.agentInfo?.version ?? null };
 });
 
 /**
- * Starts `agy acp` in an empty directory under foreman's home and completes the handshake.
- * The child closes with the caller's scope.
- * @returns The ordered channel and the agy version initialize reported (null when none).
+ * Starts `agy acp` in an empty directory under foreman's home and sends initialize, without
+ * judging the protocol version it answers with. The child closes with the caller's scope.
+ * @returns The ordered channel and what initialize reported (agentVersion null when none).
  * @throws {AgyUnavailable} When agy can't be launched, refuses or times out on initialize,
- * speaks another ACP protocol, or its directories under foreman's home can't be created.
+ * answers with a reply that doesn't decode, or its directories under foreman's home can't
+ * be created.
  */
-export const launchAgy = Effect.fn("agy.launch")(function* (options: AgyLaunchOptions) {
+export const startAgy = Effect.fn("agy.start")(function* (options: AgyLaunchOptions) {
   const fs = yield* FileSystem.FileSystem;
   const cwd = `${options.home}/providers/agy/cwd`;
   const logs = `${options.home}/logs`;
@@ -116,7 +112,24 @@ export const launchAgy = Effect.fn("agy.launch")(function* (options: AgyLaunchOp
     ordered: true,
     unavailable: (end) => new AgyUnavailable({ detail: endDetail(options.agyBin, end) }),
   });
-  const agentVersion = yield* initialize(channel, options.version);
+  const { protocolVersion, agentVersion } = yield* initialize(channel, options.version);
+  return { channel, protocolVersion, agentVersion };
+});
+
+/**
+ * Starts `agy acp` and completes the handshake, refusing any protocol version but ours.
+ * The child closes with the caller's scope.
+ * @returns The ordered channel and the agy version initialize reported (null when none).
+ * @throws {AgyUnavailable} When agy can't be launched, refuses or times out on initialize,
+ * speaks another ACP protocol, or its directories under foreman's home can't be created.
+ */
+export const launchAgy = Effect.fn("agy.launch")(function* (options: AgyLaunchOptions) {
+  const { channel, protocolVersion, agentVersion } = yield* startAgy(options);
+  if (protocolVersion !== ACP_PROTOCOL_VERSION) {
+    return yield* new AgyUnavailable({
+      detail: `agy speaks ACP protocol ${protocolVersion}; foreman supports ${ACP_PROTOCOL_VERSION}. Install agy 1.5.14 or a compatible version, then run foreman doctor.`,
+    });
+  }
   return { channel, agentVersion };
 });
 
