@@ -157,3 +157,38 @@ export function cancellableTurn(): AcpScenario {
     ],
   };
 }
+
+/** A command, then a long closing message in many chunks, all written in one burst. */
+export function longHandoff(chunks: number): AcpScenario {
+  const words = Array.from({ length: chunks }, (_, index) => message(`w${index} `));
+  return { rules: [prompt([...command("ls", "a.txt\n"), ...words])] };
+}
+
+/** agy offers only `allow_always` and `reject_once` for an edit, then ends the turn. */
+export function allowAlwaysOnly(): AcpScenario {
+  return {
+    rules: [
+      prompt([
+        {
+          request: "session/request_permission",
+          label: "edit",
+          params: {
+            sessionId: "{{session}}",
+            toolCall: {
+              toolCallId: "call_edit",
+              name: "write_file",
+              kind: "edit",
+              title: "File result.txt",
+              status: "pending",
+            },
+            options: [
+              { optionId: "always", name: "Always allow", kind: "allow_always" },
+              { optionId: "deny", name: "Deny", kind: "reject_once" },
+            ],
+          },
+        },
+        { awaitResponse: "edit" },
+      ]),
+    ],
+  };
+}
