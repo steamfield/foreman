@@ -82,7 +82,7 @@ export const resumeSession = Effect.fnUntraced(function* (
   );
   yield* configureSession(live, session, settings);
   live.sessions.set(session, {
-    turn: openedSession(settings.access),
+    turn: openedSession(settings.access, settings.priorTokens ?? undefined),
     tools: new Map(),
     cwd: settings.cwd,
   });

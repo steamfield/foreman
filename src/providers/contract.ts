@@ -55,6 +55,11 @@ export interface SessionSettings {
   /** Codex service tier; null for providers without one. */
   readonly tier: string | null;
   readonly access: Access;
+  /**
+   * The run's recorded token total. agy reports usage per prompt, so a resumed session starts
+   * its sum here; Codex reports running totals and ignores it.
+   */
+  readonly priorTokens?: TokenTotals | null;
 }
 
 /** What a turn is for; the provider derives its per-turn policy from it (hand-off is read-only). */

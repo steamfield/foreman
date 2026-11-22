@@ -60,8 +60,11 @@ export type PromptOutcome =
 const NO_MESSAGES: TurnMessages = { all: "", sinceToolCall: "", answerEnded: false };
 const NO_TOKENS: TokenTotals = { input: 0, cachedInput: 0, output: 0, reasoningOutput: 0 };
 
-/** The state of a session that was just opened with the run's access. */
-export function openedSession(access: Access): AgyTurnState {
+/**
+ * The state of a session just opened or resumed with the run's access. `totals` seeds the
+ * token sum, so a resumed session continues the run's recorded total.
+ */
+export function openedSession(access: Access, totals: TokenTotals = NO_TOKENS): AgyTurnState {
   return {
     access,
     turnKind: "start",
@@ -69,7 +72,7 @@ export function openedSession(access: Access): AgyTurnState {
     outstanding: 0,
     messages: NO_MESSAGES,
     refusal: null,
-    totals: NO_TOKENS,
+    totals,
   };
 }
 

@@ -249,3 +249,29 @@ it.live(
     }).pipe(Effect.provide(platform)),
   30_000,
 );
+
+it.live(
+  "token totals keep counting from the recorded total after a daemon restart",
+  () =>
+    Effect.gen(function* () {
+      const f = yield* agyFixture({ rules: [prompt([said("First turn done.")])] });
+      yield* f.start(true);
+      const first = yield* reach(f, "idle", 1);
+      expect(first.tokens).toEqual({
+        input: 1200,
+        cachedInput: 200,
+        output: 50,
+        reasoningOutput: 10,
+      });
+      yield* f.restart({ rules: [prompt([said("Resumed and finished.")])] });
+      yield* f.request({ _tag: "Followup", name: f.name, message: "Now add tests." });
+      const second = yield* reach(f, "idle", 2);
+      expect(second.tokens).toEqual({
+        input: 2400,
+        cachedInput: 400,
+        output: 100,
+        reasoningOutput: 20,
+      });
+    }).pipe(Effect.provide(platform)),
+  30_000,
+);

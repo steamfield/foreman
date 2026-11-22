@@ -72,6 +72,7 @@ function sessionSettings(record: RunRecord): SessionSettings {
     effort: record.effort,
     tier: record.tier,
     access: record.sandbox === "danger-full-access" ? "write" : "read-only",
+    priorTokens: record.tokens,
   };
 }
 
