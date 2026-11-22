@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.4.1] - 2026-11-22
+
+### Fixed
+
+- 0.4.1 is the first published 0.4 release. 0.4.0 was tagged, but its release run stopped on a test race and never reached npm, so everything listed under 0.4.0 ships here.
+
 ## [0.4.0] - 2026-11-22
 
 ### Added

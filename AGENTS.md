@@ -4,7 +4,7 @@ Instructions for coding agents working in this repository. Keep this file under 
 
 ## Overview
 
-foreman 0.4.0 lets Claude Code delegate coding tasks to Codex or agy (Google's Antigravity CLI, serving Gemini models) in git worktrees and supervise them through a local daemon. The model a start names picks the provider. foreman drives `codex app-server` with the Codex CLI's ChatGPT login and `agy acp` (the Agent Client Protocol) with agy's own sign-in, both over JSON-RPC. The TypeScript CLI uses Effect 4 and compiles to one binary with Bun. The command is `foreman`; npm installs use `@steamfield/foreman`.
+foreman 0.4.1 lets Claude Code delegate coding tasks to Codex or agy (Google's Antigravity CLI, serving Gemini models) in git worktrees and supervise them through a local daemon. The model a start names picks the provider. foreman drives `codex app-server` with the Codex CLI's ChatGPT login and `agy acp` (the Agent Client Protocol) with agy's own sign-in, both over JSON-RPC. The TypeScript CLI uses Effect 4 and compiles to one binary with Bun. The command is `foreman`; npm installs use `@steamfield/foreman`.
 
 The daemon owns turns, question deferral and late answers, budgets and repo hook enforcement. Mutation continuations wait on the named run; explicit `wait --all` supervises a repo group. `foreman monitor` is the human's live view and can act after confirmation; agents use `status --all`, `wait` and `events`. Agents learn the installed version through `foreman guide` and command `--help`; `foreman skill install` installs the thin entry point. Read [repo setup](README.md#one-time-repo-setup) before delegating into another repo and [architecture](docs/architecture.md) before changing supervision or storage.
 
