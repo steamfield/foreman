@@ -11,7 +11,7 @@ import { errorText, WorktreeInvalid } from "../errors";
 import { readAgyCatalog } from "../providers/agy/catalog";
 import { agyEnvironment } from "../providers/agy/environment";
 import { agyHookTrust } from "../providers/agy/hooks";
-import { isProtocolMismatch, launchAgy, mentionsAuth } from "../providers/agy/launch";
+import { ACP_PROTOCOL_VERSION, mentionsAuth, startAgy } from "../providers/agy/launch";
 import { supportedAgy, versionWarning } from "../providers/agy/provider";
 import type { AgyDoctor } from "../schemas/doctor";
 import { mainCheckout as discoverMainCheckout } from "./main-checkout";
@@ -131,7 +131,7 @@ const probeProtocol = Effect.fnUntraced(function* (
   env: AgyEnvironment,
   foremanVersion: string,
 ) {
-  return yield* launchAgy({
+  return yield* startAgy({
     agyBin: settings.agyBin,
     home: settings.home,
     env,
@@ -141,17 +141,23 @@ const probeProtocol = Effect.fnUntraced(function* (
     Effect.scoped,
     Effect.timeout(AGY_PROBE_TIMEOUT),
     Effect.map(
-      ({ agentVersion }): Checked<{ matches: boolean | null; agentVersion: string | null }> => ({
-        value: { matches: true, agentVersion },
-        finding: versionWarning(settings.agyBin, agentVersion),
-      }),
+      ({
+        protocolVersion,
+        agentVersion,
+      }): Checked<{ matches: boolean | null; agentVersion: string | null }> =>
+        protocolVersion === ACP_PROTOCOL_VERSION
+          ? {
+              value: { matches: true, agentVersion },
+              finding: versionWarning(settings.agyBin, agentVersion),
+            }
+          : {
+              value: { matches: false, agentVersion },
+              finding: `agy speaks ACP protocol ${protocolVersion}; foreman supports ${ACP_PROTOCOL_VERSION}. Install agy ${supportedAgy.version} or a compatible version, then run foreman doctor.`,
+            },
     ),
     Effect.catch((error) =>
       Effect.succeed({
-        value: {
-          matches: isProtocolMismatch(error) ? false : null,
-          agentVersion: null,
-        },
+        value: { matches: null, agentVersion: null },
         finding:
           error._tag === "TimeoutError"
             ? `agy acp did not answer initialize within 20 seconds. Check the agy version (foreman supports ${supportedAgy.version}), then run foreman doctor.`
