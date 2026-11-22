@@ -1,3 +1,7 @@
+/**
+ * The supervisor: routes provider messages and questions to runs, dispatches daemon requests
+ * and maps their failures to public errors.
+ */
 import {
   Cause,
   Clock,
@@ -14,16 +18,21 @@ import {
   Scope,
 } from "effect";
 import type { ChildProcessSpawner } from "effect/process";
-import { CodexRequestTimeout, CodexRpcError } from "../codex/client";
 import { AppConfig } from "../config";
 import { orphanWorktrees } from "../core/managed-worktree";
 import * as Store from "../core/runs/store";
 import { CodexUnavailable, failure, PermissionDenied, RunConflict } from "../errors";
 import { defectTrace } from "../logging";
-import * as Codex from "../schemas/codex";
-import { activeStates, type DaemonRequestBody, type DaemonResult } from "../schemas/daemon";
+import type { Inbound, QuestionCall } from "../providers/contract";
+import { RpcError, RpcRequestTimeout } from "../providers/jsonrpc";
+import {
+  activeStates,
+  type DaemonRequestBody,
+  type DaemonResult,
+  providerOf,
+} from "../schemas/daemon";
 import { Host } from "../services/host";
-import { type AppServer, makeAppServer } from "./app-server";
+import { type LiveConnection, makeConnections } from "./connections";
 import { detail } from "./detail";
 import { handleNotification } from "./notifications";
 import { overview } from "./overview";
@@ -49,11 +58,11 @@ const requestFailure = (
       detail: `Run ${body.name}, Codex ${JSON.stringify(codexBin)}: ${detail}${detail.includes("foreman doctor") ? "" : ". Run foreman doctor and inspect the app-server log before retrying."}`,
     });
   }
-  if (error instanceof CodexRequestTimeout)
+  if (error instanceof RpcRequestTimeout)
     return new CodexUnavailable({
       detail: `${error.method} timed out after ${error.timeoutMs} ms${"name" in body && body.name !== undefined ? ` for run ${body.name}` : ""}. Run foreman status and foreman doctor before retrying.`,
     });
-  if (error instanceof CodexRpcError)
+  if (error instanceof RpcError)
     return new RunConflict({
       detail: `Codex refused ${body._tag}${"name" in body && body.name !== undefined ? ` for run ${body.name}` : ""}; check the requested model and settings, then run foreman status before retrying.`,
     });
@@ -72,6 +81,19 @@ const requestFailure = (
   return failure(Cause.fail(error));
 };
 
+// Transport errors are logged under the provider's own tags, which operators search for.
+// Codex is the only provider whose requests reach this point.
+const TRANSPORT_LOG_TAGS: Readonly<Record<string, string>> = {
+  RpcError: "CodexRpcError",
+  RpcRequestTimeout: "CodexRequestTimeout",
+};
+
+function reasonTagOf(cause: Cause.Cause<unknown>, error: unknown): string {
+  if (Cause.hasDies(cause)) return "Defect";
+  if (!Predicate.hasProperty(error, "_tag") || typeof error._tag !== "string") return "Unknown";
+  return TRANSPORT_LOG_TAGS[error._tag] ?? error._tag;
+}
+
 const rejectRequest = Effect.fnUntraced(function* (
   body: DaemonRequestBody,
   cause: Cause.Cause<unknown>,
@@ -81,15 +103,11 @@ const rejectRequest = Effect.fnUntraced(function* (
   if (Cause.hasInterruptsOnly(cause)) return yield* Effect.interrupt;
   const error = cause.reasons.find(Cause.isFailReason)?.error;
   const platform = PlatformError.isPlatformError(error) ? error.reason : undefined;
-  let reasonTag = "Unknown";
-  if (Cause.hasDies(cause)) reasonTag = "Defect";
-  else if (Predicate.hasProperty(error, "_tag") && typeof error._tag === "string")
-    reasonTag = error._tag;
   yield* Effect.logError("supervisor.request.failed").pipe(
     Effect.annotateLogs({
       request: body._tag,
       name: "name" in body ? body.name : null,
-      reasonTag,
+      reasonTag: reasonTagOf(cause, error),
       method: platform?.method ?? null,
       path: platform && "pathOrDescriptor" in platform ? (platform.pathOrDescriptor ?? null) : null,
       ...(Cause.hasDies(cause) ? { trace: defectTrace(Cause.squash(cause)) } : {}),
@@ -118,64 +136,65 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
     build: host.build,
     startedAt: DateTime.makeUnsafe(yield* Clock.currentTimeMillis),
   };
-  // threadId is saved before turn/start; the run lock orders its reply and early notifications.
-  const route = (threadId: string) =>
-    Effect.sync(() => [...registry.runs.values()].find((run) => run.record.threadId === threadId));
+  // The session id is saved before the first turn starts; the run lock orders its reply and
+  // early notifications.
+  const route = (connection: LiveConnection, session: string) =>
+    Effect.sync(() =>
+      [...registry.runs.values()].find(
+        (run) => run.record.threadId === session && providerOf(run.record) === connection.provider,
+      ),
+    );
   const notification = Effect.fnUntraced(function* (
-    server: AppServer,
-    message: typeof Codex.RpcNotification.Type,
+    connection: LiveConnection,
+    inbound: Inbound,
   ): Effect.fn.Return<
     void,
     unknown,
     FileSystem.FileSystem | Path.Path | ChildProcessSpawner.ChildProcessSpawner
   > {
-    const identity = yield* Schema.decodeUnknownEffect(Schema.Struct({ threadId: Schema.String }))(
-      message.params,
-    ).pipe(Effect.result);
-    if (identity._tag === "Failure")
+    if (inbound.session === null)
       return yield* Effect.logDebug("supervisor.notification.unrouted").pipe(
-        Effect.annotateLogs({ method: message.method }),
+        Effect.annotateLogs({ method: inbound.method }),
       );
-    const run = yield* route(identity.success.threadId);
+    const run = yield* route(connection, inbound.session);
     if (!run)
       return yield* Effect.logDebug("supervisor.thread.unknown").pipe(
-        Effect.annotateLogs({ method: message.method }),
+        Effect.annotateLogs({ method: inbound.method }),
       );
+    const facts = {
+      hookEvents: (yield* connections.capabilities(connection.provider)).hookEvents,
+      displayName: yield* connections.displayName(connection.provider),
+    };
     yield* registry.enqueue(
       run,
       Effect.suspend(() =>
         registry.isCurrent(run)
-          ? handleNotification(registry, turns, run, server, message)
+          ? handleNotification(registry, turns, run, connection, facts, inbound)
           : Effect.void,
       ),
     );
   });
-  const request = Effect.fnUntraced(function* (
-    server: AppServer,
-    message: typeof Codex.RpcServerRequest.Type,
-  ) {
-    if (message.method !== Codex.Method.toolCall)
-      return yield* server.connection.respondError(message.id, -32601, "unsupported method");
-    const params = yield* Schema.decodeUnknownEffect(Codex.ToolCallParams)(message.params).pipe(
-      Effect.result,
-    );
-    if (params._tag === "Failure")
-      return yield* server.connection.respondError(message.id, -32602, "invalid tool call");
-    const run = yield* route(params.success.threadId);
-    if (!run) return yield* server.connection.respondError(message.id, -32601, "unknown thread");
+  const question = Effect.fnUntraced(function* (connection: LiveConnection, call: QuestionCall) {
+    const run = yield* route(connection, call.session);
+    if (!run) return yield* call.reject("unknown thread");
     yield* registry.enqueue(
       run,
       Effect.gen(function* () {
-        if (!registry.isCurrent(run))
-          return yield* server.connection.respondError(message.id, -32601, "unknown thread");
-        yield* Store.appendCodexMessage(run.dir, message);
-        yield* questions.receive(run, server, message, params.success);
+        if (!registry.isCurrent(run)) return yield* call.reject("unknown thread");
+        yield* Store.appendProviderMessage(run.dir, connection.provider, call.raw);
+        yield* questions.receive(run, connection.generation, call);
       }),
     );
   });
-  const servers = yield* makeAppServer(config, host.version, registry, notification, request);
+  const connections = yield* makeConnections(
+    config,
+    host.version,
+    registry,
+    notification,
+    question,
+  );
   const questions = yield* makeQuestions(registry);
-  const turns = yield* makeTurns(registry, servers, config);
+  const turns = yield* makeTurns(registry, connections, config);
   let stopping = false;
   const acceptingStarts = Effect.gen(function* () {
     if (stopping)
@@ -262,7 +281,7 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
           const accepted = yield* acceptedCursor(run);
           yield* questions.resolve(
             run,
-            yield* servers.get,
+            (yield* connections.forRun(run)).generation,
             body.question,
             body.text,
             "answered",
@@ -475,7 +494,11 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
                 yield* questions.supersede(run);
                 break;
               case "Interrupt":
-                yield* turns.interrupt(run, yield* servers.get, body.source ?? "orchestrator");
+                yield* turns.interrupt(
+                  run,
+                  yield* connections.forRun(run),
+                  body.source ?? "orchestrator",
+                );
                 break;
               case "Defer": {
                 const question = yield* questions.inspect(run, body.question);
@@ -485,7 +508,7 @@ const buildSupervisor = Effect.fn("supervisor.build")(function* () {
                   });
                 yield* questions.resolve(
                   run,
-                  yield* servers.get,
+                  (yield* connections.forRun(run)).generation,
                   body.question,
                   deferral + (body.note === undefined ? "" : `\n\nOrchestrator note: ${body.note}`),
                   "deferred",

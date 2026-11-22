@@ -1,3 +1,7 @@
+/**
+ * Run turns: start preflight and registration, follow-ups, steering, interrupts and turn
+ * budgets with their hand-off. Every provider call goes through the run's connection.
+ */
 import {
   Cause,
   Clock,
@@ -8,9 +12,7 @@ import {
   Path,
   PlatformError,
   Queue,
-  Schema,
 } from "effect";
-import { CodexRequestTimeout, CodexRpcError } from "../codex/client";
 import type { AppConfig } from "../config";
 import {
   type CreatedWorktree,
@@ -21,12 +23,11 @@ import {
   rollbackOnFailure,
   setupWorktree,
 } from "../core/managed-worktree";
-import { checkHookTrust, hasRepoHooks } from "../core/preflight/hooks";
-import { defaultModel } from "../core/preflight/model";
 import { validateWorktree } from "../core/preflight/worktree";
 import * as Store from "../core/runs/store";
 import { validateStartMode } from "../core/start-mode";
 import {
+  AgyUnavailable,
   CodexUnavailable,
   detailFor,
   errorClasses,
@@ -34,7 +35,10 @@ import {
   PermissionDenied,
   RunConflict,
 } from "../errors";
-import * as Codex from "../schemas/codex";
+import { defaultModel } from "../providers/codex/catalog";
+import { hasRepoHooks } from "../providers/codex/hooks";
+import type { ProviderConnection, ProviderId, SessionSettings } from "../providers/contract";
+import { RpcError, RpcRequestTimeout } from "../providers/jsonrpc";
 import {
   activeStates,
   type DaemonRequestBody,
@@ -42,14 +46,31 @@ import {
   type RunRecord,
   type TurnKind,
 } from "../schemas/daemon";
-import type { AppServer, AppServers } from "./app-server";
+import type { Connections } from "./connections";
 import { preamble, timeUp } from "./prompts";
 import type { Registry, Run } from "./registry";
 
-const policy = (sandbox: RunRecord["sandbox"]) =>
-  sandbox === "danger-full-access"
-    ? { type: "dangerFullAccess" }
-    : { type: "readOnly", networkAccess: false };
+// Every new run is a Codex run until runs are routed to a provider by model.
+const NEW_RUN_PROVIDER: ProviderId = "codex";
+
+/** The settings a run's session and turns use, from its record. */
+function sessionSettings(record: RunRecord): SessionSettings {
+  return {
+    cwd: record.worktree,
+    model: record.model,
+    effort: record.effort,
+    tier: record.tier,
+    access: record.sandbox === "danger-full-access" ? "write" : "read-only",
+  };
+}
+
+/** The session a run's turns go to, which every run past its start has. */
+function sessionOf(run: Run) {
+  const session = run.record.threadId;
+  if (session === null)
+    return Effect.die(new Error(`Run ${run.record.name} has no session to start a turn on`));
+  return Effect.succeed(session);
+}
 
 interface Preflight {
   readonly cancel: Deferred.Deferred<void>;
@@ -59,7 +80,7 @@ interface Preflight {
 
 export const makeTurns = Effect.fn("supervisor.turns")(function* (
   registry: Registry,
-  servers: AppServers,
+  connections: Connections,
   config: AppConfig["Service"],
 ) {
   const preflights = new Map<RunName, Preflight>();
@@ -73,60 +94,26 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
   });
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  // Codex and the ChatGPT app title an unnamed thread by its first message, which opens with
-  // the same preamble for every run. A refused title is cosmetic, so the run keeps going.
-  const nameThread = (run: Run, server: AppServer, threadId: Codex.CodexThreadId) =>
-    server.connection
-      .request(
-        Codex.Method.threadNameSet,
-        { threadId, name: `${run.record.name} (${path.basename(run.record.group)})` },
-        Codex.ThreadNameSet,
-      )
-      .pipe(
-        Effect.asVoid,
-        Effect.catchIf(
-          (error) => error instanceof CodexRpcError || error instanceof CodexRequestTimeout,
-          (error) =>
-            registry.save(run, {
-              warnings: [
-                ...run.record.warnings,
-                `Codex did not accept the thread title (${error instanceof CodexRpcError ? error.message : `timed out after ${error.timeoutMs} ms`}); the Codex app lists this run under its first message.`,
-              ],
-            }),
-        ),
-      );
-  const settings = (run: Run) => ({
-    cwd: run.record.worktree,
-    model: run.record.model,
-    serviceTier: run.record.tier,
-    approvalPolicy: "never",
-    sandbox: run.record.sandbox,
-  });
   const interrupt = Effect.fnUntraced(function* (
     run: Run,
-    server: AppServer,
+    connection: ProviderConnection,
     by: "budget" | "repo-hooks" | "orchestrator" | "monitor",
   ) {
     if (!run.record.threadId || !run.record.activeTurnId)
       return yield* new RunConflict({
         detail: `No turn is in progress for run ${run.record.name}; run foreman status ${run.record.name} before choosing the next action.`,
       });
-    yield* server.connection.request(
-      Codex.Method.turnInterrupt,
-      { threadId: run.record.threadId, turnId: run.record.activeTurnId },
-      Schema.Unknown,
-    );
+    yield* connection.interrupt(run.record.threadId, run.record.activeTurnId);
     yield* registry.cancelQuestions(run);
     yield* registry.event(run, { _tag: "Interrupted", by });
   });
   const begin = Effect.fnUntraced(function* (
     run: Run,
-    server: AppServer,
+    connection: ProviderConnection,
     message: string,
     kind: TurnKind,
     budgetMs: number,
   ) {
-    run.items = [];
     run.projectHook = false;
     run.budgetExpired = false;
     run.budgetTurnId = null;
@@ -142,23 +129,19 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
       reviewedAt: null,
     });
     yield* registry.state(run, "starting");
-    const response = yield* server.connection.request(
-      Codex.Method.turnStart,
-      {
-        threadId: run.record.threadId,
-        input: [{ type: "text", text: message }],
-        effort: run.record.effort,
-        sandboxPolicy: policy(kind === "handoff" ? "read-only" : run.record.sandbox),
-      },
-      Codex.TurnStartResponse,
-    );
+    const turn = yield* connection.startTurn(yield* sessionOf(run), {
+      turn: run.record.turns,
+      kind,
+      input: message,
+      settings: sessionSettings(run.record),
+    });
     // The turn exists remotely even if the following persistence operation fails.
-    run.record = { ...run.record, activeTurnId: response.turn.id };
-    yield* registry.save(run, { activeTurnId: response.turn.id });
+    run.record = { ...run.record, activeTurnId: turn };
+    yield* registry.save(run, { activeTurnId: turn });
     yield* registry.state(run, "running");
-    yield* armBudget(run, server);
+    yield* armBudget(run, connection);
   });
-  const armBudget = Effect.fnUntraced(function* (run: Run, server: AppServer) {
+  const armBudget = Effect.fnUntraced(function* (run: Run, connection: ProviderConnection) {
     const turnId = run.record.activeTurnId;
     if (!turnId || run.budgetTurnId === turnId) return;
     run.budgetTurnId = turnId;
@@ -174,12 +157,13 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
           Effect.gen(function* () {
             if (run.record.activeTurnId !== turnId || !activeStates.has(run.record.state)) return;
             run.budgetExpired = kind !== "handoff";
-            const interrupted = yield* interrupt(run, server, "budget").pipe(Effect.result);
+            const interrupted = yield* interrupt(run, connection, "budget").pipe(Effect.result);
             if (interrupted._tag === "Failure") {
               if (
-                interrupted.failure instanceof CodexRpcError ||
+                interrupted.failure instanceof RpcError ||
                 interrupted.failure instanceof CodexUnavailable ||
-                interrupted.failure instanceof CodexRequestTimeout
+                interrupted.failure instanceof AgyUnavailable ||
+                interrupted.failure instanceof RpcRequestTimeout
               ) {
                 yield* Effect.logWarning("supervisor.budget.interrupt.unconfirmed").pipe(
                   Effect.annotateLogs({
@@ -206,7 +190,8 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
       registry.fork,
     );
   });
-  const handoff = (run: Run, server: AppServer) => begin(run, server, timeUp, "handoff", 600_000);
+  const handoff = (run: Run, connection: ProviderConnection) =>
+    begin(run, connection, timeUp, "handoff", 600_000);
   const startLocked = Effect.fnUntraced(function* (
     body: Extract<DaemonRequestBody, { _tag: "Start" }>,
     accepting: Effect.Effect<void, RunConflict>,
@@ -239,19 +224,24 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
         });
       const worktree = created?.worktree ?? body.worktree;
       if (body.setup !== undefined)
-        yield* setupWorktree(worktree, body.setup, yield* servers.environment, body.budgetMs);
+        yield* setupWorktree(
+          worktree,
+          body.setup,
+          yield* connections.environment(NEW_RUN_PROVIDER),
+          body.budgetMs,
+        );
       const validated = yield* validateWorktree(worktree, body.skipDepsCheck);
       yield* available;
-      yield* checkHookTrust(
-        (yield* servers.get).connection,
-        validated.mainCheckout,
-        validated.worktree,
-      );
+      const connection = yield* connections.get(NEW_RUN_PROVIDER);
+      // Inspected here first so an unreadable hooks file reports PermissionDenied; the
+      // provider's trust check can only report untrusted hooks.
+      yield* hasRepoHooks(validated.mainCheckout);
+      yield* connection.hookTrust(validated.mainCheckout, validated.worktree);
       return {
         validated,
         model: body.model ?? (yield* defaultModel(config.codexHome)),
-        warning: yield* servers.protocolWarning,
-        diagnostics: yield* servers.warnings,
+        warning: yield* connections.compatibilityWarning(NEW_RUN_PROVIDER),
+        diagnostics: yield* connections.warnings(NEW_RUN_PROVIDER),
       };
     });
     const { validated, model, warning, diagnostics } = yield* Effect.raceFirst(
@@ -325,26 +315,19 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
       let turnRequested = false;
       const open = Effect.gen(function* () {
         run.hooksRequired = yield* hasRepoHooks(run.record.group);
-        const server = yield* servers.get;
-        run.serverGeneration = server.generation;
-        run.retireServer = servers.retire(server);
-        const opened = yield* server.connection.request(
-          Codex.Method.threadStart,
-          {
-            ...settings(run),
-            ephemeral: false,
-            dynamicTools: [Codex.askOrchestratorTool],
-          },
-          Codex.ThreadOpened,
-          { timeout: "180 seconds" },
-        );
-        yield* registry.save(run, { threadId: opened.thread.id });
-        server.loaded.add(opened.thread.id);
-        yield* nameThread(run, server, opened.thread.id);
+        const connection = yield* connections.forRun(run);
+        run.serverGeneration = connection.generation;
+        run.retireServer = connections.retire(connection);
+        const title = `${run.record.name} (${path.basename(run.record.group)})`;
+        const opened = yield* connection.open(run.record.name, title, sessionSettings(run.record));
+        yield* registry.save(run, {
+          threadId: opened.session,
+          warnings: [...run.record.warnings, ...opened.warnings],
+        });
         turnRequested = true;
         yield* begin(
           run,
-          server,
+          connection,
           `${preamble}\n\n${body.contract}`,
           "start",
           body.budgetMs ?? 3_600_000,
@@ -368,7 +351,7 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
                 if (Cause.hasDies(cause) || Cause.hasInterrupts(cause))
                   return yield* Effect.failCause(cause);
                 const error = cause.reasons.find(Cause.isFailReason)?.error;
-                if (error instanceof CodexRequestTimeout)
+                if (error instanceof RpcRequestTimeout)
                   return yield* new CodexUnavailable({
                     detail: `Codex ${error.method} timed out after ${error.timeoutMs} ms: ${warning}`,
                   });
@@ -385,7 +368,7 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
                     ? new PermissionDenied({ detail })
                     : new RunConflict({ detail });
                 }
-                if (!(error instanceof CodexRpcError)) return yield* Effect.failCause(cause);
+                if (!(error instanceof RpcError)) return yield* Effect.failCause(cause);
                 return yield* new RunConflict({
                   detail: `Codex refused the turn for run ${body.name}: ${warning}`,
                 });
@@ -466,25 +449,20 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
     body: Extract<DaemonRequestBody, { _tag: "Followup" }>,
     threadId: string,
   ) {
-    const server = yield* servers.get;
-    run.serverGeneration = server.generation;
-    run.retireServer = servers.retire(server);
-    if (!server.loaded.has(threadId)) {
-      const resumed = yield* server.connection.request(
-        Codex.Method.threadResume,
-        { threadId, ...settings(run) },
-        Codex.ThreadOpened,
+    const connection = yield* connections.forRun(run);
+    run.serverGeneration = connection.generation;
+    run.retireServer = connections.retire(connection);
+    if (!connection.isLoaded(threadId)) {
+      const resumed = yield* connection.resume(
+        run.record.name,
+        threadId,
+        sessionSettings(run.record),
       );
-      server.loaded.add(threadId);
-      yield* registry.event(run, {
-        _tag: "Resumed",
-        sandbox: resumed.sandbox.type,
-        model: resumed.model,
-      });
+      yield* registry.event(run, { _tag: "Resumed", ...resumed });
     }
     run.hooksRequired = yield* hasRepoHooks(run.record.group);
     if (body.effort !== undefined) yield* registry.save(run, { effort: body.effort });
-    yield* begin(run, server, body.message, "followup", body.budgetMs ?? 3_600_000);
+    yield* begin(run, connection, body.message, "followup", body.budgetMs ?? 3_600_000);
   });
   const steer = Effect.fnUntraced(function* (run: Run, message: string) {
     const pending = Store.pendingQuestions(yield* Store.readQuestions(run.dir))[0];
@@ -492,31 +470,22 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
       return yield* new RunConflict({
         detail: `${run.record.name} is waiting on ${pending.id}; use foreman answer ${run.record.name} ${pending.id} "<answer>" and include the change.`,
       });
-    if (run.record.state !== "running" || !run.record.activeTurnId)
+    if (run.record.state !== "running" || !run.record.activeTurnId || !run.record.threadId)
       return yield* new RunConflict({
         detail: `No steerable turn is in progress for run ${run.record.name}; run foreman status ${run.record.name} before choosing the next action.`,
       });
-    const server = yield* servers.get;
-    yield* server.connection
-      .request(
-        Codex.Method.turnSteer,
-        {
-          threadId: run.record.threadId,
-          expectedTurnId: run.record.activeTurnId,
-          input: [{ type: "text", text: message }],
-        },
-        Codex.TurnSteerResponse,
-      )
-      .pipe(
-        Effect.catchTag("CodexRpcError", (error) => {
-          // Only a known protocol diagnostic can cross the public error boundary.
-          const detail =
-            error instanceof CodexRpcError && error.message === "activeTurnNotSteerable"
-              ? `activeTurnNotSteerable for run ${run.record.name}; wait for this turn, then send a followup.`
-              : `Codex refused the steer for run ${run.record.name}; run foreman status ${run.record.name}, then wait for the active turn before sending a followup.`;
-          return Effect.fail(new RunConflict({ detail }));
-        }),
-      );
+    const connection = yield* connections.forRun(run);
+    yield* connection.steer(run.record.threadId, run.record.activeTurnId, message).pipe(
+      Effect.catchTag("SteerRefused", (refused) => {
+        // Only a known protocol diagnostic can cross the public error boundary. answer falls
+        // back to a follow-up on either of these texts.
+        const detail =
+          refused.reason === "activeTurnNotSteerable"
+            ? `activeTurnNotSteerable for run ${run.record.name}; wait for this turn, then send a followup.`
+            : `Codex refused the steer for run ${run.record.name}; run foreman status ${run.record.name}, then wait for the active turn before sending a followup.`;
+        return Effect.fail(new RunConflict({ detail }));
+      }),
+    );
     yield* registry.event(run, { _tag: "Steered", message });
   });
   return {

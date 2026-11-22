@@ -1,10 +1,10 @@
 import { NodeRuntime, NodeServices, NodeSocket, NodeSocketServer } from "@effect/platform-node";
 import { Effect, Fiber, FileSystem, Layer } from "effect";
 import { ChildProcessSpawner } from "effect/process";
-import { openConnection } from "../../../src/codex/client";
 import { daemon } from "../../../src/daemon/server";
 import { DaemonSockets } from "../../../src/daemon/sockets";
 import { DaemonUnavailable, RunConflict } from "../../../src/errors";
+import { openConnection } from "../../../src/providers/codex/client";
 import { Host } from "../../../src/services/host";
 
 const dataDir = process.argv[2];

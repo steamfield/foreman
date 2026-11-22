@@ -5,14 +5,7 @@
  * the mapping of channel errors to Codex's own error types.
  */
 import { Data, type Duration, Effect, Schema } from "effect";
-import { CodexUnavailable } from "../errors";
-import {
-  type ChannelEnd,
-  openChannel,
-  type RpcError,
-  type RpcId,
-  type RpcRequestTimeout,
-} from "../providers/jsonrpc";
+import { CodexUnavailable } from "../../errors";
 import {
   InitializeParams,
   Method,
@@ -22,7 +15,14 @@ import {
   TurnInterruptParams,
   TurnStartParams,
   TurnSteerParams,
-} from "../schemas/codex";
+} from "../../schemas/codex";
+import {
+  type ChannelEnd,
+  openChannel,
+  type RpcError,
+  type RpcId,
+  type RpcRequestTimeout,
+} from "../jsonrpc";
 
 /** Codex answered a request with a JSON-RPC error. */
 export class CodexRpcError extends Schema.TaggedError<CodexRpcError>()("CodexRpcError", {
@@ -37,7 +37,7 @@ export class CodexRequestTimeout extends Data.TaggedError("CodexRequestTimeout")
 }> {}
 
 const APP_SERVER_ARGS = ["app-server", "--listen", "stdio://"];
-// The supervisor recognizes a deliberate close by this detail.
+// What a deliberate close reports to anyone still waiting on the channel.
 const CLOSED_DETAIL = "app server connection closed";
 
 const paramsSchemas: Readonly<Record<string, Schema.ConstraintEncoder<unknown>>> = {
@@ -98,13 +98,14 @@ export type ConnectionOptions = {
 
 /**
  * Starts `codex app-server` and completes the initialize handshake, closed with the scope.
- * Single-consumer streams buffer even messages sent during initialization.
+ * Requests fail with the transport's own `RpcError` and `RpcRequestTimeout`. Single-consumer
+ * streams buffer even messages sent during initialization.
  * @throws {CodexUnavailable} When Codex can't be launched, exits, or the connection ends.
- * @throws {CodexRpcError} When Codex rejects the initialize request.
- * @throws {CodexRequestTimeout} When Codex doesn't answer initialize within 30 seconds.
+ * @throws {RpcError} When Codex rejects the initialize request.
+ * @throws {RpcRequestTimeout} When Codex doesn't answer initialize within 30 seconds.
  * @throws {Schema.SchemaError} When params or a result don't match their schema.
  */
-export const openConnection = Effect.fn("codex.openConnection")(function* (
+export const openCodexChannel = Effect.fn("codex.openChannel")(function* (
   options: ConnectionOptions,
 ) {
   const channel = yield* openChannel({
@@ -122,9 +123,6 @@ export const openConnection = Effect.fn("codex.openConnection")(function* (
   ) =>
     encodeParams(method, params).pipe(
       Effect.flatMap((encoded) => channel.request(method, encoded, result, requestOptions)),
-      Effect.catchTag(["RpcError", "RpcRequestTimeout"], (error) =>
-        Effect.fail(toCodexError(error)),
-      ),
     );
 
   yield* request(
@@ -146,4 +144,37 @@ export const openConnection = Effect.fn("codex.openConnection")(function* (
     exitCode: channel.exitCode,
     termination: channel.termination,
   };
+});
+
+/** An initialized app-server channel whose requests fail with the transport's errors. */
+export type CodexChannel = Effect.Success<ReturnType<typeof openCodexChannel>>;
+
+/**
+ * Opens the app-server channel with requests failing as Codex's own error types, for doctor
+ * and callers that talk to Codex outside the supervisor.
+ * @throws {CodexUnavailable} When Codex can't be launched, exits, or the connection ends.
+ * @throws {CodexRpcError} When Codex rejects a request, initialize included.
+ * @throws {CodexRequestTimeout} When Codex doesn't answer a request in time.
+ * @throws {Schema.SchemaError} When params or a result don't match their schema.
+ */
+export const openConnection = Effect.fn("codex.openConnection")(function* (
+  options: ConnectionOptions,
+) {
+  const channel = yield* openCodexChannel(options).pipe(
+    Effect.catchTag(["RpcError", "RpcRequestTimeout"], (error) => Effect.fail(toCodexError(error))),
+  );
+  const request = <A, I, R>(
+    method: string,
+    params: unknown,
+    result: Schema.Codec<A, I, R>,
+    requestOptions: { timeout?: Duration.Input } = {},
+  ) =>
+    channel
+      .request(method, params, result, requestOptions)
+      .pipe(
+        Effect.catchTag(["RpcError", "RpcRequestTimeout"], (error) =>
+          Effect.fail(toCodexError(error)),
+        ),
+      );
+  return { ...channel, request };
 });
