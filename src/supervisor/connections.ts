@@ -5,6 +5,9 @@
  * questions are tied to the generation they used. When a connection ends unexpectedly, every
  * active run on it becomes lost. A deliberate close (retirement or daemon shutdown) loses
  * nothing more. Each child's stderr is redacted into a per-provider log under the home.
+ *
+ * This is the composition root for providers: the only supervisor module that imports a
+ * provider's own modules.
  */
 import {
   Cause,
@@ -19,17 +22,17 @@ import {
 } from "effect";
 import type { ChildProcessSpawner } from "effect/process";
 import type { AppConfig } from "../config";
-import { AgyUnavailable, CodexUnavailable } from "../errors";
 import { causeFields } from "../logging";
-import { type CodexRequirements, makeCodexProvider } from "../providers/codex/provider";
-import type {
-  Capabilities,
-  Inbound,
-  Provider,
-  ProviderConnection,
-  ProviderId,
-  ProviderUnavailable,
-  QuestionCall,
+import { makeCodexProvider } from "../providers/codex/provider";
+import {
+  type Capabilities,
+  type Inbound,
+  isProviderUnavailable,
+  type Provider,
+  type ProviderConnection,
+  type ProviderDescriptor,
+  type ProviderId,
+  type QuestionCall,
 } from "../providers/contract";
 import { providerOf, type RunRecord } from "../schemas/daemon";
 import type { Registry } from "./registry";
@@ -53,21 +56,54 @@ export type QuestionHandler = (
   call: QuestionCall,
 ) => Effect.Effect<void, unknown, FileSystem.FileSystem | Path.Path>;
 
-/** How the supervisor names and logs one provider. */
+/** A registered provider and where the supervisor logs its child's stderr. */
 interface Registration {
-  readonly provider: Provider<CodexRequirements>;
-  readonly displayName: string;
+  readonly provider: Provider;
   /** The stderr log, relative to the home. */
   readonly stderrLog: string;
-  readonly unavailable: (detail: string) => ProviderUnavailable;
 }
+
+/** The providers this daemon runs, by id. A provider absent here can't run. */
+export interface Providers {
+  /**
+   * The descriptor of a registered provider. Runs are only ever created for registered
+   * providers, so a miss is a defect.
+   */
+  readonly describe: (provider: ProviderId) => Effect.Effect<ProviderDescriptor>;
+  readonly registrations: Partial<Record<ProviderId, Registration>>;
+}
+
+/** Builds the daemon's providers. Only Codex is registered. */
+export const makeProviders = Effect.fn("supervisor.providers")(function* (
+  config: AppConfig["Service"],
+  version: string,
+) {
+  const codex = yield* makeCodexProvider({
+    codexBin: config.codexBin,
+    codexHome: config.codexHome,
+    inheritedEnvironment: config.inheritedEnvironment,
+    version,
+  });
+  const registrations: Providers["registrations"] = {
+    codex: { provider: codex, stderrLog: "logs/app-server.log" },
+  };
+  const providers: Providers = {
+    registrations,
+    describe: (provider) => {
+      const found = registrations[provider];
+      return found === undefined
+        ? Effect.die(new Error(`No ${provider} provider is registered in this daemon`))
+        : Effect.succeed(found.provider);
+    },
+  };
+  return providers;
+});
 
 const RETIRED = "app server retired after unconfirmed execution";
 
 function lossReason(cause: Cause.Cause<unknown>): string {
   const error = cause.reasons.find(Cause.isFailReason)?.error;
-  if (error instanceof CodexUnavailable || error instanceof AgyUnavailable)
-    return error.detail ?? "app server unavailable";
+  if (isProviderUnavailable(error)) return error.detail ?? "app server unavailable";
   return "app server supervision failed";
 }
 
@@ -85,7 +121,7 @@ const makeSlot = Effect.fnUntraced(function* (
   const path = yield* Path.Path;
   const stderrLog = yield* makeStderrLog(
     path.join(config.home, registration.stderrLog),
-    registration.displayName,
+    registration.provider.displayName,
     registry,
   );
   let current: LiveConnection | undefined;
@@ -171,10 +207,9 @@ const makeSlot = Effect.fnUntraced(function* (
 
   return {
     capabilities: registration.provider.capabilities,
-    displayName: registration.displayName,
     get: lock.withPermits(1)(Effect.suspend(() => (current ? Effect.succeed(current) : start))),
     retire: (live: LiveConnection) =>
-      ended(live, Cause.fail(registration.unavailable(RETIRED))).pipe(
+      ended(live, Cause.fail(registration.provider.unavailable(RETIRED))).pipe(
         Effect.andThen(close(live)),
         Effect.provide(context),
       ),
@@ -187,8 +222,9 @@ const makeSlot = Effect.fnUntraced(function* (
 type Slot = Effect.Success<ReturnType<typeof makeSlot>>;
 
 /**
- * Builds the provider connections. Only Codex is registered; `get` starts a provider's
- * connection on first use and returns the live one after that.
+ * Builds a connection slot for every registered provider; `get` starts a provider's
+ * connection on first use and returns the live one after that. Builds the providers when the
+ * caller hasn't.
  */
 export const makeConnections = Effect.fn("supervisor.connections")(function* (
   config: AppConfig["Service"],
@@ -196,26 +232,19 @@ export const makeConnections = Effect.fn("supervisor.connections")(function* (
   registry: Registry,
   inbound: InboundHandler,
   question: QuestionHandler,
+  built?: Providers,
 ) {
-  const codex = yield* makeCodexProvider({
-    codexBin: config.codexBin,
-    inheritedEnvironment: config.inheritedEnvironment,
-    version,
-  });
-  const slots: Partial<Record<ProviderId, Slot>> = {
-    codex: yield* makeSlot(
-      config,
-      {
-        provider: codex,
-        displayName: "Codex",
-        stderrLog: "logs/app-server.log",
-        unavailable: (detail) => new CodexUnavailable({ detail }),
-      },
-      registry,
-      inbound,
-      question,
-    ),
-  };
+  const providers = built ?? (yield* makeProviders(config, version));
+  const slots: Partial<Record<ProviderId, Slot>> = {};
+  for (const registration of Object.values(providers.registrations))
+    if (registration !== undefined)
+      slots[registration.provider.id] = yield* makeSlot(
+        config,
+        registration,
+        registry,
+        inbound,
+        question,
+      );
   const slot = (provider: ProviderId) => {
     const found = slots[provider];
     // Runs are only ever created for registered providers, so a miss is a bug.
@@ -232,8 +261,11 @@ export const makeConnections = Effect.fn("supervisor.connections")(function* (
       slot(live.provider).pipe(Effect.flatMap((found) => found.retire(live))),
     capabilities: (provider: ProviderId): Effect.Effect<Capabilities> =>
       slot(provider).pipe(Effect.map((found) => found.capabilities)),
-    displayName: (provider: ProviderId) =>
-      slot(provider).pipe(Effect.map((found) => found.displayName)),
+    /** The provider's names, wording and checks, without starting it. */
+    describe: providers.describe,
+    /** The provider's public unavailable error with the given detail. */
+    unavailable: (provider: ProviderId, detail: string) =>
+      providers.describe(provider).pipe(Effect.map((found) => found.unavailable(detail))),
     compatibilityWarning: (provider: ProviderId) =>
       slot(provider).pipe(Effect.flatMap((found) => found.compatibilityWarning)),
     environment: (provider: ProviderId) =>
