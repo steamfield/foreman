@@ -106,7 +106,9 @@ run_guard() {
   local guard=$1 payload=$2 payload_file stderr_file status
   payload_file=$(mktemp) || deny_agy "BLOCKED: the guard adapter could not create a temp file, so the call is refused."
   stderr_file=$(mktemp) || deny_agy "BLOCKED: the guard adapter could not create a temp file, so the call is refused."
-  trap 'rm -f "$payload_file" "$stderr_file"' EXIT
+  # The trap runs at script exit, after these locals are gone, so it gets their values now.
+  # shellcheck disable=SC2064
+  trap "rm -f $(printf '%q %q' "$payload_file" "$stderr_file")" EXIT
   printf '%s' "$payload" >"$payload_file"
   # with_timeout merges stderr into stdout and closes stdin, so the inner shell
   # feeds the guard from the file and keeps its stderr apart.
