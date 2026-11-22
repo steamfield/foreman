@@ -229,9 +229,14 @@ export interface ProviderConnection {
    */
   readonly open: (
     run: string,
-    title: string,
     settings: SessionSettings,
   ) => Effect.Effect<Opened, ProviderUnavailable | RpcError | RpcRequestTimeout>;
+  /**
+   * Gives an opened session a display title, after the supervisor has saved the session id so
+   * no notification in between goes unrouted. Returns warnings for a refused title; never
+   * fails the run. Providers that title sessions themselves return no warnings.
+   */
+  readonly nameSession: (session: SessionId, title: string) => Effect.Effect<readonly string[]>;
   readonly resume: (
     run: string,
     session: SessionId,
