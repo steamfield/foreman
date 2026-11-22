@@ -193,6 +193,14 @@ export class QuestionRefused extends Data.TaggedError("QuestionRefused")<{
 /** The supervisor cancelled a question asked through `ask` (interrupt, turn end, budget). */
 export class QuestionCancelled extends Data.TaggedError("QuestionCancelled") {}
 
+/**
+ * The agent stopped waiting for a held question call before the supervisor answered it (agy's
+ * bridge closed), so nothing was delivered. Codex never reports this.
+ */
+export class QuestionCallEnded extends Data.TaggedError("QuestionCallEnded")<{
+  readonly callId: string;
+}> {}
+
 /** A question that arrived outside the provider's own wire (agy's MCP bridge). */
 export interface ExternalQuestion {
   readonly question: string;
@@ -213,10 +221,16 @@ export interface QuestionCall {
   readonly kind: "question" | "blocked";
   /** The request as received, appended to the run's raw provider log. */
   readonly raw: unknown;
-  /** Delivers the answer as the tool result. */
-  readonly respond: (text: string) => Effect.Effect<void, ProviderUnavailable>;
-  /** Fails the tool call because the run can't accept it (no active turn, for example). */
-  readonly reject: (reason: string) => Effect.Effect<void, ProviderUnavailable>;
+  /**
+   * Delivers the answer as the tool result.
+   * @throws {QuestionCallEnded} When the agent stopped waiting first; nothing was delivered.
+   */
+  readonly respond: (text: string) => Effect.Effect<void, ProviderUnavailable | QuestionCallEnded>;
+  /**
+   * Fails the tool call because the run can't accept it (no active turn, for example).
+   * @throws {QuestionCallEnded} When the agent stopped waiting first; nothing was delivered.
+   */
+  readonly reject: (reason: string) => Effect.Effect<void, ProviderUnavailable | QuestionCallEnded>;
   /**
    * Releases the call after the supervisor cancelled the question (interrupt, turn end,
    * budget). Codex drops held calls itself when a turn ends, so its cancel sends nothing;

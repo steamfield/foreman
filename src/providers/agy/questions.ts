@@ -9,6 +9,7 @@ import {
   type ExternalQuestion,
   type Inbound,
   type QuestionCall,
+  QuestionCallEnded,
   QuestionCancelled,
   QuestionRefused,
   type SessionId,
@@ -87,13 +88,19 @@ export function outstandingTurn(live: Live, session: SessionId): TurnId | null {
   return live.sessions.get(session)?.turn.turn ?? null;
 }
 
-/** The QuestionCall the supervisor sees; each of its outcomes completes `outcome`. */
-function questionCall(
+/**
+ * The QuestionCall the supervisor sees; each of its outcomes completes `outcome`. respond and
+ * reject fail when the outcome was already settled (the asker went away first). Pure.
+ * @throws Never.
+ */
+export function questionCall(
   session: SessionId,
   turn: TurnId,
   question: ExternalQuestion,
   outcome: HeldOutcome,
 ): QuestionCall {
+  const delivered = (settled: boolean) =>
+    settled ? Effect.void : Effect.fail(new QuestionCallEnded({ callId: question.callId }));
   return {
     session,
     turn,
@@ -101,8 +108,10 @@ function questionCall(
     question: question.question,
     kind: question.kind,
     raw: question.raw,
-    respond: (text) => Deferred.succeed(outcome, text).pipe(Effect.asVoid),
-    reject: (reason) => Deferred.fail(outcome, new QuestionRefused({ reason })).pipe(Effect.asVoid),
+    respond: (text) => Deferred.succeed(outcome, text).pipe(Effect.flatMap(delivered)),
+    reject: (reason) =>
+      Deferred.fail(outcome, new QuestionRefused({ reason })).pipe(Effect.flatMap(delivered)),
+    // A cancelled call whose asker already left has nothing left to release.
     cancel: Deferred.fail(outcome, new QuestionCancelled()).pipe(Effect.asVoid),
   };
 }

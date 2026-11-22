@@ -301,7 +301,7 @@ export const makeTurns = Effect.fn("supervisor.turns")(function* (
             detail: `${body.name} has unreadable run data in ${yield* Store.runDirectory(config.home, body.name)}; preserve and inspect that directory before reusing the name.`,
           });
         const now = DateTime.makeUnsafe(yield* Clock.currentTimeMillis);
-        const questions = questionTimeout(providerId, body.questionTimeoutMs ?? 900_000);
+        const questions = questionTimeout(providerId, body.questionTimeoutMs, 900_000);
         const record: RunRecord = {
           name: body.name,
           threadId: null,
