@@ -3,6 +3,7 @@
 Skill: deliver. Profile: deliver. On resume, re-read shared/lane-dag.md before anything else.
 plan_graph: /Users/riley/.claude/plugins/cache/claude-essentials/ce/6.0.0/shared/scripts/plan_graph.py
 Started: 2026-11-22. Timebox: none. Landing branch: deliver/agy-provider.
+Status: done 2026-11-22. Phases 0-5 tagged (phase-0, agy-phase-1 to agy-phase-5); final review and fix review applied; shipped in 0.4.0.
 Gate: `bun run check` (about 300s: lint, typecheck, 180s unit suite, e2e). Filtered tests: `bun run test:unit <file or name filter>`. Typecheck: `bun run typecheck`.
 Runner: plain commands.
 Worktree setup: `ln -sfn /Users/riley/Projects/claude-codex/node_modules node_modules`

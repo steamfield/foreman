@@ -16,6 +16,10 @@
 - When Codex doesn't confirm an interrupt, the run moves to `unknown` with a warning that gives Codex's reason, and a question Codex is still holding stays answerable. When agy doesn't confirm a cancel within 30 seconds, foreman abandons the prompt and the run ends interrupted, ready for a follow-up.
 - foreman now checks the Codex protocol against Codex 0.171.0 instead of 0.169.0, so `doctor` and new runs stop warning about a protocol mismatch on 0.171.0. Install it with `npm i -g @openai/codex@0.171.0`; on 0.169.0 you now see that warning instead.
 
+### Fixed
+
+- In `foreman monitor`, the Feed pane header shows its filter once, unfocused detail pane titles stay readable, and the run list keeps a gap between the task and the next column.
+
 ## [0.3.1] - 2026-11-17
 
 ### Changed
