@@ -88,6 +88,7 @@ Test cases (lane b writes them): guide id mapping (README -> overview); title fr
 Demo: `cd site && make dev`, read the landing page top to bottom for Codex-only claims, open the three new posts under `/blog`.
 Depends on: phase 1
 Scaffold: ac2fe32
+Tag: mpd-phase-2
 Scaffold contents: `site/fixtures/cli/models.json` (real `foreman models` from the 0.4.1 build, Codex rows trimmed to the newest of each family after the capture script scrubs versions, columns re-padded) and `"providers"` added to the blog `feature` enum in `site/src/content/schema.ts`.
 Test cases: drift tests pass against the current README (commands table incl. `models`/`update`, exit codes, Codex 0.171.0); Models section renders a Codex row group and an agy row group; the `models` CLI fixture renders; no landing string says foreman is Codex-only; each new post passes the build's per-post SEO assertions.
 
