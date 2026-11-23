@@ -1,0 +1,37 @@
+---
+/**
+ * The docs page list by section, used by the desktop sidebar and the mobile menu. The current
+ * page's link carries aria-current="page" and its h2 outline.
+ */
+import { docHref, type NavGroup, type OutlineItem } from "../../lib/docs";
+import PageOutline from "./PageOutline.astro";
+
+interface Props {
+  nav: NavGroup[];
+  current?: string | undefined;
+  outline: OutlineItem[];
+}
+const { nav, current, outline } = Astro.props;
+---
+
+{nav.map((group) => (
+  <div class="mt-6 first:mt-0">
+    <p class="text-ink-3 px-2 text-sm font-medium">{group.label}</p>
+    <ul class="mt-2 space-y-0.5">
+      {group.items.map((item) => (
+        <li>
+          <a
+            href={docHref(item.id)}
+            aria-current={item.id === current ? "page" : undefined}
+            class="docs-nav-link"
+          >
+            {item.title}
+          </a>
+          {item.id === current && outline.length > 0 && (
+            <PageOutline outline={outline} />
+          )}
+        </li>
+      ))}
+    </ul>
+  </div>
+))}

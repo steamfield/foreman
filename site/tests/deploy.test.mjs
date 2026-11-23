@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { cpSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,6 +12,7 @@ import { buildFixtureSite } from "./blog-fixture.mjs";
 import { after, before, test } from "node:test";
 
 let fixtureRoot = "";
+let fixtureParent = "";
 let base = "";
 let child;
 let state = "";
@@ -25,8 +26,27 @@ async function freePort() {
   return port;
 }
 
+/**
+ * buildFixtureSite copies only site/ into a temp directory. Pointing TMPDIR at a directory that
+ * holds a copy of the guide puts docs/guide beside the fixture, as in the repository.
+ */
+function buildFixtureWithGuide() {
+  fixtureParent = mkdtempSync(join(tmpdir(), "foreman-repo-"));
+  const previous = process.env.TMPDIR;
+  try {
+    cpSync("../docs/guide", join(fixtureParent, "docs/guide"), {
+      recursive: true,
+    });
+    process.env.TMPDIR = fixtureParent;
+    return buildFixtureSite();
+  } finally {
+    if (previous === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = previous;
+  }
+}
+
 before(async () => {
-  fixtureRoot = buildFixtureSite();
+  fixtureRoot = buildFixtureWithGuide();
   const port = await freePort();
   state = mkdtempSync(join(tmpdir(), "pages-dev-"));
   child = spawn(
@@ -81,7 +101,7 @@ after(async () => {
     clearTimeout(force);
   }
   if (state) rmSync(state, { recursive: true, force: true });
-  if (fixtureRoot) rmSync(fixtureRoot, { recursive: true, force: true });
+  if (fixtureParent) rmSync(fixtureParent, { recursive: true, force: true });
 });
 
 const get = (path) => fetch(new URL(path, base), { redirect: "manual" });
@@ -162,4 +182,21 @@ test("robots advertises the real sitemap and the legacy sitemap redirects", asyn
   const legacy = await get("/sitemap.xml");
   assert.equal(legacy.status, 301);
   assert.equal(legacy.headers.get("location"), "/sitemap-index.xml");
+});
+
+test("docs pages and their Markdown exports resolve at canonical paths", async () => {
+  const home = await get("/docs");
+  assert.equal(home.status, 200);
+  const page = await get("/docs/providers");
+  assert.equal(page.status, 200);
+  assert.match(await page.text(), /href="\/docs\/providers.md"/);
+  for (const path of ["/docs/providers/", "/docs/providers.html"]) {
+    const response = await get(path);
+    assert.equal(response.status, 308, path);
+    assert.equal(response.headers.get("location"), "/docs/providers", path);
+  }
+  const markdown = await get("/docs/providers.md");
+  assert.equal(markdown.status, 200);
+  assert.match(await markdown.text(), /^# .+\n\n> /);
+  assert.equal((await get("/llms-full.txt")).status, 200);
 });

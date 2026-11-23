@@ -1,0 +1,25 @@
+---
+/**
+ * The current page's h2s, nested under its sidebar link. `data-toc` lets the page script mark
+ * the section being read with aria-current="location".
+ */
+import type { OutlineItem } from "../../lib/docs";
+
+interface Props {
+  outline: OutlineItem[];
+}
+const { outline } = Astro.props;
+---
+
+<ul data-toc class="docs-subnav">
+  {outline.map((heading) => (
+    <li>
+      <a
+        href={`#${heading.slug}`}
+        class:list={{ "docs-subnav-code": heading.code }}
+      >
+        {heading.label}
+      </a>
+    </li>
+  ))}
+</ul>

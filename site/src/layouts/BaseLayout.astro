@@ -15,6 +15,8 @@ interface Props {
   publishedTime?: string;
   modifiedTime?: string;
   jsonLd?: Record<string, unknown>[];
+  /** The page's Markdown export, linked as rel="alternate" (docs pages). */
+  markdown?: string;
 }
 const {
   title,
@@ -26,6 +28,7 @@ const {
   publishedTime,
   modifiedTime,
   jsonLd = [],
+  markdown,
 } = Astro.props;
 const fullTitle = title === site.title ? title : `${title} | ${site.title}`;
 const graph = path === "/" ? [...homeJsonLd(), ...jsonLd] : jsonLd;
@@ -91,6 +94,14 @@ const ogImage = new URL(image, site.url);
       title={site.title}
       href="/blog/rss.xml"
     />
+    {markdown && (
+      <link
+        rel="alternate"
+        type="text/markdown"
+        title={title}
+        href={markdown}
+      />
+    )}
     <script>
       import "../scripts/site";
     </script>
@@ -157,6 +168,9 @@ const ogImage = new URL(image, site.url);
           <span>foreman is MIT licensed.</span>
         </div>
         <nav aria-label="Footer" class="flex flex-wrap gap-5">
+          <a href="/docs" class="text-ink-2 hover:text-ink no-underline">
+            Docs
+          </a>
           <a href="/blog" class="text-ink-2 hover:text-ink no-underline">
             Blog
           </a>
