@@ -86,7 +86,9 @@ describe("landing copy agrees with the repository README", () => {
     const page = normalize(guardrails.rows.map((row) => row[1]).join(" "));
     const source = normalize(readme);
     const budget = page.match(/budget defaults to (.+?)\./)?.[1];
-    const timeout = page.match(/question times out after (.+?) and Codex/)?.[1];
+    const timeout = page.match(
+      /question times out after (.+?) and the delegate/,
+    )?.[1];
     const mode = page.match(/mode (\d{4})/)?.[1];
     expect(budget).toBeDefined();
     expect(timeout).toBeDefined();

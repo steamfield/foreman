@@ -1,7 +1,7 @@
 {
   "name": "foreman",
   "short_name": "foreman",
-  "description": "Codex models as subagents for Claude Code.",
+  "description": "Codex and agy models as subagents for Claude Code.",
   "start_url": "/",
   "display": "browser",
   "background_color": "#f1f2ee",

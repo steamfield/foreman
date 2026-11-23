@@ -71,9 +71,9 @@ export function lifecycleModel(
         label: "Contract",
         state: "starting",
         reports:
-          "Nothing yet. foreman sends the contract to Codex as the first turn's prompt, after a short preamble about working in a worktree and leaving changes uncommitted.",
+          "Nothing yet. foreman sends the contract to the delegate as the first turn's prompt, after a short preamble about working in a worktree and leaving changes uncommitted.",
         claude:
-          "Write the goal, a `- May change:` line, the repo’s checks and the hand-off Codex should leave. Keep changes uncommitted for review.",
+          "Write the goal, a `- May change:` line, the repo’s checks and the hand-off the delegate should leave. Keep changes uncommitted for review.",
         command: "--contract <file>",
       },
       {
@@ -98,7 +98,7 @@ export function lifecycleModel(
         reports:
           "The turn is active. Claude's background wait stays quiet until the run needs it, for up to 60 minutes by default.",
         claude:
-          "Codex works while Claude’s background wait is idle. Use `steer` to change the active turn, or `interrupt` to stop it.",
+          "The delegate works while Claude’s background wait is idle. Use `steer` to change the active turn, or `interrupt` to stop it.",
         command:
           'foreman wait <name>\nforeman steer <name> "<message>"\nforeman interrupt <name>',
       },
@@ -107,9 +107,9 @@ export function lifecycleModel(
         label: "Question",
         state: "waiting",
         reports:
-          "Codex called `ask_orchestrator`. foreman holds the call open, and the wait returns `question` with an id. This is q1 from fix-supervisor, as Codex wrote it.",
+          "The delegate asks through a tool call that foreman holds open, and the wait returns `question` with an id. This is q1 from fix-supervisor, a Codex run, as Codex wrote it.",
         claude:
-          "Answer the question with `--wait` to resume the held call and keep watching, or `defer` it to release the call without deciding. Codex then continues with independent work, avoids irreversible steps on the decision and lists it under Open. The question timeout (15 minutes by default) does the same, and Claude can still answer later.",
+          "Answer the question with `--wait` to resume the held call and keep watching, or `defer` it to release the call without deciding. The delegate then continues with independent work, avoids irreversible steps on the decision and lists it under Open. The question timeout (15 minutes by default, at most 100 seconds on agy) does the same, and Claude can still answer later.",
         command: 'foreman answer <name> <id> "<text>" --wait',
         excerpt: {
           source: "Recorded: fix-supervisor q1",
@@ -137,7 +137,7 @@ export function lifecycleModel(
         label: "Failed",
         state: "failed",
         reports:
-          "The turn ended with an error. The result includes Codex's hand-off if it left one, and its edits stay in the worktree.",
+          "The turn ended with an error. The result includes the delegate's hand-off if it left one, and its edits stay in the worktree.",
         claude:
           "Read the failure and inspect the edits left in place. Use `followup` to start another turn on the inactive run.",
         command: 'foreman followup <name> "<message>" --wait',
@@ -167,9 +167,9 @@ export function lifecycleModel(
         label: "Claude decides",
         state: "starting",
         reports:
-          "Nothing runs. The run is inactive with its edits, its Codex thread and the failure kept, and the result names a `transient:` or `usage-limit:` hint when there is one.",
+          "Nothing runs. The run is inactive with its edits, its conversation with the delegate and the failure kept, and the result names a `transient:` or `usage-limit:` hint when there is one.",
         claude:
-          "Read `foreman result` and the worktree, then decide. If the work is on track, send a `followup` with what to fix (and a larger `--budget` if the turn ran out): the next turn continues the same Codex thread. If the approach went wrong, or a lost run has no saved thread, archive it with `--keep-worktree` and dispatch a fresh run from a new contract.",
+          "Read `foreman result` and the worktree, then decide. If the work is on track, send a `followup` with what to fix (and a larger `--budget` if the turn ran out): the next turn continues the same conversation on the same provider. If the approach went wrong, or a lost run has no saved conversation, archive it with `--keep-worktree` and dispatch a fresh run from a new contract.",
         command:
           "foreman result <name>\nforeman followup <name> --file <followup> --wait",
       },
