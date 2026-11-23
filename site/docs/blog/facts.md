@@ -742,3 +742,135 @@ Usage: codex [OPTIONS] [PROMPT]
 - A working `codex mcp-server` command was not established because the installed root help omits it and its `--help` invocation only repeated root help. (local `codex --help`; local `codex mcp-server --help`) [not verified]
 - The plugin README's installation steps and live commands were researched but not exercised on this machine. (<https://github.com/openai/codex-plugin-cc/blob/main/README.md#install>) [not verified]
 - Guaranteed dynamic question-tool delivery after a foreman thread resume remains unverified and is explicitly conditional in the architecture. (`docs/architecture.md:33`) [not verified]
+
+## foreman 0.4 and agy (added 2026-11-22)
+
+Checked locally on 2026-11-22: foreman 0.4.1 (`package.json:3`), agy 1.5.14 (`agy --version`). Captures of `agy --help`, `agy acp --help` and `agy models` are below; none of them starts a conversation. Google pages were fetched on 2026-11-22. Line references are to this checkout at that date and supersede the 0.1.0 entries above where they disagree.
+
+### foreman's agy provider
+
+- foreman delegates to OpenAI's Codex or to agy, Google's Antigravity CLI, in git worktrees, and Claude reviews the diff before committing. (`README.md:3`) [built-in]
+- foreman drives `agy acp` (the Agent Client Protocol) with the user's agy sign-in; neither provider needs an API key. (`README.md:5`; `src/providers/agy/provider.ts:2`) [built-in]
+- foreman launches `agy acp --disable-telemetry --log-file <home>/logs/agy-acp.log` and speaks ACP protocol version 1. (`src/providers/agy/launch.ts:108`; `src/providers/agy/launch.ts:12`) [built-in]
+- foreman's agy support was verified against agy 1.5.14 and ACP version 1. (`src/providers/agy/provider.ts:18`; `README.md:84`) [built-in]
+- foreman removes `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `GOOGLE_GEMINI_BASE_URL`, `GOOGLE_GENAI_USE_ENTERPRISE`, `AGY_ADC_AUTH` and `ANTIGRAVITY_PROJECT_ID` from agy's environment and adds `AGY_DELEGATE=1`. (`src/providers/agy/environment.ts:7`; `src/providers/agy/environment.ts:21`) [built-in]
+- agy is optional: install the Antigravity CLI, run `agy` once to sign in with a Google account, then `foreman doctor` and `foreman models`. (`README.md:84`) [configurable]
+- `foreman doctor` reports agy separately: executable and version, whether `agy models` succeeds (signed in), protocol compatibility, hook trust and catalog size; without agy it prints `agy: not installed` and still exits 0. `AGY_BIN` names the executable when it isn't on `PATH`. (`README.md:92`) [built-in]
+- When agy refuses a session because nobody is signed in, foreman's message is "agy isn't signed in. Run agy once and sign in, then run foreman doctor." (`src/providers/agy/launch.ts:17`) [built-in]
+- foreman starts one `agy acp` process for all agy runs, and agy keeps each run's conversation in its own history. (`README.md:92`) [built-in]
+- The delegate preamble asks the delegate (either provider) to leave changes uncommitted and not push; foreman never commits or merges. (`src/supervisor/prompts.ts:2`; `docs/guide/delegating.md:157`) [built-in]
+- `foreman guide contract agy` prints the contract template for an agy run, whose self-review uses `agy -p` instead of `codex exec`. (`README.md:132`; `docs/guide/providers.md:74`) [built-in]
+- Every command other than `start` (`wait`, `answer`, `defer`, `steer`, `followup`, `interrupt`, `result`, `archive`, `monitor`) works the same on both providers; a follow-up stays on its run's provider. (`docs/guide/providers.md:63`; `README.md:42`) [built-in]
+
+### Models and routing
+
+- `foreman models` prints every provider's catalog as a table with columns PROVIDER, MODEL, EFFORTS, DEFAULT EFFORT, shows `fixed` for a model with one built-in effort, and lists an unavailable provider with its reason; `--json` returns one value. (`src/commands/models.ts:11`; `src/commands/models.ts:19`; `docs/guide/providers.md:22`) [built-in]
+- The recorded `foreman models` capture lists Codex `gpt-sol` (default), `gpt-astra`, `gpt-terra`, `gpt-luna`, and agy `gemini-4-neon`, `gemini-4-argon`, `gemini-4-hydrogen`, `gemini-3.8-flash`, two orchestrator models, `claude-opus-5-5`, `claude-sonnet-5-5` and `gpt-oss-120b-medium`; `gemini-4-neon` offers `low,medium,high,xhigh` with default `high`. (`site/fixtures/cli/models.json:3`) [built-in]
+- `CommandDemo` can't replay `models.json` yet: `src/data/commands.ts` and the component's `command` union don't list it on this branch. Posts describe the catalog in prose until it is registered. [built-in]
+- `start --model` picks the provider by looking the model up in each catalog; `codex:<model>` or `agy:<model>` names the provider explicitly. (`src/commands/runs.ts:141`; `src/providers/routing.ts:4`) [configurable]
+- An agy id with an effort suffix (`-low`, `-medium`, `-high`, `-xhigh`) means the family plus that effort, so `--model gemini-4-neon-high` equals `--model gemini-4-neon --effort high`. (`src/providers/agy/catalog.ts:44`; `README.md:35`; `docs/guide/providers.md:39`) [built-in]
+- A suffixed id combined with a conflicting `--effort` fails; agy accepts only the efforts its model lists. (`src/providers/agy/models.ts:107`; `src/commands/runs.ts:145`; `docs/guide/providers.md:57`) [built-in]
+- `--tier` is Codex-only; passing it with an agy model fails with exit 2. (`src/commands/runs.ts:149`; `src/providers/agy/models.ts:98`; `docs/guide/providers.md:59`) [built-in]
+- A model both catalogs list is ambiguous and needs the prefix; an unknown model fails with exit 2 before a worktree or the daemon is touched, with a near-miss suggestion. (`README.md:35`; `docs/guide/providers.md:40`) [built-in]
+- agy models are never chosen automatically: name one with `--model` or set it as `defaultModel`. Codex's default is `defaultModel`, else the newest visible `gpt-*-sol`. (`README.md:33`; `docs/guide/providers.md:48`) [configurable]
+- agy runs default to `high` effort when the model offers it, else its highest. (`docs/guide/providers.md:49`; `README.md:233`) [built-in]
+- foreman caches agy's catalog at `$FOREMAN_HOME/providers/agy/models.json` and refreshes it when missing, older than a day or from another agy version, and once when a model is in neither catalog and the cache is over an hour old; listing models creates no conversation. (`README.md:233`; `docs/guide/providers.md:29`; `docs/guide/providers.md:31`) [built-in]
+- `foreman wait --all` waits on all runs in the current repository group, whatever their provider. (`src/commands/runs.ts:478`; `docs/guide/providers.md:63`) [configurable]
+
+### Provider differences
+
+- Read-only Codex runs use an OS sandbox with network disabled; a read-only agy run refuses agy's edit tools (ACP kinds edit, delete, move) but approves shell commands, carries a warning, and fails if a shell command changed files. (`src/providers/agy/permissions.ts:31`; `src/providers/agy/permissions.ts:38`; `src/supervisor/read-only-check.ts:24`; `src/supervisor/read-only-check.ts:194`; `README.md:39`) [built-in]
+- foreman's warning text: "read-only on agy blocks agy's edit tools but not shell commands; use a Codex model when you need an enforced read-only sandbox." (`src/supervisor/read-only-check.ts:24`) [built-in]
+- With `--write`, foreman approves every agy permission request. (`src/providers/agy/permissions.ts:40`; `docs/guide/providers.md:68`) [built-in]
+- agy ends its turn when foreman refuses a permission, so a refused edit in a read-only run fails the run, naming the refused tool. (`README.md:40`; `docs/guide/providers.md:69`) [built-in]
+- Questions reach Claude through the same `ask_orchestrator` tool, served to agy by an MCP server foreman attaches per session. (`src/providers/agy/connection.ts:134`; `src/providers/agy/questions.ts:50`; `docs/guide/providers.md:70`) [built-in]
+- agy 1.5.14 holds an `ask_orchestrator` call for 180 seconds (measured), so agy runs defer a question after 100 seconds; an explicit `--question-timeout` above that is cut and recorded as a warning, and the default (15 minutes) is cut without one. (`src/supervisor/questions.ts:16`; `src/supervisor/questions.ts:21`; `src/supervisor/questions.ts:36`; `src/commands/runs.ts:157`; `README.md:41`) [built-in]
+- agy runs a committed `hooks.json` from `.agents/` (or `.agent/`, `_agents/`, `_agent/`) in the worktree without a trust step; foreman refuses an agy start with exit 10 when that file doesn't match agy's hook schema, or when the repo has `.codex/hooks.json` but the worktree has no agy hooks. (`src/providers/agy/hooks.ts:11`; `src/providers/agy/hooks.ts:122`; `docs/guide/repo-setup.md:29`; `docs/guide/repo-setup.md:31`) [built-in]
+- ACP reports no hook runs, so foreman can't confirm a hook ran during an agy turn as it does for Codex. (`docs/guide/repo-setup.md:38`; `README.md:126`) [built-in]
+- agy loads `GEMINI.md`, `AGENTS.md`, `.agents/rules/` and `.agents/skills/` itself, walking from the worktree to the repo root. (`README.md:128`) [built-in]
+
+### Antigravity CLI (agy), from Google's docs and local help
+
+- The Antigravity CLI (`agy`) is a terminal client; Antigravity is also offered as a desktop app, IDE extensions and a Python SDK. (<https://antigravity.google/docs/getting-started>) [built-in]
+- `agy acp` starts an Agent Client Protocol server; an editor launches it as a subprocess and talks JSON-RPC over stdin and stdout. (<https://antigravity.google/docs/cli/acp>; local `agy acp --help`) [built-in]
+- Sign in once with an interactive `agy` session or `agy acp --login`; `agy acp` reuses the cached credentials. (<https://antigravity.google/docs/cli/acp>; local `agy acp --help`) [configurable]
+- With no saved session, the CLI opens the default browser and the user selects Google OAuth for a personal Google Account; over SSH it uses a manual URL loop. (<https://antigravity.google/docs/install>) [built-in]
+- A Gemini API key needs both a provider setting and the environment variable; setting `GEMINI_API_KEY` alone has no effect. (<https://antigravity.google/docs/install>) [configurable]
+- `agy -p` (`--print`) runs a single prompt non-interactively; `--model`, `--effort` (low to max), `--sandbox` and `--dangerously-skip-permissions` are session flags. (local `agy --help`) [configurable]
+- `agy models` lists the models available to the signed-in account, one id per effort (`gemini-4-neon-high`, `gemini-4-neon-xhigh`, ...). (local `agy models`) [built-in]
+- Workspace rules: `AGENTS.md`, `GEMINI.md` or `.agents/rules/`, discovered in the workspace and parent folders up to the repository root, not in subfolders below the workspace. Global rules live under `~/.gemini/`. (<https://antigravity.google/docs/rules>) [built-in]
+- Workspace hooks live in `.agents/hooks.json` at the workspace root (global: `~/.gemini/config/hooks.json`); `PreToolUse` fires before a tool runs and its `matcher` is a regular expression over tool names such as `run_command`. (<https://antigravity.google/docs/hooks>) [built-in]
+- Google docs describe ACP clients as editors that launch `agy acp` themselves; "You don't run the command yourself." (<https://antigravity.google/docs/cli/acp>) [built-in]
+
+### Claude Code subagent models
+
+- A Claude Code subagent's `model` field takes `sonnet`, `opus`, `haiku`, `fable`, a full model id such as `claude-opus-5-5`, or `inherit`; the page names no non-Anthropic models. (<https://code.claude.com/docs/en/sub-agents#choose-a-model>) [built-in]
+
+### Documentation disagreements
+
+- Google's hooks page names the file tools `write_to_file` and `replace_file_content`, while foreman's README, repo-setup guide and this repo's `.agents/hooks.json` match `write_file` and `edit_file`. Posts name only `run_command` until this is checked against a live agy session. (<https://antigravity.google/docs/hooks>; `README.md:126`; `.agents/hooks.json:15`) [not verified]
+- `src/guide/topics.ts:67` says a steer sent after an agy turn finished is delivered as a follow-up; `docs/guide/providers.md:71` says it is refused. Posts don't describe that case. [not verified]
+
+### Not verified (agy)
+
+- Any claim about Gemini model quality, speed or cost, and which tasks suit which Gemini model. [not verified]
+- Whether agy's `--sandbox` flag would restrict a foreman read-only run; foreman's launch arguments don't pass it. (`src/providers/agy/launch.ts:108`) [not verified]
+
+### `agy --version`, `agy --help` (each exit 0; agy 1.5.14, selected lines)
+
+```text
+1.5.14
+Usage of agy:
+  --dangerously-skip-permissions  Auto-approve all tool permission requests without prompting
+  --effort                        Reasoning effort for the current CLI session (low|medium|high|xhigh|max)
+  --model                         Model for the current CLI session
+  -p                              Short alias for --print
+  --print                         Run a single prompt non-interactively and print the response
+  --sandbox                       Run in a sandbox with terminal restrictions enabled
+
+Available subcommands:
+  acp             Start the Agent Client Protocol (ACP) stdio server
+  models          List available models
+```
+
+### `agy acp --help` (exit 0; selected lines)
+
+```text
+Usage: agy acp [flags]
+
+Start the Agent Client Protocol (ACP) stdio server
+
+  --disable-telemetry               If true, disable telemetry
+  --log-file                        Override ACP log file path
+  --login                           Log in with Google interactively, then exit (ACP terminal auth)
+  --stdio                           Use stdio JSON-RPC transport (default)
+```
+
+### `agy models` (exit 0)
+
+```text
+Fetching available models...
+gemini-4-neon-high	Gemini 4 Neon (High)
+gemini-4-neon-xhigh	Gemini 4 Neon (XHigh)
+gemini-4-neon-medium	Gemini 4 Neon (Medium)
+gemini-4-neon-low	Gemini 4 Neon (Low)
+gemini-4-argon-medium	Gemini 4 Argon (Medium)
+gemini-4-argon-high	Gemini 4 Argon (High)
+gemini-4-argon-low	Gemini 4 Argon (Low)
+gemini-4-hydrogen-high	Gemini 4 Hydrogen (High)
+gemini-4-hydrogen-xhigh	Gemini 4 Hydrogen (XHigh)
+gemini-4-hydrogen-medium	Gemini 4 Hydrogen (Medium)
+gemini-4-hydrogen-low	Gemini 4 Hydrogen (Low)
+gemini-pro-orchestrator-neon	Orchestrator (Neon)
+gemini-pro-orchestrator-g1-pro	Orchestrator (Argon)
+gemini-3.8-flash-high	Gemini 3.8 Flash (High)
+gemini-3.8-flash-medium	Gemini 3.8 Flash (Medium)
+gemini-3.8-flash-low	Gemini 3.8 Flash (Low)
+claude-opus-5-5-low	Claude Opus 5.5 (Low)
+claude-opus-5-5-medium	Claude Opus 5.5 (Medium)
+claude-opus-5-5-high	Claude Opus 5.5 (High)
+claude-sonnet-5-5-low	Claude Sonnet 5.5 (Low)
+claude-sonnet-5-5-medium	Claude Sonnet 5.5 (Medium)
+claude-sonnet-5-5-high	Claude Sonnet 5.5 (High)
+gpt-oss-120b-medium	GPT-OSS 120B (Medium)
+```
