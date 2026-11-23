@@ -41,6 +41,7 @@ import { loadRun, releaseRuns } from "../data/runs";
 import { buildSession } from "../data/session";
 import { buildConsoleScript } from "../data/supervision";
 import doctor from "../../fixtures/cli/doctor.json";
+import modelCatalog from "../../fixtures/cli/models.json";
 import BaseLayout from "../layouts/BaseLayout.astro";
 
 const supervisor = loadRun("fix-supervisor");
@@ -48,7 +49,7 @@ const [npm] = install.options;
 ---
 
 <BaseLayout
-  title="Codex subagents for Claude Code"
+  title="Codex and agy subagents for Claude Code"
   description={site.metaDescription}
   path="/"
 >
@@ -129,7 +130,7 @@ const [npm] = install.options;
   </Section>
 
   <Section track id="models" title={models.title} lede={models.lede}>
-    <Models />
+    <Models catalog={modelCatalog} />
   </Section>
 
   <Section band track id="session" title={session.title} lede={session.lede}>
@@ -213,6 +214,9 @@ const [npm] = install.options;
             title={doctor.command}
             code={doctor.output}
           />
+          <p class="text-ink-2 mt-4 max-w-[40rem] leading-relaxed">
+            {install.docs} <a href="/docs">Read the docs</a>.
+          </p>
         </div>
       </div>
       <div class="min-w-0">

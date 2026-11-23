@@ -4,20 +4,20 @@
 
 ## TL;DR
 
-A one-page site for developers who use Claude Code and also pay for a ChatGPT plan with Codex. Using real foreman recordings, it shows Claude handing a written contract to Codex, Codex working in its own worktree, Claude answering a question Codex asked mid-turn, and Claude reviewing the result before anything is committed. Then it gives one install command and the one-time setup, honestly.
+A one-page site for developers who use Claude Code and also have Codex through a ChatGPT plan, or agy (Google's Antigravity CLI, serving Gemini models) through a Google account. foreman supports both as providers; the model a run names picks which one. Using real foreman recordings, it shows Claude handing a written contract to a delegate, the delegate working in its own worktree, Claude answering a question it asked mid-turn, and Claude reviewing the result before anything is committed. The recordings are Codex runs and are labeled as such; there are no recorded agy runs yet. Then it gives one install command and the one-time setup, honestly.
 
 ## Problem
 
-- Who: a developer who already works in Claude Code and has Codex through a ChatGPT plan. They want Codex's capacity on implementation work Claude can specify, without becoming the message bus between two terminals. Secondary reader: Claude itself, reading the page or `llms.txt` while it sets foreman up.
-- What: running both agents by hand means copying a spec into Codex, watching it, answering its questions when you happen to look, and pasting its results back for review. A question Codex asks while you're away stalls the work. Nothing checks that Codex stayed inside the files you meant.
+- Who: a developer who already works in Claude Code and has Codex through a ChatGPT plan, agy through a Google account, or both. They want a second agent's capacity on implementation work Claude can specify, without becoming the message bus between two terminals. Secondary reader: Claude itself, reading the page or `llms.txt` while it sets foreman up.
+- What: running both agents by hand means copying a spec into the other agent, watching it, answering its questions when you happen to look, and pasting its results back for review. A question the delegate asks while you're away stalls the work. Nothing checks that it stayed inside the files you meant.
 - Evidence: foreman's own release was built this way. Four delegates fixed foreman's release blockers in parallel from one commit (fix-cli, fix-daemon, fix-supervisor, fix-worktrees, 24 to 70 minutes each). One of them asked a scope question that Claude answered 19 seconds later; another question timed out after 15 minutes and foreman told Codex to proceed and note it. There is no visitor data yet.
 - Why now: v0.1.0 is about to be published to npm as `@steamfield/foreman`, and the README is the only explanation. It is accurate and 240 lines long.
 
 ## Job to be done
 
-When I have implementation work I can describe precisely, I want Claude Code to hand it to Codex and keep supervising it, so I get a second agent's throughput without watching two terminals or losing review.
+When I have implementation work I can describe precisely, I want Claude Code to hand it to a Codex or Gemini model and keep supervising it, so I get a second agent's throughput without watching two terminals or losing review.
 
-- Functional: understand the loop (contract, worktree, wait, answer, review, commit, archive), confirm my setup qualifies (Codex CLI 0.166.0 signed in, git, Node 26 or Bun), and copy an install command.
+- Functional: understand the loop (contract, worktree, wait, answer, review, commit, archive), see which models each provider offers and how a run picks one, confirm my setup qualifies (the Codex CLI signed in, agy optionally, git, Node 26 or Bun), and copy an install command.
 - Emotional: "Claude stays in charge. Nothing lands that Claude didn't review."
 
 ## Journey
@@ -25,31 +25,31 @@ When I have implementation work I can describe precisely, I want Claude Code to 
 | Moment                          | What happens                                                                                                                                                                              |
 | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Entry                           | The GitHub repo header, the npm page, steamfield.io, posts about Claude Code and Codex.                                                                                                   |
-| First impression (one viewport) | An H1 that states the job, a lede naming both agents and the ChatGPT login, the npm install line with a copy button, and the top of the supervision console already replaying a real run. |
+| First impression (one viewport) | An H1 that states the job, a lede naming both providers and their sign-ins, the npm install line with a copy button, and the top of the supervision console already replaying a real run. |
 | Core action                     | Copy the install command.                                                                                                                                                                 |
 | Feedback                        | A "Copied" state, then the one-time repo setup directly below in Install.                                                                                                                 |
 | Recovery                        | Without JS every replay is a static transcript and copy buttons are hidden; commands stay selectable.                                                                                     |
-| Return                          | GitHub README for the full reference, `llms.txt`.                                                                                                                                         |
+| Return                          | `/docs` for the full guide, the GitHub README, `llms.txt`.                                                                                                                                |
 
 ## Experience qualities
 
-Transparent (you read exactly what foreman prints), Calm (Claude is in control; the page never hypes autonomy), Dense (it assumes you know Claude Code and git worktrees). The tradeoff is density over teaching: the page doesn't explain worktrees or Codex.
+Transparent (you read exactly what foreman prints), Calm (Claude is in control; the page never hypes autonomy), Dense (it assumes you know Claude Code and git worktrees). The tradeoff is density over teaching: the page doesn't explain worktrees or Codex, and says only what agy is.
 
 ## Page outline
 
 Each section answers one visitor question.
 
-1. Hero: "What is it?" H1: Codex models as subagents for Claude Code. Lede: Claude plans and reviews while foreman starts Codex in its own git worktree, tells Claude when it finishes or asks something, and lets Claude answer, steer or interrupt mid-turn, using the Codex CLI's ChatGPT login (no API key). Install line, Install and GitHub links. The supervision console: on the left a Claude Code session delegating with `foreman start ... --wait`, on the right the delegate's live event feed and run header, replaying the real fix-supervisor run, time-compressed, including its real question and answer. Claude's prose is written for the page and labeled; foreman output and Codex events are real.
+1. Hero: "What is it?" H1: Codex and agy models as subagents for Claude Code. Lede: Claude plans and reviews while foreman starts a Codex or Gemini delegate in its own git worktree, tells Claude when it finishes or asks something, and lets Claude answer, steer or interrupt mid-turn. Codex uses its ChatGPT login and agy its Google sign-in, so neither needs an API key. Install line, Install and GitHub links. The supervision console: on the left a Claude Code session delegating with `foreman start ... --wait`, on the right the delegate's live event feed and run header, replaying the real fix-supervisor run, time-compressed, including its real question and answer. Claude's prose is written for the page and labeled; foreman output and Codex events are real.
 2. "Why would I need this?" Before and after: you as the go-between versus Claude holding the other terminal.
-   2a. "Which model does what?" Claude Code plans, architects, orchestrates and reviews; Codex models take the work as subagents: sol as the everyday implementer (foreman's default), terra as the cheapest model for tests, classification and mechanical edits, astra for visual design. Each card names the part of this page that model built. A closing paragraph says what makes the delegates good: the repo's `AGENTS.md`, rules, shared hooks and an independent review per contract. The page states quality and cost relative to Claude's models only in general terms, since there is no benchmark behind them.
+   2a. "Which model does what?" Claude Code plans, architects, orchestrates and reviews; the models are grouped by provider. Codex: sol as the everyday implementer (foreman's default), terra as the cheapest model for tests, classification and mechanical edits, astra for visual design; each card names the part of this page that model built. agy: what it is (Google's Antigravity CLI, optional, which also lists other vendors' models for your account) and Gemini 4 Neon, Argon, Hydrogen and 3.8 Flash with their effort ranges only. agy cards carry no evidence line and no quality, speed or cost claim, since no agy run is recorded. The recorded `foreman models` output shows both catalogs where the section explains that the model you name picks the provider. A closing paragraph says what makes the delegates good: the repo's `AGENTS.md`, rules, shared hooks and an independent review per contract. The page states Codex quality and cost relative to Claude's models only in general terms, since there is no benchmark behind them.
 3. "How does a delegation run?" The run lifecycle as an interactive state diagram: start (worktree and setup), running, waiting on a question, and the four ends (done, failed, interrupted, lost), then review, commit and archive. Selecting a state shows what `wait` prints and what Claude does next.
 4. "What does Claude hand over?" A real contract excerpt beside the real digest. The digest lists files written and flags `outside May change`, so Claude sees scope drift before reviewing.
-5. "What if Codex gets stuck?" The two real questions from fix-supervisor on a timeline: q1 answered in 19 seconds with a different policy than Codex proposed, q2 asked after a repo hook blocked a write and auto-answered after the 15-minute timeout.
+5. "What if the delegate gets stuck?" The two real questions from fix-supervisor on a timeline: q1 answered in 19 seconds with a different policy than Codex proposed, q2 asked after a repo hook blocked a write and auto-answered after the 15-minute timeout.
 6. "Can I run several?" The four parallel release-fix runs as a timeline from one base commit, with duration, commands and files written, and `foreman wait --all` as the one command that watches them.
 7. "What will Claude type?" Command tabs with real captured output: `start --wait`, `wait`, `answer`, `status`, `result`, `archive`, `doctor`.
-8. "What keeps it safe?" The guardrails as a table: read-only unless `--write`, one worktree per run, repo hook trust checked before start, never commits or merges, archive refuses to delete unmerged work, ChatGPT login only with API key variables stripped, turn budget and question timeout.
+8. "What keeps it safe?" The guardrails as a table: read-only unless `--write` (and how each provider enforces it), one worktree per run, repo hooks checked before start, never commits or merges, archive refuses to delete unmerged work, each provider's own sign-in with OpenAI and Gemini key variables stripped, turn budget and question timeout.
 9. "Can an agent drive it?" `--json` on every command, the `next:` line and its cursor, the exit code table.
-10. Install: npm, bun, npx and source tabs; requirements; the one-time repo setup (trust the project in Codex, approve hooks, `foreman doctor`) with real doctor output.
+10. Install: npm, bun, npx and source tabs; requirements, with agy optional; the one-time repo setup (trust the project in Codex, approve hooks, `.agents/hooks.json` for agy, `foreman doctor`) with real doctor output and a link to `/docs`.
 11. Footer: GitHub, npm, MIT, "a Steamfield project", privacy.
 
 ## Scope
@@ -69,7 +69,6 @@ Should
 
 Won't (this version)
 
-- Docs pages. The README is the reference; the page links it.
 - A light/dark toggle. One theme.
 - Claims about speed or cost savings. There's no measurement to back them.
 
@@ -103,3 +102,4 @@ The first two weeks set the baseline; targets are starting guesses.
 - The contract section shows the `site-console` run instead of fix-supervisor. fix-supervisor's digest flags two test files as outside scope only because its contract listed them with globs, which foreman's scope check matches as literal paths.
 - The questions section kept fix-supervisor's two questions; the `answer` and `wait --all` command tabs are recordings from this site's own build.
 - Section titles are plain nouns ("Run states", "Commands", "Safeguards") after a writing pass.
+- foreman 0.4 added agy as a second provider. The page now names both in the hero, groups the models section by provider with the recorded `foreman models` output, and rewrites the why, guardrails, agent-facing and install copy for both. Every replay stays a Codex run and its caption says so. Docs moved from Won't to the `/docs` route, which renders the repository guide.
