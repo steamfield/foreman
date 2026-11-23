@@ -55,6 +55,7 @@ Layout:
 ### Phase 1: docs route (MVP)
 
 Scaffold: c97fa22
+Tag: mpd-phase-1
 Demo: `cd site && make dev`, open http://localhost:4321/docs, click through every page, check `/docs/providers.md` and `/llms-full.txt`.
 Test cases (lane b writes them): guide id mapping (README -> overview); title from h1, description from first paragraph with links and backticks stripped, truncated at 160; missing h1 throws naming the file; group and order per the layout table; nav groups in config order, sorted by order then title, empty groups dropped; pager crosses group boundaries and returns undefined at the ends; guide links `providers.md`, `./cli.md#exit-codes` rewrite to `/docs/providers`, `/docs/cli#exit-codes`, while links inside fenced code stay untouched and external links stay; a guide link to a missing page throws; Markdown export starts `# Title`, `> description`, drops the source h1; llms-full lists pages in sidebar order; outline lists only h2s and labels a code-only h2 with its command name; build output has `docs.html`, one html and one md per page, sitemap lists `/docs` and every page, `/llms.txt` links every `.md`; e2e: sidebar marks the current page, outline links jump to anchors, mobile menu works at 375px with no horizontal overflow, axe passes on `/docs` and one page.
 
