@@ -1,4 +1,3 @@
-import { watch } from "node:fs";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { join } from "node:path";
@@ -375,19 +374,13 @@ describe("events --follow", () => {
           yield* f.untilState("idle");
           const page = yield* f.request({ _tag: "Events", name: f.name, after: 2 });
           assert(page._tag === "Events");
+          const fs = yield* FileSystem.FileSystem;
+          const socket = `${f.env.FOREMAN_HOME}/foreman.sock`;
           if (mode === "absent") {
-            const removed = yield* Deferred.make<void>();
-            yield* Effect.acquireRelease(
-              Effect.sync(() =>
-                watch(f.env.FOREMAN_HOME, (event, file) => {
-                  if (event === "rename" && file === "foreman.sock")
-                    Deferred.doneUnsafe(removed, Effect.void);
-                }).on("error", (error) => Deferred.doneUnsafe(removed, Effect.die(error))),
-              ),
-              (watcher) => Effect.sync(() => watcher.close()),
-            );
             yield* f.request({ _tag: "Shutdown" });
-            yield* Deferred.await(removed);
+            // Poll rather than fs.watch: macOS starts a directory watcher asynchronously,
+            // so a removal that lands first is never reported and the wait would hang.
+            while (yield* fs.exists(socket)) yield* Effect.sleep("10 millis");
           }
           const result = yield* Effect.promise((signal) =>
             runCli(["events", "unit", "--follow", "--after", "2", "--limit", "1", "--verbose"], {
@@ -407,9 +400,7 @@ describe("events --follow", () => {
           expect(result.stderr).toBe(
             `No live daemon is supervising this run, so follow stopped (${reason}). Run foreman status unit to start one.\n`,
           );
-          const fs = yield* FileSystem.FileSystem;
-          if (mode === "absent")
-            expect(yield* fs.exists(`${f.env.FOREMAN_HOME}/foreman.sock`)).toBe(false);
+          if (mode === "absent") expect(yield* fs.exists(socket)).toBe(false);
           else expect((yield* f.request({ _tag: "Ping" }))._tag).toBe("Pong");
         }).pipe(Effect.timeout("10 seconds"), Effect.scoped, Effect.provide(eventsPlatform)),
       );

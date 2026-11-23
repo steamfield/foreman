@@ -767,7 +767,12 @@ describe("supervisor over the real daemon socket", () => {
         observing = true;
         const detail = yield* passiveDetail(f.dataDir, name);
         assert(detail !== null);
-        expect(detail.run).toEqual(overview.runs[0]);
+        const run = overview.runs[0];
+        assert(run !== undefined);
+        // Both reads slide the per-minute pace window to their own clock, so a minute
+        // boundary between them shifts it by one bucket; everything else must match.
+        expect({ ...detail.run, pace: run.pace }).toEqual(run);
+        expect([run.pace, [...run.pace.slice(1), 0]]).toContainEqual(detail.run.pace);
         expect(detail.digest).toEqual({
           ...cached,
           questions: cached.questions.map((question) => ({

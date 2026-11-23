@@ -1,7 +1,7 @@
 import { execFile, execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { setImmediate } from "node:timers/promises";
+import { setTimeout as sleep } from "node:timers/promises";
 import { promisify } from "node:util";
 import { Schema } from "effect";
 import { expect, it } from "vitest";
@@ -32,7 +32,7 @@ async function exited(pid: number) {
   const deadline = Date.now() + 5000;
   while (alive(pid)) {
     if (Date.now() > deadline) throw new Error(`Owned process ${pid} survived cleanup`);
-    await setImmediate();
+    await sleep(10);
   }
 }
 
@@ -171,7 +171,7 @@ it("seeded stress: concurrent delegations recover from daemon SIGKILL and app-se
       status.digests.some((digest) => ["starting", "running", "waiting"].includes(digest.state))
     ) {
       if (Date.now() > deadline) throw new Error("Runs did not settle after app-server exit");
-      await setImmediate();
+      await sleep(25);
       status = await run(["status"]);
       if (status._tag !== "Digests") throw new Error("Expected status digests");
     }
@@ -215,7 +215,9 @@ it("seeded stress: concurrent delegations recover from daemon SIGKILL and app-se
   try {
     // Start one daemon before racing clients, then exercise three simultaneous starts.
     await run(["status"]);
-    for (let iteration = 0; iteration < 4; iteration++) {
+    // Seed 210021 interrupts the app server first in iterations 0 and 1 and kills the
+    // daemon first in iteration 2, so three iterations cover both orders.
+    for (let iteration = 0; iteration < 3; iteration++) {
       const names = Array.from({ length: 3 }, (_, index) => `stress-${iteration}-${index}`);
       const starts = await Promise.allSettled(
         names.map((name) =>
