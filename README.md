@@ -4,6 +4,8 @@ foreman lets Claude Code delegate coding tasks to OpenAI's Codex or to agy, Goog
 
 foreman drives `codex app-server` using your Codex ChatGPT login, and `agy acp` (the Agent Client Protocol) using your agy sign-in. Neither needs an API key: foreman removes OpenAI and Gemini key variables from the delegate's environment, so a run never bills to a key by accident. The MCP wrapper is still pending.
 
+The full guide is at [foreman.steamfield.io/docs](https://foreman.steamfield.io/docs), and its source is [docs/guide](docs/guide/README.md).
+
 ## How it works
 
 Claude Code is the orchestrator and Codex or agy is the delegate. You ask Claude to hand a task to Codex or Gemini; Claude does the rest through foreman commands, and you can watch.
@@ -28,7 +30,7 @@ A run is in one of these states: `starting`, `running`, `waiting` (a question ne
 | Provider | Models | Sign-in | With no `--model` |
 | --- | --- | --- | --- |
 | `codex` | GPT models from Codex's catalog | `codex login` (ChatGPT) | `defaultModel` from config, else the newest visible `gpt-*-sol`; `high` effort, `priority` tier |
-| `agy` | Gemini models, plus the other models agy lists for your account | Run `agy` once and sign in | Not used: name an agy model |
+| `agy` | Gemini models, plus the other models agy lists for your account | Run `agy` once and sign in | Never picked automatically: name an agy model, or set one as `defaultModel` |
 
 An agy id with an effort suffix, such as `gemini-4-neon-high`, means the family plus that effort, so `--model gemini-4-neon --effort high` is the same run. `--tier` applies only to Codex. When both catalogs list a model, pass `codex:<model>` or `agy:<model>`. An unknown model fails before a worktree or the daemon is touched, with exit 2, a near-miss suggestion when there is one, and with `--json` a `candidates` list.
 
@@ -36,7 +38,7 @@ The two providers differ in a few places:
 
 - Read-only Codex runs use an OS sandbox. A read-only agy run refuses agy's edit tools but allows shell commands; the run carries a warning, and it fails if a shell command changed files. Use Codex when read-only must be enforced.
 - agy ends its turn when foreman refuses a permission, so a refused edit in a read-only run fails the run rather than letting agy continue.
-- agy holds a question's tool call for a limited time, so agy runs cap the question timeout below that hold and record the cap as a warning.
+- agy holds a question's tool call for 180 seconds, so agy runs cap the question timeout at 100 seconds. An explicit `--question-timeout` above that is cut to 100 seconds and recorded as a warning; the default is capped without one.
 - Every other command (`wait`, `answer`, `steer`, `followup`, `interrupt`, `result`, `archive`, `monitor`) works the same on both. A follow-up stays on its run's provider.
 
 ## Watch your runs
