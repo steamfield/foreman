@@ -119,3 +119,9 @@ Test cases: drift tests pass against the current README (commands table incl. `m
 - Scaffold deviation: lane 1b writes its own tests from the case list (site work, tests are mostly build-output assertions), instead of tests committed in the scaffold.
 - Known failing before the sprint: 3 tests in site/tests/drift.test.ts (README drift from 0.4.0). Assigned to 2a.
 - Plan critique (sonnet): (1) split lane 1b into three: rejected, it is one capability (the docs route) and already dispatched. (2) phase 2 scaffold missing models.json and the feature enum: fixed, both moved to the phase 2 scaffold. (3) link cases for README.md, anchors, mailto, images: sent to lane 1b; deploy reading ../docs/guide: Pages clones the whole repo and decks deploys the same way. (4) fenced `# comment`, BOM: sent to lane 1b; truncation point left mid-word as decks does. (5) unknown or unmapped guide file must fail the build, Copy page hidden without clipboard: sent to lane 1b.
+- Phase 1 tagged mpd-phase-1 (the plain `phase-1` tag already existed from an earlier sprint). Landing fixes: build test OOM from re-parsing anchor targets (cached), empty table headers failing axe, axe on every guide page, overview retitled.
+- Phase 2 tagged mpd-phase-2. Lead fixes: llms.txt command table synced with README, build assertions for the new title, `make brand` cards regenerated, `models` registered as a CommandDemo recording.
+- Final review: all six findings fixed (doctor recaptured from 0.4.1, repo-relative guide links and empty summaries fail the build, guide loader moved to src/lib/guide-loader.ts, e2e uses guideId, gpt-luna listed).
+- Left open, outside the site: CLI help text still says Codex-only in places ("Start a Codex run", steer/followup "Instructions for Codex", monitor legend); `foreman guide supervise` and docs/architecture.md say a refused agy steer becomes a follow-up, but only `answer` falls back.
+
+Status: done.
