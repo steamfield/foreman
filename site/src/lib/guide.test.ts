@@ -61,6 +61,19 @@ describe("guideData", () => {
     );
   });
 
+  test.each([
+    ["a section heading", "# Monitor\n\n## Keys\n\nText.\n"],
+    ["a code block", "# Monitor\n\n```sh\nforeman monitor\n```\n"],
+    ["nothing", "# Monitor\n"],
+  ])(
+    "throws when the title is followed by %s instead of a summary",
+    (_, body) => {
+      expect(() => guideData("monitor", body)).toThrow(
+        "Guide monitor needs a summary paragraph after its title",
+      );
+    },
+  );
+
   test("never takes a # comment inside fenced code as the title", () => {
     const body =
       "```sh\n# install\nnpm i -g foreman\n```\n\n# Getting started\n\nInstall it.\n";
@@ -114,11 +127,19 @@ describe("guideLink", () => {
     "#exit-codes",
     "mailto:team@example.com",
     "https://github.com/steamfield/foreman/blob/main/README.md",
-    "images/monitor.png",
     "/docs/providers",
   ])("leaves %s unchanged", (href) => {
     expect(guideLink(href)).toBe(href);
   });
+
+  test.each(["images/monitor.png", "../README.md", "../../src/cli.ts"])(
+    "throws for the repository path %s, which does not resolve on the site",
+    (href) => {
+      expect(() => guideLink(href)).toThrow(
+        /Link repo files with their GitHub URL/,
+      );
+    },
+  );
 
   test("throws for a guide link to a page that does not exist", () => {
     expect(() => guideLink("./missing.md#top")).toThrow(
@@ -131,7 +152,7 @@ describe("guideMarkdown", () => {
   test("rewrites inline and reference guide links outside code", () => {
     const source = [
       "See [providers](providers.md) and [exit codes](./cli.md#exit-codes).",
-      "Read the [repo][setup] page and ![the monitor](images/monitor.png).",
+      "Read the [repo][setup] page and ![the monitor](/brand/foreman-icon.svg).",
       "Inline `[x](cli.md)` stays, as does [GitHub](https://github.com).",
       "",
       "[setup]: ./repo-setup.md",
@@ -139,7 +160,7 @@ describe("guideMarkdown", () => {
     expect(guideMarkdown(source)).toBe(
       [
         "See [providers](/docs/providers) and [exit codes](/docs/cli#exit-codes).",
-        "Read the [repo][setup] page and ![the monitor](images/monitor.png).",
+        "Read the [repo][setup] page and ![the monitor](/brand/foreman-icon.svg).",
         "Inline `[x](cli.md)` stays, as does [GitHub](https://github.com).",
         "",
         "[setup]: /docs/repo-setup",

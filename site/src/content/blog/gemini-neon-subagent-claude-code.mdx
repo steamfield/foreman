@@ -43,7 +43,7 @@ foreman models
 
 `agy models` prints one id per effort level for your account: `gemini-4-neon-high`, `gemini-4-neon-xhigh`, `gemini-4-neon-medium`, `gemini-4-neon-low`, and the same pattern for Gemini 4 Argon, Gemini 4 Hydrogen and Gemini 3.8 Flash. It also lists two orchestrator models and models from other vendors, including Claude Opus and Sonnet.
 
-`foreman models` folds those into one row per family and adds Codex's catalog. Its columns are PROVIDER, MODEL, EFFORTS and DEFAULT EFFORT. In a capture from foreman 0.4.1, the agy row for `gemini-4-neon` lists `low,medium,high,xhigh` with a default of `high`, while Gemini 4 Argon and Gemini 3.8 Flash stop at `high`. Models with a single built-in effort show `fixed`. The Codex rows list the `gpt-sol`, `gpt-terra` and `gpt-astra` families. If a provider isn't available, it appears with the reason, and `--json` returns the same catalogs as one value.
+`foreman models` folds those into one row per family and adds Codex's catalog. Its columns are PROVIDER, MODEL, EFFORTS and DEFAULT EFFORT. In a capture from foreman 0.4.1, the agy row for `gemini-4-neon` lists `low,medium,high,xhigh` with a default of `high`, while Gemini 4 Argon and Gemini 3.8 Flash stop at `high`. Models with a single built-in effort show `fixed`. The Codex rows list the `gpt-sol`, `gpt-terra`, `gpt-astra` and `gpt-luna` families. If a provider isn't available, it appears with the reason, and `--json` returns the same catalogs as one value.
 
 <CommandDemo
   command="models"

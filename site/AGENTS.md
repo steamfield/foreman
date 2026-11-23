@@ -65,7 +65,8 @@ src/components/blog/     CommandDemo, the one component posts may import
 ../docs/guide/           the docs source: the repository guide, plain Markdown with no frontmatter
 src/lib/guide.ts         guide page ids, derived title/description/sidebar place, link rewriting
 src/lib/docs.ts          docs routes, sidebar order, pager, h2 outline, Markdown and llms exports
-src/content.config.ts    collections; the docs loader renders the guide with links rewritten
+src/content.config.ts    collections: blog posts and the docs guide
+src/lib/guide-loader.ts  the docs loader: renders the guide with links rewritten
 src/pages/docs/          /docs home, /docs/<id> pages and their /docs/<id>.md exports
 src/pages/llms-full.txt.ts every docs page as Markdown in sidebar order
 src/layouts/DocsLayout.astro the docs shell: sticky sidebar or mobile menu, article, pager
@@ -85,9 +86,11 @@ Astro's content layer exists. Canonical paths omit trailing slashes; build outpu
 uses files. `/blog/` redirects to `/blog` on Pages.
 
 Docs pages come from `../docs/guide/*.md` (the repository guide, readable on GitHub;
-not recursive). Each file needs an h1 and a place in `placements` in `src/lib/guide.ts`;
-links between guide files (`cli.md#exit-codes`) become `/docs/cli#exit-codes`. A file
-without either, or a link to a missing page, fails the build naming the file.
+not recursive). Each file needs an h1, a summary paragraph after it and a place in
+`placements` in `src/lib/guide.ts`. Links between guide files (`cli.md#exit-codes`)
+become `/docs/cli#exit-codes`; link other repo files by their GitHub URL. A missing
+h1, summary or placement, a link to a missing page or a relative repo path fails the
+build naming the file.
 
 ### Recordings
 

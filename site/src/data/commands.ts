@@ -57,7 +57,7 @@ const reference = [
   [
     "doctor",
     "doctor",
-    "Check configuration, each provider, repo hook trust and the daemon. Recorded before agy support, so it shows Codex only.",
+    "Check configuration, each provider, repo hook trust and the daemon.",
   ],
 ] as const;
 

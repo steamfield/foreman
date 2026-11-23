@@ -27,6 +27,8 @@ const ELLIPSIS = "...";
 
 /** A relative link to another guide file: `cli.md`, `./cli.md#exit-codes`. */
 const GUIDE_LINK = /^(?:\.\/)?([\w-]+\.md)(#.*)?$/;
+/** Links the site serves as written: an in-page anchor, a site path, or a URL with a scheme. */
+const PASS_THROUGH = /^(?:#|\/|[a-z][a-z\d+.-]*:)/i;
 const TITLE_LINE = /^# \S/;
 const BYTE_ORDER_MARK = /^\uFEFF/;
 const FENCE = /^ {0,3}(`{3,}|~{3,})/;
@@ -46,7 +48,8 @@ export function guideId(file: string): string {
 /**
  * The docs metadata of one guide page: the h1 as title, the first paragraph after it as the
  * description (link syntax, backticks and emphasis stripped), and its sidebar place.
- * @throws When the page has no h1 outside fenced code, or has no entry in the sidebar placements.
+ * @throws When the page has no h1 outside fenced code, no paragraph right after it, or no entry
+ * in the sidebar placements.
  */
 export function guideData(id: string, body: string): DocData {
   const lines = scanLines(body);
@@ -59,16 +62,27 @@ export function guideData(id: string, body: string): DocData {
       `Guide ${id} has no place in the docs sidebar. Add it to placements in site/src/lib/guide.ts.`,
     );
   const paragraph = firstParagraph(lines.slice(titleAt + 1));
+  if (!paragraph)
+    throw new Error(
+      `Guide ${id} needs a summary paragraph after its title; it becomes the page description.`,
+    );
   return { title, description: summarize(paragraph), ...placement };
 }
 
 /**
- * The site route for a guide-relative link, or the link unchanged when it is not one.
- * @throws When the link names a guide file that is not a docs page.
+ * The site route for a guide-relative link. Anchors, site paths and links with a scheme
+ * (`https:`, `mailto:`) are returned unchanged.
+ * @throws When the link names a guide file that is not a docs page, or is any other relative
+ * path (`../README.md`, `images/x.png`), which would not resolve on the site.
  */
 export function guideLink(href: string): string {
   const match = GUIDE_LINK.exec(href);
-  if (!match) return href;
+  if (!match) {
+    if (PASS_THROUGH.test(href)) return href;
+    throw new Error(
+      `Guide link ${href} is a repository path that does not resolve on the site. Link repo files with their GitHub URL.`,
+    );
+  }
   const id = guideId(match[1] ?? "");
   if (!placements[id])
     throw new Error(
