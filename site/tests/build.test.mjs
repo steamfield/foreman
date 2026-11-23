@@ -56,7 +56,7 @@ test("the landing page owns the root and links the shared privacy page", () => {
   const page = document("index.html");
   assert.equal(
     page.querySelector("h1")?.textContent?.trim(),
-    "Codex models as subagents for Claude Code.",
+    "Codex and agy models as subagents for Claude Code.",
   );
   assert.equal(
     page.querySelector('link[rel="canonical"]')?.getAttribute("href"),
@@ -75,14 +75,14 @@ test("the landing page owns the root and links the shared privacy page", () => {
   assert.ok(page.querySelector('footer nav a[href="/docs"]'));
 });
 
-test("home metadata describes Codex subagents and publishes the exact entity graph", () => {
+test("home metadata describes Codex and agy subagents and publishes the exact entity graph", () => {
   const doc = document("index.html");
   const meta = (key) =>
     doc
       .querySelector(`meta[name="${key}"], meta[property="${key}"]`)
       ?.getAttribute("content");
   const title = doc.querySelector("title").textContent;
-  assert.equal(title, "Codex subagents for Claude Code | foreman");
+  assert.equal(title, "Codex and agy subagents for Claude Code | foreman");
   assert.ok(title.length <= 60);
   assert.equal(meta("og:title"), title);
   assert.equal(meta("twitter:title"), title);
