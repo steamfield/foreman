@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import { models, type ModelRole } from "../../data/landing";
 import { CodeFrame, Inline } from "./primitives";
 
@@ -10,28 +9,17 @@ export interface CatalogRecording {
   output: string;
 }
 
-function RoleCard({
-  role,
-  lead = false,
-  children,
-}: {
-  role: ModelRole;
-  lead?: boolean;
-  children?: ReactNode;
-}) {
-  // Claude's card sits beside the provider headings (h3); model cards sit under them.
-  const Heading = lead ? "h3" : "h4";
+/** Claude Code's card: its job, the command loop it drives delegates with, and its evidence. */
+function OrchestratorCard({ role }: { role: ModelRole }) {
   return (
     <div
-      className={`rounded-frame flex min-w-0 flex-col gap-3 border p-5 ${lead ? "border-ink bg-card h-full sm:p-6" : "border-line bg-page"}`}
+      className="rounded-frame border-ink bg-card flex min-w-0 flex-col gap-3 border p-5 sm:p-6 lg:sticky lg:top-20"
       data-motion="lift-card"
     >
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <Heading
-          className={`text-ink font-semibold ${lead ? "font-display text-2xl" : "font-mono text-lg"}`}
-        >
+        <h3 className="text-ink font-display text-2xl font-semibold">
           {role.name}
-        </Heading>
+        </h3>
         <span className="rounded-chip bg-band text-ink-2 px-1.5 py-0.5 font-mono text-xs">
           {role.model}
         </span>
@@ -39,46 +27,6 @@ function RoleCard({
       <p className="text-ink-2 leading-relaxed">
         <Inline text={role.job} />
       </p>
-      {children}
-      {role.evidence && (
-        <p className="text-ink-3 mt-auto text-sm">
-          <span className="text-ink-2 font-medium">On this page: </span>
-          {role.evidence}
-        </p>
-      )}
-    </div>
-  );
-}
-
-/** One provider's heading, what it is, and a card per model it serves. */
-function ProviderGroup({ provider }: { provider: Provider }) {
-  const roles = models.roles.filter((role) => role.provider === provider.id);
-  return (
-    <div className="flex min-w-0 flex-col gap-4">
-      <div>
-        <h3 className="text-ink font-display text-2xl font-semibold">
-          {provider.name}
-        </h3>
-        <p className="text-ink-2 mt-2 max-w-[40rem] leading-relaxed">
-          <Inline text={provider.summary} />
-        </p>
-      </div>
-      <div
-        className={`grid gap-4 ${provider.id === "agy" ? "sm:grid-cols-2" : ""}`}
-        data-stagger
-      >
-        {roles.map((role) => (
-          <RoleCard key={role.model} role={role} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/** Claude Code's card, with the command loop it uses to drive any delegate. */
-function OrchestratorCard({ role }: { role: ModelRole }) {
-  return (
-    <RoleCard role={role} lead>
       <div className="mt-2 min-w-0">
         <p className="text-ink-3 mb-2 text-xs">
           How Claude drives a delegate · written for this page
@@ -92,7 +40,71 @@ function OrchestratorCard({ role }: { role: ModelRole }) {
           ))}
         </ul>
       </div>
-    </RoleCard>
+      {role.evidence && (
+        <p className="text-ink-3 text-sm">
+          <span className="text-ink-2 font-medium">On this page: </span>
+          {role.evidence}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** One model: name and id on one line, then its job and any evidence. */
+function ModelRow({ role, compact }: { role: ModelRole; compact: boolean }) {
+  return (
+    <li
+      className={`flex min-w-0 flex-col gap-1 ${compact ? "border-line border-t py-3" : "py-4"}`}
+    >
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h4 className="text-ink font-mono text-base font-semibold">
+          {role.name}
+        </h4>
+        <span className="rounded-chip bg-band text-ink-2 px-1.5 py-0.5 font-mono text-xs">
+          {role.model}
+        </span>
+      </div>
+      <p className="text-ink-2 leading-relaxed">
+        <Inline text={role.job} />
+      </p>
+      {role.evidence && (
+        <p className="text-ink-3 text-sm">
+          <span className="text-ink-2 font-medium">On this page: </span>
+          {role.evidence}
+        </p>
+      )}
+    </li>
+  );
+}
+
+/**
+ * A provider's heading and summary over its models. Models with no recorded evidence
+ * carry one short line each, so they sit two to a row instead of one per divided row.
+ */
+function ProviderSection({ provider }: { provider: Provider }) {
+  const roles = models.roles.filter((role) => role.provider === provider.id);
+  const compact = roles.every((role) => !role.evidence);
+  return (
+    <section className="min-w-0 px-5 pt-5 sm:px-6">
+      <h3 className="text-ink font-display text-xl font-semibold">
+        {provider.name}
+      </h3>
+      <p className="text-ink-3 mt-1 text-sm leading-relaxed">
+        <Inline text={provider.summary} />
+      </p>
+      <ul
+        className={
+          compact
+            ? "mt-4 grid gap-x-6 pb-2 sm:grid-cols-2"
+            : "divide-line mt-1 divide-y"
+        }
+        data-stagger
+      >
+        {roles.map((role) => (
+          <ModelRow key={role.model} role={role} compact={compact} />
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -102,25 +114,27 @@ function OrchestratorCard({ role }: { role: ModelRole }) {
  */
 export function Models({ catalog }: { catalog: CatalogRecording }) {
   const orchestrator = models.roles.find((role) => role.provider === "claude");
-  const [codex, agy] = models.providers;
   return (
-    <div>
-      <div className="grid gap-x-4 gap-y-10 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+    <div className="flex flex-col gap-12">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:items-start">
         {orchestrator && <OrchestratorCard role={orchestrator} />}
-        <ProviderGroup provider={codex} />
-        <ProviderGroup provider={agy} />
-        <div className="flex min-w-0 flex-col gap-4">
-          <p className="text-ink-2 leading-relaxed">
-            <Inline text={models.routing} />
-          </p>
-          <CodeFrame
-            surface="console"
-            title={catalog.command}
-            code={catalog.output}
-          />
+        <div className="rounded-frame border-line bg-page divide-line min-w-0 divide-y border">
+          {models.providers.map((provider) => (
+            <ProviderSection key={provider.id} provider={provider} />
+          ))}
         </div>
       </div>
-      <p className="text-ink-2 mt-8 max-w-[44rem] leading-relaxed">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:items-start">
+        <p className="text-ink-2 min-w-0 leading-relaxed">
+          <Inline text={models.routing} />
+        </p>
+        <CodeFrame
+          surface="console"
+          title={catalog.command}
+          code={catalog.output}
+        />
+      </div>
+      <p className="text-ink-2 max-w-[44rem] leading-relaxed">
         <Inline text={models.guidance} />
       </p>
     </div>

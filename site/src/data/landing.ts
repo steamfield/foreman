@@ -78,25 +78,25 @@ const roles: readonly ModelRole[] = [
     name: "Gemini 4 Neon",
     model: "gemini-4-neon",
     provider: "agy",
-    job: "Takes low to xhigh effort. `--model gemini-4-neon --effort high` and `--model gemini-4-neon-high` start the same run.",
+    job: "Efforts low to xhigh.",
   },
   {
     name: "Gemini 4 Argon",
     model: "gemini-4-argon",
     provider: "agy",
-    job: "Takes low to high effort.",
+    job: "Efforts low to high.",
   },
   {
     name: "Gemini 4 Hydrogen",
     model: "gemini-4-hydrogen",
     provider: "agy",
-    job: "Takes low to xhigh effort.",
+    job: "Efforts low to xhigh.",
   },
   {
     name: "Gemini 3.8 Flash",
     model: "gemini-3.8-flash",
     provider: "agy",
-    job: "Takes low to high effort.",
+    job: "Efforts low to high.",
   },
 ];
 
@@ -125,8 +125,7 @@ export const models = {
   }[],
   /** How Claude drives a delegate, as command templates written for this page. */
   loop: [
-    "foreman start <name> --new-worktree --contract <file> --model gpt-sol --wait",
-    "foreman start <name> --new-worktree --contract <file> --model gemini-4-neon --wait",
+    "foreman start <name> --new-worktree --contract <file> --model <model> --wait",
     'foreman answer <name> <question-id> "<decision>" --wait',
     'foreman steer <name> "<correction>"',
     "foreman result <name>",
@@ -134,7 +133,7 @@ export const models = {
   ],
   /** Introduces the recorded `foreman models` output. */
   routing:
-    "The model you name picks the provider. `foreman start --model` looks the name up in each provider's catalog, and the run stays on that provider for every later turn. When both catalogs list a model, prefix it with `codex:` or `agy:`. `foreman models` prints both catalogs; this output is recorded.",
+    "The model you name picks the provider. `foreman start --model` looks the name up in each provider's catalog, and the run stays on that provider for every later turn. An agy effort can ride on the id, so `--model gemini-4-neon-high` is the same run as `--model gemini-4-neon --effort high`. When both catalogs list a model, prefix it with `codex:` or `agy:`. `foreman models` prints both catalogs, and this output from it is recorded.",
   guidance:
     "Delegates do their best work when the repository tells them how to work. Codex reads `AGENTS.md` and the rules the contract names, and runs under the same hooks Claude does (`.codex/hooks.json`). agy reads `AGENTS.md`, `GEMINI.md` and `.agents/rules/`, and runs the hooks in `.agents/hooks.json`. Every contract ends with an independent review in a fresh process (`codex exec`, or `agy -p` for an agy run) before the hand-off. Claude still reads the diff, so the review bar doesn't move; Claude's usage goes to planning and review, and the implementation runs on the delegate's own sign-in.",
 };
