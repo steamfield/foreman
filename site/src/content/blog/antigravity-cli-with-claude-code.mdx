@@ -1,0 +1,94 @@
+---
+title: "Antigravity CLI with Claude Code"
+headline: "Using the Antigravity CLI (agy) with Claude Code: protocol, sign-in, hooks and limits"
+description: "How the Antigravity CLI works with Claude Code: agy acp, Google sign-in without an API key, .agents/hooks.json, rules, read-only runs and question timeouts."
+date: 2026-11-22
+status: published
+keyword: "Antigravity CLI with Claude Code"
+feature: providers
+tags: []
+---
+
+To use the Antigravity CLI with Claude Code, you need agy installed and signed in with your Google account. Then something has to drive it on Claude's behalf: Claude can run `agy -p` through Bash for one-off prompts, or foreman can run agy as a supervised delegate through `agy acp`, agy's Agent Client Protocol server.
+
+The sections below follow what a first foreman run on agy meets: the protocol, signing in, the repo files agy reads, what a read-only run allows, and why questions time out sooner than they do on Codex. For the overview of every way to hand work from Claude Code to a Gemini model, start with [running Gemini from Claude Code](/blog/run-gemini-from-claude-code).
+
+## How does the Antigravity CLI work with Claude Code?
+
+Claude Code stays the orchestrator and agy is the delegate. Claude writes a task contract and runs foreman commands; foreman starts agy in a git worktree, answers agy's permission requests, holds Gemini's questions for Claude, and records the run so Claude can review it.
+
+| Piece                  | What it does                                                              |
+| ---------------------- | ------------------------------------------------------------------------- |
+| Claude Code            | Writes the contract, starts and waits on runs, answers questions, reviews |
+| foreman CLI and daemon | Starts and supervises runs; one `agy acp` process serves every agy run    |
+| `agy acp`              | Runs the Gemini agent, its tools and its sign-in                          |
+| Repo files             | `.agents/hooks.json`, `AGENTS.md`, `GEMINI.md`, `.agents/rules/`          |
+
+foreman's agy support was verified against agy 1.5.14. Check your version with `agy --version`, and run `foreman doctor`, which reports agy's executable and version, whether `agy models` succeeds, protocol compatibility, hook trust for the current repo and the catalog size.
+
+## agy acp and the Agent Client Protocol
+
+[`agy acp` starts an Agent Client Protocol server](https://antigravity.google/docs/cli/acp). The program that wants an agent (usually an editor) launches it as a subprocess and talks JSON-RPC to it over stdin and stdout. Google's docs describe the editor case and note that you don't run the command yourself; the agent, its tools, your sign-in and your settings all come from the Antigravity CLI.
+
+foreman is another such client. It launches `agy acp --disable-telemetry --log-file <foreman home>/logs/agy-acp.log` from an empty directory under its own home, completes the protocol handshake and refuses any ACP version other than 1. Each run then gets its own agy session, pointed at that run's worktree, and agy keeps each run's conversation in its own history. A follow-up on the same run continues that conversation.
+
+A model id decides that a run goes to agy at all. `foreman start --model gemini-4-neon` finds the id in agy's catalog and routes there; [choosing a model per task](/blog/gemini-neon-subagent-claude-code) covers ids, efforts and prefixes.
+
+## Signing in without an API key
+
+Sign in once, interactively. [Google's ACP page](https://antigravity.google/docs/cli/acp) gives two ways: start an interactive `agy` session, or run `agy acp --login`. With no saved session, [agy opens your browser](https://antigravity.google/docs/install) and you choose Google OAuth for a personal Google account; over SSH it prints a URL to open by hand. `agy acp` reuses the saved credentials after that.
+
+```sh
+agy acp --login
+foreman doctor
+```
+
+agy can use a Gemini API key only with a provider setting next to the variable; [`GEMINI_API_KEY` alone has no effect](https://antigravity.google/docs/install). foreman goes further and removes `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `GOOGLE_GEMINI_BASE_URL` and the other Google credential overrides from agy's environment, so runs always use the sign-in. If nobody is signed in, an agy start fails with "agy isn't signed in. Run agy once and sign in, then run foreman doctor."
+
+## Repo hooks in .agents/hooks.json
+
+agy reads [workspace hooks from `.agents/hooks.json`](https://antigravity.google/docs/hooks) at the workspace root. A `PreToolUse` hook fires before a tool runs, and its `matcher` is a regular expression over tool names; `run_command` is the shell tool. A hook can deny the call, which is how a repository blocks destructive commands.
+
+agy has no trust step for these hooks. It runs the file from the worktree it works in, so for a foreman run the committed copy is the one that matters: a new worktree starts from your HEAD, and uncommitted hook edits in your main checkout aren't in it. agy also looks in `.agent/`, `_agents/` and `_agent/`.
+
+foreman refuses an agy start with exit 10 in two cases:
+
+- the worktree's agy hooks file doesn't match agy's hook schema, or
+- the repo has Codex hooks in `.codex/hooks.json` but the worktree has no agy hooks file, because agy would then run without the repo's guards.
+
+To guard agy with the same scripts as Codex, commit an `.agents/hooks.json` whose `PreToolUse` entries point at those scripts, with an adapter if agy's hook input differs from what they expect. foreman's own repository does this with [an adapter script](https://github.com/steamfield/foreman/blob/main/.agents/hooks/guard-adapter.sh). One gap remains: ACP doesn't report hook runs, so foreman can't confirm a hook fired during an agy turn the way it does for Codex. A command a hook denied shows up as an ordinary failed tool call.
+
+## Rules and instructions agy reads
+
+agy loads its own instructions. [Antigravity discovers workspace rules](https://antigravity.google/docs/rules) in `AGENTS.md`, `GEMINI.md` or a `.agents/rules/` directory, in the workspace and its parent folders up to the repository root. It doesn't load rules from subfolders below the workspace, even when the agent edits files there. Global rules live under `~/.gemini/`.
+
+For a foreman run the workspace is the worktree, so a repository's committed `AGENTS.md` reaches agy without any foreman setting. If your project keeps rules only in Claude Code's `.claude/rules/`, agy won't see them: copy the ones that matter into `.agents/rules/`, or name them in the contract's files-to-read section. A symlink from `.agents/skills` to `.claude/skills` shares skills.
+
+## What read-only means on agy
+
+foreman starts runs read-only unless Claude passes `--write`, and the two providers enforce that differently.
+
+| Run       | Codex                                   | agy                                                          |
+| --------- | --------------------------------------- | ------------------------------------------------------------ |
+| Read-only | OS sandbox, network disabled            | Edit tools refused, shell commands allowed                   |
+| `--write` | Full host access, no approval prompts   | foreman approves every permission request                    |
+| A refusal | The sandbox denies it; the turn goes on | agy ends the turn, so the run fails, naming the refused tool |
+
+foreman answers agy's permission requests itself. In a read-only run it refuses any request whose kind is edit, delete or move, and approves the rest, including shell commands. A shell command can still change files, so every read-only agy run carries the warning "read-only on agy blocks agy's edit tools but not shell commands; use a Codex model when you need an enforced read-only sandbox." After the turn, foreman compares the worktree and fails the run if anything changed.
+
+Follow that advice: when a review or investigation must not write, use a Codex model. agy's own `--sandbox` flag enables terminal restrictions in agy sessions, but foreman doesn't pass it.
+
+## Why agy questions time out after 100 seconds
+
+When Gemini needs a decision, it calls foreman's `ask_orchestrator` tool. On agy that tool comes from a small MCP server foreman attaches to each session, and foreman holds the call until Claude answers with `foreman answer <run> <question-id> <text>`.
+
+agy 1.5.14 keeps such a call open for about 180 seconds, measured, then cancels it and the model carries on without an answer. So foreman defers agy questions after 100 seconds, leaving time for the deferral message to land before agy drops the call. Codex runs wait 15 minutes by default.
+
+| Setting                                | Codex         | agy                                |
+| -------------------------------------- | ------------- | ---------------------------------- |
+| Default question timeout               | 15 minutes    | 100 seconds                        |
+| `--question-timeout` above 100 seconds | Used as given | Cut to 100 seconds, with a warning |
+
+The deferral tells Gemini to continue with work that doesn't depend on the answer, take no irreversible step on the open question and list it in the hand-off. Claude's answer still counts when it arrives late: foreman records it and delivers it to the run as a message. Keep a background `foreman wait` running on agy runs so Claude sees questions while there's still time to answer inside the window.
+
+[Providers and models](/docs/providers) has the full table of differences between Codex and agy runs, and the [install steps](/#install) cover adding agy to an existing foreman setup.

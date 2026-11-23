@@ -1,0 +1,106 @@
+---
+title: "Gemini Neon subagent in Claude Code"
+headline: "Run a Gemini Neon subagent in Claude Code and pick a model per task"
+description: "Run Gemini 4 Neon as a subagent-style delegate in Claude Code: find model ids, set the effort per run, and supervise Codex and Gemini runs side by side."
+date: 2026-11-22
+status: published
+keyword: "Gemini Neon subagent in Claude Code"
+feature: providers
+tags: []
+---
+
+import CommandDemo from "../../components/blog/CommandDemo.astro";
+
+A Gemini Neon subagent in Claude Code is an outside agent that Claude starts and supervises, because Claude Code's own subagents pick from Claude models: their [`model` setting](https://code.claude.com/docs/en/sub-agents#choose-a-model) takes an alias such as `sonnet` or `opus`, a Claude model id, or `inherit`. The outside agent here is agy, Google's Antigravity CLI, which lists Gemini 4 Neon in `agy models` once you sign in with a Google account. With [foreman](/), Claude starts it per task with `foreman start --model gemini-4-neon --effort high`, in its own worktree, and reads the result when it's done.
+
+Because the model id picks the provider, the same session can run one task on Gemini 4 Neon and the next on a Codex model, and wait on both with one command.
+
+## How do you run a Gemini Neon subagent in Claude Code?
+
+You need three things in place: agy installed and signed in (run `agy` once and pick your Google account in the browser), foreman installed, and the foreman skill in Claude Code. [Running Gemini from Claude Code](/blog/run-gemini-from-claude-code) covers the setup and the simpler `agy -p` route.
+
+Then ask Claude in plain words:
+
+> Use the foreman skill to delegate the parser fix to gemini-4-neon at high effort, then review its diff.
+
+Claude writes a task contract, starts the run and waits in the background. The run differs from a Claude Code subagent in a few ways that matter for planning:
+
+| Claude Code subagent                              | foreman run on Gemini 4 Neon                                   |
+| ------------------------------------------------- | -------------------------------------------------------------- |
+| Claude model, own context window                  | Any model agy or Codex lists, own conversation                 |
+| Same checkout unless set to `isolation: worktree` | Its own worktree on branch `foreman/<name>`                    |
+| Lives inside the Claude Code session              | A local daemon owns the run between Claude's commands          |
+| Returns its result to the main conversation       | Leaves uncommitted changes and a hand-off for Claude to review |
+
+## Finding the model ids
+
+Model ids come from each provider's catalog, not from a list built into foreman, so a model agy adds works without a foreman release. Two commands show them:
+
+```sh
+agy models
+foreman models
+```
+
+`agy models` prints one id per effort level for your account: `gemini-4-neon-high`, `gemini-4-neon-xhigh`, `gemini-4-neon-medium`, `gemini-4-neon-low`, and the same pattern for Gemini 4 Argon, Gemini 4 Hydrogen and Gemini 3.8 Flash. It also lists two orchestrator models and models from other vendors, including Claude Opus and Sonnet.
+
+`foreman models` folds those into one row per family and adds Codex's catalog. Its columns are PROVIDER, MODEL, EFFORTS and DEFAULT EFFORT. In a capture from foreman 0.4.1, the agy row for `gemini-4-neon` lists `low,medium,high,xhigh` with a default of `high`, while Gemini 4 Argon and Gemini 3.8 Flash stop at `high`. Models with a single built-in effort show `fixed`. The Codex rows list the `gpt-sol`, `gpt-terra` and `gpt-astra` families. If a provider isn't available, it appears with the reason, and `--json` returns the same catalogs as one value.
+
+Listing models starts no conversation. foreman caches agy's catalog and refreshes it daily, when agy's version changes, or once when you name a model that isn't in either catalog.
+
+## Choosing the model and effort for one run
+
+`--model` and `--effort` set the model per run. These two starts are the same run:
+
+```sh
+foreman start parser-fix --new-worktree --contract /tmp/parser-fix.md \
+  --model gemini-4-neon --effort high --write
+
+foreman start parser-fix --new-worktree --contract /tmp/parser-fix.md \
+  --model gemini-4-neon-high --write
+```
+
+An agy id ending in `-low`, `-medium`, `-high` or `-xhigh` means the family plus that effort, which is why the ids `agy models` prints work as they are. Combining a suffix with a different `--effort` fails, and agy accepts only the efforts its catalog lists for that family, so `--effort xhigh` on Gemini 3.8 Flash is refused. Without `--effort`, an agy run uses `high` when the model offers it, otherwise its highest effort.
+
+These checks run in the CLI before foreman touches the daemon or creates a worktree. A typo in a model name fails with exit 2 and a near-miss suggestion, and costs nothing.
+
+The run keeps its provider for every later turn. `foreman followup parser-fix --effort xhigh "<message>"` can raise the effort for the next turn and the ones after it, but switching from Gemini to a Codex model means starting a new run.
+
+## When a model name needs a provider prefix
+
+foreman looks a model up in both catalogs. When an id appears in exactly one, that provider runs it. When both list it, the start fails as ambiguous, and you name the provider with a prefix:
+
+```sh
+foreman start review-auth --new-worktree --contract /tmp/review-auth.md \
+  --model agy:gemini-4-neon-high
+```
+
+`codex:<model>` checks only Codex's catalog and `agy:<model>` only agy's. The prefix is also useful in a contract or script you want to keep unambiguous if either catalog changes.
+
+## Running Codex and Gemini side by side
+
+Give each run its own name, contract and worktree, and start them from the same commit:
+
+```sh
+foreman start parser-fix --new-worktree --contract /tmp/parser-fix.md \
+  --model gemini-4-neon-high --write
+foreman start docs-cli --new-worktree --contract /tmp/docs-cli.md --write
+foreman wait --all
+```
+
+The second start names no model, so it gets the Codex default: the newest visible `gpt-*-sol` in Codex's model cache. `foreman wait --all` waits on every run in the current repository group, whichever provider runs it, and returns when one needs attention: a question, a finished turn or a failure. Claude handles that run and waits again. Every command after `start` (`answer`, `steer`, `followup`, `interrupt`, `result`, `archive`) works the same on both providers.
+
+<CommandDemo
+  command="wait-all"
+  caption="A recorded group wait from Codex runs. Runs on agy models join the same group and the same wait."
+/>
+
+Questions are where mixed runs differ most. agy holds a question's tool call for about 180 seconds, so foreman defers an agy question after 100 seconds, while Codex questions wait 15 minutes by default. Keep the wait running in the background so Claude sees an agy question while there's still time to answer it. A late answer is still delivered as a message. [Running multiple Codex agents](/blog/run-multiple-codex-agents) covers splitting the work into independent tasks and the merge order once the runs finish.
+
+## Defaults and limits to know
+
+- foreman never picks an agy model by itself. With no `--model`, a start uses `defaultModel` from foreman's config, else the newest visible `gpt-*-sol` from Codex. Set `defaultModel` to `gemini-4-neon-high` if you want Gemini by default.
+- `--tier` sets the Codex service tier and fails with exit 2 on an agy model.
+- Read-only agy runs refuse agy's edit tools but allow shell commands, and fail if a shell command changed files. Use a Codex model for a review that must not write; Codex enforces read-only with a sandbox.
+- If the repository has `.codex/hooks.json`, agy starts are refused until it also commits an `.agents/hooks.json`.
+
+[Providers and models](/docs/providers) documents routing, defaults and every difference between the two providers, and the [install section](/#install) covers adding agy to foreman.

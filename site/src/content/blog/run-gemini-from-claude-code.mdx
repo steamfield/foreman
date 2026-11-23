@@ -1,0 +1,125 @@
+---
+title: "Run Gemini from Claude Code"
+headline: "How to run Gemini from Claude Code with agy, Google's Antigravity CLI"
+description: "Run Gemini from Claude Code by calling agy, Google's Antigravity CLI, through Bash, or with foreman's agy provider for supervised runs in their own worktrees."
+date: 2026-11-22
+status: published
+keyword: "run Gemini from Claude Code"
+feature: providers
+tags: []
+---
+
+import CommandDemo from "../../components/blog/CommandDemo.astro";
+
+You can run Gemini from Claude Code by asking Claude to call agy, Google's Antigravity CLI, through Bash. Once agy is installed and signed in with your Google account, `agy -p` sends one prompt to a Gemini model and prints the reply, which Claude reads like any other command output.
+
+For implementation work you want to review before it lands, [foreman](/) adds a second route. It starts agy in its own git worktree from a task contract, keeps the run going in a local daemon, routes Gemini's questions back to Claude, and leaves the diff uncommitted for Claude to review. Both routes use your agy sign-in, so neither needs a Gemini API key.
+
+## How do you run Gemini from Claude Code?
+
+Pick the route by what the task needs.
+
+| Route                  | Where the work happens                                 | During a long task                            | When Gemini needs a decision                                    |
+| ---------------------- | ------------------------------------------------------ | --------------------------------------------- | --------------------------------------------------------------- |
+| `agy -p` through Bash  | The directory Claude runs it in, or a worktree you add | Claude can background the Bash command        | Ask for open questions in the reply, then send a second prompt  |
+| foreman's agy provider | A new linked worktree per run, or one you prepared     | A local daemon owns the run between CLI calls | Gemini calls `ask_orchestrator`; Claude answers the question id |
+
+Start with `agy -p` for a bounded question: explain this module, find the cause of a failing test, suggest a fix without making it. Move to foreman when Gemini should edit files and you want the changes isolated, supervised and reviewed. If you also use OpenAI's Codex, the same choice comes up there; [using Codex from Claude Code](/blog/use-codex-from-claude-code) compares the routes for that side.
+
+## What is agy, and how do you sign in?
+
+agy is the command for the [Antigravity CLI](https://antigravity.google/docs/getting-started), the terminal client of Google Antigravity. Antigravity also ships as a desktop app, IDE extensions and a Python SDK; the CLI is the one Claude Code can drive, because it runs in a shell.
+
+Sign in once by running `agy` interactively. With no saved session, [agy opens your default browser](https://antigravity.google/docs/install) and you choose Google OAuth for a personal Google account. Over SSH it prints a URL to open instead. Later sessions reuse the saved credentials without a browser.
+
+```sh
+agy --version
+agy
+agy models
+```
+
+`agy models` lists the model ids your account can use, one per effort level, such as `gemini-4-neon-high` and `gemini-4-neon-low`. The list also includes Gemini 4 Argon, Gemini 4 Hydrogen and Gemini 3.8 Flash, plus models from other vendors. If it prints the list, you're signed in.
+
+agy can also use a Gemini API key, but [only with a provider setting](https://antigravity.google/docs/install) alongside the variable; setting `GEMINI_API_KEY` by itself does nothing. foreman removes `GEMINI_API_KEY`, `GOOGLE_API_KEY` and related variables from agy's environment, so a foreman run always uses the sign-in.
+
+## Running agy -p from Claude Code's shell
+
+`agy -p` (short for `--print`) runs a single prompt non-interactively and prints the response. `--model` picks the model and `--effort` the reasoning effort. To run it yourself and hand the output to Claude, use Claude Code's `!` prefix, which runs a shell command and adds its output to the conversation:
+
+```text
+!agy -p --model gemini-4-neon-high "Explain why tests/parser.test.ts fails. Do not edit files. List the likely cause and any open questions."
+```
+
+Or ask Claude to do it:
+
+> Use agy -p through Bash to ask Gemini why the parser test fails. Give it the failure output and the relevant file paths, tell it not to edit files, then check its diagnosis against the code.
+
+Claude writes the Gemini prompt and reads the answer, and you stay in one conversation. For a longer prompt, ask Claude to run the command in the background, or press `Ctrl+B` while it runs. Claude Code's [background Bash commands](https://code.claude.com/docs/en/interactive-mode#background-bash-commands) write output to a file Claude can read while you keep working, and Claude Code normally cleans them up when it exits.
+
+This route works well for questions. For edits, two agy flags matter: `--dangerously-skip-permissions` auto-approves every tool request, and `--sandbox` enables agy's terminal restrictions. If you let agy edit, give it a checkout of its own first, so its changes stay apart from the files Claude is editing:
+
+```sh
+git worktree add ../parser-fix -b parser-fix
+```
+
+A linked worktree has its own working files, HEAD and index while sharing the repository's history. Run agy with that directory as the working directory, then review the diff there.
+
+## Delegating to Gemini in its own worktree
+
+foreman handles that setup per task and keeps the run alive between Claude's commands. Claude writes a task contract (the goal, files to read, acceptance checks and a hand-off format), and foreman starts agy on it in a worktree under `.claude/worktrees/<name>` on branch `foreman/<name>`.
+
+```sh
+foreman guide contract agy
+```
+
+That prints the contract template for an agy run, whose self-review step uses `agy -p`. Once the contract is filled in, Claude starts the run and names the model, since foreman never picks an agy model on its own:
+
+```sh
+foreman start parser-fix --new-worktree --setup "bun install" \
+  --contract /tmp/parser-fix.md --model gemini-4-neon --write --wait
+```
+
+The model picks the provider. foreman looks `gemini-4-neon` up in the Codex and agy catalogs, finds it in agy's and routes the run there; the run keeps that provider for every later turn. `--wait` returns when the run needs attention. Without it, the command returns once the run starts, and the daemon owns the turn until it ends.
+
+<CommandDemo
+  command="start-wait"
+  caption="A recorded Codex run: foreman creates the worktree, waits and prints the digest. An agy run goes through the same commands and digest."
+/>
+
+foreman drives agy through `agy acp`, agy's Agent Client Protocol server, with one agy process shared by all agy runs. Every command after `start` (`wait`, `answer`, `steer`, `followup`, `interrupt`, `result`, `archive`) works the same for agy and Codex runs. The [Antigravity CLI with Claude Code](/blog/antigravity-cli-with-claude-code) post covers the protocol, repo hooks and rules in detail, and [choosing a model per task](/blog/gemini-neon-subagent-claude-code) covers effort levels and running Codex and Gemini side by side.
+
+Read-only is the default. On agy it means foreman refuses agy's edit tools but still allows shell commands; the run carries a warning and fails if a shell command changed files. Codex enforces read-only with an OS sandbox, so use a Codex model when a run must not write. `--write` approves every agy permission request.
+
+## What happens when Gemini has a question?
+
+With `agy -p`, ask Gemini to list unresolved decisions in its answer, then send a follow-up prompt with your call. That's enough when one report is all you need.
+
+A foreman run gives Gemini an `ask_orchestrator` tool, served through a small MCP server foreman attaches to each agy session. When Gemini calls it, foreman holds the call and shows the question id in the run's status, and Claude answers:
+
+```sh
+foreman answer parser-fix q1 "Keep the public parse() signature unchanged."
+```
+
+The run name and question id come from the run's digest. agy holds a pending tool call for about 180 seconds, so foreman defers an agy question after 100 seconds rather than the 15 minutes it uses for Codex. Deferral tells Gemini to continue with work that doesn't depend on the answer and list the question in its hand-off. A late answer is still accepted and arrives as a message on the run.
+
+## Reviewing the diff before you commit
+
+Whichever route you use, keep review and commit as separate steps you control. foreman's instructions to the delegate ask it to leave changes uncommitted and not push, and foreman itself never commits or merges.
+
+1. Read the hand-off: `foreman result parser-fix` prints the digest and the latest hand-off, including the files written.
+2. Inspect the worktree's diff, including new files, against the contract's scope.
+3. Run the repository's checks yourself rather than trusting the hand-off's report.
+4. Send corrections with `foreman followup parser-fix "<what to change>"`, or commit when it's right.
+
+## What you need installed
+
+For the shell route: Claude Code and the Antigravity CLI, signed in. For foreman, add macOS or Linux on arm64 or x64, git, a repository with at least one commit, and Node 26 or newer for the npm launcher. foreman's agy support was checked against agy 1.5.14.
+
+```sh
+npm i -g @steamfield/foreman
+foreman skill install
+foreman doctor
+foreman models
+```
+
+`foreman doctor` reports agy separately from Codex: the executable and version, whether `agy models` succeeds, protocol compatibility and the catalog size. If the repository has Codex hooks in `.codex/hooks.json`, foreman refuses agy starts until the repo also commits an `.agents/hooks.json`, so agy runs under the same guards. See [providers and models](/docs/providers) for routing, defaults and every difference between the two providers, and [install foreman](/#install) to get started.
