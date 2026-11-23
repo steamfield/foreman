@@ -30,6 +30,7 @@ export const postSchema = z
       "contracts",
       "hooks",
       "safety",
+      "providers",
     ]),
     date: z.coerce.date({ message: "date must be a valid date" }),
     updated: z.coerce
