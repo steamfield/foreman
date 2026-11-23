@@ -11,12 +11,20 @@ export const site = {
   readme: "https://github.com/steamfield/foreman#readme",
   npm: "https://www.npmjs.com/package/@steamfield/foreman",
   nav: [
+    { label: "Docs", href: "/docs" },
     { label: "How it works", href: "/#lifecycle" },
     { label: "Commands", href: "/#commands" },
     { label: "Blog", href: "/blog" },
     { label: "GitHub", href: "https://github.com/steamfield/foreman" },
   ],
 };
+
+/** Docs sidebar sections, in display order. Guide pages are assigned to one in src/lib/guide.ts. */
+export const docsGroups = [
+  { id: "getting-started", label: "Getting started" },
+  { id: "guides", label: "Guides" },
+  { id: "reference", label: "Reference" },
+] as const;
 
 if (!["https:", "http:"].includes(new URL(site.url).protocol)) {
   throw new Error("Set site.url to an absolute HTTP or HTTPS production URL.");
