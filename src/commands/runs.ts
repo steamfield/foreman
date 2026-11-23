@@ -56,7 +56,7 @@ const waiting = {
 const message = {
   message: Argument.String("message").pipe(
     Argument.withDescription(
-      "Instructions for Codex. Supply exactly one message argument or --file.",
+      "Instructions for the delegate. Supply exactly one message argument or --file.",
     ),
     Argument.optional,
     Argument.map(Option.getOrUndefined),
@@ -125,7 +125,7 @@ export const startCommand = Command.make(
     ),
     setup: optionalText(
       "setup",
-      "Run a shell command before Codex (limit: 10m, or the explicit --budget); requires --new-worktree.",
+      "Run a shell command before the delegate starts (limit: 10m, or the explicit --budget); requires --new-worktree.",
     ),
     contract: Flag.String("contract").pipe(
       Flag.withDescription("Read the task contract from this file."),
@@ -165,9 +165,9 @@ export const startCommand = Command.make(
   (input) => print("start", programs.start(input)),
 ).pipe(
   Command.withDescription(
-    "Start a new run in a managed or prepared linked worktree. Choose exactly one of --new-worktree and --worktree; the worktree must be unreserved. Replacing an inactive run (idle, failed, interrupted or lost) archives its previous records after successful preflight and retains its old worktree. Use followup to continue its saved thread instead. A managed start still needs an unused worktree directory and branch. Active runs (starting, running, waiting, unknown) and queued answers retain ownership. Read-only by default; --write permits full host access with no approval prompts. Managed setup runs before validation and Codex. Refusals roll back only safe owned resources; inspect any retained path before retrying. With --wait, returns attention for this run, not peers. Exits 0 on start or any wait outcome, 2 for usage or unreadable input, 3 for invalid config, 4 for daemon failure, 5 for unavailable Codex, 6 for permissions, 8 for conflicts, 9 for invalid worktrees or missing dependencies, 10 for untrusted repo hooks, 130 when interrupted, 1 on an internal error.",
+    "Start a new run in a managed or prepared linked worktree. Choose exactly one of --new-worktree and --worktree; the worktree must be unreserved. Replacing an inactive run (idle, failed, interrupted or lost) archives its previous records after successful preflight and retains its old worktree. Use followup to continue its saved thread instead. A managed start still needs an unused worktree directory and branch. Active runs (starting, running, waiting, unknown) and queued answers retain ownership. Read-only by default; --write permits full host access with no approval prompts. Managed setup runs before validation and the delegate. Refusals roll back only safe owned resources; inspect any retained path before retrying. With --wait, returns attention for this run, not peers. Exits 0 on start or any wait outcome, 2 for usage or unreadable input, 3 for invalid config, 4 for daemon failure, 5 for an unavailable provider, 6 for permissions, 8 for conflicts, 9 for invalid worktrees or missing dependencies, 10 for untrusted repo hooks, 130 when interrupted, 1 on an internal error.",
   ),
-  Command.withShortDescription("Start a Codex run in a new or prepared worktree."),
+  Command.withShortDescription("Start a Codex or agy run in a new or prepared worktree."),
   Command.withExamples([
     {
       command:
@@ -278,7 +278,7 @@ export const steerCommand = Command.make("steer", { name, ...message, ...waiting
   print("steer", programs.steer(input)),
 ).pipe(
   Command.withDescription(
-    "Send instructions to a running, steerable turn and supersede unanswered decisions. Refuses starting, waiting, unknown and inactive runs; if a question is pending, answer its id and include the change instead. Codex can refuse a steer: wait, then follow up. --wait waits on this run only after acceptance. Exits 0 on acceptance or any wait outcome, 2 for usage or input, 3 for config, 4 for daemon failure, 5 for Codex failure, 6 for permissions, 7 for a missing run, 8 for state conflicts or refused steering, 130 when interrupted, 1 on an internal error.",
+    "Send instructions to a running, steerable turn and supersede unanswered decisions. Refuses starting, waiting, unknown and inactive runs; if a question is pending, answer its id and include the change instead. The provider can refuse a steer (agy does once the turn has finished): wait, then follow up. --wait waits on this run only after acceptance. Exits 0 on acceptance or any wait outcome, 2 for usage or input, 3 for config, 4 for daemon failure, 5 for provider failure, 6 for permissions, 7 for a missing run, 8 for state conflicts or refused steering, 130 when interrupted, 1 on an internal error.",
   ),
   Command.withShortDescription("Send a change to the active turn."),
   Command.withExamples([
@@ -305,7 +305,7 @@ export const followupCommand = Command.make(
   (input) => print("followup", programs.followup(input)),
 ).pipe(
   Command.withDescription(
-    "Continue an inactive run (idle, failed, interrupted or lost) on its saved thread and existing worktree. Refuses active states (starting, running, waiting, unknown), reserved worktrees, missing threads and queued answers. Supersedes unanswered decisions and retains the original contract scope. --budget applies to this turn; --effort persists for later turns. --wait targets this run only. Read resume warnings about question delivery. Exits 0 on acceptance or any wait outcome, 2 for usage or input, 3 for config, 4 for daemon failure, 5 for Codex failure, 6 for permissions, 7 for a missing run, 8 for conflicts or missing continuation prerequisites, 130 when interrupted, 1 on an internal error.",
+    "Continue an inactive run (idle, failed, interrupted or lost) on its saved thread and existing worktree. Refuses active states (starting, running, waiting, unknown), reserved worktrees, missing threads and queued answers. Supersedes unanswered decisions and retains the original contract scope. --budget applies to this turn; --effort persists for later turns. --wait targets this run only. Read resume warnings about question delivery. Exits 0 on acceptance or any wait outcome, 2 for usage or input, 3 for config, 4 for daemon failure, 5 for provider failure, 6 for permissions, 7 for a missing run, 8 for conflicts or missing continuation prerequisites, 130 when interrupted, 1 on an internal error.",
   ),
   Command.withShortDescription(
     "Start a turn on an inactive run; refuses while answers are queued.",
@@ -326,7 +326,7 @@ export const interruptCommand = Command.make("interrupt", { name, ...waiting }, 
   print("interrupt", programs.interrupt(input)),
 ).pipe(
   Command.withDescription(
-    "Request interruption of an active turn and cancel its pending questions. Also cancels start preflight, returning Ok without a cursor or wait even with --wait. Refuses when no thread/active turn is known, including inactive runs; starting or unknown runs can only be interrupted if those ids exist. Read status afterward; interruption is a request, not proof that a writer stopped. --wait targets this run only. Exits 0 on acceptance, preflight cancellation or any wait outcome, 2 for usage, 3 for config, 4 for daemon failure, 5 for Codex failure, 6 for permissions, 7 for a missing run, 8 for a state conflict, 130 when the CLI is interrupted, 1 on an internal error.",
+    "Request interruption of an active turn and cancel its pending questions. Also cancels start preflight, returning Ok without a cursor or wait even with --wait. Refuses when no thread/active turn is known, including inactive runs; starting or unknown runs can only be interrupted if those ids exist. Read status afterward; interruption is a request, not proof that a writer stopped. --wait targets this run only. Exits 0 on acceptance, preflight cancellation or any wait outcome, 2 for usage, 3 for config, 4 for daemon failure, 5 for provider failure, 6 for permissions, 7 for a missing run, 8 for a state conflict, 130 when the CLI is interrupted, 1 on an internal error.",
   ),
   Command.withShortDescription("Interrupt the active turn or cancel start preflight."),
   Command.withExamples([
@@ -364,7 +364,7 @@ export const answerCommand = Command.make(
   (input) => print("answer", programs.answer(input)),
 ).pipe(
   Command.withDescription(
-    "Answer a pending question through its held tool call, or send a late answer to a deferred, cancelled or superseded id. Answering an answered id sends a correction with the original question context. A late answer steers a running turn; if refused, waits for inactivity and starts a follow-up. An inactive run (idle, failed, interrupted, lost) needs a saved thread and existing worktree for that follow-up. During a budget hand-off, or behind queued answers, delivery queues in acceptance order; --wait tracks the delivered answer's turn. Starting/unknown turns wait for inactivity for late delivery. If another question is pending, answer that id first and include both decisions. An outdated busy daemon only accepts still-pending questions. Exits 0 on acceptance or any wait outcome, 2 for usage or input, 3 for config, 4 for daemon failure, 5 for Codex failure, 6 for permissions, 7 for a missing run or question, 8 for conflicts, unavailable continuation or incompatible daemon, 130 when interrupted, 1 on an internal error.",
+    "Answer a pending question through its held tool call, or send a late answer to a deferred, cancelled or superseded id. Answering an answered id sends a correction with the original question context. A late answer steers a running turn; if refused, waits for inactivity and starts a follow-up. An inactive run (idle, failed, interrupted, lost) needs a saved thread and existing worktree for that follow-up. During a budget hand-off, or behind queued answers, delivery queues in acceptance order; --wait tracks the delivered answer's turn. Starting/unknown turns wait for inactivity for late delivery. If another question is pending, answer that id first and include both decisions. An outdated busy daemon only accepts still-pending questions. Exits 0 on acceptance or any wait outcome, 2 for usage or input, 3 for config, 4 for daemon failure, 5 for provider failure, 6 for permissions, 7 for a missing run or question, 8 for conflicts, unavailable continuation or incompatible daemon, 130 when interrupted, 1 on an internal error.",
   ),
   Command.withShortDescription(
     "Answer a question or correct an earlier answer with text or a file.",
@@ -403,7 +403,7 @@ export const deferCommand = Command.make(
   (input) => print("defer", programs.defer(input)),
 ).pipe(
   Command.withDescription(
-    "Release a pending question without deciding it, so Codex can continue independent work and report the decision under Open. Accepts only a pending question with its held call (normally a waiting run); refuses deferred, answered, cancelled or superseded ids and an outdated busy daemon. An inactive run has no held call to defer. The question stays unanswered in digests; use answer on the same id later. --wait targets this run only. Exits 0 on acceptance or any wait outcome, 2 for usage, 3 for config, 4 for daemon failure, 5 for Codex failure, 6 for permissions, 7 for a missing run or question, 8 for conflicts or an incompatible daemon, 130 when interrupted, 1 on an internal error.",
+    "Release a pending question without deciding it, so the delegate can continue independent work and report the decision under Open. Accepts only a pending question with its held call (normally a waiting run); refuses deferred, answered, cancelled or superseded ids and an outdated busy daemon. An inactive run has no held call to defer. The question stays unanswered in digests; use answer on the same id later. --wait targets this run only. Exits 0 on acceptance or any wait outcome, 2 for usage, 3 for config, 4 for daemon failure, 5 for provider failure, 6 for permissions, 7 for a missing run or question, 8 for conflicts or an incompatible daemon, 130 when interrupted, 1 on an internal error.",
   ),
   Command.withShortDescription("Release a pending question and leave the decision unanswered."),
   Command.withExamples([

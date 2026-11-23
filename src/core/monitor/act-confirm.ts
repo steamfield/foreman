@@ -48,7 +48,7 @@ export function confirmView(state: State): ActView["confirm"] {
 
 function interruptLines(state: State, run: ReturnType<typeof findRun>): string[] {
   const lines = [
-    `Stops turn ${run?.turn ?? "unknown"} now. Codex writes a hand-off; the worktree and branch stay.`,
+    `Stops turn ${run?.turn ?? "unknown"} now. The delegate writes a hand-off; the worktree and branch stay.`,
   ];
   if (run?.activity?.kind === "command")
     lines.push(

@@ -5,7 +5,7 @@ export const stateLegend = [
     state: "running",
     meaning: "a turn is executing; the second line says what it is doing",
   },
-  { glyph: "■", state: "waiting", meaning: "Codex asked a question and needs a person" },
+  { glyph: "■", state: "waiting", meaning: "The delegate asked a question and needs a person" },
   { glyph: "✓", state: "done", meaning: "the turn finished; review it, then archive" },
   { glyph: "×", state: "failed", meaning: "the turn ended with an error" },
 ] as const;

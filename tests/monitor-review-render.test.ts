@@ -192,7 +192,7 @@ it.each([
         {
           question: "Keep --from working?",
           asked: "q1 deferred after 15m",
-          outcome: "→ Codex went with: Keep a hidden alias.",
+          outcome: "→ the delegate went with: Keep a hidden alias.",
         },
       ],
       files: [

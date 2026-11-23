@@ -22,7 +22,7 @@ const composing: ActView = { ...watchingView, compose };
 const interrupt: NonNullable<ActView["confirm"]> = {
   title: "Interrupt migrate-config?",
   lines: [
-    "Stops turn 3 now. Codex writes a hand-off; the worktree and branch stay.",
+    "Stops turn 3 now. The delegate writes a hand-off; the worktree and branch stay.",
     "The open command",
     "  bun run test  running 40s, will be killed",
     "used      54 of 60 min · 88 commands · 1 file outside scope",

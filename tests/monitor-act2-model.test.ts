@@ -359,7 +359,7 @@ describe("monitor phase 2 acting model", () => {
     const confirm = view(key(state, "i")).act.confirm;
     expect(confirm?.title).toBe("Interrupt fix-hooks?");
     expect(confirm?.lines).toEqual([
-      "Stops turn 2 now. Codex writes a hand-off; the worktree and branch stay.",
+      "Stops turn 2 now. The delegate writes a hand-off; the worktree and branch stay.",
       "The open command bun run check · running 20s, will be killed",
       "used 12m of 1h00m · 12 commands",
       "2 files outside scope",

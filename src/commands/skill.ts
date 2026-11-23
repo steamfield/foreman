@@ -31,7 +31,7 @@ const installCommand = Command.make(
     }),
 ).pipe(
   Command.withDescription(
-    "Install the bundled agent entry point at $HOME/.claude/skills/foreman/SKILL.md. An identical file succeeds unchanged; a different file requires --force. Other agents can copy --print output. Independent of run state; never contacts Codex or a daemon. Exits 0 when written, unchanged or printed, 2 for usage or a conflicting target, 6 when HOME is unset or the target cannot be written (including linked install directories or files), 130 when interrupted, 1 on an internal error.",
+    "Install the bundled agent entry point at $HOME/.claude/skills/foreman/SKILL.md. An identical file succeeds unchanged; a different file requires --force. Other agents can copy --print output. Independent of run state; never contacts a provider or a daemon. Exits 0 when written, unchanged or printed, 2 for usage or a conflicting target, 6 when HOME is unset or the target cannot be written (including linked install directories or files), 130 when interrupted, 1 on an internal error.",
   ),
   Command.withShortDescription("Install the bundled foreman agent skill."),
   Command.withExamples([

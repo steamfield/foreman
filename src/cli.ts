@@ -26,7 +26,7 @@ import { Output } from "./services/output";
 export const cli = (name: string, monitor = monitorCommand) =>
   Command.make(name).pipe(
     Command.withDescription(
-      "Delegate coding tasks to Codex in git worktrees and supervise their questions, progress and hand-offs. Run guide before your first delegation. Exits 0 for help, 2 for usage, 6 when output is refused, 130 when interrupted, 1 on an internal error.",
+      "Delegate coding tasks to Codex or agy in git worktrees and supervise their questions, progress and hand-offs. Run guide before your first delegation. Exits 0 for help, 2 for usage, 6 when output is refused, 130 when interrupted, 1 on an internal error.",
     ),
     Command.withExamples([
       { command: "foreman guide", description: "Read the agent delegation workflow" },

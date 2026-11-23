@@ -64,7 +64,7 @@ Queued answers block followup, archive, daemon shutdown and name/worktree reuse.
 Change the task
 
 Use foreman steer doctor-help "Include repo hook trust" --wait only on a running turn with no pending question.
-On agy a steer joins the running turn as a second prompt; one sent after the turn finished is delivered as a follow-up instead.
+On agy a steer joins the running turn as a second prompt; once the turn has finished, agy refuses it (exit 8), so wait and send a followup. Only answer falls back to a follow-up on its own.
 Use foreman followup doctor-help "Fix the review findings and rerun the gate" --wait on an inactive run with a saved thread and existing worktree.
 Explicit steer and followup supersede unanswered questions; their ids still accept late answers.
 Use foreman interrupt doctor-help --wait to stop an active turn or cancel start preflight, then read status before reusing its worktree.

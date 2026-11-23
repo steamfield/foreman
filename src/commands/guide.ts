@@ -23,7 +23,7 @@ export const guideCommand = Command.make(
     }),
 ).pipe(
   Command.withDescription(
-    "Read the agent delegation workflow or print a fillable contract. Works without a run, Codex or a daemon, in any directory; never changes run state. No topic prints the core guide. Exits 0 on success, 2 for an unknown topic or usage error, 6 when output is refused, 130 when interrupted, 1 on an internal error.",
+    "Read the agent delegation workflow or print a fillable contract. Works without a run, a provider or a daemon, in any directory; never changes run state. No topic prints the core guide. Exits 0 on success, 2 for an unknown topic or usage error, 6 when output is refused, 130 when interrupted, 1 on an internal error.",
   ),
   Command.withShortDescription("Print the agent workflow or a contract template."),
   Command.withExamples([

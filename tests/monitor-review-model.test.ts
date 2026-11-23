@@ -204,7 +204,7 @@ describe("finished run review", () => {
       {
         question: "Question 2: keep the API?",
         asked: expect.stringMatching(/^\d\d:\d\d:\d\d$/),
-        outcome: "→ Codex went with: Kept the API.",
+        outcome: "→ the delegate went with: Kept the API.",
       },
     ]);
     expect(view(state).review?.lateAnswerHint).toBe("a answer late (starts a follow-up turn)");

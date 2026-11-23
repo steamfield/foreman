@@ -239,7 +239,7 @@ exports[`monitor frames > empty at 100 columns 1`] = `
 
           What you will see here
             ⣾  running    a turn is executing; the second line says what it is doing
-            ■  waiting    Codex asked a question and needs a person
+            ■  waiting    The delegate asked a question and needs a person
             ✓  done       the turn finished; review it, then archive
             ×  failed     the turn ended with an error
             ━━━─── budget     time used of the turn's limit, not progress
@@ -282,7 +282,7 @@ exports[`monitor frames > empty colors 1`] = `
 [48;2;18;20;18m                                                                                                                                            [49m
 [48;2;18;20;18m                              [38;2;154;162;148mWhat you will see here[39m                                                                                        [49m
 [48;2;18;20;18m                              [38;2;111;168;255m  ⣾[38;2;228;232;224m  running    a turn is executing; the second line says what it is doing[39m                                    [49m
-[48;2;18;20;18m                              [38;2;255;91;20m  ■[38;2;228;232;224m  waiting    Codex asked a question and needs a person[39m                                                     [49m
+[48;2;18;20;18m                              [38;2;255;91;20m  ■[38;2;228;232;224m  waiting    The delegate asked a question and needs a person[39m                                              [49m
 [48;2;18;20;18m                              [38;2;92;201;138m  ✓[38;2;228;232;224m  done       the turn finished; review it, then archive[39m                                                    [49m
 [48;2;18;20;18m                              [38;2;255;122;112m  ×[38;2;228;232;224m  failed     the turn ended with an error[39m                                                                  [49m
 [48;2;18;20;18m                                [38;2;228;232;224m━━━[38;2;45;50;43m───[38;2;228;232;224m budget     time used of the turn's limit, not progress[39m                                               [49m
@@ -324,7 +324,7 @@ exports[`monitor frames > help at 100 columns 1`] = `
     │ n/p hunk   f follow feed   1-5 feed filters   / search feed                              │
     │ ? close help   Esc back / cancel   q quit   Ctrl-C quit                                  │
     │ ⣾  running    a turn is executing; the second line says what it is doing                 │
-    │ ■  waiting    Codex asked a question and needs a person                                  │
+    │ ■  waiting    The delegate asked a question and needs a person                           │
     │ ✓  done       the turn finished; review it, then archive                                 │
     │ ×  failed     the turn ended with an error                                               │
     │ ◐ starting / unknown   ■ interrupted   ◌ lost                                            │
@@ -367,7 +367,7 @@ exports[`monitor frames > help colors 1`] = `
 [48;2;18;20;18m                        [38;2;45;50;43m│ [38;2;228;232;224mn/p hunk   f follow feed   1-5 feed filters   / search feed                             [38;2;45;50;43m │[39m                        [49m
 [48;2;18;20;18m                        [38;2;45;50;43m│ [38;2;228;232;224m? close help   Esc back / cancel   q quit   Ctrl-C quit                                 [38;2;45;50;43m │[39m                        [49m
 [48;2;18;20;18m                        [38;2;45;50;43m│ [38;2;228;232;224m⣾  running    a turn is executing; the second line says what it is doing                [38;2;45;50;43m │[39m                        [49m
-[48;2;18;20;18m                        [38;2;45;50;43m│ [38;2;228;232;224m■  waiting    Codex asked a question and needs a person                                 [38;2;45;50;43m │[39m                        [49m
+[48;2;18;20;18m                        [38;2;45;50;43m│ [38;2;228;232;224m■  waiting    The delegate asked a question and needs a person                          [38;2;45;50;43m │[39m                        [49m
 [48;2;18;20;18m                        [38;2;45;50;43m│ [38;2;228;232;224m✓  done       the turn finished; review it, then archive                                [38;2;45;50;43m │[39m                        [49m
 [48;2;18;20;18m                        [38;2;45;50;43m│ [38;2;228;232;224m×  failed     the turn ended with an error                                              [38;2;45;50;43m │[39m                        [49m
 [48;2;18;20;18m                        [38;2;45;50;43m│ [38;2;228;232;224m◐ starting / unknown   ■ interrupted   ◌ lost                                           [38;2;45;50;43m │[39m                        [49m
@@ -969,7 +969,7 @@ exports[`monitor frames > saved empty at 100 columns 1`] = `
 
           What you will see here
             ⣾  running    a turn is executing; the second line says what it is doing
-            ■  waiting    Codex asked a question and needs a person
+            ■  waiting    The delegate asked a question and needs a person
             ✓  done       the turn finished; review it, then archive
             ×  failed     the turn ended with an error
             ━━━─── budget     time used of the turn's limit, not progress

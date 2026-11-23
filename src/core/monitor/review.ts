@@ -64,7 +64,9 @@ function decisions(detail: NonNullable<State["detail"]>, data: Detail): ReviewVi
       {
         question: question.text.replace(/\p{Cc}/gu, " "),
         asked: clockTime(question.askedAt),
-        outcome: firstLine ? `→ Codex went with: ${firstLine}` : "→ deferred, no answer recorded",
+        outcome: firstLine
+          ? `→ the delegate went with: ${firstLine}`
+          : "→ deferred, no answer recorded",
       },
     ];
   });

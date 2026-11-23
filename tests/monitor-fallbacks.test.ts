@@ -40,7 +40,7 @@ function frame(model: ViewModel, noColor = false) {
 }
 const meanings = [
   "⣾  running    a turn is executing; the second line says what it is doing",
-  "■  waiting    Codex asked a question and needs a person",
+  "■  waiting    The delegate asked a question and needs a person",
   "✓  done       the turn finished; review it, then archive",
   "×  failed     the turn ended with an error",
 ];
