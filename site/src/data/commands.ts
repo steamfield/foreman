@@ -50,6 +50,11 @@ const reference = [
     "Archive a finished run. The worktree goes only if nothing in it would be lost.",
   ],
   [
+    "models",
+    "models",
+    "List every model each provider offers, its efforts and defaults. The model you name picks Codex or agy.",
+  ],
+  [
     "doctor",
     "doctor",
     "Check configuration, each provider, repo hook trust and the daemon. Recorded before agy support, so it shows Codex only.",

@@ -16,6 +16,7 @@ const order = [
   "status-release",
   "result",
   "archive",
+  "models",
   "doctor",
 ];
 

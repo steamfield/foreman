@@ -45,6 +45,11 @@ foreman models
 
 `foreman models` folds those into one row per family and adds Codex's catalog. Its columns are PROVIDER, MODEL, EFFORTS and DEFAULT EFFORT. In a capture from foreman 0.4.1, the agy row for `gemini-4-neon` lists `low,medium,high,xhigh` with a default of `high`, while Gemini 4 Argon and Gemini 3.8 Flash stop at `high`. Models with a single built-in effort show `fixed`. The Codex rows list the `gpt-sol`, `gpt-terra` and `gpt-astra` families. If a provider isn't available, it appears with the reason, and `--json` returns the same catalogs as one value.
 
+<CommandDemo
+  command="models"
+  caption="Recorded from foreman 0.4.1. Codex versions are reduced to their family names, and older Codex versions are left out."
+/>
+
 Listing models starts no conversation. foreman caches agy's catalog and refreshes it daily, when agy's version changes, or once when you name a model that isn't in either catalog.
 
 ## Choosing the model and effort for one run

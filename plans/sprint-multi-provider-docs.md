@@ -94,7 +94,7 @@ Test cases: drift tests pass against the current README (commands table incl. `m
 | Lane | Size | Owns files | Reads | Tests | Model | Status | Branch | Done when |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | a | M | site/src/config.ts, site/src/data/, site/src/components/landing/, site/src/pages/index.astro, site/src/lib/og.ts, site/src/pages/og/, site/public/site.webmanifest, site/docs/PRODUCT.md, site/tests/drift.test.ts | README.md, site/docs/PRODUCT.md | | opus | merged | sprint/multi-provider-docs-2a | landing provider-neutral, drift tests green |
-| b | M | site/src/content/blog/run-gemini-from-claude-code.mdx, site/src/content/blog/antigravity-cli-with-claude-code.mdx, site/src/content/blog/gemini-neon-subagent-claude-code.mdx, site/docs/blog/briefs/, site/docs/blog/facts.md, site/docs/blog/plan.md | site/docs/blog/contract-article.md, site/docs/blog/facts.md | | opus | running | sprint/multi-provider-docs-2b | three posts published and passing build SEO checks |
+| b | M | site/src/content/blog/run-gemini-from-claude-code.mdx, site/src/content/blog/antigravity-cli-with-claude-code.mdx, site/src/content/blog/gemini-neon-subagent-claude-code.mdx, site/docs/blog/briefs/, site/docs/blog/facts.md, site/docs/blog/plan.md | site/docs/blog/contract-article.md, site/docs/blog/facts.md | | opus | merged | sprint/multi-provider-docs-2b | three posts published and passing build SEO checks |
 
 #### Lane 2a brief
 
