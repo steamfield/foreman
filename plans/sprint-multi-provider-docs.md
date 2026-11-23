@@ -87,13 +87,14 @@ Test cases (lane b writes them): guide id mapping (README -> overview); title fr
 
 Demo: `cd site && make dev`, read the landing page top to bottom for Codex-only claims, open the three new posts under `/blog`.
 Depends on: phase 1
+Scaffold: ac2fe32
 Scaffold contents: `site/fixtures/cli/models.json` (real `foreman models` from the 0.4.1 build, Codex rows trimmed to the newest of each family after the capture script scrubs versions, columns re-padded) and `"providers"` added to the blog `feature` enum in `site/src/content/schema.ts`.
 Test cases: drift tests pass against the current README (commands table incl. `models`/`update`, exit codes, Codex 0.171.0); Models section renders a Codex row group and an agy row group; the `models` CLI fixture renders; no landing string says foreman is Codex-only; each new post passes the build's per-post SEO assertions.
 
 | Lane | Size | Owns files | Reads | Tests | Model | Status | Branch | Done when |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| a | M | site/src/config.ts, site/src/data/, site/src/components/landing/, site/src/pages/index.astro, site/src/lib/og.ts, site/src/pages/og/, site/public/site.webmanifest, site/docs/PRODUCT.md, site/tests/drift.test.ts | README.md, site/docs/PRODUCT.md | | opus | pending | | landing provider-neutral, drift tests green |
-| b | M | site/src/content/blog/run-gemini-from-claude-code.mdx, site/src/content/blog/antigravity-cli-with-claude-code.mdx, site/src/content/blog/gemini-neon-subagent-claude-code.mdx, site/docs/blog/briefs/, site/docs/blog/facts.md, site/docs/blog/plan.md | site/docs/blog/contract-article.md, site/docs/blog/facts.md | | opus | pending | | three posts published and passing build SEO checks |
+| a | M | site/src/config.ts, site/src/data/, site/src/components/landing/, site/src/pages/index.astro, site/src/lib/og.ts, site/src/pages/og/, site/public/site.webmanifest, site/docs/PRODUCT.md, site/tests/drift.test.ts | README.md, site/docs/PRODUCT.md | | opus | running | sprint/multi-provider-docs-2a | landing provider-neutral, drift tests green |
+| b | M | site/src/content/blog/run-gemini-from-claude-code.mdx, site/src/content/blog/antigravity-cli-with-claude-code.mdx, site/src/content/blog/gemini-neon-subagent-claude-code.mdx, site/docs/blog/briefs/, site/docs/blog/facts.md, site/docs/blog/plan.md | site/docs/blog/contract-article.md, site/docs/blog/facts.md | | opus | running | sprint/multi-provider-docs-2b | three posts published and passing build SEO checks |
 
 #### Lane 2a brief
 
