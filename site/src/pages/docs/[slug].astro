@@ -1,0 +1,41 @@
+---
+/** One docs page per guide file at /docs/<id>, with its Markdown export linked as an alternate. */
+import { getCollection, render, type CollectionEntry } from "astro:content";
+import { docsGroups } from "../../config";
+import DocsLayout from "../../layouts/DocsLayout.astro";
+import {
+  docHref,
+  docsNav,
+  markdownHref,
+  outline,
+  pageLinks,
+} from "../../lib/docs";
+
+export async function getStaticPaths() {
+  return (await getCollection("docs")).map((entry) => ({
+    params: { slug: entry.id },
+    props: { entry },
+  }));
+}
+interface Props {
+  entry: CollectionEntry<"docs">;
+}
+const { entry } = Astro.props;
+const { Content, headings } = await render(entry);
+const nav = docsNav(await getCollection("docs"), docsGroups);
+const { prev, next } = pageLinks(nav, entry.id);
+---
+
+<DocsLayout
+  title={entry.data.title}
+  description={entry.data.description}
+  path={docHref(entry.id)}
+  markdown={markdownHref(entry.id)}
+  nav={nav}
+  current={entry.id}
+  outline={outline(headings, entry.body ?? "")}
+  prev={prev}
+  next={next}
+>
+  <Content />
+</DocsLayout>

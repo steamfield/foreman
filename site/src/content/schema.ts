@@ -1,5 +1,5 @@
 import { z } from "astro/zod";
-import { site } from "../config";
+import { docsGroups, site } from "../config";
 
 export const postSchema = z
   .object({
@@ -45,3 +45,24 @@ export const postSchema = z
     path: ["updated"],
     message: "updated must be on or after date",
   });
+
+/** One docs sidebar section id from `docsGroups`. */
+export type DocsGroupId = (typeof docsGroups)[number]["id"];
+
+const docsGroupIds = docsGroups.map((group) => group.id) as [
+  DocsGroupId,
+  ...DocsGroupId[],
+];
+
+/** Docs page metadata, derived from each guide file by `guideData` in src/lib/guide.ts. */
+export const docSchema = z.object({
+  title: z.string().trim().min(1),
+  /** Meta description, docs-home card text and the llms.txt summary. */
+  description: z.string().trim().max(160),
+  group: z.enum(docsGroupIds),
+  /** Position inside the group; ties sort by title. */
+  order: z.number().int(),
+});
+
+/** The validated metadata of one docs page. */
+export type DocData = z.infer<typeof docSchema>;

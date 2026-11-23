@@ -2,8 +2,10 @@
 // The scoped command validates real articles and skips the temporary production pipeline rebuild.
 import assert from "node:assert/strict";
 import {
+  cpSync,
   existsSync,
   globSync,
+  mkdtempSync,
   readFileSync,
   readdirSync,
   rmSync,
@@ -11,12 +13,14 @@ import {
 } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join, resolve, relative } from "node:path";
+import { tmpdir } from "node:os";
 import test from "node:test";
 import { getByRole, getByText } from "@testing-library/dom";
 import { Window } from "happy-dom";
 import { loadEnv } from "vite";
 
 import { site } from "../src/config.ts";
+import { guideId } from "../src/lib/guide.ts";
 import { frontmatter } from "../scripts/frontmatter.mjs";
 import {
   buildFixtureSite,
@@ -67,6 +71,8 @@ test("the landing page owns the root and links the shared privacy page", () => {
   );
   assert.ok(page.querySelector('header nav a[href="/blog"]'));
   assert.ok(page.querySelector('footer nav a[href="/blog"]'));
+  assert.ok(page.querySelector('header nav a[href="/docs"]'));
+  assert.ok(page.querySelector('footer nav a[href="/docs"]'));
 });
 
 test("home metadata describes Codex subagents and publishes the exact entity graph", () => {
@@ -376,6 +382,8 @@ async function assertBlog(root) {
       `${origin}/`,
       ...(published.length ? [`${origin}/blog`] : []),
       ...urls,
+      `${origin}/docs`,
+      ...guideIds(root).map((id) => `${origin}/docs/${id}`),
     ].sort(),
   );
   assert.match(read("sitemap-index.xml"), /sitemap-0.xml/);
@@ -498,9 +506,125 @@ async function assertBlog(root) {
   }
 }
 
-test("temporary production pipeline renders MDX, hides drafts and isolates unlisted posts", async () => {
-  const root = buildFixtureSite();
+/** The docs page ids for the guide beside a site root, as the docs loader names them. */
+function guideIds(root) {
+  return globSync("*.md", { cwd: join(root, "../docs/guide") }).map(guideId);
+}
+
+const metaContent = (doc, key) =>
+  doc
+    .querySelector(`meta[name="${key}"], meta[property="${key}"]`)
+    ?.getAttribute("content");
+
+/** Every docs page: HTML and Markdown output, head links, sidebar state, outline and links. */
+function assertDocs(root) {
+  const read = (path) => readFileSync(join(root, "dist", path), "utf8");
+  const ids = guideIds(root);
+  assert.ok(ids.length > 0, "the guide has no pages");
+  const home = pageAt(root, "docs.html");
+  assert.equal(home.querySelectorAll("h1").length, 1);
+  const sidebar = [
+    ...home.querySelectorAll('nav[aria-label="Docs"] a[href^="/docs/"]'),
+  ].map((a) => a.getAttribute("href"));
+  assert.deepEqual(
+    [...home.querySelectorAll(".docs-card a")].map((a) =>
+      a.getAttribute("href"),
+    ),
+    sidebar,
+  );
+  assert.deepEqual([...sidebar].sort(), ids.map((id) => `/docs/${id}`).sort());
+  assertLinks(root, home, "/docs");
+  const llms = read("llms.txt");
+  for (const id of ids) {
+    const route = `/docs/${id}`;
+    const doc = pageAt(root, `${route}.html`);
+    const title = doc.querySelector("h1")?.textContent.trim();
+    assert.equal(doc.querySelectorAll("h1").length, 1, route);
+    assert.equal(
+      doc.querySelector('link[rel="canonical"]').getAttribute("href"),
+      `${origin}${route}`,
+    );
+    assert.equal(
+      doc
+        .querySelector('link[rel="alternate"][type="text/markdown"]')
+        ?.getAttribute("href"),
+      `${route}.md`,
+    );
+    for (const label of ["Docs", "Docs menu"])
+      assert.deepEqual(
+        [
+          ...doc.querySelectorAll(
+            `nav[aria-label="${label}"] [aria-current="page"]`,
+          ),
+        ].map((a) => a.getAttribute("href")),
+        [route],
+      );
+    const headings = [...doc.querySelectorAll(".prose h2")];
+    assert.deepEqual(
+      [...doc.querySelectorAll('nav[aria-label="Docs"] [data-toc] a')].map(
+        (a) => a.getAttribute("href"),
+      ),
+      headings.map((h) => `#${h.id}`),
+    );
+    assert.ok(
+      read(`docs/${id}.md`).startsWith(
+        `# ${title}\n\n> ${metaContent(doc, "description")}\n\n`,
+      ),
+      `${route}.md must start with its title and description`,
+    );
+    assert.ok(llms.includes(`(${origin}${route}.md)`), `llms.txt: ${route}`);
+    assertLinks(root, doc, route);
+  }
+  const fullTitles = Array.from(
+    read("llms-full.txt").matchAll(/^# (.+)$/gm),
+    (match) => match[1],
+  ).slice(1);
+  assert.deepEqual(
+    fullTitles,
+    [...home.querySelectorAll('nav[aria-label="Docs"] a[href^="/docs/"]')].map(
+      (a) => a.textContent.trim(),
+    ),
+  );
+}
+
+test("docs render every guide page with its Markdown export, outline and llms entries", () => {
+  assertDocs(".");
+});
+
+/**
+ * buildFixtureSite copies only site/ into a temp directory. Pointing TMPDIR at a directory that
+ * holds a copy of the guide puts docs/guide beside the fixture, as in the repository.
+ */
+function buildFixtureWithGuide() {
+  const parent = mkdtempSync(join(tmpdir(), "foreman-repo-"));
+  const previous = process.env.TMPDIR;
   try {
+    cpSync("../docs/guide", join(parent, "docs/guide"), { recursive: true });
+    process.env.TMPDIR = parent;
+    return { parent, root: buildFixtureSite() };
+  } catch (error) {
+    rmSync(parent, { recursive: true, force: true });
+    throw error;
+  } finally {
+    if (previous === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = previous;
+  }
+}
+
+/** Runs a production build in the fixture and returns its exit status and combined output. */
+function fixtureBuild(root) {
+  const build = spawnSync("bunx", ["--no-install", "astro", "build"], {
+    cwd: root,
+    encoding: "utf8",
+    timeout: 60_000,
+  });
+  return { status: build.status, output: build.stdout + build.stderr };
+}
+
+test("temporary production pipeline renders MDX, hides drafts and isolates unlisted posts", async () => {
+  const { parent, root } = buildFixtureWithGuide();
+  try {
+    assertDocs(root);
     assertAnalyticsBundle(root, "phc_test");
     await assertBlog(root);
     const doc = pageAt(root, "blog/engine-probe.html");
@@ -559,7 +683,31 @@ test("temporary production pipeline renders MDX, hides drafts and isolates unlis
       invalid.stdout + invalid.stderr,
       /description must have at least 120 characters/,
     );
+
+    writeFileSync(
+      join(root, "src/content/blog/engine-probe.mdx"),
+      fixturePost(),
+    );
+    const guide = join(parent, "docs/guide");
+    writeFileSync(join(guide, "faq.md"), "# FAQ\n\nQuestions people ask.\n");
+    const unplaced = fixtureBuild(root);
+    assert.notEqual(unplaced.status, 0);
+    assert.match(unplaced.output, /docs\/guide\/faq\.md/);
+    assert.match(unplaced.output, /Guide faq has no place in the docs sidebar/);
+    rmSync(join(guide, "faq.md"));
+    const providers = readFileSync(join(guide, "providers.md"), "utf8");
+    writeFileSync(
+      join(guide, "providers.md"),
+      `${providers}\nSee [the old page](./removed.md#top).\n`,
+    );
+    const broken = fixtureBuild(root);
+    assert.notEqual(broken.status, 0);
+    assert.match(broken.output, /docs\/guide\/providers\.md/);
+    assert.match(
+      broken.output,
+      /Guide link \.\/removed\.md#top points to a page that does not exist/,
+    );
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    rmSync(parent, { recursive: true, force: true });
   }
 });

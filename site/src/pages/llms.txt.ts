@@ -10,8 +10,11 @@ import {
   why,
 } from "../data/landing";
 
+import { getCollection } from "astro:content";
+import { docsGroups } from "../config";
 import { getPublishedPosts } from "../lib/collection";
 import { absolute, postPath } from "../lib/blog";
+import { docsNav, markdownHref } from "../lib/docs";
 
 // Copied from the repository README's Command reference; tests/drift.test.ts compares them.
 const commandTable = `| Command | Purpose |
@@ -41,6 +44,9 @@ function table(head: readonly string[], rows: readonly (readonly string[])[]) {
 
 export async function GET() {
   const posts = await getPublishedPosts();
+  const docs = docsNav(await getCollection("docs"), docsGroups).flatMap(
+    (group) => group.items,
+  );
   const body = [
     "# foreman",
     `> ${hero.title}`,
@@ -72,6 +78,12 @@ export async function GET() {
     table(["Outcome", "Meaning"], waitOutcomes),
     `## ${guardrails.title}`,
     ...guardrails.rows.map(([label, meaning]) => `- ${label}: ${meaning}`),
+    "## Docs",
+    ...docs.map(
+      (page) =>
+        `- [${page.title}](${absolute(markdownHref(page.id))}): ${page.description}`,
+    ),
+    `- [All docs in one file](${absolute("/llms-full.txt")}): Every docs page above as Markdown, in reading order.`,
     "## Blog",
     ...posts.map(
       (post) =>

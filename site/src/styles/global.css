@@ -277,3 +277,177 @@
     content: none;
   }
 }
+
+/* Docs: sidebar, outline, home cards, pager and the inline-code copy cue. */
+@layer components {
+  /* The sticky sidebar sits under the header and scrolls inside itself when taller than the
+     viewport. */
+  .docs-sticky {
+    max-height: calc(100vh - 7rem);
+  }
+
+  /* The current page is the active item: a full border on the raised card surface. */
+  .docs-nav-link {
+    display: block;
+    padding: 0.25rem 0.5rem;
+    border: 1px solid transparent;
+    border-radius: var(--radius-control);
+    color: var(--color-ink-2);
+    text-decoration: none;
+  }
+  .docs-nav-link:hover {
+    color: var(--color-ink);
+  }
+  .docs-nav-link[aria-current="page"] {
+    border-color: var(--color-line);
+    background: var(--color-card);
+    color: var(--color-ink);
+    font-weight: 500;
+  }
+
+  /* The current page's h2s; the section being read (aria-current="location", set by the
+     page script) is in full ink. */
+  .docs-subnav {
+    margin: 0.375rem 0 0.5rem 0.75rem;
+    padding-left: 0.75rem;
+    border-left: 1px solid var(--color-line);
+    font-size: 0.875rem;
+    line-height: 1.35;
+  }
+  .docs-subnav a {
+    display: block;
+    padding-block: 0.1875rem;
+    color: var(--color-ink-3);
+    text-decoration: none;
+  }
+  .docs-subnav a.docs-subnav-code {
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+  }
+  .docs-subnav a:hover,
+  .docs-subnav a[aria-current="location"] {
+    color: var(--color-ink);
+  }
+  .docs-subnav a[aria-current="location"] {
+    font-weight: 500;
+  }
+
+  .docs-prose :where(h2, h3) {
+    scroll-margin-top: 6rem;
+  }
+
+  /* Docs home card: raised paper whose title link stretches over the whole card. */
+  .docs-card {
+    position: relative;
+    padding: 1rem;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-frame);
+    background: var(--color-card);
+  }
+  .docs-card:hover {
+    border-color: var(--color-line-strong);
+  }
+  .docs-card:has(a:focus-visible) {
+    outline: 2px solid var(--color-signal);
+    outline-offset: 2px;
+  }
+  .docs-card a::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+  }
+  .docs-card a:focus-visible {
+    outline: none;
+  }
+
+  /* Previous and next: two cards, each one link. */
+  .docs-pager {
+    display: grid;
+    gap: 1rem;
+    margin-top: 2.5rem;
+  }
+  @media (min-width: 40rem) {
+    .docs-pager {
+      grid-template-columns: 1fr 1fr;
+    }
+    .docs-pager-next {
+      grid-column-start: 2;
+    }
+  }
+  .docs-pager a {
+    display: block;
+    padding: 0.875rem 1rem;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-frame);
+    background: var(--color-card);
+    text-decoration: none;
+  }
+  .docs-pager a:hover {
+    border-color: var(--color-line-strong);
+  }
+  .docs-pager-next {
+    text-align: right;
+  }
+  .docs-pager-dir {
+    display: block;
+    color: var(--color-ink-3);
+    font-size: 0.8125rem;
+  }
+  .docs-pager-title {
+    display: block;
+    margin-top: 2px;
+    color: var(--color-ink);
+    font-weight: 500;
+  }
+
+  /* Click-to-copy inline code, enabled by the page script setting data-copy-inline. */
+  [data-copy-inline]
+    .prose
+    :not(pre, a, h1, h2, h3, h4)
+    > code:not([data-part]) {
+    cursor: pointer;
+  }
+  [data-copy-inline]
+    .prose
+    :not(pre, a, h1, h2, h3, h4)
+    > code:not([data-part]):hover {
+    background: color-mix(in srgb, var(--color-ink) 11%, transparent);
+  }
+  .copy-tip {
+    position: absolute;
+    z-index: 50;
+    padding: 2px 8px;
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-control);
+    background: var(--color-card);
+    color: var(--color-ink);
+    font-size: 0.75rem;
+    line-height: 1.25rem;
+    white-space: nowrap;
+    pointer-events: none;
+    visibility: hidden;
+    opacity: 0;
+    transform: translate(-50%, calc(-100% - 6px));
+    transition:
+      opacity 150ms ease-out,
+      visibility 0s 150ms;
+  }
+  .copy-tip[data-visible] {
+    visibility: visible;
+    opacity: 1;
+    transition-delay: 0s;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .copy-tip,
+    .copy-tip[data-visible] {
+      transition: none;
+    }
+  }
+}
+
+/* Native smooth scrolling for the docs outline links, unless motion is reduced. */
+@media (prefers-reduced-motion: no-preference) {
+  html:has([data-docs-article]):not([data-sf-motion="reduce"]) {
+    scroll-behavior: smooth;
+  }
+}

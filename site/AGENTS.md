@@ -56,11 +56,20 @@ src/lib/og.ts            the satori social card; src/pages/og/index.webp.ts serv
 design/logos/            the logo exploration and its preview.html (not shipped)
 src/lib/                 format.ts (foreman's elapsed and token formats), analytics, events,
                          blog publication rules
-src/scripts/site.ts      copy buttons, section_viewed tracking, scroll reveals
+src/scripts/site.ts      copy buttons, section_viewed tracking, scroll reveals, and the docs
+                         Copy page button, outline highlight and inline-code copy
 src/styles/              global.css (tokens, DESIGN.md), sf-theme.css (--sf-* mapping)
 src/pages/blog/, src/content/  the blog: index, posts, RSS; posts in src/content/blog/
 src/lib/blog.ts          blog paths, metadata and JSON-LD builders
 src/components/blog/     CommandDemo, the one component posts may import
+../docs/guide/           the docs source: the repository guide, plain Markdown with no frontmatter
+src/lib/guide.ts         guide page ids, derived title/description/sidebar place, link rewriting
+src/lib/docs.ts          docs routes, sidebar order, pager, h2 outline, Markdown and llms exports
+src/content.config.ts    collections; the docs loader renders the guide with links rewritten
+src/pages/docs/          /docs home, /docs/<id> pages and their /docs/<id>.md exports
+src/pages/llms-full.txt.ts every docs page as Markdown in sidebar order
+src/layouts/DocsLayout.astro the docs shell: sticky sidebar or mobile menu, article, pager
+src/components/docs/     DocsNav (sidebar list), PageOutline (current page's h2s), DocsPager
 docs/blog/               the blog's method: plan, fact sheet, article contract, briefs
 fixtures/runs/           scrubbed foreman run records (events, questions, contract, digest)
 fixtures/cli/            scrubbed CLI transcripts: { command, output, exitCode }
@@ -74,6 +83,11 @@ Routes and RSS load the collection through `src/lib/collection.ts` and publicati
 rules in `posts.ts`. Sitemap config reads YAML through the same schema before
 Astro's content layer exists. Canonical paths omit trailing slashes; build output
 uses files. `/blog/` redirects to `/blog` on Pages.
+
+Docs pages come from `../docs/guide/*.md` (the repository guide, readable on GitHub;
+not recursive). Each file needs an h1 and a place in `placements` in `src/lib/guide.ts`;
+links between guide files (`cli.md#exit-codes`) become `/docs/cli#exit-codes`. A file
+without either, or a link to a missing page, fails the build naming the file.
 
 ### Recordings
 

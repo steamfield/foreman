@@ -1,0 +1,68 @@
+---
+/**
+ * The docs shell: a sticky sidebar (a <details> menu below lg), the article in the blog's prose
+ * style, the Markdown links under a page and the pager. The docs home omits `current`.
+ */
+import type { NavGroup, NavItem, OutlineItem } from "../lib/docs";
+import DocsNav from "../components/docs/DocsNav.astro";
+import DocsPager from "../components/docs/DocsPager.astro";
+import BaseLayout from "./BaseLayout.astro";
+
+interface Props {
+  title: string;
+  description: string;
+  path: string;
+  /** The page's Markdown export; omitted on the docs home. */
+  markdown?: string;
+  nav: NavGroup[];
+  /** The page's doc id; omitted on the docs home. */
+  current?: string;
+  /** The page's h2s for the sidebar. */
+  outline?: OutlineItem[];
+  prev?: NavItem | undefined;
+  next?: NavItem | undefined;
+}
+const { nav, current, outline = [], prev, next, ...page } = Astro.props;
+---
+
+<BaseLayout {...page}>
+  <div class="mx-auto grid max-w-[1200px] grid-cols-1 gap-8 px-4 py-10 sm:px-8 sm:py-16 lg:grid-cols-[14rem_minmax(0,1fr)] lg:gap-12">
+    <details class="border-line bg-card rounded-frame border lg:hidden">
+      <summary class="cursor-pointer px-4 py-3 font-medium">Docs menu</summary>
+      <nav aria-label="Docs menu" class="px-2 pb-4">
+        <DocsNav nav={nav} current={current} outline={outline} />
+      </nav>
+    </details>
+    <nav
+      aria-label="Docs"
+      class="docs-sticky hidden self-start overflow-y-auto text-[0.9375rem] lg:sticky lg:top-24 lg:block"
+    >
+      <DocsNav nav={nav} current={current} outline={outline} />
+    </nav>
+    <article
+      data-docs-article
+      class="w-full max-w-[44rem] min-w-0 wrap-anywhere"
+    >
+      <h1 class="font-display text-4xl leading-[1.1] sm:text-5xl">
+        {page.title}
+      </h1>
+      <div class="prose blog-prose docs-prose mt-8 max-w-none">
+        <slot />
+      </div>
+      {page.markdown && (
+        <p class="text-ink-3 mt-12 flex flex-wrap gap-5 text-sm">
+          <a href={page.markdown}>View as Markdown</a>
+          <button
+            type="button"
+            data-copy-page={page.markdown}
+            hidden
+            class="text-signal-text cursor-pointer underline decoration-1 underline-offset-[3px] hover:decoration-2"
+          >
+            Copy page
+          </button>
+        </p>
+      )}
+      <DocsPager prev={prev} next={next} />
+    </article>
+  </div>
+</BaseLayout>
