@@ -41,7 +41,7 @@ ACP reports no hook runs, so foreman can't confirm a hook ran during an agy turn
 
 Both providers read repo instruction files on their own, so a contract doesn't need to repeat them.
 
-| | Codex | agy |
+| Topic | Codex | agy |
 | --- | --- | --- |
 | Instruction files | `AGENTS.md` from the repo root down to the worktree | `GEMINI.md` and `AGENTS.md`, walking from the worktree to the repo root |
 | Rules | No path-scoped rules | `.agents/rules/` |

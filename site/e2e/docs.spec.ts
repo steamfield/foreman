@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, type Page, test } from "@playwright/test";
+import { readdirSync } from "node:fs";
 
 const PAGE = "/docs/providers";
 
@@ -25,7 +26,14 @@ async function docsNav(page: Page) {
   return menu;
 }
 
-for (const path of ["/docs", PAGE]) {
+// Every guide page, so content (an empty table header, a wide code block) is checked too.
+const guidePages = readdirSync("../docs/guide")
+  .filter((file) => file.endsWith(".md"))
+  .map(
+    (file) => `/docs/${file === "README.md" ? "overview" : file.slice(0, -3)}`,
+  );
+
+for (const path of ["/docs", ...guidePages]) {
   test(`${path} is accessible and fits the viewport`, async ({ page }) => {
     await page.goto(path);
     await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);

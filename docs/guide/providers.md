@@ -43,7 +43,7 @@ An unknown, ambiguous or hidden model fails with exit 2 and a near-miss suggesti
 
 ## Defaults
 
-| | Codex | agy |
+| Setting | Codex | agy |
 | --- | --- | --- |
 | Model when `--model` is omitted | `defaultModel` from config, else the newest visible `gpt-*-sol` in Codex's cache (built-in fallback `gpt-6.1-sol`) | Never chosen automatically; name an agy model, or set one as `defaultModel` |
 | Effort | `high` | `high` when the model offers it, else its highest effort; none for a fixed-effort model |
@@ -62,7 +62,7 @@ An unknown, ambiguous or hidden model fails with exit 2 and a near-miss suggesti
 
 Every command other than `start` works the same on both providers: `wait`, `answer`, `defer`, `steer`, `followup`, `interrupt`, `result`, `archive` and `monitor`. The differences are in how each provider enforces access and holds questions.
 
-| | Codex | agy |
+| Behavior | Codex | agy |
 | --- | --- | --- |
 | Read-only runs | OS sandbox, network disabled | agy's edit tools are refused, shell commands are allowed. The run carries a warning and fails if a shell command changed files |
 | Write runs (`--write`) | Full host access, approval policy `never` | foreman allows every permission request |

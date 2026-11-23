@@ -265,6 +265,17 @@ function graph(doc) {
   noAbsent(value);
   return value["@graph"];
 }
+// One parsed document per built file. Docs pages carry many in-page outline links, and
+// parsing the target again for each one exhausts the heap; happy-dom windows are not freed.
+const anchorTargets = new Map();
+function anchorTarget(file) {
+  if (!anchorTargets.has(file)) {
+    const target = new Window().document;
+    target.write(readFileSync(file, "utf8"));
+    anchorTargets.set(file, target);
+  }
+  return anchorTargets.get(file);
+}
 function assertLinks(root, doc, route) {
   const ids = [...doc.querySelectorAll("[id]")].map((el) => el.id);
   assert.equal(new Set(ids).size, ids.length, `duplicate id on ${route}`);
@@ -286,8 +297,7 @@ function assertLinks(root, doc, route) {
       `broken link ${a.getAttribute("href")} on ${route}`,
     );
     if (url.hash) {
-      const target = new Window().document;
-      target.write(readFileSync(file, "utf8"));
+      const target = anchorTarget(file);
       assert.ok(
         target.getElementById(decodeURIComponent(url.hash.slice(1))),
         `missing anchor ${url.href}`,
