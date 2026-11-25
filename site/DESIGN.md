@@ -61,7 +61,7 @@ H1 is 64px at desktop (`clamp(2.5rem, 5.4vw, 4rem)`), section titles 36px, H3 18
 
 ## Space and layout
 
-`max-w-[1200px]`, gutters `px-4 sm:px-8`, sections `py-20 sm:py-28`. Sections alternate `page` and `band` backgrounds with a `line` hairline between them. Section headers are left-aligned: title, then a lede of at most two sentences at 40rem. Layouts vary by content: the hero is a 12-column grid where the console breaks wider than the text column; tables span; the work order sits beside the digest at 5/7.
+`max-w-[1200px]`, gutters `px-4 sm:px-8`, sections `py-20 sm:py-28`. Sections alternate `page` and `band` backgrounds with a `line` hairline between them. Section headers are left-aligned: title, then a lede of at most two sentences at 40rem. Layouts vary by content: the hero is a 12-column grid for the lede and install line, with the session diagram spanning the full width below; tables span; the work order sits beside the digest at 5/7.
 
 ## Shape and depth
 

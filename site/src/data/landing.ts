@@ -3,11 +3,13 @@
 
 export const hero = {
   title: "Codex and agy models as subagents for Claude Code.",
-  lede: "Claude Code plans the work, writes the contracts and reviews the result. foreman hands the implementation to a Codex model, or to a Gemini model through agy, Google's Antigravity CLI. Each delegate works in its own git worktree, and foreman wakes Claude when one finishes or asks a question. Claude can answer it or change its instructions mid-turn, and nothing is committed until Claude has read the diff. Codex runs on its ChatGPT login and agy on your Google sign-in, so neither needs an API key.",
+  lede: "Claude Code plans the work, writes the contracts and reviews the result. foreman hands the implementation to a Codex model, or to a Gemini model through agy, Google's Antigravity CLI, each in its own git worktree, and wakes Claude when a delegate finishes or asks a question. Nothing is committed until Claude has read the diff, and neither provider needs an API key: Codex runs on its ChatGPT login and agy on your Google sign-in.",
   // The social card's line under the title; it has room for about 160 characters.
   card: "Claude plans and reviews. Codex and agy's Gemini models implement, each in its own git worktree, and nothing is committed until Claude has read the diff.",
-  consoleCaption:
-    "A Codex run: the fix-supervisor delegate from foreman's own release, 70 minutes replayed in one, including the question Codex asked and Claude's answer. Codex's events and foreman's output are recorded. Claude's side of the conversation was written for this page.",
+  /** Heads and introduces the session diagram in the hero. */
+  sessionTitle: "How a session runs",
+  sessionNote:
+    "One session, simulated with compressed timings: Claude splits a feature into three tasks, gives each to the Codex model that suits it, answers a question, redirects a turn and lands all three. It is built from the Codex runs that made this page; the commands, states and question text are foreman's.",
 };
 
 export const why = {
@@ -72,7 +74,7 @@ const roles: readonly ModelRole[] = [
     model: "gpt-astra",
     provider: "codex",
     job: "The design model. Visual work and interface details that need taste, for much less than the same work on Claude's largest models.",
-    evidence: "Designed the console replay at the top (site-console).",
+    evidence: "Designed the recorded console replay (site-console).",
   },
   {
     name: "Gemini 4 Neon",
@@ -138,9 +140,11 @@ export const models = {
     "Delegates do their best work when the repository tells them how to work. Codex reads `AGENTS.md` and the rules the contract names, and runs under the same hooks Claude does (`.codex/hooks.json`). agy reads `AGENTS.md`, `GEMINI.md` and `.agents/rules/`, and runs the hooks in `.agents/hooks.json`. Every contract ends with an independent review in a fresh process (`codex exec`, or `agy -p` for an agy run) before the hand-off. Claude still reads the diff, so the review bar doesn't move; Claude's usage goes to planning and review, and the implementation runs on the delegate's own sign-in.",
 };
 
-export const session = {
-  title: "How a session runs",
-  lede: "Claude splits a feature into three tasks and gives each to the Codex model that suits it, then answers a question, redirects a turn and lands all three. The diagram is a simulation with compressed timings, built from the Codex runs that made this page; the commands, states and question text are foreman's.",
+export const run = {
+  title: "One run, recorded",
+  lede: "The session above is a simulation. This is a single Codex delegate replayed from its recording: fix-supervisor, from foreman's own release, 70 minutes in one, including the question Codex asked and Claude's answer.",
+  caption:
+    "Codex's events and foreman's output are recorded. Claude's side of the conversation was written for this page.",
 };
 
 export const lifecycle = {
@@ -150,7 +154,7 @@ export const lifecycle = {
 
 export const handoff = {
   title: "Contracts and digests",
-  note: "foreman checks every file the delegate wrote against the contract's `May change` line and lists any strays under `outside May change:`. This is the Codex run that built the replay at the top of this page; it stayed inside its list.",
+  note: "foreman checks every file the delegate wrote against the contract's `May change` line and lists any strays under `outside May change:`. This is the Codex run that built the console replay above; it stayed inside its list.",
   lede: "Claude hands the delegate a written contract: the goal, the files it may change, the checks to run and the report to end with. When the turn ends, foreman's digest lists every file the delegate wrote and flags the ones outside the contract's scope.",
 };
 

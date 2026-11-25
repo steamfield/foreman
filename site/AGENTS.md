@@ -43,8 +43,8 @@ Never deploy as part of verification.
 src/pages/index.astro    the landing page: section order and which island goes where
 src/data/landing.ts      all landing copy and reference tables (checked by tests/drift.test.ts)
 src/data/runs.ts         typed access to the recorded runs in fixtures/runs/
-src/data/*.ts            pure build-time shaping per section: supervision (hero replay),
-                         session (orchestration diagram), lifecycle, evidence, commands
+src/data/*.ts            pure build-time shaping per section: supervision (console replay),
+                         session (hero orchestration diagram), lifecycle, evidence, commands
 src/components/landing/  primitives.tsx (Section, DataTable, CodeFrame, StateBadge) and
                          one component per section; console/ and session/ hold subparts
 src/components/Logo.astro the mark and "foreman" lockup, inlined from public/brand/

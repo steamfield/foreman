@@ -30,8 +30,8 @@ import {
   lifecycle,
   models,
   parallel,
-  session,
   questions,
+  run,
   waitOutcomes,
   why,
 } from "../data/landing";
@@ -100,9 +100,17 @@ const [npm] = install.options;
         data-motion="scale-in-media"
         style="--motion-delay: 320ms"
       >
-        <SupervisionConsole
+        <h2 class="text-ink text-lg font-semibold">{hero.sessionTitle}</h2>
+        <p class="text-ink-2 mt-2 mb-6 max-w-[48rem] leading-relaxed">
+          {hero.sessionNote}
+        </p>
+        <SessionDiagram
           client:visible
-          script={buildConsoleScript(supervisor)}
+          session={buildSession(loadRun("site-commands"), {
+            "site-console": loadRun("site-console"),
+            "site-commands": loadRun("site-commands"),
+            "site-e2e": loadRun("site-e2e"),
+          })}
         />
       </div>
     </div>
@@ -133,14 +141,10 @@ const [npm] = install.options;
     <Models catalog={modelCatalog} />
   </Section>
 
-  <Section band track id="session" title={session.title} lede={session.lede}>
-    <SessionDiagram
+  <Section band track id="run" title={run.title} lede={run.lede}>
+    <SupervisionConsole
       client:visible
-      session={buildSession(loadRun("site-commands"), {
-        "site-console": loadRun("site-console"),
-        "site-commands": loadRun("site-commands"),
-        "site-e2e": loadRun("site-e2e"),
-      })}
+      script={buildConsoleScript(supervisor)}
     />
   </Section>
 

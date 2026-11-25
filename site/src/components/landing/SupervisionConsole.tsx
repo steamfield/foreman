@@ -1,6 +1,6 @@
 import { usePlayback } from "@steamfield/ui/react/playback";
 import { useEffect, useRef } from "react";
-import { hero } from "../../data/landing";
+import { run } from "../../data/landing";
 import {
   playbackToRun,
   snapshotAt,
@@ -99,7 +99,7 @@ export function SupervisionConsole({ script }: { script: ConsoleScript }) {
             className="border-console-line flex min-h-0 min-w-0 flex-col border-b lg:col-span-5 lg:border-r lg:border-b-0"
           >
             <header className="border-console-line flex flex-wrap items-baseline justify-between gap-2 border-b px-4 py-3">
-              <h2 className="font-medium">Claude Code</h2>
+              <h3 className="font-medium">Claude Code</h3>
               <span className="text-console-muted text-xs">
                 written + recorded
               </span>
@@ -127,7 +127,7 @@ export function SupervisionConsole({ script }: { script: ConsoleScript }) {
           >
             <header className="border-console-line space-y-2 border-b px-4 py-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <h2 className="font-medium">Codex: {script.name}</h2>
+                <h3 className="font-medium">Codex: {script.name}</h3>
                 <div className="flex items-center gap-3">
                   <StateBadge state={snapshot.state} surface="console" />
                   <span className="text-console-muted tabular-nums">
@@ -188,7 +188,7 @@ export function SupervisionConsole({ script }: { script: ConsoleScript }) {
         </div>
       </div>
       <figcaption className="text-ink-3 mt-4 max-w-[60rem] text-sm">
-        {hero.consoleCaption}
+        {run.caption}
       </figcaption>
     </figure>
   );

@@ -10,7 +10,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadRun } from "../../data/runs";
 import { buildConsoleScript, runToPlayback } from "../../data/supervision";
-import { hero } from "../../data/landing";
+import { run as runCopy } from "../../data/landing";
 import { SupervisionConsole } from "./SupervisionConsole";
 
 const run = loadRun("fix-supervisor");
@@ -69,7 +69,7 @@ describe("SupervisionConsole", () => {
     expect(feed).toHaveTextContent("question q1");
     expect(feed).toHaveTextContent("question q2");
     expect(feed).toHaveTextContent("running → idle");
-    expect(container).toHaveTextContent(hero.consoleCaption);
+    expect(container).toHaveTextContent(runCopy.caption);
   });
 
   it("shows the finished story statically with the motion override and permits reading the full answer", () => {

@@ -14,7 +14,7 @@ import { site } from "../src/config";
 
 const ids = [
   "why",
-  "session",
+  "run",
   "lifecycle",
   "handoff",
   "questions",
@@ -145,8 +145,11 @@ test.describe("without JavaScript", () => {
     );
     await expect(page.locator("[data-hero]")).toContainText(npm.command);
     await expect(
+      page.locator("[data-hero] [data-session-diagram]"),
+    ).toBeVisible();
+    await expect(
       page
-        .locator("[data-hero]")
+        .locator("#run")
         .getByRole("region", { name: "Claude conversation" })
         .getByText(questionText),
     ).toBeVisible();
@@ -237,7 +240,7 @@ test("keyboard reaches the skip link, header and main controls with visible focu
     await expectFocusRing(link);
   }
   // Traverse the actual tab sequence, marking each control as focus reaches it. Lazy
-  // islands render controls as they enter view (the hero's "Show all" toggles appear
+  // islands render controls as they enter view (the run console's "Show all" toggles appear
   // only after it measures its lines), so marks are applied on focus, not up front.
   for (let i = 0; i < 200; i++) {
     await page.keyboard.press("Tab");
